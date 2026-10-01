@@ -1,0 +1,65 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="coverlet.collector" Version="6.0.4" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute" Condition="'$(RwkvTestModelDirectory)' != ''">
+      <_Parameter1>RwkvTestModelDirectory</_Parameter1>
+      <_Parameter2>$(RwkvTestModelDirectory)</_Parameter2>
+    </AssemblyAttribute>
+    <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute" Condition="'$(RwkvTestRwkv6Model)' != ''">
+      <_Parameter1>RwkvTestRwkv6Model</_Parameter1>
+      <_Parameter2>$(RwkvTestRwkv6Model)</_Parameter2>
+    </AssemblyAttribute>
+    <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute" Condition="'$(RwkvTestRwkv7Fp32Model)' != ''">
+      <_Parameter1>RwkvTestRwkv7Fp32Model</_Parameter1>
+      <_Parameter2>$(RwkvTestRwkv7Fp32Model)</_Parameter2>
+    </AssemblyAttribute>
+    <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute" Condition="'$(RwkvTestRwkv7Fp16Model)' != ''">
+      <_Parameter1>RwkvTestRwkv7Fp16Model</_Parameter1>
+      <_Parameter2>$(RwkvTestRwkv7Fp16Model)</_Parameter2>
+    </AssemblyAttribute>
+    <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute" Condition="'$(RwkvTestRwkv7ExpectedLogits)' != ''">
+      <_Parameter1>RwkvTestRwkv7ExpectedLogits</_Parameter1>
+      <_Parameter2>$(RwkvTestRwkv7ExpectedLogits)</_Parameter2>
+    </AssemblyAttribute>
+    <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute" Condition="'$(RwkvTestRwkv7LargeModel)' != ''">
+      <_Parameter1>RwkvTestRwkv7LargeModel</_Parameter1>
+      <_Parameter2>$(RwkvTestRwkv7LargeModel)</_Parameter2>
+    </AssemblyAttribute>
+  </ItemGroup>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\SharpInference.Abstractions\SharpInference.Abstractions.csproj" />
+    <ProjectReference Include="..\SharpInference.Core\SharpInference.Core.csproj" />
+    <ProjectReference Include="..\SharpInference.Architectures.Rwkv6\SharpInference.Architectures.Rwkv6.csproj" />
+    <ProjectReference Include="..\SharpInference.Architectures.Rwkv7\SharpInference.Architectures.Rwkv7.csproj" />
+    <ProjectReference Include="..\SharpInference.Backends.Cpu\SharpInference.Backends.Cpu.csproj" />
+    <ProjectReference Include="..\SharpInference.Runtime\SharpInference.Runtime.csproj" />
+    <ProjectReference Include="..\SharpInference.Backends.Vortice\SharpInference.Backends.Vortice.csproj" />
+    <ProjectReference Include="..\SharpInference.WebApi\SharpInference.WebApi.csproj" />
+    <ProjectReference Include="..\SharpInference.Graphs\SharpInference.Graphs.csproj" />
+    <ProjectReference Include="..\SharpInference.Gguf\SharpInference.Gguf.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,7 @@
+RWKV World vocabulary
+=====================
+
+This distribution embeds rwkv_vocab_v20230424.txt for RWKV World models.
+
+Source: https://github.com/BlinkDL/RWKV-LM/tree/main/RWKV-v5/tokenizer
+License: Apache License 2.0

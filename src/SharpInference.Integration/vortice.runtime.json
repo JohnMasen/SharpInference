@@ -1,0 +1,10 @@
+{
+  "Rwkv": {
+    "Runtime": {
+      "Kind": "vortice",
+      "Vortice": {
+        "AdapterIndex": 0
+      }
+    }
+  }
+}

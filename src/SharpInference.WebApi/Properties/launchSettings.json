@@ -1,0 +1,14 @@
+{
+  "profiles": {
+    "http": {
+      "commandName": "Project",
+      "commandLineArgs": "--model-path \"F:\\RWKV\\RWKVModels\\RWKV-x060-World-7B-v3-20241112-ctx4096-FP16.bin\"",
+      "environmentVariables": {
+        "ASPNETCORE_ENVIRONMENT": "Development"
+      },
+      "dotnetRunMessages": true,
+      "applicationUrl": "http://0.0.0.0:9841"
+    }
+  },
+  "$schema": "https://json.schemastore.org/launchsettings.json"
+}

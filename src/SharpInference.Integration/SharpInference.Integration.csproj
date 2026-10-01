@@ -1,0 +1,33 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\SharpInference.Abstractions\SharpInference.Abstractions.csproj" />
+    <ProjectReference Include="..\SharpInference.Core\SharpInference.Core.csproj" />
+    <ProjectReference Include="..\SharpInference.Architectures.Rwkv6\SharpInference.Architectures.Rwkv6.csproj" />
+    <ProjectReference Include="..\SharpInference.Architectures.Rwkv7\SharpInference.Architectures.Rwkv7.csproj" />
+    <ProjectReference Include="..\SharpInference.Backends.Cpu\SharpInference.Backends.Cpu.csproj" />
+    <ProjectReference Include="..\SharpInference.Backends.Vortice\SharpInference.Backends.Vortice.csproj" />
+    <ProjectReference Include="..\SharpInference.Runtime\SharpInference.Runtime.csproj" />
+    <ProjectReference Include="..\SharpInference.Graphs\SharpInference.Graphs.csproj" />
+    <ProjectReference Include="..\SharpInference.Gguf\SharpInference.Gguf.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Update="vortice.runtime.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </None>
+  </ItemGroup>
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+</Project>

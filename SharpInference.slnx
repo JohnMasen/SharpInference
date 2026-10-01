@@ -1,0 +1,19 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/SharpInference.Abstractions/SharpInference.Abstractions.csproj" />
+    <Project Path="src/SharpInference.Architectures.Rwkv6/SharpInference.Architectures.Rwkv6.csproj" />
+    <Project Path="src/SharpInference.Architectures.Rwkv7/SharpInference.Architectures.Rwkv7.csproj" />
+    <Project Path="src/SharpInference.Backends.Vortice/SharpInference.Backends.Vortice.csproj" />
+    <Project Path="src/SharpInference.Backends.Cpu/SharpInference.Backends.Cpu.csproj" />
+    <Project Path="src/SharpInference.Core/SharpInference.Core.csproj" />
+    <Project Path="src/SharpInference.DeploymentTest/SharpInference.DeploymentTest.csproj" />
+    <Project Path="src/SharpInference.Graphs/SharpInference.Graphs.csproj" />
+    <Project Path="src/SharpInference.Gguf/SharpInference.Gguf.csproj" />
+    <Project Path="src/SharpInference.Gguf.Tests/SharpInference.Gguf.Tests.csproj" />
+    <Project Path="src/SharpInference.Integration/SharpInference.Integration.csproj" />
+    <Project Path="src/SharpInference.Runtime/SharpInference.Runtime.csproj" />
+    <Project Path="src/SharpInference.ShaderCompiler/SharpInference.ShaderCompiler.csproj" />
+    <Project Path="src/SharpInference.Tests/SharpInference.Tests.csproj" />
+    <Project Path="src/SharpInference.WebApi/SharpInference.WebApi.csproj" />
+  </Folder>
+</Solution>

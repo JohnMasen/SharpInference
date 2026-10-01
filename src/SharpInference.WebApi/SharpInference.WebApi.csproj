@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <ItemGroup>
+    <ProjectReference Include="..\SharpInference.Abstractions\SharpInference.Abstractions.csproj" />
+    <ProjectReference Include="..\SharpInference.Core\SharpInference.Core.csproj" />
+    <ProjectReference Include="..\SharpInference.Architectures.Rwkv6\SharpInference.Architectures.Rwkv6.csproj" />
+    <ProjectReference Include="..\SharpInference.Architectures.Rwkv7\SharpInference.Architectures.Rwkv7.csproj" />
+    <ProjectReference Include="..\SharpInference.Runtime\SharpInference.Runtime.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="..\..\THIRD-PARTY-NOTICES.txt" Link="THIRD-PARTY-NOTICES.txt">
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </None>
+  </ItemGroup>
+
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+
+</Project>
