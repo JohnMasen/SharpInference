@@ -13,6 +13,7 @@ var fullGpuResident = false;
 var fullGpuNonzero = false;
 var fullGpuDiagnostics = false;
 var attentionPipeline = false;
+var cpuTensorPrimitives = false;
 var tokenCount = 1024;
 var chunkSize = 64;
 var headCount = 4;
@@ -53,6 +54,9 @@ for (; argumentIndex < args.Length; argumentIndex++)
                 "The legacy prefill comparison has been removed; use --layer-major or --full-gpu-resident for experimental comparisons.");
         case "--attention-pipeline":
             attentionPipeline = true;
+            break;
+        case "--cpu-tensor-primitives":
+            cpuTensorPrimitives = true;
             break;
         case "--model":
             modelPath = Next();
@@ -105,6 +109,11 @@ if (fullGpuNonzero && !(fullGpuExperiment || fullGpuResident))
     throw new ArgumentException("--full-gpu-nonzero requires a full-model GPU experiment.");
 if (fullGpuDiagnostics && !(fullGpuExperiment || fullGpuResident))
     throw new ArgumentException("--full-gpu-diagnostics requires a full-model GPU experiment.");
+if (cpuTensorPrimitives)
+{
+    CpuTensorPrimitivesBenchmark.Run(tokenCount, projectionWidth, repeats);
+    return;
+}
 string Next()
 {
     if (++argumentIndex == args.Length)

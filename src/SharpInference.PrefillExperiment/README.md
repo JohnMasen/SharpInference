@@ -21,6 +21,7 @@ Run from the workspace root:
 
 ```powershell
 dotnet run --project src\SharpInference.PrefillExperiment -c Release -- --tokens 1024 --chunk 64 --repeats 3
+dotnet run --project src\SharpInference.PrefillExperiment -c Release -- --cpu-tensor-primitives --tokens 256 --projection-width 256 --repeats 5
 dotnet run --project src\SharpInference.PrefillExperiment -c Release -- --gpu --tokens 1024 --chunk 64
 dotnet run --project src\SharpInference.PrefillExperiment -c Release -- --model "F:\RWKV\RWKVModels\tiny-rwkv-6v0-3m-FP32.bin"
 dotnet run --project src\SharpInference.PrefillExperiment -c Release -- --model "F:\RWKV\RWKVModels\tiny-rwkv-6v0-3m-FP32.bin" --layer-major --model-tokens 1024
@@ -43,6 +44,53 @@ the full-model baseline length (default 32); `--model-repeats` (default 2)
 alternates measurement order and reports averages. Synthetic dimensions can be adjusted
 with `--heads` and `--head-size`. `--projection-width` sets the width of the
 separate CPU projection microbenchmark (default 256).
+
+`--cpu-tensor-primitives` runs only the CPU primitive migration microbenchmark.
+It compares direct scalar loops, the production CPU backend, and applicable
+`TensorPrimitives` candidates for FP32/FP16 elementwise operations, FP16
+reduction, and FP16 MatVec. `--tokens` selects the element count and
+`--projection-width` selects the square MatVec width. For stable optimized-JIT
+comparisons, set `DOTNET_TieredCompilation=0`.
+
+The same mode validates and measures custom CPU kernels: FP16-to-FP32 cast,
+multi-axis broadcast, per-head outer product, and branched fused expressions.
+The custom comparisons use the old scalar kernel as a reference; the new graph
+timing also includes dispatch and output allocation, so these ratios are not
+an isolated before/after graph benchmark. No model files are required.
+
+### CPU Tensor migration coverage
+
+| Operation | CPU implementation |
+| --- | --- |
+| FP32/FP16 elementwise primitives | `TensorPrimitives`; short Half Sigmoid/Rsqrt explicitly promote to FP32 to avoid intermediate Half rounding |
+| FP32 reductions and MatVec | `TensorPrimitives.Sum` and per-row `Dot` |
+| FP16 reductions | Blocks of at most 1024 values, `ConvertToSingle` then FP32 `Sum`, FP32 block accumulator |
+| Half matrix / FP32 vector | Serial block conversion plus FP32 `Dot`, or parallel row conversion for large matrices |
+| Half matrix / Half vector | Convert the vector once, then row/block conversion and FP32 `Dot`; output is rounded to Half |
+| Cast | `TensorPrimitives.ConvertToSingle` |
+| Broadcast | Zero-copy `ReadOnlyTensorSpan` / `TensorSpan` views and `Tensor.BroadcastTo` |
+| HeadOuter | Scalar-by-span `TensorPrimitives.Multiply` for each row |
+| BatchedMatVec and last-axis reductions | Reuse the primitive backend |
+| Straight-line fused expression | Reuse the primitive backend |
+| Branched fused expression | Blocks of at most 256 values, reuse the primitive backend, retain referenced earlier steps in bounded scratch |
+| Copy/GatherRow/Reshape/Slice | Reuse Span copy; Reshape/Slice call the primitive backend |
+| Fill | `Span.Fill` |
+
+Migration is not restricted to operations with a speedup. Scalar exceptions
+are retained only for measured significant regressions:
+
+- Fewer than 8 Half reduction elements and fewer than 8 columns in Half/Half
+  MatVec retain FP32 scalar arithmetic. The measured 7-element reduction and
+  3x3 MatVec were approximately 1.7x and 2x slower after conversion.
+- Contiguous TensorSpan copy/fill candidates were approximately 245x/93x slower
+  than Span copy/fill at length 4097 on the measured x64 machine. These candidates
+  remain in the benchmark, not in the production memory kernels.
+
+FP16 data remains stored as Half; no full FP32 weight matrix is materialized.
+SIMD reduction order can change floating-point rounding. Tests cover block tails,
+short vectors, non-finite inputs, branching, repeated pooled workspace use,
+weight residency, and tiny RWKV-6/7 fusion parity. The implementation uses
+portable .NET APIs; ARM64 hardware performance must be measured separately.
 
 `--layer-major` requires `--model` without `--gpu`. The CPU 7B FP16 model
 can require tens of GiB of host RAM when its weights expand to FP32; use the

@@ -108,6 +108,134 @@ public sealed class PrimitiveOperatorTests
         Assert.Equal(GraphElementType.Float32, matVec.Precision.AccumulatorType);
     }
 
+    [Theory]
+    [InlineData(1)]
+    [InlineData(2)]
+    [InlineData(7)]
+    [InlineData(8)]
+    [InlineData(17)]
+    [InlineData(257)]
+    public void CpuFp16_PrimitivesMatchFp32ArithmeticForAllLengths(int length)
+    {
+        var backend = CpuPrimitiveOperatorBackend.Instance;
+        var left = Enumerable.Range(0, length)
+            .Select(index => (Half)((index % 31 + 1) / 16f)).ToArray();
+        var right = Enumerable.Range(0, length)
+            .Select(index => (Half)((index % 17 + 2) / 8f)).ToArray();
+        var output = new Half[length];
+
+        backend.Add(left, right, output);
+        AssertHalfResult(left.Select((value, index) => (float)value + (float)right[index]), output);
+        backend.Divide(left, right, output);
+        AssertHalfResult(left.Select((value, index) => (float)value / (float)right[index]), output);
+        backend.Exp(left, output);
+        AssertHalfResult(left.Select(value => MathF.Exp((float)value)), output);
+        backend.Sigmoid(left, output);
+        AssertHalfResult(left.Select(value => 1f / (1f + MathF.Exp(-(float)value))), output);
+        backend.ReciprocalSquareRoot(left, output);
+        AssertHalfResult(left.Select(value => 1f / MathF.Sqrt((float)value)), output);
+        backend.Relu(left, output);
+        AssertHalfResult(left.Select(value => MathF.Max(0, (float)value)), output);
+    }
+
+    [Fact]
+    public void CpuFp16_LargeMatVecUsesFp32Accumulation()
+    {
+        const int rows = 128;
+        const int columns = 512;
+        var backend = CpuPrimitiveOperatorBackend.Instance;
+        var matrix = Enumerable.Range(0, rows * columns)
+            .Select(index => (Half)((index % 19 - 9) / 16f)).ToArray();
+        var input = Enumerable.Range(0, columns)
+            .Select(index => (Half)((index % 23 - 11) / 10f)).ToArray();
+        var output = new Half[rows];
+
+        backend.MatVec(matrix, input, output, rows, columns);
+
+        for (var row = 0; row < rows; row++)
+        {
+            float expected = 0;
+            for (var column = 0; column < columns; column++)
+                expected += (float)matrix[row * columns + column] * (float)input[column];
+            Assert.InRange(MathF.Abs((float)output[row] - (float)(Half)expected), 0, 0.001f);
+        }
+    }
+
+    [Fact]
+    public void CpuElementwisePrimitivesPreserveEmptySpanBehavior()
+    {
+        var backend = CpuPrimitiveOperatorBackend.Instance;
+        backend.Add(ReadOnlySpan<float>.Empty, ReadOnlySpan<float>.Empty, Span<float>.Empty);
+        backend.Exp(ReadOnlySpan<float>.Empty, Span<float>.Empty);
+        backend.Sigmoid(ReadOnlySpan<float>.Empty, Span<float>.Empty);
+        backend.Add(ReadOnlySpan<Half>.Empty, ReadOnlySpan<Half>.Empty, Span<Half>.Empty);
+        backend.Exp(ReadOnlySpan<Half>.Empty, Span<Half>.Empty);
+        backend.Sigmoid(ReadOnlySpan<Half>.Empty, Span<Half>.Empty);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    [InlineData(7)]
+    [InlineData(8)]
+    [InlineData(1023)]
+    [InlineData(1024)]
+    [InlineData(1025)]
+    [InlineData(4097)]
+    public void CpuFp16_ReductionsAccumulateInFp32AcrossBlocks(int length)
+    {
+        var input = Enumerable.Range(0, length)
+            .Select(index => (Half)(index == 0 ? 2048 : 0.5f)).ToArray();
+        var expected = input.Sum(value => (float)value);
+        var backend = CpuPrimitiveOperatorBackend.Instance;
+
+        Assert.Equal((Half)expected, backend.ReduceSum(input));
+        if (length == 0)
+            Assert.Throws<ArgumentException>(() => backend.ReduceMean(input));
+        else
+            Assert.Equal((Half)(expected / length), backend.ReduceMean(input));
+    }
+
+    [Theory]
+    [InlineData(3, 1)]
+    [InlineData(3, 7)]
+    [InlineData(3, 8)]
+    [InlineData(3, 257)]
+    [InlineData(3, 1024)]
+    [InlineData(3, 1025)]
+    [InlineData(3, 2049)]
+    [InlineData(128, 1025)]
+    public void CpuFp16_MatVecMatchesFp32ArithmeticAcrossBlocks(int rows, int columns)
+    {
+        var matrix = Enumerable.Range(0, rows * columns)
+            .Select(index => (Half)((index % 13 - 6) / 16f)).ToArray();
+        var input = Enumerable.Range(0, columns)
+            .Select(index => (Half)((index % 17 - 8) / 8f)).ToArray();
+        var output = new Half[rows];
+
+        CpuPrimitiveOperatorBackend.Instance.MatVec(matrix, input, output, rows, columns);
+
+        for (var row = 0; row < rows; row++)
+        {
+            float expected = 0;
+            for (var column = 0; column < columns; column++)
+                expected += (float)matrix[row * columns + column] * (float)input[column];
+            Assert.Equal((Half)expected, output[row]);
+        }
+    }
+
+    [Fact]
+    public void CpuFp16_ReductionPreservesSpecialValues()
+    {
+        var backend = CpuPrimitiveOperatorBackend.Instance;
+        Assert.True(Half.IsNaN(backend.ReduceSum(new Half[] { Half.NaN, (Half)1 })));
+        Assert.Equal(Half.PositiveInfinity,
+            backend.ReduceSum(new Half[] { Half.PositiveInfinity, (Half)1 }));
+        Assert.True(Half.IsNaN(backend.ReduceSum(
+            new Half[] { Half.PositiveInfinity, Half.NegativeInfinity })));
+        Assert.Equal(Half.Epsilon, backend.ReduceSum(new Half[] { Half.Epsilon, (Half)0 }));
+    }
+
     [Fact]
     public void PrimitiveDescriptionsRejectMixedTypesButCustomPrimitivesAllowThem()
     {
@@ -125,5 +253,10 @@ public sealed class PrimitiveOperatorTests
     {
         public bool Equals(float x, float y) => MathF.Abs(x - y) <= tolerance;
         public int GetHashCode(float obj) => obj.GetHashCode();
+    }
+
+    private static void AssertHalfResult(IEnumerable<float> expected, Half[] actual)
+    {
+        Assert.Equal(expected.Select(value => (float)(Half)value), actual.Select(value => (float)value));
     }
 }

@@ -5,6 +5,44 @@ namespace SharpInference.Tests;
 
 public sealed class CpuPortableTensorOperationsTests
 {
+    [Theory]
+    [InlineData(1, 1, 1)]
+    [InlineData(2, 3, 7)]
+    [InlineData(2, 4, 257)]
+    public void HeadOuterMatchesScalarReference(int heads, int rows, int columns)
+    {
+        var left = Enumerable.Range(0, heads * rows).Select(i => (i - 3) / 8f).ToArray();
+        var right = Enumerable.Range(0, heads * columns).Select(i => (i % 19 - 9) / 16f).ToArray();
+        var expected = new float[heads * rows * columns];
+        for (var head = 0; head < heads; head++)
+            for (var row = 0; row < rows; row++)
+                for (var column = 0; column < columns; column++)
+                    expected[(head * rows + row) * columns + column] =
+                        left[head * rows + row] * right[head * columns + column];
+
+        Assert.Equal(expected, Run(PortableTensorOperationContracts.HeadOuter,
+            [heads, rows, columns], null,
+            ("left", new[] { heads, rows }, left), ("right", new[] { heads, columns }, right)));
+    }
+
+    [Fact]
+    public void BroadcastHandlesMultipleSingletonAxesAndRankExpansion()
+    {
+        var source = Enumerable.Range(1, 6).Select(i => (float)i).ToArray();
+        var expected = new float[2 * 3 * 4 * 2];
+        for (var outer = 0; outer < 2; outer++)
+            for (var row = 0; row < 3; row++)
+                for (var repeat = 0; repeat < 4; repeat++)
+                    for (var column = 0; column < 2; column++)
+                        expected[((outer * 3 + row) * 4 + repeat) * 2 + column] =
+                            source[row * 2 + column];
+        Assert.Equal(expected, Run(PortableTensorOperationContracts.Broadcast, [2, 3, 4, 2], null,
+            ("input", new[] { 3, 1, 2 }, source)));
+        Assert.Equal(Enumerable.Repeat(3f, 257),
+            Run(PortableTensorOperationContracts.Broadcast, [257], null,
+                ("input", new[] { 1 }, new[] { 3f })));
+    }
+
     [Fact]
     public void ExecutesFillCastReshapeSliceAndBroadcast()
     {

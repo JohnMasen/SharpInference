@@ -1,4 +1,6 @@
+using System.Buffers;
 using System.Diagnostics;
+using System.Numerics.Tensors;
 using SharpInference.Graphs;
 
 namespace SharpInference.Backends.Cpu;
@@ -647,70 +649,72 @@ public sealed class CpuPrimitiveGraphExecutor
             foreach (var instruction in instructions)
             {
                 var left = Source(instruction.Left);
-                switch (instruction.Operation)
-                {
-                    case ExpressionOp.Copy: backend.Copy(left, output); break;
-                    case ExpressionOp.Add: backend.Add(left, Source(instruction.Right), output); break;
-                    case ExpressionOp.Subtract: backend.Subtract(left, Source(instruction.Right), output); break;
-                    case ExpressionOp.Multiply: backend.Multiply(left, Source(instruction.Right), output); break;
-                    case ExpressionOp.Divide: backend.Divide(left, Source(instruction.Right), output); break;
-                    case ExpressionOp.Maximum: backend.Maximum(left, Source(instruction.Right), output); break;
-                    case ExpressionOp.Exp: backend.Exp(left, output); break;
-                    case ExpressionOp.Tanh: backend.Tanh(left, output); break;
-                    case ExpressionOp.Sigmoid: backend.Sigmoid(left, output); break;
-                    case ExpressionOp.Rsqrt: backend.ReciprocalSquareRoot(left, output); break;
-                    case ExpressionOp.Square: backend.Square(left, output); break;
-                    case ExpressionOp.Relu: backend.Relu(left, output); break;
-                    default: throw new NotSupportedException(
-                        $"Unsupported fused step '{instruction.Operation}'.");
-                }
+                var right = IsBinary(instruction.Operation)
+                    ? Source(instruction.Right) : ReadOnlySpan<float>.Empty;
+                DispatchExpressionStep(instruction.Operation, left, right, output);
             }
             return;
         }
-        Span<float> steps = instructions.Length <= 64
-            ? stackalloc float[instructions.Length]
-            : new float[instructions.Length];
-        for (var index = 0; index < output.Length; index++)
+
+        const int blockLength = 256;
+        var stride = Math.Min(output.Length, blockLength);
+        var scratchLength = checked(instructions.Length * stride);
+        var rented = scratchLength > 1024 ? ArrayPool<float>.Shared.Rent(scratchLength) : null;
+        Span<float> scratch = rented is null
+            ? stackalloc float[scratchLength] : rented.AsSpan(0, scratchLength);
+        try
         {
-            for (var stepIndex = 0; stepIndex < instructions.Length; stepIndex++)
+            for (var offset = 0; offset < output.Length; offset += stride)
             {
-                var instruction = instructions[stepIndex];
-                var a = instruction.Left < 0
-                    ? steps[~instruction.Left]
-                    : borrowed[instruction.Left] is { } leftTensor
-                        ? leftTensor.FloatValues[index] : ((float[])values[instruction.Left]!)[index];
-                var operation = instruction.Operation;
-                if (operation is ExpressionOp.Copy or ExpressionOp.Exp or ExpressionOp.Tanh or
-                    ExpressionOp.Sigmoid or ExpressionOp.Rsqrt or ExpressionOp.Square or ExpressionOp.Relu)
+                var length = Math.Min(stride, output.Length - offset);
+                for (var stepIndex = 0; stepIndex < instructions.Length; stepIndex++)
                 {
-                    steps[stepIndex] = operation switch
-                    {
-                        ExpressionOp.Copy => a,
-                        ExpressionOp.Exp => MathF.Exp(a),
-                        ExpressionOp.Tanh => MathF.Tanh(a),
-                        ExpressionOp.Sigmoid => 1f / (1f + MathF.Exp(-a)),
-                        ExpressionOp.Rsqrt => 1f / MathF.Sqrt(a),
-                        ExpressionOp.Square => a * a,
-                        ExpressionOp.Relu => MathF.Max(0, a),
-                        _ => throw new NotSupportedException($"Unsupported fused step '{operation}'."),
-                    };
-                    continue;
+                    var instruction = instructions[stepIndex];
+                    var left = ExpressionSource(instruction.Left, scratch, stride, offset, length, values);
+                    var right = IsBinary(instruction.Operation)
+                        ? ExpressionSource(instruction.Right, scratch, stride, offset, length, values)
+                        : ReadOnlySpan<float>.Empty;
+                    DispatchExpressionStep(instruction.Operation, left, right,
+                        scratch.Slice(stepIndex * stride, length));
                 }
-                var b = instruction.Right < 0
-                    ? steps[~instruction.Right]
-                    : borrowed[instruction.Right] is { } rightTensor
-                        ? rightTensor.FloatValues[index] : ((float[])values[instruction.Right]!)[index];
-                steps[stepIndex] = operation switch
-                {
-                    ExpressionOp.Add => a + b,
-                    ExpressionOp.Subtract => a - b,
-                    ExpressionOp.Multiply => a * b,
-                    ExpressionOp.Divide => a / b,
-                    ExpressionOp.Maximum => MathF.Max(a, b),
-                    _ => throw new NotSupportedException($"Unsupported fused step '{operation}'."),
-                };
+                scratch.Slice((instructions.Length - 1) * stride, length)
+                    .CopyTo(output.AsSpan(offset, length));
             }
-            output[index] = steps[^1];
+        }
+        finally
+        {
+            if (rented is not null) ArrayPool<float>.Shared.Return(rented);
+        }
+    }
+
+    private ReadOnlySpan<float> ExpressionSource(int slot, Span<float> scratch,
+        int stride, int offset, int length, Array?[] values) =>
+        slot < 0 ? scratch.Slice(~slot * stride, length)
+            : borrowed[slot] is { } tensor ? tensor.FloatValues.Slice(offset, length)
+            : ((float[])values[slot]!).AsSpan(offset, length);
+
+    private static bool IsBinary(ExpressionOp operation) =>
+        operation is ExpressionOp.Add or ExpressionOp.Subtract or ExpressionOp.Multiply
+            or ExpressionOp.Divide or ExpressionOp.Maximum;
+
+    private void DispatchExpressionStep(ExpressionOp operation, ReadOnlySpan<float> left,
+        ReadOnlySpan<float> right, Span<float> output)
+    {
+        switch (operation)
+        {
+            case ExpressionOp.Copy: backend.Copy(left, output); break;
+            case ExpressionOp.Add: backend.Add(left, right, output); break;
+            case ExpressionOp.Subtract: backend.Subtract(left, right, output); break;
+            case ExpressionOp.Multiply: backend.Multiply(left, right, output); break;
+            case ExpressionOp.Divide: backend.Divide(left, right, output); break;
+            case ExpressionOp.Maximum: backend.Maximum(left, right, output); break;
+            case ExpressionOp.Exp: backend.Exp(left, output); break;
+            case ExpressionOp.Tanh: backend.Tanh(left, output); break;
+            case ExpressionOp.Sigmoid: backend.Sigmoid(left, output); break;
+            case ExpressionOp.Rsqrt: backend.ReciprocalSquareRoot(left, output); break;
+            case ExpressionOp.Square: backend.Square(left, output); break;
+            case ExpressionOp.Relu: backend.Relu(left, output); break;
+            default: throw new NotSupportedException($"Unsupported fused step '{operation}'.");
         }
     }
 
@@ -738,12 +742,11 @@ public sealed class CpuPrimitiveGraphExecutor
         }
         else if (operation == PortableTensorOperationContracts.CastFp16ToFp32)
         {
-            var input = HalfValue("input");
-            for (var i = 0; i < output.Length; i++) output[i] = (float)input[i];
+            TensorPrimitives.ConvertToSingle(HalfValue("input"), output);
         }
         else if (operation == PortableTensorOperationContracts.Reshape)
         {
-            Float("input").CopyTo(output);
+            backend.Copy(Float("input"), output);
         }
         else if (operation == PortableTensorOperationContracts.Slice)
         {
@@ -755,31 +758,24 @@ public sealed class CpuPrimitiveGraphExecutor
             var inner = parameters.SliceInner;
             var source = Float("input");
             for (var index = 0; index < outer; index++)
-                source.Slice(checked((index * shape[axis] + start) * inner), checked(length * inner))
-                    .CopyTo(output.AsSpan(checked(index * length * inner)));
+                backend.Copy(
+                    source.Slice(checked((index * shape[axis] + start) * inner), checked(length * inner)),
+                    output.AsSpan(checked(index * length * inner), checked(length * inner)));
         }
         else if (operation == PortableTensorOperationContracts.Broadcast)
         {
             var source = Float("input");
             var sourceShape = descriptors[Id("input")].Tensor.Dimensions;
             var outputShape = descriptors[Id("output")].Tensor.Dimensions;
-            for (var flat = 0; flat < output.Length; flat++)
-            {
-                var remainder = flat;
-                var sourceOffset = 0;
-                var sourceStride = 1;
-                for (var axis = outputShape.Count - 1; axis >= 0; axis--)
-                {
-                    var position = remainder % outputShape[axis];
-                    remainder /= outputShape[axis];
-                    var sourceAxis = axis - (outputShape.Count - sourceShape.Count);
-                    if (sourceAxis < 0) continue;
-                    if (sourceShape[sourceAxis] != 1)
-                        sourceOffset = checked(sourceOffset + position * sourceStride);
-                    sourceStride = checked(sourceStride * sourceShape[sourceAxis]);
-                }
-                output[flat] = source[sourceOffset];
-            }
+            Span<nint> sourceLengths = sourceShape.Count <= 16
+                ? stackalloc nint[sourceShape.Count] : new nint[sourceShape.Count];
+            Span<nint> outputLengths = outputShape.Count <= 16
+                ? stackalloc nint[outputShape.Count] : new nint[outputShape.Count];
+            for (var axis = 0; axis < sourceShape.Count; axis++) sourceLengths[axis] = sourceShape[axis];
+            for (var axis = 0; axis < outputShape.Count; axis++) outputLengths[axis] = outputShape[axis];
+            var sourceTensor = new ReadOnlyTensorSpan<float>(source, sourceLengths);
+            var outputTensor = new TensorSpan<float>(output, outputLengths);
+            Tensor.BroadcastTo(sourceTensor, outputTensor);
         }
         else if (operation == PortableTensorOperationContracts.BatchedMatVec)
         {
@@ -815,9 +811,9 @@ public sealed class CpuPrimitiveGraphExecutor
             var rightWidth = shape[2];
             for (var head = 0; head < shape[0]; head++)
                 for (var row = 0; row < leftWidth; row++)
-                    for (var column = 0; column < rightWidth; column++)
-                        output[checked((head * leftWidth + row) * rightWidth + column)] =
-                            left[head * leftWidth + row] * right[head * rightWidth + column];
+                    TensorPrimitives.Multiply(right.Slice(head * rightWidth, rightWidth),
+                        left[head * leftWidth + row],
+                        output.AsSpan(checked((head * leftWidth + row) * rightWidth), rightWidth));
         }
     }
 

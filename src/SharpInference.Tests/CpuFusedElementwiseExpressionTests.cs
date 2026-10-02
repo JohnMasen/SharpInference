@@ -87,8 +87,13 @@ public sealed class CpuFusedElementwiseExpressionTests(ITestOutputHelper output)
             diagnostic.Message.Contains("fused expression", StringComparison.OrdinalIgnoreCase));
     }
 
-    [Fact]
-    public void BranchedStepReferencesRetainEarlierFp32Results()
+    [Theory]
+    [InlineData(2)]
+    [InlineData(255)]
+    [InlineData(256)]
+    [InlineData(257)]
+    [InlineData(1025)]
+    public void BranchedStepReferencesRetainEarlierFp32Results(int width)
     {
         var expression = new FusedElementwiseExpression(2,
         [
@@ -103,11 +108,11 @@ public sealed class CpuFusedElementwiseExpressionTests(ITestOutputHelper output)
                 new GraphModelSignature(2, 2, 1, 1, 2, "synthetic.state"))
             .AddRegion("root", GraphRegionTypes.Graph, "root")
             .AddResource("a", "a", GraphResourceKind.Input, GraphResourceLifetime.External,
-                new TensorDescriptor(GraphElementType.Float32, [2]), graphInput: true)
+                new TensorDescriptor(GraphElementType.Float32, [width]), graphInput: true)
             .AddResource("b", "b", GraphResourceKind.Input, GraphResourceLifetime.External,
-                new TensorDescriptor(GraphElementType.Float32, [2]), graphInput: true)
+                new TensorDescriptor(GraphElementType.Float32, [width]), graphInput: true)
             .AddResource("result", "result", GraphResourceKind.Output, GraphResourceLifetime.External,
-                new TensorDescriptor(GraphElementType.Float32, [2]), graphOutput: true)
+                new TensorDescriptor(GraphElementType.Float32, [width]), graphOutput: true)
             .AddNode("expression", FusedElementwiseExpressionContract.Operation, "root",
                 [GraphBindings.Read("input0", "a"), GraphBindings.Read("input1", "b"),
                     GraphBindings.Write("output", "result")],
@@ -122,10 +127,62 @@ public sealed class CpuFusedElementwiseExpressionTests(ITestOutputHelper output)
         var result = new CpuPrimitiveGraphExecutor(graph, new EmptyCatalog()).Execute(
             new Dictionary<ResourceId, Array>
             {
-                [new("a")] = new[] { 2f, 3f },
-                [new("b")] = new[] { 4f, 5f },
+                [new("a")] = Enumerable.Range(0, width).Select(i => i % 2 == 0 ? 2f : 3f).ToArray(),
+                [new("b")] = Enumerable.Range(0, width).Select(i => i % 2 == 0 ? 4f : 5f).ToArray(),
             });
-        Assert.Equal([42f, 72f], Assert.IsType<float[]>(result.Outputs[new("result")]));
+        Assert.Equal(Enumerable.Range(0, width).Select(i => i % 2 == 0 ? 42f : 72f),
+            Assert.IsType<float[]>(result.Outputs[new("result")]));
+    }
+
+    [Theory]
+    [InlineData(1)]
+    [InlineData(257)]
+    [InlineData(4097)]
+    public void BranchedTranscendentalExpressionMatchesPrimitiveBackendWithPooledScratch(int width)
+    {
+        var expression = new FusedElementwiseExpression(2,
+        [
+            new(PrimitiveGraphOperations.Add, [new(InputIndex: 0), new(InputIndex: 1)]),
+            new(PrimitiveGraphOperations.Square, [new(StepIndex: 0)]),
+            new(PrimitiveGraphOperations.Tanh, [new(StepIndex: 1)]),
+            new(PrimitiveGraphOperations.Multiply, [new(StepIndex: 1), new(StepIndex: 2)]),
+            new(PrimitiveGraphOperations.Add, [new(StepIndex: 3), new(StepIndex: 0)]),
+        ]);
+        var logical = new LogicalGraphBuilder(new GraphIdentity("synthetic", 1, "branched-tanh"),
+                new GraphModelSignature(2, 2, 1, 1, 2, "synthetic.state"))
+            .AddRegion("root", GraphRegionTypes.Graph, "root")
+            .AddResource("a", "a", GraphResourceKind.Input, GraphResourceLifetime.External,
+                new TensorDescriptor(GraphElementType.Float32, [width]), graphInput: true)
+            .AddResource("b", "b", GraphResourceKind.Input, GraphResourceLifetime.External,
+                new TensorDescriptor(GraphElementType.Float32, [width]), graphInput: true)
+            .AddResource("result", "result", GraphResourceKind.Output, GraphResourceLifetime.External,
+                new TensorDescriptor(GraphElementType.Float32, [width]), graphOutput: true)
+            .AddNode("expression", FusedElementwiseExpressionContract.Operation, "root",
+                [GraphBindings.Read("input0", "a"), GraphBindings.Read("input1", "b"),
+                    GraphBindings.Write("output", "result")],
+                attributes: FusedElementwiseExpressionContract.ToAttributes(expression))
+            .Build();
+        var a = Enumerable.Range(0, width).Select(i => (i % 19 - 9) / 16f).ToArray();
+        var b = Enumerable.Range(0, width).Select(i => (i % 11 - 5) / 8f).ToArray();
+        var sum = new float[width];
+        var square = new float[width];
+        var tanh = new float[width];
+        var expected = new float[width];
+        var backend = CpuPrimitiveOperatorBackend.Instance;
+        backend.Add(a, b, sum);
+        backend.Square(sum, square);
+        backend.Tanh(square, tanh);
+        backend.Multiply(square, tanh, expected);
+        backend.Add(expected, sum, expected);
+        var executor = new CpuPrimitiveGraphExecutor(logical, new EmptyCatalog());
+        var inputs = new Dictionary<ResourceId, Array> { [new("a")] = a, [new("b")] = b };
+        for (var iteration = 0; iteration < 3; iteration++)
+        {
+            var actual = Assert.IsType<float[]>(executor.Execute(inputs).Outputs[new("result")]);
+            for (var index = 0; index < width; index++)
+                Assert.InRange(MathF.Abs(actual[index] - expected[index]), 0,
+                    2e-6f * MathF.Max(1, MathF.Abs(expected[index])));
+        }
     }
 
     [Fact]
