@@ -1,5 +1,4 @@
 using SharpInference.Architectures.Rwkv7;
-using SharpInference.Backends.Cpu;
 using SharpInference.Gguf;
 using SharpInference.Runtime;
 
@@ -19,7 +18,7 @@ public sealed class Rwkv7ArchitectureTests
         }
 
         using var model = Processor.LoadGraph(modelPath, new PortableRwkv7GraphProvider(),
-            CpuPrimitiveGraphBackend.Instance);
+            VmBackendFactory.CreateCpu());
         using var session = model.CreateSession();
         var logits = session.ForwardToken(0).Span;
         Assert.Equal(model.Metadata.VocabularySize, logits.Length);
@@ -40,7 +39,7 @@ public sealed class Rwkv7ArchitectureTests
         var expectedPath = TestModelLoader.GetPath(TestModel.Rwkv7ExpectedLogits);
 
         using var model = Processor.LoadGraph(modelPath, new PortableRwkv7GraphProvider(),
-            CpuPrimitiveGraphBackend.Instance);
+            VmBackendFactory.CreateCpu());
         using var session = model.CreateSession();
 
         var logits = session.Prefill(['"', 'i', 'n']).Span;
@@ -62,14 +61,14 @@ public sealed class Rwkv7ArchitectureTests
         var modelPath = TestModelLoader.GetPath(TestModel.Rwkv7Fp32);
 
         using var model = Processor.LoadGraph(modelPath, new PortableRwkv7GraphProvider(),
-            CpuPrimitiveGraphBackend.Instance);
+            VmBackendFactory.CreateCpu());
         using var original = model.CreateSession();
         _ = original.Prefill(['"', 'i']);
         using var snapshot = new MemoryStream();
         original.SaveState(snapshot);
         snapshot.Position = 0;
         var saved = GgufStateFile.Read(snapshot);
-        var graph = model.InferenceExecutionGraph!;
+        var graph = model.LogicalGraph!;
         Assert.Equal("RWKV7_State", saved.SchemaName);
         Assert.Equal(graph.GraphState.Schema.Name, saved.SchemaName);
         Assert.Equal(graph.GraphState.Slots.Count, saved.Tensors.Count);
@@ -104,7 +103,7 @@ public sealed class Rwkv7ArchitectureTests
         var runtime = new RwkvRuntimeFactory().CreateRuntime(null, catalog);
         Assert.Equal("rwkv-7", runtime.ArchitectureId);
         Assert.IsType<PortableRwkv7GraphProvider>(runtime.Provider);
-        Assert.Same(CpuPrimitiveGraphBackend.Instance, runtime.CreateBackend());
+        using var backend = Assert.IsType<VmGraphBackend>(runtime.CreateBackend());
     }
 
     private static float[] ReadFloats(string path)

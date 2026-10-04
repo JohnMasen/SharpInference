@@ -216,7 +216,7 @@ public sealed class RwkvModelHost : IDisposable
                 "Prompt state cache lookup and restore completed in {CacheMilliseconds:F1} ms.",
                 Stopwatch.GetElapsedTime(cacheStarted).TotalMilliseconds);
             var prefillStarted = Stopwatch.GetTimestamp();
-            var logits = session.Prefill(suffixTokens.ToArray());
+            var logits = await session.PrefillAsync(suffixTokens.ToArray(), cancellationToken).ConfigureAwait(false);
             logger.LogInformation(
                 "Prompt suffix prefill: {SuffixTokenCount} tokens in {PrefillMilliseconds:F1} ms.",
                 suffixTokens.Count,
@@ -270,7 +270,7 @@ public sealed class RwkvModelHost : IDisposable
                     session.LoadState(replayState);
                     var canonicalSuffix = answeredPrefix[prompt.Text.Length..];
                     var replayTokens = tokenizer.Encode(canonicalSuffix);
-                    session.Prefill(replayTokens.ToArray());
+                    await session.PrefillAsync(replayTokens.ToArray(), cancellationToken).ConfigureAwait(false);
                     logger.LogInformation(
                         "Answer state cache replayed {AnswerTokenCount} normalized answer tokens in {ReplayMilliseconds:F1} ms.",
                         replayTokens.Count,

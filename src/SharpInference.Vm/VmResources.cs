@@ -1,0 +1,476 @@
+namespace SharpInference.Vm;
+
+public interface IVmStorage : IDisposable
+{
+    ulong ByteLength { get; }
+    void Read(ulong offset, Span<byte> destination);
+    void Write(ulong offset, ReadOnlySpan<byte> source);
+}
+
+public interface IVmManagedStorage : IVmStorage
+{
+    byte[] Buffer { get; }
+}
+
+public sealed class VmMemoryStorage : IVmManagedStorage
+{
+    private byte[]? data;
+
+    public VmMemoryStorage(int byteLength)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(byteLength);
+        data = new byte[byteLength];
+        ByteLength = (ulong)byteLength;
+    }
+
+    public ulong ByteLength { get; }
+    public byte[] Buffer => data ?? throw new ObjectDisposedException(nameof(VmMemoryStorage));
+
+    public void Read(ulong offset, Span<byte> destination) =>
+        Data(offset, destination.Length).CopyTo(destination);
+
+    public void Write(ulong offset, ReadOnlySpan<byte> source) =>
+        source.CopyTo(Data(offset, source.Length));
+
+    private Span<byte> Data(ulong offset, int length)
+    {
+        var buffer = data ?? throw new ObjectDisposedException(nameof(VmMemoryStorage));
+        if (offset > ByteLength || (ulong)length > ByteLength - offset)
+            throw new ArgumentOutOfRangeException(nameof(offset), "Storage access exceeds capacity.");
+        return buffer.AsSpan(checked((int)offset), length);
+    }
+
+    public void Dispose() => data = null;
+}
+
+public sealed class VmResource : IDisposable
+{
+    private readonly object gate = new();
+    private readonly IVmStorage storage;
+    private int references = 1;
+    private bool ownerDisposed;
+    private bool localBound;
+    private bool valid = true;
+    private int readers;
+    private bool writer;
+
+    public VmResource(VmTensor tensor, VmSlotScope scope, VmAccess access, IVmStorage storage)
+    {
+        ArgumentNullException.ThrowIfNull(tensor);
+        ArgumentNullException.ThrowIfNull(storage);
+        if (!Enum.IsDefined(scope))
+            throw new ArgumentOutOfRangeException(nameof(scope));
+        if (!Enum.IsDefined(access))
+            throw new ArgumentOutOfRangeException(nameof(access));
+        if (storage.ByteLength != tensor.ByteLength)
+            throw new ArgumentException("Storage capacity must match the resource tensor.", nameof(storage));
+        Tensor = tensor;
+        Scope = scope;
+        Access = access;
+        this.storage = storage;
+    }
+
+    public VmTensor Tensor { get; }
+    public VmSlotScope Scope { get; }
+    public VmAccess Access { get; }
+    internal bool Valid { get { lock (gate) return valid; } }
+    internal void SetValidity(bool value) { lock (gate) valid = value; }
+
+    public VmResourceLease Acquire()
+    {
+        lock (gate)
+        {
+            ObjectDisposedException.ThrowIf(ownerDisposed, this);
+            references = checked(references + 1);
+            return new VmResourceLease(this);
+        }
+    }
+
+    internal VmResourceLease Retain()
+    {
+        lock (gate)
+        {
+            ObjectDisposedException.ThrowIf(references == 0, this);
+            references = checked(references + 1);
+            return new VmResourceLease(this);
+        }
+    }
+
+    internal VmResourceLease AcquireBinding()
+    {
+        lock (gate)
+        {
+            ObjectDisposedException.ThrowIf(references == 0, this);
+            if (Scope == VmSlotScope.Local && localBound)
+                throw new InvalidOperationException("Local storage cannot be bound to multiple slots or VMs.");
+            references = checked(references + 1);
+            if (Scope == VmSlotScope.Local) localBound = true;
+            return new VmResourceLease(this, binding: true);
+        }
+    }
+
+    internal VmResourceUse AcquireUse(VmAccess access)
+    {
+        lock (gate)
+        {
+            ObjectDisposedException.ThrowIf(references == 0, this);
+            if (writer || access == VmAccess.ReadWrite && readers != 0)
+                throw new InvalidOperationException("The physical resource is already in use.");
+            references = checked(references + 1);
+            if (access == VmAccess.ReadWrite) writer = true;
+            else readers++;
+            return new VmResourceUse(this, access);
+        }
+    }
+
+    internal void ReleaseUse(VmAccess access)
+    {
+        lock (gate)
+        {
+            if (access == VmAccess.ReadWrite) writer = false;
+            else readers--;
+        }
+        Release();
+    }
+
+    internal void Read(ulong offset, Span<byte> destination) => storage.Read(offset, destination);
+    internal byte[] GetManagedBuffer() => storage is IVmManagedStorage memory ? memory.Buffer :
+        throw new NotSupportedException("This resource does not expose managed backing storage.");
+
+    internal void Write(ulong offset, ReadOnlySpan<byte> source)
+    {
+        if (Access != VmAccess.ReadWrite)
+            throw new InvalidOperationException("The resource is read-only.");
+        storage.Write(offset, source);
+    }
+
+    internal void Release(bool binding = false)
+    {
+        var dispose = false;
+        lock (gate)
+        {
+            if (references <= 0)
+                throw new InvalidOperationException("Unbalanced resource release.");
+            if (binding && Scope == VmSlotScope.Local) localBound = false;
+            dispose = --references == 0;
+        }
+        if (dispose) storage.Dispose();
+    }
+
+    public void Dispose()
+    {
+        lock (gate)
+        {
+            if (ownerDisposed) return;
+            ownerDisposed = true;
+        }
+        Release();
+    }
+}
+
+public sealed class VmResourceLease : IDisposable
+{
+    private readonly object gate = new();
+    private VmResource? resource;
+    private readonly bool binding;
+
+    internal VmResourceLease(VmResource resource, bool binding = false)
+    {
+        this.resource = resource;
+        this.binding = binding;
+    }
+    public VmTensor Tensor { get { lock (gate) return Resource.Tensor; } }
+    public VmSlotScope Scope { get { lock (gate) return Resource.Scope; } }
+    public VmAccess Access { get { lock (gate) return Resource.Access; } }
+    internal bool Valid { get { lock (gate) return Resource.Valid; } }
+    internal void SetValidity(bool value) { lock (gate) Resource.SetValidity(value); }
+    internal VmResourceLease AcquireBinding() { lock (gate) return Resource.AcquireBinding(); }
+    internal VmResource Identity { get { lock (gate) return Resource; } }
+    internal VmResourceUse AcquireUse(VmAccess access) { lock (gate) return Resource.AcquireUse(access); }
+    internal byte[] GetManagedBuffer() { lock (gate) return Resource.GetManagedBuffer(); }
+
+    public VmResourceLease Retain()
+    {
+        lock (gate) return Resource.Retain();
+    }
+
+    public void Read(ulong offset, Span<byte> destination)
+    {
+        lock (gate)
+        {
+            using var use = Resource.AcquireUse(VmAccess.ReadOnly);
+            Resource.Read(offset, destination);
+        }
+    }
+
+    public void Write(ulong offset, ReadOnlySpan<byte> source)
+    {
+        lock (gate)
+        {
+            using var use = Resource.AcquireUse(VmAccess.ReadWrite);
+            Resource.Write(offset, source);
+        }
+    }
+
+    internal void ReadBound(ulong offset, Span<byte> destination)
+    {
+        lock (gate) Resource.Read(offset, destination);
+    }
+
+    internal void WriteBound(ulong offset, ReadOnlySpan<byte> source)
+    {
+        lock (gate) Resource.Write(offset, source);
+    }
+
+    private VmResource Resource => resource ?? throw new ObjectDisposedException(nameof(VmResourceLease));
+
+    public void Dispose()
+    {
+        VmResource? released;
+        lock (gate)
+        {
+            released = resource;
+            resource = null;
+        }
+        released?.Release(binding);
+    }
+}
+
+internal sealed class VmResourceUse(VmResource resource, VmAccess access) : IDisposable
+{
+    private VmResource? resource = resource;
+    public void Dispose() => Interlocked.Exchange(ref resource, null)?.ReleaseUse(access);
+}
+
+public sealed class VmBindings : IDisposable
+{
+    private readonly object gate = new();
+    private readonly VmProgram program;
+    private readonly Dictionary<string, VmResourceLease> resources = new(StringComparer.Ordinal);
+    private bool executing;
+    private bool disposed;
+    private readonly List<VmResourceUse> activeUses = [];
+
+    public VmBindings(VmProgram program) => this.program =
+        program ?? throw new ArgumentNullException(nameof(program));
+    public VmProgram Program => program;
+    internal bool StateValid
+    {
+        get
+        {
+            lock (gate)
+                return program.State.Entries.All(entry => resources[entry.Slot].Valid);
+        }
+    }
+
+    public void Bind(string slotId, VmResourceLease resource)
+    {
+        ArgumentNullException.ThrowIfNull(resource);
+        lock (gate)
+        {
+            EnsureIdle();
+            var slot = program.Slots.SingleOrDefault(slot => slot.Id == slotId) ??
+                throw new ArgumentException($"Unknown slot '{slotId}'.", nameof(slotId));
+            using var validationLease = resource.Retain();
+            var tensor = validationLease.Tensor;
+            if (slot.Tensor.ElementType != tensor.ElementType ||
+                !slot.Tensor.Dimensions.SequenceEqual(tensor.Dimensions) ||
+                slot.Scope != validationLease.Scope ||
+                slot.Access == VmAccess.ReadWrite && validationLease.Access != VmAccess.ReadWrite)
+                throw new ArgumentException($"Resource is incompatible with slot '{slotId}'.", nameof(resource));
+            var owned = validationLease.AcquireBinding();
+            resources.Remove(slotId, out var previous);
+            resources.Add(slotId, owned);
+            previous?.Dispose();
+        }
+    }
+
+    public VmExecutionLease BeginExecution() => BeginAccess(allowInvalidState: false);
+
+    public VmExecutionLease BeginStateAccess() => BeginAccess(allowInvalidState: true);
+
+    private VmExecutionLease BeginAccess(bool allowInvalidState)
+    {
+        lock (gate)
+        {
+            EnsureIdle();
+            if (program.Slots.Any(slot => !resources.ContainsKey(slot.Id)))
+                throw new InvalidOperationException("All program slots must be bound before execution.");
+            try
+            {
+                foreach (var group in program.Slots.GroupBy(slot => resources[slot.Id].Identity))
+                {
+                    var access = group.Any(slot => slot.Access == VmAccess.ReadWrite ||
+                        allowInvalidState && resources[slot.Id].Access == VmAccess.ReadWrite &&
+                            program.State.Entries.Any(entry => entry.Slot == slot.Id))
+                        ? VmAccess.ReadWrite : VmAccess.ReadOnly;
+                    activeUses.Add(resources[group.First().Id].AcquireUse(access));
+                }
+                if (!allowInvalidState && !StateValid)
+                    throw new InvalidOperationException("State must be restored before this VM can execute.");
+            }
+            catch
+            {
+                foreach (var use in activeUses) use.Dispose();
+                activeUses.Clear();
+                throw;
+            }
+            executing = true;
+            return new VmExecutionLease(this, stateAccess: allowInvalidState);
+        }
+    }
+
+    internal void EndExecution()
+    {
+        lock (gate)
+        {
+            foreach (var use in activeUses) use.Dispose();
+            activeUses.Clear();
+            executing = false;
+        }
+    }
+
+    internal byte[][] GetBuffers()
+    {
+        lock (gate)
+        {
+            if (!executing)
+                throw new InvalidOperationException("CPU buffer views require an active execution lease.");
+            return program.Slots.Select(slot => resources[slot.Id].GetManagedBuffer()).ToArray();
+        }
+    }
+
+    internal void SetStateValidity(bool valid)
+    {
+        lock (gate)
+            foreach (var entry in program.State.Entries)
+                resources[entry.Slot].SetValidity(valid);
+    }
+
+    internal void Read(string slotId, ulong offset, Span<byte> destination)
+    {
+        lock (gate) resources[slotId].ReadBound(offset, destination);
+    }
+
+    internal void Write(string slotId, ulong offset, ReadOnlySpan<byte> source)
+    {
+        lock (gate)
+        {
+            if (program.Slots.Single(slot => slot.Id == slotId).Access != VmAccess.ReadWrite)
+                throw new InvalidOperationException($"Slot '{slotId}' is read-only.");
+            resources[slotId].WriteBound(offset, source);
+        }
+    }
+
+    internal bool CanRestoreState(string slotId)
+    {
+        lock (gate) return resources[slotId].Access == VmAccess.ReadWrite;
+    }
+
+    internal void WriteState(string slotId, ReadOnlySpan<byte> source)
+    {
+        lock (gate)
+        {
+            if (!program.State.Entries.Any(entry => entry.Slot == slotId))
+                throw new InvalidOperationException("State transfer cannot write an unregistered slot.");
+            resources[slotId].WriteBound(0, source);
+        }
+    }
+
+    public void UnbindSession()
+    {
+        lock (gate)
+        {
+            EnsureIdle();
+            foreach (var slot in program.Slots.Where(slot => slot.Scope == VmSlotScope.Session))
+                if (resources.Remove(slot.Id, out var resource)) resource.Dispose();
+        }
+    }
+
+    private void EnsureIdle()
+    {
+        ObjectDisposedException.ThrowIf(disposed, this);
+        if (executing)
+            throw new InvalidOperationException("An executing VM cannot be rebound, disposed or executed again.");
+    }
+
+    public void Dispose()
+    {
+        List<Exception>? errors = null;
+        lock (gate)
+        {
+            if (disposed) return;
+            EnsureIdle();
+            disposed = true;
+            foreach (var resource in resources.Values)
+            {
+                try { resource.Dispose(); }
+                catch (Exception error) { (errors ??= []).Add(error); }
+            }
+            resources.Clear();
+        }
+        if (errors is not null)
+            throw new AggregateException("Failed to release VM resources.", errors);
+    }
+}
+
+public sealed class VmExecutionLease : IDisposable
+{
+    private readonly object gate = new();
+    private VmBindings? bindings;
+    internal VmExecutionLease(VmBindings bindings, bool stateAccess)
+    {
+        this.bindings = bindings;
+        IsStateAccess = stateAccess;
+    }
+    internal bool IsStateAccess { get; }
+    public VmProgram Program { get { lock (gate) return Bindings.Program; } }
+    internal bool StateValid { get { lock (gate) return Bindings.StateValid; } }
+    internal bool CanRestoreState(string slotId) { lock (gate) return Bindings.CanRestoreState(slotId); }
+
+    internal void WriteState(string slotId, ReadOnlySpan<byte> source)
+    {
+        lock (gate)
+        {
+            if (!IsStateAccess)
+                throw new InvalidOperationException("State restoration requires a state-access lease.");
+            Bindings.WriteState(slotId, source);
+        }
+    }
+
+    public void Read(string slotId, ulong offset, Span<byte> destination)
+    {
+        lock (gate) Bindings.Read(slotId, offset, destination);
+    }
+
+    public void Write(string slotId, ulong offset, ReadOnlySpan<byte> source)
+    {
+        lock (gate) Bindings.Write(slotId, offset, source);
+    }
+
+    public byte[][] GetBuffers()
+    {
+        lock (gate) return Bindings.GetBuffers();
+    }
+
+    public void InvalidateState()
+    {
+        lock (gate) Bindings.SetStateValidity(false);
+    }
+
+    internal void ValidateState()
+    {
+        lock (gate) Bindings.SetStateValidity(true);
+    }
+
+    private VmBindings Bindings => bindings ?? throw new ObjectDisposedException(nameof(VmExecutionLease));
+
+    public void Dispose()
+    {
+        lock (gate)
+        {
+            bindings?.EndExecution();
+            bindings = null;
+        }
+    }
+}

@@ -1,7 +1,7 @@
 # RWKV-6 prefill experiment
 
 Historical measurements below used the former model-specific production
-backend and are archival, not expected performance for the portable graph
+backend and are archival, not expected performance for the compiled VM
 backend now used by the live comparisons.
 
 This executable evaluates RWKV-6 layer-major prefill on CPU and
@@ -38,7 +38,7 @@ The test-model directory in this workspace is `F:\RWKV\RWKVModels`. It contains
 the tiny RWKV-6 FP32/FP16 GGML models and a 7B FP16 GGML model; the `.pth` file
 there is a training checkpoint, not a GGML inference model. Pass another GGML
 path with `--model` as needed. The `--gpu` model baseline requires a Direct3D 12
-adapter and sufficient VRAM; the portable primitive graph executes FP32 operators
+adapter and sufficient VRAM; the compiled VM executes FP32 operators
 and accepts FP16 model weights. `--model-tokens` sets
 the full-model baseline length (default 32); `--model-repeats` (default 2)
 alternates measurement order and reports averages. Synthetic dimensions can be adjusted

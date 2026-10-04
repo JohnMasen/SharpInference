@@ -6,6 +6,8 @@ namespace SharpInference.Tests;
 
 internal static class StateSnapshotAssertions
 {
+    public static GgufState Capture(PrimitiveGraphReferenceSession session) => session.Capture();
+
     public static GgufState Capture(ProcessorSession session)
     {
         using var stream = new MemoryStream();

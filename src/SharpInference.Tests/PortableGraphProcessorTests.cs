@@ -1,5 +1,3 @@
-using SharpInference.Backends.Cpu;
-using SharpInference.Backends.Vortice;
 using SharpInference.Graphs;
 using SharpInference.Runtime;
 using Vortice.Direct3D;
@@ -60,9 +58,7 @@ public sealed class PortableGraphProcessorTests
                 .Build();
         }
 
-        var backend = gpu && device is not null
-            ? (IExecutionGraphBackend)new VorticePrimitiveGraphBackend(device)
-            : CpuPrimitiveGraphBackend.Instance;
+        var backend = gpu ? VmBackendFactory.CreateD3D12() : VmBackendFactory.CreateCpu();
         using var model = Processor.LoadGraph(path, graph, backend);
         using var original = model.CreateSession();
         var first = original.ForwardToken(0).ToArray();

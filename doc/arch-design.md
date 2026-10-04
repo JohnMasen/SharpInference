@@ -1,5 +1,14 @@
 # SharpInference 架构设计
 
+> 当前默认执行路径已切换为编译式 VM：CPU 生成 C#/程序集，D3D12 生成 HLSL/DXIL；
+> 逻辑图仍是模型前端，执行程序改为固定槽位、NodeDefinition/调用与显式 State。
+> 引擎维护 Prefill/Inference 两个有界队列，默认各 2 个可复用 VM，整段回复持有
+> 一个 Inference VM。独立程序、共享物理权重/State、产物重载、调优和无编译部署见
+> [Compiled inference VM](vm-execution-program.md)，该文是当前运行时契约。
+> 下文保留此前设计和测量历史，不应将旧 API、性能数据或配置当作当前 VM 行为。
+> Runtime 已移除旧执行图 XML 导入、primitive debug、旧双图 Prefill optimizer
+> 和 legacy backend 接入；保留的数学参考工具不能作为生产 Processor 的第二路径。
+
 > 当前实现以基础算子逻辑图为唯一推理路径；`Processor.Load` 和 Web API
 > 均通过 RWKV-6/7 图 provider、通用优化器和 CPU/Vortice 图后端执行。
 > 下文记载的专属架构、旧 GPU 批处理与双路径迁移方案是设计历史，不再是可选运行方式；
@@ -108,8 +117,8 @@ Web API 对 RWKV-7 G1 使用 `System:` / `User:` / `Assistant:` 对话轮次，
 构造过程中由 provider 生成图，并从图读取架构和模型签名，不依赖硬编码的
 RWKV-6/7 架构检测，也不要求调用方额外打开模型文件。Reader 在
 构造完成、后端接管权重后立即释放，CPU 后端保留其自有权重，GPU 后端持有显存权重。
-Web API 的 `Rwkv:Runtime:Kind` 仅接受 `cpu` 或 `vortice`（亦可使用
-`--runtime-kind` 设置）；没有配置该值时使用通用 CPU 图后端，随附
+Web API 的 `Rwkv:Runtime:Kind` 接受 `cpu`、`vortice` 或 `d3d12`（亦可使用
+`--runtime-kind` 设置）；没有配置该值时使用编译式 CPU VM，随附
 `appsettings.json` 则显式选择 Vortice。GPU 模式沿用
 `Rwkv:Runtime:Vortice:AdapterIndex` 选择设备，由 Processor 持有和释放。
 `GraphArchitectureMetadataReader` 根据外部提供图的模型签名和权重描述验证文件，
@@ -137,10 +146,10 @@ token 的 logits 和完整状态对照（发生在可移植 CPU 引入直接半�
 降至 1187 次/token）。**通用 GPU 图路径目前仍比旧专属优化路径慢约 14 倍**；
 该差距说明现有融合与视图/归约执行规划尚
 不能达到历史专属实现的性能；旧执行路径现已删除，后续需继续优化通用图执行。
-作为后续可选加速，静态标量 token 图可为每个 GPU 会话缓存并重放 D3D12
-命令列表。Web API 可通过 `--runtime-kind vortice --enable-command-replay true`
-显式启用，或在 JSON 配置中设置 `Rwkv:Runtime:Vortice:EnableCommandReplay` 为
-`true`；默认关闭，不支持重放的图会在准备阶段明确报错。同机上另一组三次八
+历史上，静态标量 token 图可为每个 GPU 会话缓存并重放 D3D12
+命令列表。当前编译式 VM 由后端管理命令缓存，已移除
+`--enable-command-replay` 和 `Rwkv:Runtime:Vortice:EnableCommandReplay`。
+此前同机上另一组三次八
 token 短样本约为旧路径 1150、可移植逐次录制 72、可移植命令重放
 306 token/s。命令重放保留约 1187 次 kernel dispatch/token，但避免反复录制；
 这一短样本仍约比旧优化路径慢 3.75 倍。大型模型启用重放后的性能和显存
@@ -996,8 +1005,8 @@ state snapshot round-trip 最大误差为零，外部编辑 state 后 logits 保
 ### 11.6 已废弃的专属 Runtime 配置方案（历史记录）
 
 以下泛型 `IRwkv6MatVecBackend`、FP16 回退策略和精度预设仅记录旧路径设计，
-不属于当前配置契约。当前仅支持 `Kind=cpu|vortice`，Vortice 子节只接受
-`AdapterIndex` 与 `EnableCommandReplay`；旧键不能沿用。
+不属于当前配置契约。当前支持 `Kind=cpu|vortice|d3d12`，Vortice 子节只接受
+`AdapterIndex`；旧键不能沿用。VM 池与程序/产物选择使用 Runtime 的 `Vm` 子节。
 
 现有 `IRwkv6MatVecBackend`、`IRwkv6AttentionComputeBackend` 和
 `IRwkv6FullComputeBackend` 是**架构内部的算子接口**：它们让 RWKV-6 前向可替换

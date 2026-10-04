@@ -130,7 +130,7 @@ public sealed class PortableRwkv7GraphProviderTests
                 new float[checked(dims.Aggregate(1, (product, dimension) =>
                     checked(product * dimension)))]);
         }).ToArray();
-        using var processor = Processor.LoadGraph(path, graph, CpuPrimitiveGraphBackend.Instance);
+        using var processor = Processor.LoadGraph(path, graph, VmBackendFactory.CreateCpu());
         using var session = processor.CreateSession();
         foreach (var token in new[] { (int)'"', (int)'i', (int)'n' })
         {

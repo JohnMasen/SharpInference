@@ -6,8 +6,8 @@ public sealed record OperatorSignature
         IEnumerable<GraphElementType> inputTypes,
         IEnumerable<GraphElementType> outputTypes)
     {
-        InputTypes = inputTypes?.ToArray() ?? throw new ArgumentNullException(nameof(inputTypes));
-        OutputTypes = outputTypes?.ToArray() ?? throw new ArgumentNullException(nameof(outputTypes));
+        InputTypes = Array.AsReadOnly(inputTypes?.ToArray() ?? throw new ArgumentNullException(nameof(inputTypes)));
+        OutputTypes = Array.AsReadOnly(outputTypes?.ToArray() ?? throw new ArgumentNullException(nameof(outputTypes)));
         if (OutputTypes.Count == 0)
         {
             throw new ArgumentException("An operator signature requires at least one output.", nameof(outputTypes));

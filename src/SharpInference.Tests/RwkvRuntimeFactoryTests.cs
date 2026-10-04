@@ -9,6 +9,21 @@ namespace SharpInference.Tests;
 public sealed class RwkvRuntimeFactoryTests
 {
     [Theory]
+    [InlineData("PrefillInstances", "0")]
+    [InlineData("InferenceInstances", "-1")]
+    [InlineData("PrefillQueueCapacity", "0")]
+    [InlineData("InferenceQueueCapacity", "0")]
+    [InlineData("PrefillCapacity", "1025")]
+    [InlineData("UnknownSetting", "1")]
+    public void RejectsInvalidOrUnknownVmConfiguration(string option, string value)
+    {
+        using var catalog = TestModelLoader.OpenCatalog(TestModel.Rwkv6);
+        var configuration = CreateConfiguration(($"Rwkv:Runtime:Vm:{option}", value));
+        Assert.ThrowsAny<Exception>(() =>
+            new RwkvRuntimeFactory().CreateRuntime(configuration.GetSection("Rwkv:Runtime"), catalog));
+    }
+
+    [Theory]
     [InlineData(false, false)]
     [InlineData(false, true)]
     [InlineData(true, false)]
@@ -25,7 +40,8 @@ public sealed class RwkvRuntimeFactoryTests
         Assert.NotNull(runtime.Tokenizer);
         if (rwkv7) Assert.IsType<PortableRwkv7GraphProvider>(runtime.Provider);
         else Assert.IsType<PortableRwkv6GraphProvider>(runtime.Provider);
-        Assert.Same(CpuPrimitiveGraphBackend.Instance, runtime.CreateBackend());
+        using var backend = Assert.IsType<VmGraphBackend>(runtime.CreateBackend());
+        Assert.Null(backend.Program);
     }
 
     [Theory]

@@ -1,6 +1,5 @@
 using SharpInference.Architectures.Rwkv6;
 using SharpInference.Architectures.Rwkv7;
-using SharpInference.Backends.Cpu;
 using SharpInference.Graphs;
 using SharpInference.Runtime;
 
@@ -15,12 +14,9 @@ public sealed class GraphWeightBindingTests
     {
         var model = rwkv7 ? TestModel.Rwkv7Fp32 : TestModel.Rwkv6;
         var path = TestModelLoader.GetPath(model);
-        var backend = CpuPrimitiveGraphBackend.Instance;
         using var catalog = TestModelLoader.OpenCatalog(model);
         var logical = Provider(rwkv7).Build(catalog);
-        var execution = new GraphOptimizer().Optimize(logical,
-            new GraphOptimizationOptions(OptimizationBoundary.Unrestricted), backend.KernelCatalog);
-        var renamed = XmlOnly(AliasWeights(execution));
+        var renamed = GraphXml.DeserializeLogical(GraphXml.Serialize(AliasWeights(logical)));
         var weights = renamed.Resources.Where(resource => resource.Kind == GraphResourceKind.Weight).ToArray();
         Assert.NotEmpty(weights);
         Assert.All(weights, weight =>
@@ -30,11 +26,11 @@ public sealed class GraphWeightBindingTests
         });
         GraphValidator.Validate(renamed);
 
-        using var baseline = Processor.LoadGraph(path, logical, backend);
+        using var baseline = Processor.LoadGraph(path, logical, VmBackendFactory.CreateCpu());
         using var imported = new ProcessorPipelineBuilder(path)
-            .UseReader(new GgmlModelReader(), new GraphArchitectureMetadataReader(logical))
-            .UseExecutionGraph(_ => renamed)
-            .UseBackend(backend)
+            .UseReader(new GgmlModelReader(), new GraphArchitectureMetadataReader(renamed))
+            .UseProvider(new SuppliedLogicalGraphProvider(renamed))
+            .UseBackend(VmBackendFactory.CreateCpu())
             .UsePortableGraphArchitecture()
             .Build();
         using var expected = baseline.CreateSession();
@@ -64,7 +60,7 @@ public sealed class GraphWeightBindingTests
             logical.Regions, logical.Nodes, logical.Inputs, logical.Outputs, logical.GraphState);
 
         Assert.Throws<InvalidDataException>(() =>
-            Processor.LoadGraph(TestModelLoader.GetPath(model), invalid, CpuPrimitiveGraphBackend.Instance));
+            Processor.LoadGraph(TestModelLoader.GetPath(model), invalid, VmBackendFactory.CreateCpu()));
     }
 
     [Theory]
@@ -85,12 +81,12 @@ public sealed class GraphWeightBindingTests
     private static ILogicalGraphProvider Provider(bool rwkv7) =>
         rwkv7 ? new PortableRwkv7GraphProvider() : new PortableRwkv6GraphProvider();
 
-    private static ExecutionGraph AliasWeights(ExecutionGraph graph)
+    private static LogicalGraph AliasWeights(LogicalGraph graph)
     {
         var renamed = graph.Resources.Where(resource => resource.Kind == GraphResourceKind.Weight)
             .Select((resource, index) => (resource.Id, NewId: new ResourceId($"parameter.{index:D4}")))
             .ToDictionary(pair => pair.Id, pair => pair.NewId);
-        return new ExecutionGraph(graph.Identity, graph.Model,
+        return new LogicalGraph(graph.Identity, graph.Model,
             graph.Resources.Select(resource => renamed.TryGetValue(resource.Id, out var id)
                 ? resource with { Id = id }
                 : resource),
@@ -104,9 +100,4 @@ public sealed class GraphWeightBindingTests
             graph.Inputs, graph.Outputs, graph.GraphState);
     }
 
-    private static ExecutionGraph XmlOnly(ExecutionGraph graph) =>
-        GraphXml.DeserializeExecution(GraphXml.Serialize(new ExecutionGraph(graph.Identity, graph.Model,
-            graph.Resources, graph.Regions,
-            graph.Nodes.Select(node => node with { Source = ExecutionSourceMap.XmlOnly }),
-            graph.Inputs, graph.Outputs, graph.GraphState)));
 }

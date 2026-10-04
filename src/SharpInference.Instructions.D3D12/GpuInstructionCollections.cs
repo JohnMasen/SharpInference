@@ -1,0 +1,3 @@
+namespace SharpInference.Instructions.D3D12;
+public sealed class GpuFloat32InstructionCollection() : TierZeroInstructionCollection(InstructionCollectionIds.TierZeroFloat32,InstructionTarget.Direct3D12,name=>new GpuTierZeroInstruction(InstructionCollectionIds.TierZeroFloat32,name));
+public sealed class GpuFloat16InstructionCollection() : TierZeroInstructionCollection(InstructionCollectionIds.TierZeroFloat16,InstructionTarget.Direct3D12,name=>new GpuTierZeroInstruction(InstructionCollectionIds.TierZeroFloat16,name));

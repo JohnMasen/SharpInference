@@ -40,8 +40,8 @@ public readonly record struct TensorSlice(int Axis, int Start, int Length)
 }
 
 /// <summary>
-/// Versioned FP32 tensor-operation contracts for logical graphs. Call ValidateGraph
-/// explicitly: these operations are not registered with any execution backend.
+/// Versioned tensor-operation contracts shared by logical graphs and T0 VM backends.
+/// Call ValidateGraph explicitly when validating portable tensor operations alone.
 /// Inputs and outputs are dense; dimensions are row-major in their declared order.
 /// All arithmetic and reductions use FP32.
 /// </summary>
@@ -127,7 +127,11 @@ public static class PortableTensorOperationContracts
         var inputs = ports.Select(Get).ToArray();
         var signature = new OperatorSignature(inputs.Select(tensor => tensor.ElementType),
             [output.ElementType]);
-        if (!contract.Signature.Matches(signature))
+        var mixedMatrix = node.Operation == BatchedMatVec &&
+            inputs[0].ElementType == GraphElementType.Float16 &&
+            inputs[1].ElementType == GraphElementType.Float32 &&
+            output.ElementType == GraphElementType.Float32;
+        if (!contract.Signature.Matches(signature) && !mixedMatrix)
             throw new InvalidDataException($"Tensor operation '{node.Id}' has unsupported element types.");
 
         var dims = output.Dimensions;

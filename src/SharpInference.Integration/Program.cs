@@ -1,11 +1,12 @@
 using SharpInference;
-using SharpInference.Backends.Cpu;
-using SharpInference.Backends.Vortice;
+using SharpInference.Backends.D3D12Vm;
 using SharpInference.Graphs;
 using SharpInference.Runtime;
 using Microsoft.Extensions.Configuration;
 using System.Text.Json;
 using SharpInference.Gguf;
+using SharpInference.Vm;
+using SharpInference.Vm.Optimization;
 
 if (args.Contains("--list-gpus", StringComparer.Ordinal))
 {
@@ -13,8 +14,8 @@ if (args.Contains("--list-gpus", StringComparer.Ordinal))
     {
         try
         {
-            using var device = VorticePrimitiveGraphBackend.FromConfig(new VorticeRuntimeConfig { AdapterIndex = index });
-            Console.WriteLine($"gpu-index={index} device={device.DeviceName}");
+            var (device, name) = D3D12VmDeviceFactory.Create(index);
+            using (device) Console.WriteLine($"gpu-index={index} device={name}");
         }
         catch (ArgumentOutOfRangeException)
         {
@@ -126,7 +127,7 @@ if (graphDumpDirectory is not null)
 var runtime = new RwkvRuntimeFactory().CreateRuntime(configuration.GetSection("Rwkv:Runtime"), catalog);
 Console.WriteLine($"backend={configuration["Rwkv:Runtime:Kind"] ?? "cpu"}");
 
-IExecutionGraphBackend? backend = null;
+VmGraphBackend? backend = null;
 using var model = new ProcessorPipelineBuilder(modelPath)
     .UseReader(new GgmlModelReader())
     .UseProvider(runtime.Provider)
@@ -217,14 +218,7 @@ if (benchmarkTokens is int tokenCount)
     Console.WriteLine($"benchmark-tokens={tokenCount} elapsed-ms={stopwatch.Elapsed.TotalMilliseconds:F3} tokens-per-second={tokenCount / stopwatch.Elapsed.TotalSeconds:F3}");
 }
 
-if (backend is VorticePrimitiveGraphBackend vorticeBackend && vorticeBackend.Metrics is { } metrics)
-{
-    Console.WriteLine(
-        $"vortice-graph-metrics: tokens={metrics.TokenCount} " +
-        $"token-submissions={metrics.TokenCommandSubmissions} " +
-        $"activation-upload-bytes={metrics.ActivationUploadBytes} " +
-        $"output-readback-bytes={metrics.OutputReadbackBytes}");
-}
+Console.WriteLine($"device={backend!.DeviceName} vm-slots={model.InferenceProgram.Slots.Count}");
 
 var prompt = Environment.GetEnvironmentVariable("SHARPINFERENCE_STREAM_PROMPT");
 if (prompt is not null)
@@ -260,13 +254,6 @@ if (prompt is not null)
 
     Console.WriteLine();
     Console.WriteLine("stream-end");
-    if (backend is VorticePrimitiveGraphBackend generationVorticeBackend &&
-        generationVorticeBackend.Metrics is { } generationMetrics)
-    {
-        Console.WriteLine(
-            $"generation-metrics: token-submissions={generationMetrics.TokenCommandSubmissions} " +
-            $"output-readback-bytes={generationMetrics.OutputReadbackBytes}");
-    }
 }
 
 static void DumpGraphs(IModelTensorCatalog catalog, string outputDirectory)
@@ -274,63 +261,31 @@ static void DumpGraphs(IModelTensorCatalog catalog, string outputDirectory)
     var architecture = RwkvModelArchitectureDetector.Detect(catalog);
     outputDirectory = Path.GetFullPath(outputDirectory);
     Directory.CreateDirectory(outputDirectory);
-    if (architecture == "rwkv-7")
-    {
-        DumpRwkv7Graphs(catalog, outputDirectory);
-        return;
-    }
-    if (architecture != "rwkv-6")
-    {
-        throw new NotSupportedException($"Graph dump does not support architecture '{architecture}'.");
-    }
-
-    var logical = new SharpInference.Architectures.Rwkv6.PortableRwkv6GraphProvider().Build(catalog);
-    var optimizer = new GraphOptimizer();
-    var off = optimizer.Optimize(logical, new GraphOptimizationOptions(OptimizationBoundary.Off));
-    var cpu = optimizer.Optimize(
-        logical,
-        new GraphOptimizationOptions(OptimizationBoundary.Unrestricted),
-        CpuPrimitiveGraphBackend.Instance.KernelCatalog);
+    var logical = RwkvRuntimeFactory.CreateGraphProvider(architecture).Build(catalog);
+    var cpu = VmGraphOptimizer.Optimize(logical, VmTarget.Cpu);
+    var gpu = VmGraphOptimizer.Optimize(logical, VmTarget.Direct3D12);
     File.WriteAllText(Path.Combine(outputDirectory, "logical.json"), GraphJson.Serialize(logical));
-    File.WriteAllText(Path.Combine(outputDirectory, "execution-off.json"), GraphJson.Serialize(off));
-    File.WriteAllText(Path.Combine(outputDirectory, "execution-within-layer.json"), GraphJson.Serialize(cpu));
+    File.WriteAllText(Path.Combine(outputDirectory, "cpu.vm.xml"), VmProgramXml.Serialize(cpu));
+    File.WriteAllText(Path.Combine(outputDirectory, "d3d12.vm.xml"), VmProgramXml.Serialize(gpu));
     WritePlanSummary(outputDirectory, "cpu-plan.json", "cpu", cpu);
+    WritePlanSummary(outputDirectory, "d3d12-plan.json", "d3d12", gpu);
     Console.WriteLine(
-        $"graph-dump={outputDirectory} logical-nodes={logical.Nodes.Count} off-nodes={off.Nodes.Count} " +
-        $"cpu-plan-steps={cpu.Nodes.Count}");
+        $"graph-dump={outputDirectory} logical-nodes={logical.Nodes.Count} " +
+        $"cpu-definitions={cpu.Definitions.Count} gpu-definitions={gpu.Definitions.Count}");
 }
 
-static void DumpRwkv7Graphs(IModelTensorCatalog catalog, string outputDirectory)
-{
-    var logical = new SharpInference.Architectures.Rwkv7.PortableRwkv7GraphProvider().Build(catalog);
-    var optimizer = new GraphOptimizer();
-    var off = optimizer.Optimize(logical, new GraphOptimizationOptions(OptimizationBoundary.Off));
-    var cpu = optimizer.Optimize(
-        logical,
-        new GraphOptimizationOptions(OptimizationBoundary.Unrestricted),
-        CpuPrimitiveGraphBackend.Instance.KernelCatalog);
-    File.WriteAllText(Path.Combine(outputDirectory, "logical.json"), GraphJson.Serialize(logical));
-    File.WriteAllText(Path.Combine(outputDirectory, "execution-off.json"), GraphJson.Serialize(off));
-    File.WriteAllText(Path.Combine(outputDirectory, "execution-within-layer.json"), GraphJson.Serialize(cpu));
-    WritePlanSummary(outputDirectory, "cpu-plan.json", "cpu", cpu);
-    Console.WriteLine(
-        $"graph-dump={outputDirectory} logical-nodes={logical.Nodes.Count} off-nodes={off.Nodes.Count} " +
-        $"cpu-plan-steps={cpu.Nodes.Count}");
-}
-
-static void WritePlanSummary(string outputDirectory, string fileName, string backend, ExecutionGraph graph)
+static void WritePlanSummary(string outputDirectory, string fileName, string backend, VmProgram program)
 {
     var summary = new
     {
         Backend = backend,
-        Architecture = graph.Identity.ArchitectureId,
-        StepCount = graph.Nodes.Count,
-        Steps = graph.Nodes.Select(node => new
+        Abi = program.Abi,
+        SlotCount = program.Slots.Count,
+        DefinitionCount = program.Definitions.Count,
+        Definitions = program.Definitions.Select(definition => new
         {
-            Id = node.Id.Value,
-            Operation = node.Operation.ToString(),
-            Region = node.Region.Value,
-            SourceCount = node.Source.LogicalNodes.Count,
+            definition.Id,
+            Kind = definition.Kind.ToString(),
         }),
     };
     File.WriteAllText(

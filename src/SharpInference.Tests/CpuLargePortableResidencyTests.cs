@@ -1,7 +1,6 @@
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using SharpInference.Architectures.Rwkv7;
-using SharpInference.Backends.Cpu;
 using SharpInference.Runtime;
 using Xunit.Abstractions;
 
@@ -66,7 +65,7 @@ public sealed class CpuLargePortableResidencyTests(ITestOutputHelper output)
         {
             var constructTimer = Stopwatch.StartNew();
             using var processor = Processor.LoadGraph(path,
-                new PortableRwkv7GraphProvider(), CpuPrimitiveGraphBackend.Instance);
+                new PortableRwkv7GraphProvider(), VmBackendFactory.CreateCpu());
             constructTimer.Stop();
             var constructed = MemorySample.Capture();
             using var session = processor.CreateSession();
@@ -76,12 +75,7 @@ public sealed class CpuLargePortableResidencyTests(ITestOutputHelper output)
             {
                 var timer = Stopwatch.StartNew();
                 float[] logits;
-                IReadOnlyList<CpuGraphOperationTiming> operations;
-                using (var profiler = CpuPrimitiveGraphProfiler.Start())
-                {
-                    logits = session.ForwardToken(tokens[index]).ToArray();
-                    operations = profiler.Snapshot();
-                }
+                logits = session.ForwardToken(tokens[index]).ToArray();
                 timer.Stop();
                 Assert.All(logits, value => Assert.True(float.IsFinite(value)));
                 var afterToken = MemorySample.Capture();
@@ -95,9 +89,6 @@ public sealed class CpuLargePortableResidencyTests(ITestOutputHelper output)
                 output.WriteLine($"After token {index + 1} ({tokens[index]}): {afterToken}; " +
                     $"elapsed {timer.Elapsed.TotalSeconds:F2} s" +
                     (index == 0 ? " (cold)" : $", {1 / timer.Elapsed.TotalSeconds:F3} warm tok/s"));
-                foreach (var operation in operations.Take(5))
-                    output.WriteLine($"  {operation.Operation}: {operation.Milliseconds:F1} ms, " +
-                        $"{operation.Calls} calls");
             }
             lock (peakGate)
                 output.WriteLine($"Observed peaks: private {peakPrivateBytes / 1_073_741_824.0:F2} GiB, " +

@@ -15,6 +15,7 @@ public sealed class GraphWebRuntimeTests
     [Theory]
     [InlineData("cpu")]
     [InlineData("vortice")]
+    [InlineData("d3d12")]
     public void CommandLine_OverridesRuntimeKind(string kind)
     {
         var parsed = WebApiCommandLine.Parse(
@@ -23,14 +24,20 @@ public sealed class GraphWebRuntimeTests
     }
 
     [Fact]
-    public void CommandLine_OptInToGpuCommandReplay()
+    public void CommandLine_ConfiguresVmPoolsAndRejectsLegacyReplay()
     {
         var parsed = WebApiCommandLine.Parse(
-            ["--model-path", "model.bin", "--runtime-kind", "vortice",
-             "--enable-command-replay", "true"]);
-        Assert.Equal("True", parsed.Overrides["Rwkv:Runtime:Vortice:EnableCommandReplay"]);
+            ["--model-path", "model.bin", "--runtime-kind", "d3d12",
+             "--prefill-instances", "3", "--inference-instances", "4",
+             "--prefill-queue-capacity", "5", "--inference-queue-capacity", "6"]);
+        Assert.Equal("3", parsed.Overrides["Rwkv:Runtime:Vm:PrefillInstances"]);
+        Assert.Equal("4", parsed.Overrides["Rwkv:Runtime:Vm:InferenceInstances"]);
+        Assert.Equal("5", parsed.Overrides["Rwkv:Runtime:Vm:PrefillQueueCapacity"]);
+        Assert.Equal("6", parsed.Overrides["Rwkv:Runtime:Vm:InferenceQueueCapacity"]);
         Assert.Throws<ArgumentException>(() => WebApiCommandLine.Parse(
-            ["--model-path", "model.bin", "--enable-command-replay", "invalid"]));
+            ["--model-path", "model.bin", "--enable-command-replay", "true"]));
+        Assert.Throws<ArgumentException>(() => WebApiCommandLine.Parse(
+            ["--model-path", "model.bin", "--max-in-flight-generation-batches", "4"]));
     }
 
     [Fact]
@@ -50,11 +57,11 @@ public sealed class GraphWebRuntimeTests
             new ModelTextTransferResolver([new Rwkv6WorldTextTransfer(), new Rwkv7G1TextTransfer()]),
             new PromptStateManager(new PromptStateManagerOptions()),
             NullLogger<RwkvModelHost>.Instance));
-        Assert.Contains("requires runtime kind 'vortice'", error.Message);
+        Assert.Contains("Unsupported RWKV Vortice runtime option 'EnableCommandReplay'", error.Message);
     }
 
     [Fact]
-    public void ModelHost_ConfiguresGpuReplay()
+    public void ModelHost_RejectsLegacyGpuReplay()
     {
         if (!HasGpu()) return;
         var path = TestModelLoader.GetPath(TestModel.Rwkv7Fp32);
@@ -71,7 +78,7 @@ public sealed class GraphWebRuntimeTests
             new ModelTextTransferResolver([new Rwkv6WorldTextTransfer(), new Rwkv7G1TextTransfer()]),
             new PromptStateManager(new PromptStateManagerOptions()),
             NullLogger<RwkvModelHost>.Instance));
-        Assert.Contains("token IDs outside", error.Message);
+        Assert.Contains("Unsupported RWKV Vortice runtime option 'EnableCommandReplay'", error.Message);
     }
 
     [Theory]

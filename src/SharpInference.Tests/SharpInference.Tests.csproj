@@ -59,6 +59,10 @@
     <ProjectReference Include="..\SharpInference.Backends.Vortice\SharpInference.Backends.Vortice.csproj" />
     <ProjectReference Include="..\SharpInference.WebApi\SharpInference.WebApi.csproj" />
     <ProjectReference Include="..\SharpInference.Graphs\SharpInference.Graphs.csproj" />
+    <ProjectReference Include="..\SharpInference.Vm\SharpInference.Vm.csproj" />
+    <ProjectReference Include="..\SharpInference.Vm.Optimization\SharpInference.Vm.Optimization.csproj" />
+    <ProjectReference Include="..\SharpInference.Backends.CpuVm\SharpInference.Backends.CpuVm.csproj" />
+    <ProjectReference Include="..\SharpInference.Backends.D3D12Vm\SharpInference.Backends.D3D12Vm.csproj" />
     <ProjectReference Include="..\SharpInference.Gguf\SharpInference.Gguf.csproj" />
   </ItemGroup>
 

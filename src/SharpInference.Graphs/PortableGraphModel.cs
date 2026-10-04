@@ -74,10 +74,11 @@ public sealed class PortableGraphState : INamedRwkvState
         synchronizeFromDevice = synchronize;
     }
 
-    public void DetachDeviceSynchronizer()
+    public void DetachDeviceSynchronizer(bool synchronize = true)
     {
-        if (deviceModified)
+        if (deviceModified && synchronize)
             Synchronize();
+        deviceModified = false;
         synchronizeFromDevice = null;
     }
 

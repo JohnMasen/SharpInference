@@ -4,6 +4,7 @@ using SharpInference.Architectures.Rwkv6;
 using SharpInference.Architectures.Rwkv7;
 using SharpInference.Gguf;
 using SharpInference.Graphs;
+using SharpInference.Vm;
 
 namespace SharpInference.Runtime;
 
@@ -17,36 +18,21 @@ public interface IArchitectureMetadataReader
     RwkvModelMetadata Read(IModelTensorCatalog catalog);
 }
 
-public enum XmlArchitectureGraphKind
-{
-    Logical,
-    Execution,
-}
-
 public sealed class XmlArchitectureMetadataReader : IArchitectureMetadataReader
 {
     private readonly string path;
-    private readonly XmlArchitectureGraphKind kind;
 
-    public XmlArchitectureMetadataReader(string path, XmlArchitectureGraphKind kind)
+    public XmlArchitectureMetadataReader(string path)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
-        if (!Enum.IsDefined(kind)) throw new ArgumentOutOfRangeException(nameof(kind));
         this.path = path;
-        this.kind = kind;
     }
 
     public RwkvModelMetadata Read(IModelTensorCatalog catalog)
     {
         ArgumentNullException.ThrowIfNull(catalog);
-        var xml = System.IO.File.ReadAllText(path);
-        if (kind == XmlArchitectureGraphKind.Logical)
-        {
-            var graph = GraphXml.DeserializeLogical(xml);
-            return new GraphArchitectureMetadataReader(graph).Read(catalog);
-        }
-
-        return new GraphArchitectureMetadataReader(GraphXml.DeserializeExecution(xml)).Read(catalog);
+        var graph = GraphXml.DeserializeLogical(System.IO.File.ReadAllText(path));
+        return new GraphArchitectureMetadataReader(graph).Read(catalog);
     }
 }
 
@@ -89,14 +75,6 @@ public sealed class GraphArchitectureMetadataReader : IArchitectureMetadataReade
     private readonly IReadOnlyList<GraphResource> resources;
 
     public GraphArchitectureMetadataReader(LogicalGraph graph)
-    {
-        ArgumentNullException.ThrowIfNull(graph);
-        identity = graph.Identity;
-        signature = graph.Model;
-        resources = graph.Resources;
-    }
-
-    public GraphArchitectureMetadataReader(ExecutionGraph graph)
     {
         ArgumentNullException.ThrowIfNull(graph);
         identity = graph.Identity;
@@ -151,35 +129,19 @@ public sealed class ProcessorBuildContext
 {
     private readonly HashSet<object> disposed = new(ReferenceEqualityComparer.Instance);
 
-    internal ProcessorBuildContext(string path, bool debug)
+    internal ProcessorBuildContext(string path)
     {
         Path = path;
-        Debug = debug;
     }
 
     public string Path { get; }
-    public bool Debug { get; }
     public IModelFile? File { get; set; }
     internal OwnedModelTensorCatalog? OwnedCatalog { get; set; }
     public IModelTensorCatalog? Catalog => (IModelTensorCatalog?)OwnedCatalog ?? File;
     public RwkvModelMetadata? Metadata { get; set; }
     public LogicalGraph? LogicalGraph { get; set; }
-    public ExecutionGraph? ExecutionGraph { get; set; }
-    public IBackendExecutablePlan? PreparedPlan { get; set; }
-    public ExecutionGraph? InferenceExecutionGraph
-    {
-        get => ExecutionGraph;
-        set => ExecutionGraph = value;
-    }
-    public IBackendExecutablePlan? InferencePreparedPlan
-    {
-        get => PreparedPlan;
-        set => PreparedPlan = value;
-    }
-    public ExecutionGraph? PrefillExecutionGraph { get; set; }
-    public IBackendExecutablePlan? PrefillPreparedPlan { get; set; }
-    public IList<IPrefillGraphOptimizer> PrefillOptimizers { get; } = new List<IPrefillGraphOptimizer>();
-    public IExecutionGraphBackend? Backend { get; set; }
+    public VmCompiledPlan? PreparedPlan { get; set; }
+    public VmGraphBackend? Backend { get; set; }
     public IRwkvArchitecture? Architecture { get; set; }
     public IRwkvModel? Model { get; set; }
 
@@ -220,7 +182,6 @@ public sealed class ProcessorPipelineBuilder
     }
 
     public string Path { get; }
-    public bool Debug { get; set; }
     public IReadOnlyList<string> StepNames => steps.Select(static step => step.Name).ToArray();
 
     internal ProcessorPipelineBuilder Append(IProcessorBuildStep step)
@@ -238,7 +199,7 @@ public sealed class ProcessorPipelineBuilder
 
     public Processor Build()
     {
-        var context = new ProcessorBuildContext(Path, Debug);
+        var context = new ProcessorBuildContext(Path);
         var started = new List<IProcessorBuildStep>();
         try
         {
@@ -255,27 +216,10 @@ public sealed class ProcessorPipelineBuilder
                 throw new InvalidOperationException("The pipeline must load a file, read metadata, prepare a backend plan, and bind an architecture.");
             }
 
-            if (context.PreparedPlan is not null &&
-                !ReferenceEquals(context.PreparedPlan.Graph, context.ExecutionGraph))
-            {
-                throw new InvalidOperationException("The prepared plan does not match the execution graph.");
-            }
-            if (context.PrefillPreparedPlan is not null &&
-                !ReferenceEquals(context.PrefillPreparedPlan.Graph, context.PrefillExecutionGraph))
-            {
-                throw new InvalidOperationException("The prefill plan does not match the prefill execution graph.");
-            }
 
             if (context.Model.Metadata != context.Metadata)
             {
                 throw new InvalidDataException("The bound model metadata differs from the catalog metadata.");
-            }
-
-            if (context.Debug &&
-                (context.Backend is not IProcessorDebugBackend ||
-                 context.PreparedPlan is not IDebugBackendExecutablePlan))
-            {
-                throw new NotSupportedException("The selected backend does not support per-session debug execution.");
             }
 
             context.OwnedCatalog?.ReleaseSource();
@@ -313,19 +257,6 @@ public sealed class ProcessorPipelineBuilder
 
 public static class ProcessorPipelineExtensions
 {
-    public static ProcessorPipelineBuilder UsePrefillOptimizers(
-        this ProcessorPipelineBuilder builder, params IPrefillGraphOptimizer[] optimizers)
-    {
-        ArgumentNullException.ThrowIfNull(optimizers);
-        if (optimizers.Length == 0 || optimizers.Any(static optimizer => optimizer is null))
-            throw new ArgumentException("At least one non-null prefill optimizer is required.", nameof(optimizers));
-        return builder.AddStep("prefill-optimizers",
-            context =>
-            {
-                foreach (var optimizer in optimizers) context.PrefillOptimizers.Add(optimizer);
-            });
-    }
-
     public static ProcessorPipelineBuilder AddStep(
         this ProcessorPipelineBuilder builder, string name, Action<ProcessorBuildContext> execute) =>
         builder.AddStep(name, execute, static _ => { });
@@ -363,9 +294,8 @@ public static class ProcessorPipelineExtensions
     }
 
     public static ProcessorPipelineBuilder UseXmlMetadata(
-        this ProcessorPipelineBuilder builder, IModelReader reader, string path,
-        XmlArchitectureGraphKind kind) =>
-        builder.UseReader(reader, new XmlArchitectureMetadataReader(path, kind));
+        this ProcessorPipelineBuilder builder, IModelReader reader, string path) =>
+        builder.UseReader(reader, new XmlArchitectureMetadataReader(path));
 
     public static ProcessorPipelineBuilder UseProvider(
         this ProcessorPipelineBuilder builder, ILogicalGraphProvider provider) =>
@@ -386,25 +316,6 @@ public static class ProcessorPipelineExtensions
             context.LogicalGraph = provider.Build(catalog);
         });
 
-    public static ProcessorPipelineBuilder UseExecutionGraph(
-        this ProcessorPipelineBuilder builder, Func<ProcessorBuildContext, ExecutionGraph> source) =>
-        builder.AddStep("execution-source", context =>
-        {
-            ArgumentNullException.ThrowIfNull(source);
-            context.ExecutionGraph = source(context) ?? throw new InvalidOperationException("The execution source returned no graph.");
-        });
-
-    public static ProcessorPipelineBuilder UseExecutionXml(
-        this ProcessorPipelineBuilder builder, string xml)
-    {
-        ArgumentNullException.ThrowIfNull(xml);
-        return builder.UseExecutionGraph(context =>
-        {
-            context.LogicalGraph = null;
-            return GraphXml.DeserializeExecution(xml);
-        });
-    }
-
     public static ProcessorPipelineBuilder UseXmlLogicalGraph(
         this ProcessorPipelineBuilder builder, string path)
     {
@@ -412,33 +323,17 @@ public static class ProcessorPipelineExtensions
         return builder.AddStep("xml-logical", context =>
         {
             context.LogicalGraph = GraphXml.DeserializeLogical(System.IO.File.ReadAllText(path));
-            context.ExecutionGraph = null;
-            context.PrefillExecutionGraph = null;
-            context.PrefillPreparedPlan = null;
-        });
-    }
-
-    public static ProcessorPipelineBuilder UseXmlExecutionGraph(
-        this ProcessorPipelineBuilder builder, string path)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(path);
-        return builder.AddStep("xml-execution", context =>
-        {
-            context.LogicalGraph = null;
-            context.ExecutionGraph = GraphXml.DeserializeExecution(System.IO.File.ReadAllText(path));
-            context.PrefillExecutionGraph = null;
-            context.PrefillPreparedPlan = null;
         });
     }
 
     public static ProcessorPipelineBuilder UseBackend(
-        this ProcessorPipelineBuilder builder, IExecutionGraphBackend backend,
+        this ProcessorPipelineBuilder builder, VmGraphBackend backend,
         GraphOptimizationOptions? options = null) =>
         builder.UseBackend(_ => backend, options);
 
     public static ProcessorPipelineBuilder UseBackend(
         this ProcessorPipelineBuilder builder,
-        Func<ProcessorBuildContext, IExecutionGraphBackend> factory,
+        Func<ProcessorBuildContext, VmGraphBackend> factory,
         GraphOptimizationOptions? options = null) =>
         builder.AddStep("backend", context =>
         {
@@ -450,96 +345,9 @@ public static class ProcessorPipelineExtensions
                 ValidateGraph(logicalGraph.Identity, logicalGraph.Model, logicalGraph.Resources, context);
             }
 
-            context.ExecutionGraph ??= context.LogicalGraph is { } logical
-                ? new GraphOptimizer().Optimize(logical, options ?? new GraphOptimizationOptions(OptimizationBoundary.Unrestricted),
-                    backend.KernelCatalog, backend as IFusedOperatorProvider)
-                : throw new InvalidOperationException("A logical graph or direct execution graph is required.");
-            ValidateGraph(context.ExecutionGraph.Identity, context.ExecutionGraph.Model,
-                context.ExecutionGraph.Resources, context);
-
-            context.PreparedPlan = context.Debug
-                ? GraphDebugSession.PrepareDebugPlan(backend, context.ExecutionGraph)
-                : backend.Prepare(context.ExecutionGraph)
-                    .GetPlanOrThrow(backend.KernelCatalog.BackendId);
-            if (!ReferenceEquals(context.PreparedPlan.Graph, context.ExecutionGraph))
-            {
-                throw new InvalidOperationException("The backend prepared a plan for a different execution graph.");
-            }
-            if (!context.Debug && context.PrefillOptimizers.Count > 0 &&
-                backend is IProcessorPrefillBackend)
-            {
-                IPrefillGraphOptimizer[] candidates = context.PrefillOptimizers.ToArray();
-                var prefillContext = new GraphPrefillOptimizationContext(
-                    context.LogicalGraph, context.ExecutionGraph, context.ExecutionGraph.Model, context.Catalog);
-                var matches = candidates.Where(candidate => candidate.CanOptimize(prefillContext)).ToArray();
-                if (matches.Length > 1)
-                    throw new InvalidOperationException("Multiple prefill graph optimizers matched the inference graph.");
-                if (matches.Length == 1)
-                {
-                    context.PrefillExecutionGraph = matches[0].Optimize(prefillContext);
-                    ValidateGraph(context.PrefillExecutionGraph.Identity, context.PrefillExecutionGraph.Model,
-                        context.PrefillExecutionGraph.Resources, context);
-                    ValidatePrefillCompatibility(context.ExecutionGraph, context.PrefillExecutionGraph);
-                }
-            }
+            context.PreparedPlan = backend.Prepare(context.LogicalGraph ??
+                throw new InvalidOperationException("A logical graph is required to bind the model."), options);
         }, context => context.DisposeOnce(context.Backend));
-
-    private static void ValidatePrefillCompatibility(ExecutionGraph inference, ExecutionGraph prefill)
-    {
-        if (inference.Identity.ArchitectureId != prefill.Identity.ArchitectureId ||
-            inference.Model != prefill.Model ||
-            inference.GraphState is not { } inferenceState ||
-            prefill.GraphState is not { } prefillState ||
-            inferenceState.Slots.Count == 0 ||
-            !inferenceState.Schema.IsCompatibleWith(prefillState.Schema))
-            throw new InvalidDataException("The prefill graph and inference graph do not share a StateSchema.");
-
-        EnsureCompleteState(inference, inferenceState);
-        EnsureCompleteState(prefill, prefillState);
-        var originalState = inferenceState.Slots.Select(slot =>
-            (slot.Name, Tensor: inference.Resources.Single(resource => resource.Id == slot.Resource).Tensor)).ToArray();
-        var derivedState = prefillState.Slots.Select(slot =>
-            (slot.Name, Tensor: prefill.Resources.Single(resource => resource.Id == slot.Resource).Tensor)).ToArray();
-        if (originalState.Length != derivedState.Length ||
-            originalState.Zip(derivedState).Any(pair =>
-                pair.First.Name != pair.Second.Name ||
-                pair.First.Tensor.ElementType != pair.Second.Tensor.ElementType ||
-                pair.First.Tensor.Layout != pair.Second.Tensor.Layout ||
-                !pair.First.Tensor.Dimensions.SequenceEqual(pair.Second.Tensor.Dimensions)))
-            throw new InvalidDataException("The prefill graph state tensors differ from inference.");
-        ValidateEndpoints(inference.Inputs, prefill.Inputs, checkShape: false, "input");
-        ValidateEndpoints(inference.Outputs, prefill.Outputs, checkShape: true, "output");
-
-        static void EnsureCompleteState(ExecutionGraph graph, GraphState state)
-        {
-            var declared = state.Slots.Select(slot => slot.Resource).ToHashSet();
-            if (graph.Resources.Any(resource => resource.Kind == GraphResourceKind.SessionState &&
-                    !declared.Contains(resource.Id)))
-                throw new InvalidDataException("The prefill state schema must cover every session-state resource.");
-        }
-
-        void ValidateEndpoints(
-            IReadOnlyList<ResourceId> inferenceIds, IReadOnlyList<ResourceId> prefillIds,
-            bool checkShape, string direction)
-        {
-            if (inferenceIds.Count == 0 || inferenceIds.Count != prefillIds.Count)
-                throw new InvalidDataException($"The prefill graph has incompatible {direction} resources.");
-            var original = inferenceIds.Select(id => inference.Resources.Single(resource => resource.Id == id))
-                .OrderBy(resource => resource.Name, StringComparer.Ordinal).ToArray();
-            var derived = prefillIds.Select(id => prefill.Resources.Single(resource => resource.Id == id))
-                .OrderBy(resource => resource.Name, StringComparer.Ordinal).ToArray();
-            for (var index = 0; index < original.Length; index++)
-            {
-                if (original[index].Name != derived[index].Name ||
-                    original[index].Kind != derived[index].Kind ||
-                    original[index].Tensor.ElementType != derived[index].Tensor.ElementType ||
-                    checkShape &&
-                    (original[index].Tensor.Layout != derived[index].Tensor.Layout ||
-                     !original[index].Tensor.Dimensions.SequenceEqual(derived[index].Tensor.Dimensions)))
-                    throw new InvalidDataException($"The prefill graph has an incompatible {direction} resource.");
-            }
-        }
-    }
 
     private static void ValidateGraph(
         GraphIdentity identity, GraphModelSignature signature,
@@ -600,21 +408,6 @@ public static class ProcessorPipelineExtensions
                 context.Architecture is not IModelWeightOwnershipPolicy { RequiresCpuWeightCopy: false });
             context.Model = context.Architecture.Bind(context.Catalog
                 ?? throw new InvalidOperationException("The reader must run before architecture binding."));
-            if (context.PrefillExecutionGraph is { } prefillGraph &&
-                context.Backend is IProcessorPrefillBackend prefillBackend)
-            {
-                if (prefillBackend.CanPreparePrefill(context.ExecutionGraph!))
-                {
-                    context.PrefillPreparedPlan = prefillBackend.Prepare(prefillGraph)
-                        .GetPlanOrThrow(prefillBackend.KernelCatalog.BackendId);
-                    if (!ReferenceEquals(context.PrefillPreparedPlan.Graph, prefillGraph))
-                        throw new InvalidOperationException("The backend prepared a plan for a different prefill graph.");
-                }
-                else
-                {
-                    context.PrefillExecutionGraph = null;
-                }
-            }
         }, context =>
         {
             try { context.DisposeOnce(context.Model); }
@@ -640,8 +433,7 @@ public sealed class Processor : IDisposable
     private readonly IReadOnlyList<IProcessorBuildStep> steps;
     private readonly IRwkvArchitecture architecture;
     private readonly IRwkvModel model;
-    private readonly IExecutionGraphBackend? backend;
-    private readonly bool debug;
+    private readonly VmGraphBackend backend;
     private bool disposed;
 
     internal Processor(ProcessorBuildContext context, IReadOnlyList<IProcessorBuildStep> steps)
@@ -650,32 +442,36 @@ public sealed class Processor : IDisposable
         this.steps = steps.ToArray();
         architecture = context.Architecture!;
         model = context.Model!;
-        backend = context.Backend;
-        debug = context.Debug;
+        backend = context.Backend!;
         Metadata = context.Metadata!;
         LogicalGraph = context.LogicalGraph;
-        ExecutionGraph = context.ExecutionGraph;
-        PreparedPlan = context.PreparedPlan;
-        PrefillExecutionGraph = context.PrefillExecutionGraph;
-        PrefillPreparedPlan = context.PrefillPreparedPlan;
+        PreparedPlan = context.PreparedPlan!;
     }
 
     public RwkvModelMetadata Metadata { get; }
-    public bool IsDebugMode => debug;
     public LogicalGraph? LogicalGraph { get; }
-    public ExecutionGraph? ExecutionGraph { get; }
-    public IBackendExecutablePlan? PreparedPlan { get; }
-    public ExecutionGraph? InferenceExecutionGraph => ExecutionGraph;
-    public IBackendExecutablePlan? InferencePreparedPlan => PreparedPlan;
-    public ExecutionGraph? PrefillExecutionGraph { get; }
-    public IBackendExecutablePlan? PrefillPreparedPlan { get; }
+    public VmCompiledPlan PreparedPlan { get; }
 
     public void ExportLogicalGraph(Stream stream)
     {
         ThrowIfDisposed();
         var graph = LogicalGraph ??
             throw new InvalidOperationException("The processor has no logical graph.");
-        WriteGraphJson(stream, GraphJson.Serialize(graph));
+        WriteGraphText(stream, GraphJson.Serialize(graph));
+    }
+
+    public VmProgram InferenceProgram => PreparedPlan.Program;
+    public VmProgram PrefillProgram => PreparedPlan.PrefillPlan?.Program ?? PreparedPlan.Program;
+
+    public void ExportCompiledArtifact(string directory, ProcessorExecutionGraphKind kind = ProcessorExecutionGraphKind.Inference)
+    {
+        ThrowIfDisposed();
+        if (!Enum.IsDefined(kind)) throw new ArgumentOutOfRangeException(nameof(kind));
+        var compiled = PreparedPlan;
+        if (kind == ProcessorExecutionGraphKind.Prefill) compiled = compiled.PrefillPlan ?? compiled;
+        var export = compiled.ExportArtifact ??
+            throw new NotSupportedException("The selected backend does not expose compiled VM artifacts.");
+        export(directory);
     }
 
     public void ExportExecutionGraph(
@@ -684,20 +480,18 @@ public sealed class Processor : IDisposable
         ThrowIfDisposed();
         if (!Enum.IsDefined(kind))
             throw new ArgumentOutOfRangeException(nameof(kind));
-        var graph = kind == ProcessorExecutionGraphKind.Inference
-            ? InferenceExecutionGraph : PrefillExecutionGraph;
-        if (graph is null)
-            throw new InvalidOperationException($"The processor has no {kind} execution graph.");
-        WriteGraphJson(stream, GraphJson.Serialize(graph));
+        var compiled = PreparedPlan;
+        if (kind == ProcessorExecutionGraphKind.Prefill) compiled = compiled.PrefillPlan ?? compiled;
+        WriteGraphText(stream, VmProgramXml.Serialize(compiled.Program));
     }
 
-    private static void WriteGraphJson(Stream stream, string json)
+    private static void WriteGraphText(Stream stream, string text)
     {
         ArgumentNullException.ThrowIfNull(stream);
         if (!stream.CanWrite)
             throw new ArgumentException("The stream must be writable.", nameof(stream));
         using var writer = new StreamWriter(stream, new UTF8Encoding(false), leaveOpen: true);
-        writer.Write(json);
+        writer.Write(text);
     }
 
     public static Processor Load(string path) =>
@@ -706,12 +500,12 @@ public sealed class Processor : IDisposable
             .UseProvider(context => RwkvRuntimeFactory.CreateGraphProvider(
                 context.Metadata?.ArchitectureId ??
                 throw new InvalidOperationException("The reader must run before selecting a graph provider.")))
-            .UseBackend(_ => SharpInference.Backends.Cpu.CpuPrimitiveGraphBackend.Instance)
+            .UseBackend(_ => VmBackendFactory.CreateCpu())
             .UsePortableGraphArchitecture()
             .Build();
 
     public static Processor LoadGraph(
-        string path, LogicalGraph graph, IExecutionGraphBackend backend,
+        string path, LogicalGraph graph, VmGraphBackend backend,
         GraphOptimizationOptions? options = null)
     {
         ArgumentNullException.ThrowIfNull(graph);
@@ -725,7 +519,7 @@ public sealed class Processor : IDisposable
     }
 
     public static Processor LoadGraph(
-        string path, ILogicalGraphProvider provider, IExecutionGraphBackend backend,
+        string path, ILogicalGraphProvider provider, VmGraphBackend backend,
         GraphOptimizationOptions? options = null)
     {
         ArgumentNullException.ThrowIfNull(provider);
@@ -768,31 +562,12 @@ public sealed class Processor : IDisposable
     internal ProcessorSession CreateSession(IRwkvState state)
     {
         ThrowIfDisposed();
-        IProcessorSessionExecutor? executor = null;
-        GraphDebugSession? debugSession = null;
+        IVmSessionExecutor? executor = null;
         try
         {
-            if (debug)
-            {
-                debugSession = new GraphDebugSession();
-                executor = ((IProcessorDebugBackend)backend!).CreateDebugSession(
-                    model, state, (IDebugBackendExecutablePlan)PreparedPlan!, debugSession)
-                    ?? throw new InvalidOperationException("The debug backend returned no session executor.");
-            }
-            else if (PrefillPreparedPlan is { } prefillPlan)
-            {
-                executor = (backend as IProcessorPrefillBackend
-                    ?? throw new InvalidOperationException("The selected backend cannot execute the prepared prefill plan."))
-                    .CreateSessionExecutor(model, state, PreparedPlan!, prefillPlan)
-                    ?? throw new InvalidOperationException("The backend returned no dual-graph session executor.");
-            }
-            else
-            {
-                executor = backend!.CreateSessionExecutor(model, state, PreparedPlan!)
-                    ?? throw new InvalidOperationException("The backend returned no session executor.");
-            }
-
-            return new ProcessorSession(this, model, state, executor, debugSession);
+            executor = backend.CreateSessionExecutor(model, state, PreparedPlan)
+                ?? throw new InvalidOperationException("The backend returned no VM session executor.");
+            return new ProcessorSession(this, model, state, executor);
         }
         catch (Exception creationError)
         {
@@ -803,8 +578,6 @@ public sealed class Processor : IDisposable
             {
                 if (state is IDisposable disposableState) disposableState.Dispose();
             }
-            catch (Exception error) { cleanupErrors.Add(error); }
-            try { debugSession?.Dispose(); }
             catch (Exception error) { cleanupErrors.Add(error); }
             if (cleanupErrors.Count != 0)
             {
@@ -832,65 +605,32 @@ public sealed class Processor : IDisposable
     }
 }
 
-public sealed class ProcessorSession : IRwkvGenerationSession, IDisposable
+public sealed class ProcessorSession : IRwkvScopedGenerationSession, IRwkvAsyncPrefillSession, IDisposable
 {
     private readonly Processor owner;
     private readonly IRwkvState state;
-    private readonly IProcessorSessionExecutor executor;
+    private readonly IVmSessionExecutor executor;
     private readonly float[] logits;
     private readonly object gate = new();
     private bool disposed;
+    private bool operationActive;
 
     internal ProcessorSession(
         Processor owner, IRwkvModel model, IRwkvState state,
-        IProcessorSessionExecutor executor, GraphDebugSession? debugSession)
+        IVmSessionExecutor executor)
     {
         this.owner = owner;
         this.state = state;
         this.executor = executor;
-        DebugSession = debugSession;
         logits = new float[model.Metadata.VocabularySize];
-    }
-
-    public bool IsDebugMode => DebugSession is not null;
-    public GraphDebugSession? DebugSession { get; }
-    public Action<int, float[]>? LayerTrace
-    {
-        get => (executor as IProcessorLayerTraceExecutor)?.LayerTrace;
-        set
-        {
-            ThrowIfDisposed();
-            if (executor is not IProcessorLayerTraceExecutor trace)
-                throw new NotSupportedException("The session backend does not support per-layer tracing.");
-            trace.LayerTrace = value;
-        }
-    }
-
-    public event EventHandler<GraphDebugBeforeNodeEventArgs> BeforeNodeCall
-    {
-        add => RequireDebugSession().BeforeNode += value;
-        remove => RequireDebugSession().BeforeNode -= value;
-    }
-
-    public event EventHandler<GraphDebugAfterNodeEventArgs> AfterNodeCall
-    {
-        add => RequireDebugSession().AfterNode += value;
-        remove => RequireDebugSession().AfterNode -= value;
-    }
-
-    public void Resume() => RequireDebugSession().Resume();
-    public void Stop() => RequireDebugSession().Stop();
-
-    private GraphDebugSession RequireDebugSession()
-    {
-        ThrowIfDisposed();
-        return DebugSession ?? throw new NotSupportedException("This processor session is not in debug mode.");
     }
 
     private void ThrowIfDisposed()
     {
         ObjectDisposedException.ThrowIf(disposed, this);
         owner.ThrowIfDisposed();
+        if (operationActive)
+            throw new InvalidOperationException("A queued operation or generation scope already owns this session.");
     }
 
     public ReadOnlyMemory<float> ForwardToken(int token)
@@ -901,6 +641,78 @@ public sealed class ProcessorSession : IRwkvGenerationSession, IDisposable
             executor.ForwardToken(token, logits);
             return logits;
         }
+    }
+
+    public async ValueTask<IRwkvGenerationScope> BeginGenerationAsync(CancellationToken cancellationToken = default)
+    {
+        lock (gate)
+        {
+            ThrowIfDisposed();
+            operationActive = true;
+        }
+        try
+        {
+            var scope = await executor.BeginGenerationAsync(cancellationToken).ConfigureAwait(false);
+            return new ExclusiveGeneration(this, scope);
+        }
+        catch
+        {
+            EndExclusiveOperation();
+            throw;
+        }
+    }
+
+    private void EndExclusiveOperation() { lock (gate) operationActive = false; }
+
+    private sealed class ExclusiveGeneration(ProcessorSession owner, IRwkvGenerationScope inner) :
+        IRwkvGenerationScope, IRwkvGenerationSession
+    {
+        private readonly object gate = new();
+        private Task? shutdown;
+        public IRwkvGenerationSession Session => this;
+        public ReadOnlyMemory<float> ForwardToken(int token)
+        {
+            lock (owner.gate)
+            {
+                ObjectDisposedException.ThrowIf(owner.disposed, owner);
+                owner.owner.ThrowIfDisposed();
+                inner.Session.ForwardToken(token).Span.CopyTo(owner.logits);
+                return owner.logits;
+            }
+        }
+        public ReadOnlyMemory<float> Prefill(ReadOnlySpan<int> tokens) =>
+            throw new InvalidOperationException("Prefill cannot run inside a generation scope.");
+        public ValueTask DisposeAsync()
+        {
+            lock (gate) return new ValueTask(shutdown ??= DisposeCoreAsync());
+        }
+        private async Task DisposeCoreAsync()
+        {
+            try { await inner.DisposeAsync().ConfigureAwait(false); }
+            finally { owner.EndExclusiveOperation(); }
+        }
+    }
+
+    public async ValueTask<ReadOnlyMemory<float>> PrefillAsync(ReadOnlyMemory<int> tokens,
+        CancellationToken cancellationToken = default)
+    {
+        lock (gate)
+        {
+            ThrowIfDisposed();
+            operationActive = true;
+        }
+        try
+        {
+            var result = await executor.PrefillAsync(tokens, cancellationToken).ConfigureAwait(false);
+            lock (gate)
+            {
+                ObjectDisposedException.ThrowIf(disposed, this);
+                owner.ThrowIfDisposed();
+                result.CopyTo(logits);
+                return logits;
+            }
+        }
+        finally { EndExclusiveOperation(); }
     }
 
     public ReadOnlyMemory<float> Prefill(ReadOnlySpan<int> tokens)
@@ -941,11 +753,8 @@ public sealed class ProcessorSession : IRwkvGenerationSession, IDisposable
             ThrowIfDisposed();
             if (!BitConverter.IsLittleEndian)
                 throw new PlatformNotSupportedException("GGUF state tensors require little-endian FP32 values.");
-            var graph = owner.InferenceExecutionGraph ??
-                throw new InvalidOperationException("The processor has no inference graph.");
-            var stateExecutor = executor as IProcessorStateExecutor ??
-                throw new NotSupportedException("The session backend does not support GraphState export.");
-            var tensors = stateExecutor.ReadState(graph.GraphState).Select(value =>
+            var graph = owner.PreparedPlan.BindingGraph;
+            var tensors = executor.ReadState(graph.GraphState).Select(value =>
                 new GgufStateTensor(value.Name, GgufTensorType.Float32,
                     value.Dimensions.Select(size => checked((ulong)size)),
                     MemoryMarshal.AsBytes(value.Values.AsSpan()).ToArray())).ToArray();
@@ -961,10 +770,7 @@ public sealed class ProcessorSession : IRwkvGenerationSession, IDisposable
             ThrowIfDisposed();
             if (!BitConverter.IsLittleEndian)
                 throw new PlatformNotSupportedException("GGUF state tensors require little-endian FP32 values.");
-            var graph = owner.InferenceExecutionGraph ??
-                throw new InvalidOperationException("The processor has no inference graph.");
-            var stateExecutor = executor as IProcessorStateExecutor ??
-                throw new NotSupportedException("The session backend does not support GraphState import.");
+            var graph = owner.PreparedPlan.BindingGraph;
             var saved = GgufStateFile.Read(stream);
             if (!string.Equals(saved.SchemaName, graph.GraphState.Schema.Name, StringComparison.Ordinal) ||
                 saved.Tensors.Count != graph.GraphState.Slots.Count)
@@ -988,20 +794,13 @@ public sealed class ProcessorSession : IRwkvGenerationSession, IDisposable
                 MemoryMarshal.Cast<byte, float>(tensor.Data.Span).CopyTo(numbers);
                 values[index] = new GraphStateValue(slot.Name, resource.Tensor.Dimensions, numbers);
             }
-            stateExecutor.WriteState(graph.GraphState, values);
+            executor.WriteState(graph.GraphState, values);
         }
     }
 
     public void Dispose()
     {
         if (Volatile.Read(ref disposed)) return;
-
-        // A paused inference holds gate; stopping it first allows the inference thread to unwind.
-        if (DebugSession?.State is GraphDebugSessionState.Running or GraphDebugSessionState.Paused)
-        {
-            try { DebugSession.Stop(); }
-            catch (InvalidOperationException) { /* The invocation finished concurrently. */ }
-        }
 
         lock (gate)
         {
@@ -1014,8 +813,6 @@ public sealed class ProcessorSession : IRwkvGenerationSession, IDisposable
             {
                 if (state is IDisposable disposableState) disposableState.Dispose();
             }
-            catch (Exception error) { errors.Add(error); }
-            try { DebugSession?.Dispose(); }
             catch (Exception error) { errors.Add(error); }
             if (errors.Count != 0)
                 throw new AggregateException("One or more processor session resources failed to dispose.", errors);

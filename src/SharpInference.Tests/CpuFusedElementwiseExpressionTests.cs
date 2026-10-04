@@ -262,7 +262,7 @@ public sealed class CpuFusedElementwiseExpressionTests(ITestOutputHelper output)
     }
 
     [Fact]
-    public void ProcessorPipelineAcceptsFusedCpuExpressionAndRetainsOffFallback()
+    public void CompiledProcessorPipelineAcceptsElementwiseChainWithOptimizationOnAndOff()
     {
         var graph = new LogicalGraphBuilder(new GraphIdentity("synthetic", 1, "processor-expression"),
                 new GraphModelSignature(2, 2, 1, 1, 2, "synthetic.state.fp32@1"))
@@ -301,7 +301,7 @@ public sealed class CpuFusedElementwiseExpressionTests(ITestOutputHelper output)
             using var processor = new ProcessorPipelineBuilder("virtual-model")
                 .UseReader(new VirtualReader(), new GraphArchitectureMetadataReader(graph))
                 .UseProvider(new SuppliedLogicalGraphProvider(graph))
-                .UseBackend(backend, options)
+                .UseBackend(VmBackendFactory.CreateCpu(), options)
                 .UsePortableGraphArchitecture()
                 .Build();
             using var session = processor.CreateSession();
@@ -334,8 +334,8 @@ public sealed class CpuFusedElementwiseExpressionTests(ITestOutputHelper output)
                 node.Operation == FusedElementwiseExpressionContract.Operation);
         }
 
-        using var off = Processor.LoadGraph(path, provider, backend, disabled);
-        using var onProcessor = Processor.LoadGraph(path, provider, backend, enabled);
+        using var off = Processor.LoadGraph(path, provider, VmBackendFactory.CreateCpu(), disabled);
+        using var onProcessor = Processor.LoadGraph(path, provider, VmBackendFactory.CreateCpu(), enabled);
         using var offSession = off.CreateSession();
         using var onSession = onProcessor.CreateSession();
         foreach (var token in new[] { 2, 4, 1 })

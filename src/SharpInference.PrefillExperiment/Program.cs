@@ -215,7 +215,7 @@ if (modelPath is not null)
         using var processor = new ProcessorPipelineBuilder(modelPath)
             .UseReader(new GgmlModelReader())
             .UseProvider(new PortableRwkv6GraphProvider())
-            .UseBackend(_ => VorticePrimitiveGraphBackend.FromConfig(new VorticeRuntimeConfig()))
+            .UseBackend(_ => VmBackendFactory.CreateD3D12())
             .UsePortableGraphArchitecture()
             .Build();
         var measured = MeasureModel(processor, modelTokens, modelRepeats, "DirectX portable graph");
@@ -279,7 +279,7 @@ if (modelPath is not null)
     else
     {
         using var processor = Processor.LoadGraph(modelPath,
-            new PortableRwkv6GraphProvider(), CpuPrimitiveGraphBackend.Instance);
+            new PortableRwkv6GraphProvider(), VmBackendFactory.CreateCpu());
         MeasureModel(processor, modelTokens, modelRepeats, "CPU");
         if (layerMajor)
             MeasureLayerMajor(processor, modelPath, modelTokens, chunkSize, modelRepeats);

@@ -2,8 +2,6 @@ using System.Diagnostics;
 using System.Text;
 using SharpInference;
 using SharpInference.Architectures.Rwkv6;
-using SharpInference.Backends.Cpu;
-using SharpInference.Backends.Vortice;
 using SharpInference.Runtime;
 
 try
@@ -37,16 +35,13 @@ internal sealed class DeploymentTest(DeploymentTestOptions options)
         Console.WriteLine($"max-tokens={options.MaxTokens}");
 
         var loadTimer = Stopwatch.StartNew();
-        VorticePrimitiveGraphBackend? backend = null;
+        VmGraphBackend? backend = null;
         using (var model = new ProcessorPipelineBuilder(options.ModelPath)
             .UseReader(new GgmlModelReader())
             .UseProvider(new PortableRwkv6GraphProvider())
-            .UseBackend(_ => options.Backend == "gpu"
-                ? backend = VorticePrimitiveGraphBackend.FromConfig(new VorticeRuntimeConfig
-                {
-                    AdapterIndex = options.AdapterIndex,
-                })
-                : CpuPrimitiveGraphBackend.Instance)
+            .UseBackend(_ => backend = options.Backend == "gpu"
+                ? VmBackendFactory.CreateD3D12(adapterIndex: options.AdapterIndex)
+                : VmBackendFactory.CreateCpu())
             .UsePortableGraphArchitecture()
             .Build())
         {
@@ -54,19 +49,18 @@ internal sealed class DeploymentTest(DeploymentTestOptions options)
 
             var (tokenizer, tokenizerKind) = CreateCompatibleTokenizer(model.Metadata.VocabularySize);
 
-            Console.WriteLine($"device={backend?.DeviceName ?? "CPU"}");
+            Console.WriteLine($"device={backend!.DeviceName}");
             Console.WriteLine($"model-vocabulary={model.Metadata.VocabularySize}");
             Console.WriteLine($"model-layers={model.Metadata.LayerCount}");
             Console.WriteLine($"model-embedding={model.Metadata.EmbeddingSize}");
             Console.WriteLine($"tokenizer={tokenizerKind}");
             Console.WriteLine($"model-load-ms={loadTimer.Elapsed.TotalMilliseconds:F0}");
 
-            if (backend is not null && model.Metadata.VocabularySize <= 256)
+            if (options.Backend == "gpu" && model.Metadata.VocabularySize <= 256)
             {
                 VerifyAgainstCpu(options.ModelPath, model);
             }
 
-            var before = backend?.Metrics;
             var generationTimer = Stopwatch.StartNew();
             var generated = new System.Text.StringBuilder();
             using var session = model.CreateSession();
@@ -85,19 +79,12 @@ internal sealed class DeploymentTest(DeploymentTestOptions options)
             }
 
             generationTimer.Stop();
-            var after = backend?.Metrics;
-            if (backend is not null && model.Metadata.VocabularySize <= 256)
+            if (options.Backend == "gpu" && model.Metadata.VocabularySize <= 256)
             {
                 await VerifyTinyGenerationAgainstCpuAsync(options.ModelPath, tokenizer, options, generated.ToString(), session);
             }
 
             VerifyStateRoundTrip(model, session);
-
-            if (backend is not null && before is { } starting && after is { } ending &&
-                ending.TokenCommandSubmissions <= starting.TokenCommandSubmissions)
-            {
-                throw new InvalidOperationException("The GPU execution metrics did not record token submissions.");
-            }
 
             var output = generated.ToString();
             if (options.OutputPath is not null)
@@ -113,13 +100,6 @@ internal sealed class DeploymentTest(DeploymentTestOptions options)
             {
                 Console.WriteLine($"generation-output-file={Path.GetFullPath(options.OutputPath)}");
             }
-            if (before is { } initial && after is { } final)
-            {
-                Console.WriteLine($"gpu-model-buffer-bytes={backend!.Memory?.ModelBufferBytes}");
-                Console.WriteLine($"gpu-submissions={final.TokenCommandSubmissions - initial.TokenCommandSubmissions}");
-                Console.WriteLine($"gpu-activation-upload-bytes={final.ActivationUploadBytes - initial.ActivationUploadBytes}");
-                Console.WriteLine($"gpu-output-readback-bytes={final.OutputReadbackBytes - initial.OutputReadbackBytes}");
-            }
             Console.WriteLine("state-round-trip=PASS");
             if (output.Contains('\uFFFD'))
             {
@@ -131,7 +111,7 @@ internal sealed class DeploymentTest(DeploymentTestOptions options)
         }
     }
 
-    private static Processor CreateProcessor(string modelPath, SharpInference.Graphs.IExecutionGraphBackend backend) =>
+    private static Processor CreateProcessor(string modelPath, VmGraphBackend backend) =>
         Processor.LoadGraph(modelPath, new PortableRwkv6GraphProvider(), backend);
 
     private static void VerifyStateRoundTrip(Processor model, ProcessorSession session)
@@ -156,7 +136,7 @@ internal sealed class DeploymentTest(DeploymentTestOptions options)
         string gpuOutput,
         ProcessorSession gpuSession)
     {
-        using var cpuModel = CreateProcessor(modelPath, CpuPrimitiveGraphBackend.Instance);
+        using var cpuModel = CreateProcessor(modelPath, VmBackendFactory.CreateCpu());
         using var cpuSession = cpuModel.CreateSession();
         var cpuOutput = new StringBuilder();
         await foreach (var text in RwkvTextGenerator.GenerateAsync(
@@ -190,7 +170,7 @@ internal sealed class DeploymentTest(DeploymentTestOptions options)
 
     private static void VerifyAgainstCpu(string modelPath, Processor gpuModel)
     {
-        using var cpuModel = CreateProcessor(modelPath, CpuPrimitiveGraphBackend.Instance);
+        using var cpuModel = CreateProcessor(modelPath, VmBackendFactory.CreateCpu());
         using var cpu = cpuModel.CreateSession();
         using var gpu = gpuModel.CreateSession();
         var maximumLogitDifference = 0f;
@@ -344,7 +324,7 @@ internal sealed record DeploymentTestOptions(
                 case "--diagnose-layers":
                 case "--diagnose-token-index":
                     throw new NotSupportedException(
-                        "Per-layer tracing is unavailable in the portable graph backend; use CPU/GPU oracle validation instead.");
+                        "Per-layer tracing is unavailable in the compiled VM; use generated source or CPU/GPU oracle validation instead.");
                 case "--help":
                 case "-h":
                     throw new ArgumentException(Usage);

@@ -7,6 +7,7 @@ using Microsoft.Extensions.Configuration.EnvironmentVariables;
 using SharpInference;
 using SharpInference.Architectures.Rwkv6;
 using SharpInference.Runtime;
+using SharpInference.Vm;
 using SharpInference.WebApi;
 
 if (args.Length == 0 || args.Any(static argument => argument is "--help" or "-h"))
@@ -49,7 +50,7 @@ builder.Services.Configure<RwkvWebOptions>(builder.Configuration.GetSection("Rwk
 builder.Services.AddSingleton(serviceProvider =>
     new GpuBatchScheduler(
         serviceProvider.GetRequiredService<Microsoft.Extensions.Options.IOptions<RwkvWebOptions>>().Value.GpuBatchService,
-        builder.Configuration["Rwkv:Runtime:Kind"]));
+        builder.Configuration["Rwkv:Runtime:Kind"], useVmQueues: true));
 builder.Services.AddSingleton<RwkvRuntimeFactory>();
 builder.Services.AddSingleton<IModelTextTransfer, Rwkv6WorldTextTransfer>();
 builder.Services.AddSingleton<IModelTextTransfer, Rwkv7G1TextTransfer>();
@@ -230,6 +231,9 @@ app.MapPost("/v1/chat/completions", async (
         if (request.Stream)
         {
             var streamingCompletion = new System.Text.StringBuilder();
+            await using var generation = host.GenerateAsync(prompt, options, stops, cancellationToken)
+                .GetAsyncEnumerator(cancellationToken);
+            var hasOutput = await generation.MoveNextAsync();
             context.Response.StatusCode = StatusCodes.Status200OK;
             context.Response.ContentType = "text/event-stream";
             context.Response.Headers.CacheControl = "no-cache";
@@ -239,13 +243,15 @@ app.MapPost("/v1/chat/completions", async (
                 completionId, created, host.ModelId,
                 [new ChatCompletionChunkChoice(0, new ChatDelta("assistant", null), null)]), cancellationToken);
 
-            await foreach (var text in host.GenerateAsync(prompt, options, stops, cancellationToken))
+            while (hasOutput)
             {
+                var text = generation.Current;
                 LogFirstContent(text);
                 streamingCompletion.Append(text);
                 await OpenAiResponses.WriteSseAsync(context.Response, new ChatCompletionChunk(
                     completionId, created, host.ModelId,
                     [new ChatCompletionChunkChoice(0, new ChatDelta(null, text), null)]), cancellationToken);
+                hasOutput = await generation.MoveNextAsync();
             }
 
             await OpenAiResponses.WriteSseAsync(context.Response, new ChatCompletionChunk(
@@ -282,6 +288,23 @@ app.MapPost("/v1/chat/completions", async (
             host.ModelId,
             completion.Length,
             completion.ToString());
+    }
+    catch (Exception exception) when (exception is VmQueueFullException or ResidentSessionLimitException)
+    {
+        app.Logger.LogWarning(exception, "Rejected chat completion because inference capacity is exhausted");
+        if (context.Response.HasStarted)
+        {
+            await OpenAiResponses.WriteSseAsync(context.Response,
+                new { error = new { message = exception.Message, type = "server_error", code = "engine_busy" } }, cancellationToken);
+            await context.Response.WriteAsync("data: [DONE]\n\n", cancellationToken);
+            await context.Response.Body.FlushAsync(cancellationToken);
+        }
+        else
+        {
+            context.Response.Headers.RetryAfter = "1";
+            await OpenAiResponses.WriteErrorAsync(context.Response,
+                StatusCodes.Status503ServiceUnavailable, exception.Message, "engine_busy");
+        }
     }
     catch (ContextWindowExceededException exception)
     {

@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><TargetFramework>net10.0</TargetFramework><ImplicitUsings>enable</ImplicitUsings><Nullable>enable</Nullable><AllowUnsafeBlocks>true</AllowUnsafeBlocks></PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\SharpInference.Instructions.TierZero\SharpInference.Instructions.TierZero.csproj" />
+    <ProjectReference Include="..\SharpInference.Vm\SharpInference.Vm.csproj" />
+    <ProjectReference Include="..\SharpInference.Backends.Cpu\SharpInference.Backends.Cpu.csproj" />
+    <Compile Include="..\SharpInference.Backends.Cpu\CpuHalfMatrixOperators.cs" Link="CpuHalfMatrixOperators.cs" />
+  </ItemGroup>
+</Project>

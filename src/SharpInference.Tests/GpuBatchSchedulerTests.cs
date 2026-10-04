@@ -5,6 +5,27 @@ namespace SharpInference.Tests;
 public sealed class GpuBatchSchedulerTests
 {
     [Fact]
+    public async Task CompiledQueuesDoNotAddAnotherGenerationWaitingRoom()
+    {
+        var cpu = new GpuBatchScheduler(new GpuBatchServiceOptions(), "cpu", 1, useVmQueues: true);
+        await using var first = await cpu.AcquireAsync(CancellationToken.None);
+        await using var second = await cpu.AcquireAsync(CancellationToken.None);
+        Assert.Throws<InvalidOperationException>(() => new GpuBatchScheduler(
+            new GpuBatchServiceOptions { MaxInFlightGenerationBatches = 1 }, "cpu", useVmQueues: true));
+    }
+
+    [Fact]
+    public async Task CompiledGpuResidentCapacityRejectsImmediatelyAndReleasesAfterUse()
+    {
+        var scheduler = new GpuBatchScheduler(
+            new GpuBatchServiceOptions { MaxResidentGpuSessions = 1 }, "vortice", useVmQueues: true);
+        var first = await scheduler.AcquireAsync(CancellationToken.None);
+        await Assert.ThrowsAsync<ResidentSessionLimitException>(() => scheduler.AcquireAsync(CancellationToken.None).AsTask());
+        await first.DisposeAsync();
+        await using var next = await scheduler.AcquireAsync(CancellationToken.None);
+    }
+
+    [Fact]
     public async Task AutoGpuLimitAdmitsFourConcurrentGenerations()
     {
         var scheduler = new GpuBatchScheduler(new GpuBatchServiceOptions(), "vortice");

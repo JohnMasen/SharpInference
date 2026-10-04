@@ -268,24 +268,27 @@ public sealed class VorticePrimitiveGraphExecutorTests(ITestOutputHelper output)
     }
 
     [Fact]
-    public void PortableGraphArchitectureBindsResidentWeightsBeforeSourceRelease()
+    public void PrimitiveBackendBindsResidentWeightsBeforeSourceRelease()
     {
         using var device = TryCreateDevice();
         if (device is null) return;
         using var backend = new VorticePrimitiveGraphBackend(device);
         var graph = Graph();
         var plan = backend.Prepare(graph).GetPlanOrThrow(backend.KernelCatalog.BackendId);
-        var architecture = new PortableGraphArchitecture(backend, plan);
-        Assert.False(architecture.RequiresCpuWeightCopy);
+        Assert.False(backend.RequiresCpuWeightCopy);
         Assert.IsAssignableFrom<IGraphModelWeightBackend>(backend);
         var table = new[] { 1f, 2f, 3f, 4f, 5f, 6f };
         var matrix = new[] { 1f, 1f, 1f, 2f, -1f, 0.5f };
-        var model = architecture.Bind(new Catalog(
+        var signature = graph.Model;
+        var model = new PortableGraphModel(new RwkvModelMetadata(
+            signature.VocabularySize, signature.EmbeddingSize, signature.LayerCount,
+            signature.HeadCount, signature.HeadSize, graph.Identity.ArchitectureId), new Catalog(
             new Tensor("embedding", [2, 3], table),
-            new Tensor("projection", [2, 3], matrix)));
+            new Tensor("projection", [2, 3], matrix)), graph);
+        backend.PrepareModelWeights(model);
         Array.Clear(table);
         Array.Clear(matrix);
-        var state = architecture.CreateState(model);
+        var state = new PortableGraphState(graph);
         using var session = backend.CreateSessionExecutor(model, state, plan);
         var logits = new float[2];
         session.ForwardToken(0, logits);
@@ -446,9 +449,9 @@ public sealed class VorticePrimitiveGraphExecutorTests(ITestOutputHelper output)
             graph = new PortableRwkv6GraphProvider().Build(catalog);
         var options = new GraphOptimizationOptions(OptimizationBoundary.Off,
             DefinitionPolicy: GraphDefinitionPolicy.PreserveExpanded);
-        using var cpu = Processor.LoadGraph(path, graph, CpuPrimitiveGraphBackend.Instance, options);
+        using var cpu = PrimitiveGraphReference.LoadGraph(path, graph, CpuPrimitiveGraphBackend.Instance, options);
         using var backend = new VorticePrimitiveGraphBackend(device);
-        using var gpu = Processor.LoadGraph(path, graph, backend, options);
+        using var gpu = PrimitiveGraphReference.LoadGraph(path, graph, backend, options);
         using var cpuSession = cpu.CreateSession();
         using var gpuSession = gpu.CreateSession();
         foreach (var token in new[] { 2, 4 })
@@ -480,7 +483,7 @@ public sealed class VorticePrimitiveGraphExecutorTests(ITestOutputHelper output)
         using (var catalog = GgmlModelFile.Open(path))
             graph = new PortableRwkv6GraphProvider().Build(catalog);
         using var backend = new VorticePrimitiveGraphBackend(device);
-        using var processor = Processor.LoadGraph(path, graph, backend,
+        using var processor = PrimitiveGraphReference.LoadGraph(path, graph, backend,
             new GraphOptimizationOptions(OptimizationBoundary.Off,
                 DefinitionPolicy: GraphDefinitionPolicy.PreserveExpanded));
         Assert.True(backend.Metrics!.WeightUploadBytes > 10UL * 1024 * 1024 * 1024,
@@ -515,7 +518,7 @@ public sealed class VorticePrimitiveGraphExecutorTests(ITestOutputHelper output)
         using (var catalog = GgmlModelFile.Open(path))
             graph = new PortableRwkv7GraphProvider().Build(catalog);
         using var backend = new VorticePrimitiveGraphBackend(device);
-        using var processor = Processor.LoadGraph(path, graph, backend,
+        using var processor = PrimitiveGraphReference.LoadGraph(path, graph, backend,
             new GraphOptimizationOptions(OptimizationBoundary.Off,
                 DefinitionPolicy: GraphDefinitionPolicy.PreserveExpanded));
         Assert.True(backend.Metrics!.WeightUploadBytes > 10UL * 1024 * 1024 * 1024);
@@ -556,7 +559,7 @@ public sealed class VorticePrimitiveGraphExecutorTests(ITestOutputHelper output)
             Environment.GetEnvironmentVariable("RWKV_TEST_RWKV7_LARGE_COMPARE_CPU") == "1"
             ? CpuReference() : null;
         using var backend = new VorticePrimitiveGraphBackend(device);
-        using var gpu = Processor.LoadGraph(path, graph, backend, options);
+        using var gpu = PrimitiveGraphReference.LoadGraph(path, graph, backend, options);
         using var original = gpu.CreateSession();
         var first = original.ForwardToken(2).ToArray();
         Assert.All(first, value => Assert.True(float.IsFinite(value)));
@@ -665,7 +668,7 @@ public sealed class VorticePrimitiveGraphExecutorTests(ITestOutputHelper output)
         {
             var logits = new float[3][];
             var states = new SharpInference.Gguf.GgufState[3];
-            using (var cpu = Processor.LoadGraph(path, graph, CpuPrimitiveGraphBackend.Instance, options))
+            using (var cpu = PrimitiveGraphReference.LoadGraph(path, graph, CpuPrimitiveGraphBackend.Instance, options))
             using (var session = cpu.CreateSession())
             {
                 for (var index = 0; index < 3; index++)
@@ -984,8 +987,8 @@ public sealed class VorticePrimitiveGraphExecutorTests(ITestOutputHelper output)
             $"Expected expression fusion to reduce dispatches: Off={offDispatches}, On={onDispatches}.");
         Assert.Contains(onGraph.Nodes, node =>
             node.Operation == FusedElementwiseExpressionContract.Operation);
-        using var offProcessor = Processor.LoadGraph(path, graph, offBackend, disabled);
-        using var onProcessor = Processor.LoadGraph(path, graph, onBackend, enabled);
+        using var offProcessor = PrimitiveGraphReference.LoadGraph(path, graph, offBackend, disabled);
+        using var onProcessor = PrimitiveGraphReference.LoadGraph(path, graph, onBackend, enabled);
         using var off = offProcessor.CreateSession();
         using var on = onProcessor.CreateSession();
         foreach (var token in new[] { 2, 4, 1 })
@@ -997,7 +1000,7 @@ public sealed class VorticePrimitiveGraphExecutorTests(ITestOutputHelper output)
                 $"GPU On/Off token {token}", scaleAtLeastOne: true);
         }
         static (double Milliseconds, float[] LastLogits) Measure(
-            ProcessorSession session, IReadOnlyList<int> tokens)
+            PrimitiveGraphReferenceSession session, IReadOnlyList<int> tokens)
         {
             var clock = Stopwatch.StartNew();
             float[] logits = [];
@@ -1053,12 +1056,12 @@ public sealed class VorticePrimitiveGraphExecutorTests(ITestOutputHelper output)
         {
             EnableCommandReplay = true,
         };
-        using var recordedProcessor = Processor.LoadGraph(path, graph, recordedBackend, options);
-        using var replayProcessor = Processor.LoadGraph(path, graph, replayBackend, options);
+        using var recordedProcessor = PrimitiveGraphReference.LoadGraph(path, graph, recordedBackend, options);
+        using var replayProcessor = PrimitiveGraphReference.LoadGraph(path, graph, replayBackend, options);
         using var recorded = recordedProcessor.CreateSession();
         using var replay = replayProcessor.CreateSession();
 
-        void Compare(ProcessorSession expected, ProcessorSession actual, int token)
+        void Compare(PrimitiveGraphReferenceSession expected, PrimitiveGraphReferenceSession actual, int token)
         {
             AssertLogitsNear(expected.ForwardToken(token).ToArray(),
                 actual.ForwardToken(token).ToArray(), 0.0001f, token, "recorded/replayed");
@@ -1120,9 +1123,9 @@ public sealed class VorticePrimitiveGraphExecutorTests(ITestOutputHelper output)
             DefinitionPolicy: GraphDefinitionPolicy.PreserveExpanded);
         using var offBackend = VorticePrimitiveGraphBackend.FromConfig(config);
         using var onBackend = VorticePrimitiveGraphBackend.FromConfig(config);
-        using var offProcessor = Processor.LoadGraph(path, graph, offBackend, offOptions);
-        using var onProcessor = Processor.LoadGraph(path, graph, onBackend, onOptions);
-        using var cpuProcessor = Processor.LoadGraph(path, graph, CpuPrimitiveGraphBackend.Instance, onOptions);
+        using var offProcessor = PrimitiveGraphReference.LoadGraph(path, graph, offBackend, offOptions);
+        using var onProcessor = PrimitiveGraphReference.LoadGraph(path, graph, onBackend, onOptions);
+        using var cpuProcessor = PrimitiveGraphReference.LoadGraph(path, graph, CpuPrimitiveGraphBackend.Instance, onOptions);
         using var off = offProcessor.CreateSession();
         using var on = onProcessor.CreateSession();
         using var cpu = cpuProcessor.CreateSession();
@@ -1140,7 +1143,7 @@ public sealed class VorticePrimitiveGraphExecutorTests(ITestOutputHelper output)
                 0.005f, 0.005f, $"CPU/GPU On token {token}", scaleAtLeastOne: true);
         }
         int[] warmTokens = [2, 4, 1, 2, 4, 1, 2, 4];
-        static (double Milliseconds, float[] LastLogits) Measure(ProcessorSession session, int[] tokens)
+        static (double Milliseconds, float[] LastLogits) Measure(PrimitiveGraphReferenceSession session, int[] tokens)
         {
             var clock = Stopwatch.StartNew();
             float[] last = [];
@@ -1230,14 +1233,14 @@ public sealed class VorticePrimitiveGraphExecutorTests(ITestOutputHelper output)
         using var recordedBackend = VorticePrimitiveGraphBackend.FromConfig(config);
         using var replayBackend = VorticePrimitiveGraphBackend.FromConfig(replayConfig);
         Assert.True(replayBackend.EnableCommandReplay);
-        using var recordedProcessor = Processor.LoadGraph(path, graph, recordedBackend, options);
-        using var replayProcessor = Processor.LoadGraph(path, graph, replayBackend, options);
-        using var cpuProcessor = Processor.LoadGraph(path, graph, CpuPrimitiveGraphBackend.Instance, options);
+        using var recordedProcessor = PrimitiveGraphReference.LoadGraph(path, graph, recordedBackend, options);
+        using var replayProcessor = PrimitiveGraphReference.LoadGraph(path, graph, replayBackend, options);
+        using var cpuProcessor = PrimitiveGraphReference.LoadGraph(path, graph, CpuPrimitiveGraphBackend.Instance, options);
         using var recorded = recordedProcessor.CreateSession();
         using var replay = replayProcessor.CreateSession();
         using var cpu = cpuProcessor.CreateSession();
 
-        void AssertParity(float[] expected, float[] actual, ProcessorSession session, string label)
+        void AssertParity(float[] expected, float[] actual, PrimitiveGraphReferenceSession session, string label)
         {
             AssertLogitsNear(expected, actual, 0.005f, 4, label);
             StateSnapshotAssertions.Near(StateSnapshotAssertions.Capture(cpu),
@@ -1252,7 +1255,7 @@ public sealed class VorticePrimitiveGraphExecutorTests(ITestOutputHelper output)
             AssertParity(expected, replay.ForwardToken(token).ToArray(), replay, "replay warmup");
         }
         int[] tokens = [2, 4, 1, 2, 4, 1, 2, 4];
-        static (double Milliseconds, float[] LastLogits) Measure(ProcessorSession session, int[] sequence)
+        static (double Milliseconds, float[] LastLogits) Measure(PrimitiveGraphReferenceSession session, int[] sequence)
         {
             var timer = Stopwatch.StartNew();
             float[] logits = [];
@@ -1356,9 +1359,9 @@ public sealed class VorticePrimitiveGraphExecutorTests(ITestOutputHelper output)
             graph = new PortableRwkv7GraphProvider().Build(catalog);
         var options = new GraphOptimizationOptions(OptimizationBoundary.Off,
             DefinitionPolicy: GraphDefinitionPolicy.PreserveExpanded);
-        using var cpu = Processor.LoadGraph(path, graph, CpuPrimitiveGraphBackend.Instance, options);
+        using var cpu = PrimitiveGraphReference.LoadGraph(path, graph, CpuPrimitiveGraphBackend.Instance, options);
         using var backend = new VorticePrimitiveGraphBackend(device);
-        using var gpu = Processor.LoadGraph(path, graph, backend, options);
+        using var gpu = PrimitiveGraphReference.LoadGraph(path, graph, backend, options);
         using var cpuSession = cpu.CreateSession();
         using var gpuSession = gpu.CreateSession();
         foreach (var token in new[] { 2, 4 })

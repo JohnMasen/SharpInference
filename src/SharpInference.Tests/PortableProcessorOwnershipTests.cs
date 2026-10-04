@@ -1,7 +1,5 @@
 using SharpInference.Architectures.Rwkv6;
 using SharpInference.Architectures.Rwkv7;
-using SharpInference.Backends.Cpu;
-using SharpInference.Backends.Vortice;
 using SharpInference.Graphs;
 using SharpInference.Runtime;
 using Vortice.Direct3D;
@@ -13,6 +11,31 @@ namespace SharpInference.Tests;
 
 public sealed class PortableProcessorOwnershipTests
 {
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void MetadataFailure_ReleasesReaderAndPreservesCleanupFailure(bool cleanupFailure)
+    {
+        var metadataError = new InvalidDataException("Invalid model metadata.");
+        var cleanupError = cleanupFailure ? new IOException("Reader cleanup failed.") : null;
+        var reader = new TrackedModelFile(cleanupError);
+        var builder = new ProcessorPipelineBuilder("virtual-model")
+            .UseReader(new TrackedReader(reader), new FailingMetadataReader(metadataError));
+        if (cleanupFailure)
+        {
+            var error = Assert.Throws<AggregateException>(() => builder.Build());
+            Assert.Equal(2, error.InnerExceptions.Count);
+            Assert.Same(metadataError, error.InnerExceptions[0]);
+            Assert.Same(cleanupError, error.InnerExceptions[1]);
+        }
+        else
+        {
+            Assert.Same(metadataError, Assert.Throws<InvalidDataException>(() => builder.Build()));
+        }
+        Assert.True(reader.Disposed);
+        Assert.Equal(1, reader.DisposeCalls);
+    }
+
     [Fact]
     public void ProviderOverload_DoesNotRequireAnArchitectureDetector()
     {
@@ -47,7 +70,7 @@ public sealed class PortableProcessorOwnershipTests
         }
 
         using var processor = Processor.LoadGraph(path, new SuppliedLogicalGraphProvider(graph),
-            CpuPrimitiveGraphBackend.Instance);
+            VmBackendFactory.CreateCpu());
         Assert.Equal("experimental-graph", processor.Metadata.ArchitectureId);
         using var session = processor.CreateSession();
         Assert.Equal(firstRow, session.ForwardToken(0).ToArray());
@@ -62,7 +85,7 @@ public sealed class PortableProcessorOwnershipTests
         ILogicalGraphProvider provider = rwkv7
             ? new PortableRwkv7GraphProvider()
             : new PortableRwkv6GraphProvider();
-        using var processor = Processor.LoadGraph(path, provider, CpuPrimitiveGraphBackend.Instance);
+        using var processor = Processor.LoadGraph(path, provider, VmBackendFactory.CreateCpu());
         using var session = processor.CreateSession();
         var logits = session.ForwardToken(0).ToArray();
         Assert.Equal(processor.Metadata.VocabularySize, logits.Length);
@@ -94,9 +117,7 @@ public sealed class PortableProcessorOwnershipTests
                  GraphBindings.Write("output", "logits")])
             .Build();
         var reader = new TrackedModelFile();
-        var backend = gpu && device is not null
-            ? (IExecutionGraphBackend)new VorticePrimitiveGraphBackend(device)
-            : CpuPrimitiveGraphBackend.Instance;
+        var backend = gpu ? VmBackendFactory.CreateD3D12() : VmBackendFactory.CreateCpu();
         using var processor = new ProcessorPipelineBuilder("virtual-model")
             .UseReader(new TrackedReader(reader), new GraphArchitectureMetadataReader(graph))
             .UseProvider(new SuppliedLogicalGraphProvider(graph))
@@ -104,6 +125,7 @@ public sealed class PortableProcessorOwnershipTests
             .UsePortableGraphArchitecture()
             .Build();
         Assert.True(reader.Disposed);
+        Assert.Equal(1, reader.DisposeCalls);
         using var session = processor.CreateSession();
         Assert.Equal([1f, 2f], session.ForwardToken(0).ToArray());
         Assert.Equal([3f, 4f], session.ForwardToken(1).ToArray());
@@ -129,9 +151,15 @@ public sealed class PortableProcessorOwnershipTests
         public IModelFile Open(string path) => file;
     }
 
-    private sealed class TrackedModelFile : IModelFile
+    private sealed class FailingMetadataReader(Exception error) : IArchitectureMetadataReader
+    {
+        public RwkvModelMetadata Read(IModelTensorCatalog catalog) => throw error;
+    }
+
+    private sealed class TrackedModelFile(Exception? cleanupError = null) : IModelFile
     {
         public bool Disposed { get; private set; }
+        public int DisposeCalls { get; private set; }
         public string Path => "virtual-model";
         public int VocabularySize => 2;
         public int EmbeddingSize => 2;
@@ -149,7 +177,12 @@ public sealed class PortableProcessorOwnershipTests
         }
         public IModelTensor GetRequired(string name) =>
             TryGet(name, out var tensor) ? tensor : throw new InvalidDataException(name);
-        public void Dispose() => Disposed = true;
+        public void Dispose()
+        {
+            Disposed = true;
+            DisposeCalls++;
+            if (cleanupError is not null) throw cleanupError;
+        }
     }
 
     private sealed class TrackedTensor(TrackedModelFile owner) : IModelTensor

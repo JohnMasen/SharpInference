@@ -4,27 +4,26 @@ namespace SharpInference.Runtime;
 
 public sealed class PortableGraphArchitecture : IRwkvArchitecture, IModelWeightOwnershipPolicy
 {
-    private readonly IExecutionGraphBackend backend;
-    private readonly IBackendExecutablePlan plan;
+    private readonly VmGraphBackend backend;
+    private readonly VmCompiledPlan plan;
 
-    public PortableGraphArchitecture(IExecutionGraphBackend backend, IBackendExecutablePlan plan)
+    public PortableGraphArchitecture(VmGraphBackend backend, VmCompiledPlan plan)
     {
         this.backend = backend ?? throw new ArgumentNullException(nameof(backend));
         this.plan = plan ?? throw new ArgumentNullException(nameof(plan));
     }
 
-    public string Id => plan.Graph.Identity.ArchitectureId;
-    public bool RequiresCpuWeightCopy =>
-        backend is not IGraphModelWeightBackend { RequiresCpuWeightCopy: false };
+    public string Id => plan.BindingGraph.Identity.ArchitectureId;
+    public bool RequiresCpuWeightCopy => false;
 
     public bool CanLoad(IModelTensorCatalog tensors)
     {
         ArgumentNullException.ThrowIfNull(tensors);
-        var model = plan.Graph.Model;
+        var model = plan.BindingGraph.Model;
         return model.VocabularySize == tensors.VocabularySize &&
                model.EmbeddingSize == tensors.EmbeddingSize &&
                model.LayerCount == tensors.LayerCount &&
-               plan.Graph.Resources.Where(resource => resource.Kind == GraphResourceKind.Weight)
+               plan.BindingGraph.Resources.Where(resource => resource.Kind == GraphResourceKind.Weight)
                    .All(resource => tensors.TryGet(resource.BindingKey
                        ?? throw new InvalidDataException($"Weight resource '{resource.Id}' has no binding key."), out var tensor) &&
                        resource.Tensor.Dimensions.SequenceEqual(tensor.Dimensions) &&
@@ -40,26 +39,26 @@ public sealed class PortableGraphArchitecture : IRwkvArchitecture, IModelWeightO
     {
         if (!CanLoad(tensors))
             throw new InvalidDataException("The graph weights or model shape do not match the catalog.");
-        var signature = plan.Graph.Model;
+        var signature = plan.BindingGraph.Model;
         var model = new PortableGraphModel(
             new RwkvModelMetadata(signature.VocabularySize, signature.EmbeddingSize,
                 signature.LayerCount, signature.HeadCount, signature.HeadSize, Id),
-            tensors, plan.Graph);
-        if (backend is IGraphModelWeightBackend weightBackend)
-            weightBackend.PrepareModelWeights(model);
+            tensors, plan.BindingGraph);
+        backend.PrepareModelWeights(model);
         return model;
     }
 
     public IRwkvState CreateState(IRwkvModel model)
     {
-        if (model is not PortableGraphModel portable || !ReferenceEquals(portable.Graph, plan.Graph))
+        if (model is not PortableGraphModel portable || !ReferenceEquals(portable.Graph, plan.BindingGraph))
             throw new ArgumentException("The model does not belong to this graph.", nameof(model));
-        return new PortableGraphState(plan.Graph);
+        return new PortableGraphState(plan.BindingGraph);
     }
 
     public void ForwardToken(IRwkvModel model, int token, IRwkvState state, Span<float> logits)
     {
         using var session = backend.CreateSessionExecutor(model, state, plan);
         session.ForwardToken(token, logits);
+        _ = ((PortableGraphState)state).Views;
     }
 }

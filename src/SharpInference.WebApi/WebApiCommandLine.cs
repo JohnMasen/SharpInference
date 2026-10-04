@@ -29,9 +29,18 @@ public sealed record WebApiCommandLine(string? ConfigurationPath, IReadOnlyDicti
                     overrides["Rwkv:Runtime:Kind"] = value;
                     break;
                 case "--enable-command-replay":
-                    if (!bool.TryParse(value, out var enableCommandReplay))
-                        throw new ArgumentException("The value for '--enable-command-replay' must be true or false.");
-                    overrides["Rwkv:Runtime:Vortice:EnableCommandReplay"] = enableCommandReplay.ToString();
+                    throw new ArgumentException("The compiled VM no longer supports '--enable-command-replay'. Command caching is backend-managed.");
+                case "--prefill-instances":
+                    overrides["Rwkv:Runtime:Vm:PrefillInstances"] = value;
+                    break;
+                case "--inference-instances":
+                    overrides["Rwkv:Runtime:Vm:InferenceInstances"] = value;
+                    break;
+                case "--prefill-queue-capacity":
+                    overrides["Rwkv:Runtime:Vm:PrefillQueueCapacity"] = value;
+                    break;
+                case "--inference-queue-capacity":
+                    overrides["Rwkv:Runtime:Vm:InferenceQueueCapacity"] = value;
                     break;
                 case "--default-max-tokens":
                     overrides["Rwkv:DefaultMaxTokens"] = value;
@@ -46,8 +55,7 @@ public sealed record WebApiCommandLine(string? ConfigurationPath, IReadOnlyDicti
                     overrides["Rwkv:GpuBatchService:MaxResidentGpuSessions"] = value;
                     break;
                 case "--max-in-flight-generation-batches":
-                    overrides["Rwkv:GpuBatchService:MaxInFlightGenerationBatches"] = value;
-                    break;
+                    throw new ArgumentException("Use '--inference-instances' to configure compiled VM generation concurrency.");
                 case "--state-cache-capacity":
                     overrides["Rwkv:StateManager:Capacity"] = value;
                     break;
@@ -99,10 +107,16 @@ public sealed record WebApiCommandLine(string? ConfigurationPath, IReadOnlyDicti
         Optional:
           --config <json-path>
               Load additional JSON configuration. Command-line values override it.
-          --runtime-kind <cpu|vortice>
-              Select the model-independent graph execution backend.
-          --enable-command-replay <true|false>
-              Opt in to per-session D3D12 command replay for supported GPU graphs.
+          --runtime-kind <cpu|vortice|d3d12>
+              Select the compiled VM backend. vortice is an alias for d3d12.
+          --prefill-instances <count>
+              Number of reusable prefill VMs. Default: 2.
+          --inference-instances <count>
+              Number of whole-generation inference VMs. Default: 2.
+          --prefill-queue-capacity <count>
+              Maximum queued prefill requests. Default: 16.
+          --inference-queue-capacity <count>
+              Maximum queued generation requests. Default: 16.
           --port <1-65535>
               Listen on http://0.0.0.0:<port>. Default: 9841.
           --urls <http-url>
@@ -115,8 +129,6 @@ public sealed record WebApiCommandLine(string? ConfigurationPath, IReadOnlyDicti
               Require this API key. Empty by default.
           --max-resident-gpu-sessions <count>
               Maximum number of resident GPU sessions. Default: 64.
-          --max-in-flight-generation-batches <count>
-              Global maximum simultaneous generations. 0 uses CPU cores/2 (minimum 1) or GPU 4. Default: 0.
           --state-cache-capacity <count>
               Number of scored prompt-state entries to retain. Default: 10; 0 disables it.
           --state-cache-enabled <true|false>

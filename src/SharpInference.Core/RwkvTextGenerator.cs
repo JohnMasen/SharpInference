@@ -9,6 +9,21 @@ public interface IRwkvGenerationSession
     ReadOnlyMemory<float> ForwardToken(int token);
 }
 
+public interface IRwkvGenerationScope : IAsyncDisposable
+{
+    IRwkvGenerationSession Session { get; }
+}
+
+public interface IRwkvScopedGenerationSession : IRwkvGenerationSession
+{
+    ValueTask<IRwkvGenerationScope> BeginGenerationAsync(CancellationToken cancellationToken = default);
+}
+
+public interface IRwkvAsyncPrefillSession : IRwkvGenerationSession
+{
+    ValueTask<ReadOnlyMemory<float>> PrefillAsync(ReadOnlyMemory<int> tokens, CancellationToken cancellationToken = default);
+}
+
 public static class RwkvTextGenerator
 {
     public static async IAsyncEnumerable<char> GenerateCharactersAsync(
@@ -67,7 +82,9 @@ public static class RwkvTextGenerator
             throw new ArgumentException("The prompt must contain at least one token.", nameof(promptTokens));
         }
 
-        var logits = session.Prefill(promptTokens.ToArray());
+        var logits = session is IRwkvAsyncPrefillSession asynchronous
+            ? await asynchronous.PrefillAsync(promptTokens.ToArray(), cancellationToken).ConfigureAwait(false)
+            : session.Prefill(promptTokens.ToArray());
         await foreach (var text in GenerateFromPrefilledAsync(
             session,
             tokenizer,
@@ -95,6 +112,9 @@ public static class RwkvTextGenerator
 
         options ??= new RwkvGenerationOptions();
         options.Validate();
+        await using var generation = session is IRwkvScopedGenerationSession scoped
+            ? await scoped.BeginGenerationAsync(cancellationToken).ConfigureAwait(false) : null;
+        var executingSession = generation?.Session ?? session;
         var sampler = new RwkvSampler(options, tokenizer.TokenIds);
         var decoder = new IncrementalUtf8Decoder();
         var logits = initialLogits;
@@ -112,7 +132,7 @@ public static class RwkvTextGenerator
             if (stopMatcher is null)
             {
                 var text = decoder.Append(tokenBytes.Span);
-                logits = session.ForwardToken(token);
+                logits = executingSession.ForwardToken(token);
                 if (text.Length > 0)
                 {
                     yield return text;
@@ -120,7 +140,7 @@ public static class RwkvTextGenerator
             }
             else
             {
-                logits = session.ForwardToken(token);
+                logits = executingSession.ForwardToken(token);
                 var textStop = stopMatcher.Append(tokenBytes.Span, out var safeBytes);
                 var text = decoder.Append(safeBytes.Span);
                 if (text.Length > 0)

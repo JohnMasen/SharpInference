@@ -1,48 +1,58 @@
 using System.Text;
 using SharpInference.Architectures.Rwkv6;
 using SharpInference.Architectures.Rwkv7;
-using SharpInference.Backends.Cpu;
 using SharpInference.Graphs;
 using SharpInference.Runtime;
+using SharpInference.Vm;
 
 namespace SharpInference.Tests;
 
 public sealed class ProcessorPipelineTests
 {
-    [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public void GenericPrefillOptimizer_PreparesAndRoutesOnlyMatchingGraphs(bool matches)
+    [Fact]
+    public void Builder_ReportsOrderedStepsAndCleansUpStartedStepsInReverse()
     {
-        var backend = new PrefillBackend();
-        using var processor = PrefillBuilder(backend, new TestPrefillOptimizer(matches)).Build();
-
-        Assert.Equal(matches ? 2 : 1, backend.Prepared.Count);
-        Assert.Equal(matches, processor.PrefillPreparedPlan is not null);
-        using var session = processor.CreateSession();
-        Assert.Equal(matches, backend.DualSessionCreated);
-        Assert.Equal(2, session.ForwardToken(2).Span[0]);
-    }
-
-    [Theory]
-    [InlineData("schema")]
-    [InlineData("tensor")]
-    [InlineData("output")]
-    public void GenericPrefillOptimizer_RejectsIncompatibleGraphBeforePrefillPreparation(string mismatch)
-    {
-        var backend = new PrefillBackend();
-        Assert.Throws<InvalidDataException>(() =>
-            PrefillBuilder(backend, new TestPrefillOptimizer(true, mismatch)).Build());
-        Assert.Single(backend.Prepared);
+        var failure = new InvalidOperationException("Build step failed.");
+        var cleanup = new List<string>();
+        var builder = new ProcessorPipelineBuilder("virtual-model")
+            .AddStep("first", _ => { }, _ => cleanup.Add("first"))
+            .AddStep("second", _ => throw failure, _ => cleanup.Add("second"))
+            .AddStep("unstarted", _ => { }, _ => cleanup.Add("unstarted"));
+        Assert.Equal("virtual-model", builder.Path);
+        Assert.Equal(["first", "second", "unstarted"], builder.StepNames);
+        Assert.Same(failure, Assert.Throws<InvalidOperationException>(() => builder.Build()));
+        Assert.Equal(["second", "first"], cleanup);
     }
 
     [Fact]
-    public void GenericPrefillOptimizer_RejectsAmbiguousMatches()
+    public void RuntimeSurface_ExposesOnlyCompiledVmExecutionContracts()
     {
-        var backend = new PrefillBackend();
-        Assert.Throws<InvalidOperationException>(() =>
-            PrefillBuilder(backend, new TestPrefillOptimizer(true), new TestPrefillOptimizer(true)).Build());
-        Assert.Single(backend.Prepared);
+        Assert.Equal(typeof(VmCompiledPlan), typeof(Processor).GetProperty("PreparedPlan")!.PropertyType);
+        Assert.Equal(typeof(VmProgram), typeof(Processor).GetProperty("InferenceProgram")!.PropertyType);
+        Assert.Equal(typeof(VmProgram), typeof(Processor).GetProperty("PrefillProgram")!.PropertyType);
+        Assert.Equal(typeof(VmGraphBackend), typeof(ProcessorBuildContext).GetProperty("Backend")!.PropertyType);
+        Assert.Equal(typeof(VmCompiledPlan), typeof(ProcessorBuildContext).GetProperty("PreparedPlan")!.PropertyType);
+        Assert.Null(typeof(ProcessorPipelineBuilder).GetProperty("Debug"));
+        Assert.Null(typeof(ProcessorBuildContext).GetProperty("Debug"));
+        foreach (var name in new[] { "IsDebugMode", "ExecutionGraph", "InferenceExecutionGraph",
+                     "InferencePreparedPlan", "PrefillExecutionGraph", "PrefillPreparedPlan" })
+            Assert.Null(typeof(Processor).GetProperty(name));
+        foreach (var name in new[] { "ExecutionGraph", "InferenceExecutionGraph",
+                     "InferencePreparedPlan", "PrefillExecutionGraph", "PrefillPreparedPlan" })
+            Assert.Null(typeof(ProcessorBuildContext).GetProperty(name));
+        foreach (var name in new[] { "IsDebugMode", "DebugSession", "LayerTrace" })
+            Assert.Null(typeof(ProcessorSession).GetProperty(name));
+        Assert.Empty(typeof(ProcessorSession).GetEvents());
+        Assert.DoesNotContain(typeof(ProcessorSession).GetMethods(), method => method.Name is "Resume" or "Stop");
+        Assert.DoesNotContain(typeof(ProcessorPipelineBuilder).Assembly.GetExportedTypes()
+                .Where(type => type.IsSealed && type.IsAbstract).SelectMany(type => type.GetMethods()),
+            method => method.Name is "UseExecutionGraph" or "UseExecutionXml" or "UseXmlExecutionGraph"
+                or "UsePrefillOptimizers");
+        Assert.Single(typeof(GraphArchitectureMetadataReader).GetConstructors());
+        Assert.Equal(typeof(LogicalGraph),
+            typeof(GraphArchitectureMetadataReader).GetConstructors()[0].GetParameters().Single().ParameterType);
+        Assert.Equal(typeof(string),
+            typeof(XmlArchitectureMetadataReader).GetConstructors().Single().GetParameters().Single().ParameterType);
     }
 
     [Theory]
@@ -52,17 +62,16 @@ public sealed class ProcessorPipelineTests
     {
         using var processor = LoadPortable(rwkv7);
         Assert.NotNull(processor.LogicalGraph);
-        Assert.Same(processor.InferenceExecutionGraph, processor.PreparedPlan!.Graph);
-
+        Assert.Same(processor.InferenceProgram, processor.PreparedPlan.Program);
         Check(processor.ExportLogicalGraph, GraphJson.Serialize(processor.LogicalGraph));
         Check(stream => processor.ExportExecutionGraph(stream),
-            GraphJson.Serialize(processor.InferenceExecutionGraph!));
+            VmProgramXml.Serialize(processor.InferenceProgram));
         Check(stream => processor.ExportExecutionGraph(stream, ProcessorExecutionGraphKind.Inference),
-            GraphJson.Serialize(processor.InferenceExecutionGraph!));
+            VmProgramXml.Serialize(processor.InferenceProgram));
+        Check(stream => processor.ExportExecutionGraph(stream, ProcessorExecutionGraphKind.Prefill),
+            VmProgramXml.Serialize(processor.PrefillProgram));
 
         using var invalid = new MemoryStream();
-        Assert.Throws<InvalidOperationException>(() =>
-            processor.ExportExecutionGraph(invalid, ProcessorExecutionGraphKind.Prefill));
         Assert.Throws<ArgumentOutOfRangeException>(() =>
             processor.ExportExecutionGraph(invalid, (ProcessorExecutionGraphKind)999));
         processor.Dispose();
@@ -87,13 +96,12 @@ public sealed class ProcessorPipelineTests
     public void ProcessorLoad_AndSuppliedPortableGraphAgreeAcrossPrefillForkAndReset(bool rwkv7)
     {
         var model = rwkv7 ? TestModel.Rwkv7Fp32 : TestModel.Rwkv6;
-        var path = TestModelLoader.GetPath(model);
-        using var automatic = Processor.Load(path);
+        using var automatic = Processor.Load(TestModelLoader.GetPath(model));
         using var supplied = LoadPortable(rwkv7);
         using var first = automatic.CreateSession();
         using var second = supplied.CreateSession();
         Assert.Equal(rwkv7 ? "rwkv-7" : "rwkv-6", automatic.Metadata.ArchitectureId);
-        Assert.Same(automatic.InferenceExecutionGraph, automatic.PreparedPlan!.Graph);
+        Assert.Same(automatic.InferenceProgram, automatic.PreparedPlan.Program);
         Assert.Equal(first.Prefill([0, 1, 2]).ToArray(), second.Prefill([0, 1, 2]).ToArray());
         StateSnapshotAssertions.Equal(StateSnapshotAssertions.Capture(first),
             StateSnapshotAssertions.Capture(second));
@@ -109,30 +117,38 @@ public sealed class ProcessorPipelineTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public void XmlExecutionSource_RoundTripsWithoutLogicalSourceAndRunsSameGraph(bool rwkv7)
+    public void VmProgramImporter_RejectsLegacyLogicalAndExecutionXml(bool rwkv7)
     {
-        var path = TestModelLoader.GetPath(rwkv7 ? TestModel.Rwkv7Fp32 : TestModel.Rwkv6);
-        using var baseline = LoadPortable(rwkv7);
-        var original = baseline.InferenceExecutionGraph!;
-        var serialized = GraphXml.Serialize(new ExecutionGraph(original.Identity, original.Model,
-            original.Resources, original.Regions,
-            original.Nodes.Select(node => node with { Source = ExecutionSourceMap.XmlOnly }),
-            original.Inputs, original.Outputs, original.GraphState));
-        using var restored = new ProcessorPipelineBuilder(path)
-            .UseReader(new GgmlModelReader(), new GraphArchitectureMetadataReader(original))
-            .UseExecutionXml(serialized)
-            .UseBackend(CpuPrimitiveGraphBackend.Instance)
-            .UsePortableGraphArchitecture()
-            .Build();
+        using var processor = LoadPortable(rwkv7);
+        Assert.Throws<InvalidDataException>(() =>
+            VmProgramXml.Deserialize(GraphXml.Serialize(processor.LogicalGraph!)));
+        Assert.Throws<InvalidDataException>(() =>
+            VmProgramXml.Deserialize(GraphXml.Serialize(new GraphOptimizer().Optimize(processor.LogicalGraph!))));
+        var imported = VmProgramXml.Deserialize(VmProgramXml.Serialize(processor.InferenceProgram));
+        Assert.Equal(processor.InferenceProgram.Abi, imported.Abi);
+    }
 
-        Assert.Null(restored.LogicalGraph);
-        Assert.All(restored.InferenceExecutionGraph!.Nodes, node => Assert.Empty(node.Source.LogicalNodes));
-        using var expected = baseline.CreateSession();
-        using var actual = restored.CreateSession();
-        foreach (var token in new[] { 0, 1 })
-            Assert.Equal(expected.ForwardToken(token).ToArray(), actual.ForwardToken(token).ToArray());
-        StateSnapshotAssertions.Equal(StateSnapshotAssertions.Capture(expected),
-            StateSnapshotAssertions.Capture(actual));
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void RuntimeProgramPaths_RejectLegacyExecutionXml(bool prefill)
+    {
+        using var processor = LoadPortable(rwkv7: false);
+        var path = Path.Combine(Path.GetTempPath(), $"legacy-execution-{Guid.NewGuid():N}.xml");
+        try
+        {
+            File.WriteAllText(path, GraphXml.Serialize(new GraphOptimizer().Optimize(processor.LogicalGraph!)));
+            var configuration = prefill
+                ? new VmRuntimeConfig { PrefillProgramPath = path }
+                : new VmRuntimeConfig { ProgramPath = path };
+            Assert.Throws<InvalidDataException>(() => VmBackendFactory.CreateCpu(configuration));
+            using var catalog = TestModelLoader.OpenCatalog(TestModel.Rwkv6);
+            Assert.Throws<InvalidDataException>(() => new XmlArchitectureMetadataReader(path).Read(catalog));
+        }
+        finally
+        {
+            File.Delete(path);
+        }
     }
 
     [Theory]
@@ -141,7 +157,6 @@ public sealed class ProcessorPipelineTests
     public void GraphReader_RejectsIncompatibleWeightBeforeBackendPreparation(bool rwkv7)
     {
         var model = rwkv7 ? TestModel.Rwkv7Fp32 : TestModel.Rwkv6;
-        var path = TestModelLoader.GetPath(model);
         using var catalog = TestModelLoader.OpenCatalog(model);
         ILogicalGraphProvider provider = rwkv7
             ? new PortableRwkv7GraphProvider() : new PortableRwkv6GraphProvider();
@@ -153,117 +168,19 @@ public sealed class ProcessorPipelineTests
                 ? resource with { BindingKey = "nonexistent.weight" }
                 : resource), graph.Regions, graph.Nodes,
             graph.Inputs, graph.Outputs, graph.GraphState);
-
+        var prepared = false;
+        using var backend = new VmGraphBackend(VmTarget.Cpu, _ =>
+        {
+            prepared = true;
+            throw new InvalidOperationException("Invalid weights must fail before compilation.");
+        });
         Assert.Throws<InvalidDataException>(() =>
-            Processor.LoadGraph(path, corrupted, CpuPrimitiveGraphBackend.Instance));
+            Processor.LoadGraph(TestModelLoader.GetPath(model), corrupted, backend));
+        Assert.False(prepared);
     }
 
     private static Processor LoadPortable(bool rwkv7) =>
         Processor.LoadGraph(TestModelLoader.GetPath(rwkv7 ? TestModel.Rwkv7Fp32 : TestModel.Rwkv6),
             rwkv7 ? new PortableRwkv7GraphProvider() : new PortableRwkv6GraphProvider(),
-            CpuPrimitiveGraphBackend.Instance);
-
-    private static ProcessorPipelineBuilder PrefillBuilder(
-        PrefillBackend backend, params IPrefillGraphOptimizer[] optimizers)
-    {
-        var logical = new LogicalGraphBuilder(
-                new GraphIdentity("rwkv-6", 1, "test-prefill"),
-                new GraphModelSignature(8, 4, 1, 2, 2, "rwkv-6.state.fp32@1"))
-            .SetStateSchema(new StateSchema("Test_State"))
-            .AddRegion("root", GraphRegionTypes.Graph, "Root")
-            .AddResource("token", "Token", GraphResourceKind.Input, GraphResourceLifetime.External,
-                new TensorDescriptor(GraphElementType.Int32, [1]), graphInput: true)
-            .AddResource("logits", "Logits", GraphResourceKind.Output, GraphResourceLifetime.External,
-                new TensorDescriptor(GraphElementType.Float32, [8]), graphOutput: true)
-            .AddResource("state", "State", GraphResourceKind.SessionState, GraphResourceLifetime.Session,
-                new TensorDescriptor(GraphElementType.Float32, [8]))
-            .AddStateSlot("memory", "state")
-            .AddNode("copy", PrimitiveGraphOperations.Copy, "root",
-                [GraphBindings.Read("input", "state"), GraphBindings.Write("output", "logits")])
-            .Build();
-        return new ProcessorPipelineBuilder("prefill-model.ggml")
-            .UseReader(new PrefillReader(), new GraphArchitectureMetadataReader(logical))
-            .UseProvider(new SuppliedLogicalGraphProvider(logical))
-            .UsePrefillOptimizers(optimizers)
-            .UseBackend(backend)
-            .UsePortableGraphArchitecture();
-    }
-
-    private sealed class TestPrefillOptimizer(bool matches, string? mismatch = null) : IPrefillGraphOptimizer
-    {
-        public bool CanOptimize(GraphPrefillOptimizationContext context) => matches;
-
-        public ExecutionGraph Optimize(GraphPrefillOptimizationContext context)
-        {
-            var graph = context.InferenceGraph;
-            var resources = graph.Resources.Select(resource =>
-                mismatch == "tensor" && resource.Id.Value == "state"
-                    ? resource with { Tensor = new TensorDescriptor(GraphElementType.Float32, [4]) }
-                    : mismatch == "output" && resource.Id.Value == "logits"
-                        ? resource with { Tensor = new TensorDescriptor(GraphElementType.Float32, [4]) }
-                        : resource);
-            GraphState entries = mismatch == "schema"
-                ? new GraphState(new StateSchema("Incompatible_State"), graph.GraphState.Entries)
-                : graph.GraphState;
-            return new ExecutionGraph(graph.Identity with { Name = "test-prefill-alternate" }, graph.Model,
-                resources, graph.Regions, graph.Nodes, graph.Inputs, graph.Outputs, entries);
-        }
-    }
-
-    private sealed class PrefillBackend : IProcessorPrefillBackend
-    {
-        public List<ExecutionGraph> Prepared { get; } = [];
-        public bool DualSessionCreated { get; private set; }
-        public IExecutionKernelCatalog KernelCatalog { get; } =
-            new ExecutionKernelCatalog("test-prefill", [PrimitiveGraphOperations.Copy]);
-        public IPrimitiveOperatorBackend PrimitiveOperators => CpuPrimitiveOperatorBackend.Instance;
-        public IReadOnlyList<OperatorImplementationDescription> GetOperatorImplementations(
-            ExecutionGraph graph, ExecutionNode node) => [];
-
-        public BackendPreparationResult Prepare(ExecutionGraph graph)
-        {
-            Prepared.Add(graph);
-            return new BackendPreparationResult.Success(new PrefillPlan(graph));
-        }
-
-        public IProcessorSessionExecutor CreateSessionExecutor(
-            IRwkvModel model, IRwkvState state, IBackendExecutablePlan plan) => new PrefillExecutor();
-
-        public IProcessorSessionExecutor CreateSessionExecutor(
-            IRwkvModel model, IRwkvState state, IBackendExecutablePlan inferencePlan,
-            IBackendExecutablePlan prefillPlan)
-        {
-            DualSessionCreated = true;
-            return new PrefillExecutor();
-        }
-    }
-
-    private sealed record PrefillPlan(ExecutionGraph Graph) : IBackendExecutablePlan;
-
-    private sealed class PrefillExecutor : IProcessorSessionExecutor
-    {
-        public void ForwardToken(int token, Span<float> logits) => logits.Fill(token);
-        public void Dispose() { }
-    }
-
-    private sealed class PrefillReader : IModelReader
-    {
-        public IModelFile Open(string path) => new PrefillFile(path);
-    }
-
-    private sealed class PrefillFile(string path) : IModelFile
-    {
-        public int VocabularySize => 8;
-        public int EmbeddingSize => 4;
-        public int LayerCount => 1;
-        public string Path => path;
-        public IReadOnlyCollection<string> Names => [];
-        public bool TryGet(string name, out IModelTensor tensor)
-        {
-            tensor = null!;
-            return false;
-        }
-        public IModelTensor GetRequired(string name) => throw new KeyNotFoundException(name);
-        public void Dispose() { }
-    }
+            VmBackendFactory.CreateCpu());
 }

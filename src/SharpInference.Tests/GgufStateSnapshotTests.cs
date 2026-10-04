@@ -1,6 +1,5 @@
 using System.Text;
 using SharpInference.Architectures.Rwkv6;
-using SharpInference.Backends.Cpu;
 using SharpInference.Gguf;
 using SharpInference.Runtime;
 
@@ -23,8 +22,8 @@ public sealed class GgufStateSnapshotTests
         Assert.Equal(stream.Length, stream.Position);
         stream.Position = 1;
         var saved = GgufStateFile.Read(stream);
-        Assert.Equal(processor.InferenceExecutionGraph!.GraphState.Schema.Name, saved.SchemaName);
-        Assert.Equal(processor.InferenceExecutionGraph.GraphState.Slots.Count, saved.Tensors.Count);
+        Assert.Equal(processor.InferenceProgram.State.Schema, saved.SchemaName);
+        Assert.Equal(processor.InferenceProgram.State.Entries.Count, saved.Tensors.Count);
 
         using var restored = processor.CreateSession();
         stream.Position = 1;
@@ -162,5 +161,5 @@ public sealed class GgufStateSnapshotTests
 
     private static Processor LoadPortableModel() =>
         Processor.LoadGraph(TestModelLoader.GetPath(TestModel.Rwkv6),
-            new PortableRwkv6GraphProvider(), CpuPrimitiveGraphBackend.Instance);
+            new PortableRwkv6GraphProvider(), VmBackendFactory.CreateCpu());
 }
