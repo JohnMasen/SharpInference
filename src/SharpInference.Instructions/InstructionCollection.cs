@@ -24,7 +24,22 @@ public readonly record struct InstructionTarget
 public enum InstructionSynchronization { None, GroupMemoryBarrier }
 public sealed record InstructionCollectionDescription(Guid Id, string Name, int Tier, InstructionTarget Architecture);
 public sealed record InstructionPort(string Name, GraphElementType ElementType, GraphResourceAccess Access);
-public sealed record InstructionSignature(IReadOnlyList<InstructionPort> Ports, IReadOnlyList<string> Attributes);
+public sealed record InstructionSignature
+{
+    public InstructionSignature(IReadOnlyList<InstructionPort> ports, IReadOnlyList<string> attributes,
+        KernelPrecisionProfile precision)
+    {
+        ArgumentNullException.ThrowIfNull(ports);
+        ArgumentNullException.ThrowIfNull(attributes);
+        ArgumentNullException.ThrowIfNull(precision);
+        Ports = Array.AsReadOnly(ports.ToArray());
+        Attributes = Array.AsReadOnly(attributes.ToArray());
+        Precision = precision;
+    }
+    public IReadOnlyList<InstructionPort> Ports { get; }
+    public IReadOnlyList<string> Attributes { get; }
+    public KernelPrecisionProfile Precision { get; }
+}
 public sealed record InstructionIndexBound(string IndexPort, string TensorPort, int Axis);
 
 public abstract record InstructionParameter(string Name);
@@ -65,11 +80,27 @@ public abstract class Instruction
     public abstract IReadOnlyList<InstructionSignature> Signatures { get; }
     public virtual bool RequiresDispatchIsolation => true;
     public virtual IReadOnlyList<InstructionIndexBound> IndexBounds => [];
-    public abstract void Invoke(IInstructionRecorder recorder, InstructionParameter[] parameters);
+    public void Invoke(IInstructionRecorder recorder, InstructionParameter[] parameters, PrecisionRequirement precision)
+    {
+        ArgumentNullException.ThrowIfNull(recorder);
+        if (recorder.Target != Target)
+            throw new InstructionAdaptationException(CollectionId, Name, $"requires {Target}, recorder is {recorder.Target}.");
+        GetSignature(parameters, precision);
+        Validate(parameters);
+        recorder.Record(Generate(parameters));
+    }
 
-    public InstructionSignature GetSignature(InstructionParameter[] parameters)
+    protected virtual void Validate(InstructionParameter[] parameters) { }
+    protected abstract InstructionRecording Generate(InstructionParameter[] parameters);
+
+    public InstructionSignature GetSignature(InstructionParameter[] parameters, PrecisionRequirement precision)
     {
         ArgumentNullException.ThrowIfNull(parameters);
+        ArgumentNullException.ThrowIfNull(precision);
+        if (parameters.Any(parameter => parameter is null) ||
+            parameters.Select(parameter => parameter.Name).Distinct(StringComparer.Ordinal).Count() != parameters.Length ||
+            parameters.Any(parameter => parameter is not (InstructionTensorParameter or InstructionAttributeParameter)))
+            throw new InstructionAdaptationException(CollectionId, Name, "Invalid or duplicate parameters.");
         var tensors = parameters.OfType<InstructionTensorParameter>().ToArray();
         var attributes = parameters.OfType<InstructionAttributeParameter>().Select(parameter => parameter.Name).ToHashSet(StringComparer.Ordinal);
         var matches = Signatures.Where(signature => signature.Ports.Count == tensors.Length &&
@@ -78,7 +109,15 @@ public abstract class Instruction
                 (port.Access == GraphResourceAccess.Read || parameter.Access != GraphResourceAccess.Read)))).ToArray();
         if (matches.Length == 0)
             throw new InstructionAdaptationException(CollectionId, Name, "No supported parameter signature.");
-        return matches[0];
+        var compatible = matches.Where(signature => NumericTypeCompatibility.Satisfies(signature.Precision, precision)).ToArray();
+        if (compatible.Length == 0)
+            throw new InstructionAdaptationException(CollectionId, Name,
+                $"On {Target}, required arithmetic={precision.MinimumArithmeticType}, accumulator={precision.MinimumAccumulatorType}; " +
+                "provided " + string.Join("; ", matches.Select(signature =>
+                    $"arithmetic={signature.Precision.ArithmeticType}, accumulator={signature.Precision.AccumulatorType}")) + ".");
+        if (compatible.Length != 1)
+            throw new InstructionAdaptationException(CollectionId, Name, "Ambiguous supported parameter/precision signatures.");
+        return compatible[0];
     }
 }
 

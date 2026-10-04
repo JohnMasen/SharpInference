@@ -1,3 +1,4 @@
+using SharpInference.Graphs;
 using System.Diagnostics;
 using System.Xml.Linq;
 using SharpInference.Backends.CpuVm;
@@ -16,7 +17,7 @@ public sealed class CpuVmPublicationTests
         var parameters = new[] { new VmParameter("left", VmAccess.ReadOnly, tensor),
             new VmParameter("right", VmAccess.ReadOnly, tensor), new VmParameter("output", VmAccess.ReadWrite, tensor) };
         var definition = new VmDefinition("add", VmDefinitionKind.Function, parameters,
-            [new VmNode("add", new VmOperator("core.add", 1, parameters.Select(p => new VmArgument(p.Name, p.Name))))]);
+            [new VmNode("add", new VmOperator(new(GraphElementType.Float32, GraphElementType.Float32), "core.add", 1, parameters.Select(p => new VmArgument(p.Name, p.Name))))]);
         var program = new VmProgram("static-add", "cpu", VmTarget.Cpu,
             parameters.Select(p => new VmSlot(p.Name, p.Access == VmAccess.ReadOnly ? VmSlotScope.Global : VmSlotScope.Local, p.Access, p.Tensor)),
             [definition], [new("run", "add", parameters.Select(p => new VmArgument(p.Name, p.Name)))], new VmState("none", 1, []));

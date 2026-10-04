@@ -95,8 +95,8 @@ public static class PortableTensorOperationContracts
         ArgumentNullException.ThrowIfNull(resources);
         var contract = Contracts.SingleOrDefault(candidate => candidate.Operation == node.Operation)
             ?? throw new InvalidDataException($"Unsupported tensor operation or version '{node.Operation}'.");
-        if (node.Requirements.MinimumArithmeticType != GraphElementType.Float32 ||
-            node.Requirements.MinimumAccumulatorType != GraphElementType.Float32)
+        if (!NumericTypeCompatibility.Satisfies(
+            new KernelPrecisionProfile(GraphElementType.Float32, GraphElementType.Float32), node.Requirements))
             throw new InvalidDataException($"Tensor operation '{node.Id}' requires FP32 arithmetic and accumulation.");
 
         var ports = contract.InputPorts;

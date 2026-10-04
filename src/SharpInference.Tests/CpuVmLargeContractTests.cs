@@ -29,6 +29,7 @@ public sealed class CpuVmLargeContractTests
                 using System.Runtime.InteropServices;
                 using System.Reflection;
                 using SharpInference.Backends.CpuVm;
+                using SharpInference.Graphs;
                 using SharpInference.Vm;
                 var scalar = new VmTensor(VmElementType.Float32, [1]);
                 var token = new VmTensor(VmElementType.Int32, [1]);
@@ -41,7 +42,7 @@ public sealed class CpuVmLargeContractTests
                 var leaf = new VmDefinition("gather", VmDefinitionKind.Function,
                     [new("table", VmAccess.ReadOnly, slots[1].Tensor), new("index", VmAccess.ReadOnly, token),
                      new("output", VmAccess.ReadWrite, scalar)],
-                    [new("gather", new VmOperator("core.gather-row", 1,
+                    [new("gather", new VmOperator(new(GraphElementType.Float32, GraphElementType.Float32), "core.gather-row", 1,
                         [new("table", "table"), new("index", "index"), new("output", "output")]))]);
                 var forward = new VmDefinition("forward", VmDefinitionKind.Orchestration,
                     slots.Select(s => new VmParameter(s.Id, s.Access, s.Id == "tokens" ? token : s.Tensor)),

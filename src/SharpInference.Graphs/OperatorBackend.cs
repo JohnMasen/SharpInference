@@ -111,6 +111,14 @@ public static class NumericTypeCompatibility
                actual == GraphElementType.Float32 && required == GraphElementType.Float16;
     }
 
+    public static bool Satisfies(KernelPrecisionProfile actual, PrecisionRequirement required)
+    {
+        ArgumentNullException.ThrowIfNull(actual);
+        ArgumentNullException.ThrowIfNull(required);
+        return Satisfies(actual.ArithmeticType, required.MinimumArithmeticType) &&
+            Satisfies(actual.AccumulatorType, required.MinimumAccumulatorType);
+    }
+
     public static GraphElementType Maximum(IEnumerable<GraphElementType> types)
     {
         var values = types?.ToArray() ?? throw new ArgumentNullException(nameof(types));

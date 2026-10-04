@@ -16,7 +16,7 @@ internal sealed class GpuTierZeroInstruction(Guid id,string name) : TierZeroInst
             _ => throw new InstructionAdaptationException(CollectionId, Name, "Unsupported tensor element type."),
         },p.Tensor.Dimensions)),Name:p.Expression));
         var offsets=tensors.ToDictionary(p=>p.Name,p=>p.OffsetExpression);
-        var op=new VmOperator(CollectionId,Name,tensors.Select(p=>new VmArgument(p.Name,p.Name)),values.OfType<InstructionAttributeParameter>().ToDictionary(p=>p.Name,p=>p.Value));
+        var op=new VmOperator(new(GraphElementType.Float32, GraphElementType.Float32),CollectionId,Name,tensors.Select(p=>new VmArgument(p.Name,p.Name)),values.OfType<InstructionAttributeParameter>().ToDictionary(p=>p.Name,p=>p.Value));
         return new InstructionRecording(Operator(op,parameters,offsets),[
             new InstructionHelper("t0.helper.0", "float load32(RWByteAddressBuffer b, uint o, uint i) { return asfloat(b.Load(o + i * 4)); }"),
             new InstructionHelper("t0.helper.1", "float load16(RWByteAddressBuffer b, uint o, uint i) { uint a=o+i*2; return f16tof32((b.Load(a & ~3u) >> ((a & 2u)*8u)) & 65535u); }"),

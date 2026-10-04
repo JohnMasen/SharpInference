@@ -25,7 +25,7 @@ public sealed class VmExecutionGraphGenerator
             {
                 var instruction = instructions.Resolve(operation.InstructionCollectionId, operation.InstructionName, Architecture);
                 var parameters = VmInstructionParameters.Create(operation, definition.Parameters, parameter => (parameter.Name, "0"));
-                instruction.GetSignature(parameters);
+                instruction.GetSignature(parameters, operation.Precision);
             }
         return VmInstructionContracts.Bind(program, instructions);
     }

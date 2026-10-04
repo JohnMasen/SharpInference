@@ -1,3 +1,4 @@
+using SharpInference.Graphs;
 using System.Runtime.InteropServices;
 using SharpInference.Backends.CpuVm;
 using SharpInference.Vm;
@@ -86,7 +87,7 @@ public sealed class CpuVmMixedWeightsTests
             new("output", VmAccess.ReadWrite, new VmTensor(VmElementType.Float32, outputShape)),
         };
         var definition = new VmDefinition("mixed", VmDefinitionKind.Function, parameters,
-            [new("mixed", new VmOperator(operation, 1, parameters.Select(p => new VmArgument(p.Name, p.Name))))]);
+            [new("mixed", new VmOperator(new(GraphElementType.Float32, GraphElementType.Float32), operation, 1, parameters.Select(p => new VmArgument(p.Name, p.Name))))]);
         var program = new VmProgram("mixed", "cpu", VmTarget.Cpu,
             parameters.Select(p => new VmSlot(p.Name, p.Access == VmAccess.ReadOnly ? VmSlotScope.Global : VmSlotScope.Local,
                 p.Access, p.Tensor)), [definition],

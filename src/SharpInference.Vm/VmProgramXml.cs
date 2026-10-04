@@ -8,7 +8,6 @@ namespace SharpInference.Vm;
 
 public static class VmProgramXml
 {
-    public const int FormatVersion = 2;
     private const int MaximumCharacters = 16 * 1024 * 1024;
 
     public static string Serialize(VmProgram program)
@@ -18,7 +17,7 @@ public static class VmProgramXml
             .OfType<VmOperator>().Any(operation => operation.Version != 1))
             throw new NotSupportedException("Instruction versions cannot be serialized; use a distinct IC GUID.");
         var root = new XElement("VmProgram",
-            new XAttribute("version", FormatVersion), new XAttribute("name", program.Name),
+            new XAttribute("name", program.Name),
             new XAttribute("abi", program.Abi), new XAttribute("target", program.Target),
             new XElement("Slots", program.Slots.Select(slot => new XElement("Slot",
                 new XAttribute("id", slot.Id), new XAttribute("scope", slot.Scope),
@@ -64,10 +63,8 @@ public static class VmProgramXml
             }
             using var reader = XmlReader.Create(new StringReader(xml), settings);
             var root = XDocument.Load(reader).Root ?? throw new InvalidDataException("Missing VM program.");
-            Check(root, "VmProgram", ["version", "name", "abi", "target"],
+            Check(root, "VmProgram", ["name", "abi", "target"],
                 ["Slots", "State", "Definitions", "Entries"]);
-            if (Int(root, "version") != FormatVersion)
-                throw new InvalidDataException("Unsupported VM program XML version.");
             var slots = Container(root, "Slots", "Slot").Select(slot =>
             {
                 Check(slot, "Slot", ["id", "scope", "access", "bindingKey"], ["Tensor"]);
@@ -154,6 +151,12 @@ public static class VmProgramXml
         {
             VmOperator operation => new XElement("Operator", new XAttribute("name", operation.InstructionName),
                 new XAttribute("collection", operation.InstructionCollectionId.ToString("D")), Arguments(operation.Arguments),
+                new XElement("Precision",
+                    new XAttribute("minimumArithmeticType", operation.Precision.MinimumArithmeticType),
+                    new XAttribute("minimumAccumulatorType", operation.Precision.MinimumAccumulatorType)),
+                operation.ResolvedPrecision is null ? null : new XElement("ResolvedPrecision",
+                    new XAttribute("arithmeticType", operation.ResolvedPrecision.ArithmeticType),
+                    new XAttribute("accumulatorType", operation.ResolvedPrecision.AccumulatorType)),
                 new XElement("Attributes", operation.Attributes.OrderBy(pair => pair.Key, StringComparer.Ordinal)
                     .Select(pair => new XElement("Attribute",
                         new XAttribute("name", pair.Key), new XAttribute("value", pair.Value)))),
@@ -191,7 +194,19 @@ public static class VmProgramXml
         switch (instruction.Name.LocalName)
         {
             case "Operator":
-                Check(instruction, "Operator", ["name", "collection"], ["Arguments", "Attributes", "IndexBounds", "ParameterAccesses"]);
+                Check(instruction, "Operator", ["name", "collection"], ["Arguments", "Precision", "ResolvedPrecision", "Attributes", "IndexBounds", "ParameterAccesses"]);
+                var precision = One(instruction, "Precision");
+                Check(precision, "Precision", ["minimumArithmeticType", "minimumAccumulatorType"], []);
+                var requirement = new PrecisionRequirement(EnumValue<GraphElementType>(precision, "minimumArithmeticType"),
+                    EnumValue<GraphElementType>(precision, "minimumAccumulatorType"));
+                var resolved = OptionalOne(instruction, "ResolvedPrecision");
+                KernelPrecisionProfile? capability = null;
+                if (resolved is not null)
+                {
+                    Check(resolved, "ResolvedPrecision", ["arithmeticType", "accumulatorType"], []);
+                    capability = new(EnumValue<GraphElementType>(resolved, "arithmeticType"),
+                        EnumValue<GraphElementType>(resolved, "accumulatorType"));
+                }
                 var attributes = new Dictionary<string, string>(StringComparer.Ordinal);
                 foreach (var attribute in Container(instruction, "Attributes", "Attribute"))
                 {
@@ -201,7 +216,7 @@ public static class VmProgramXml
                 }
                 if (!Guid.TryParseExact(Required(instruction, "collection"), "D", out var collection))
                     throw new InvalidDataException("Instruction collection must be a canonical GUID.");
-                result = new VmOperator(collection, Required(instruction, "name"),
+                result = new VmOperator(requirement, collection, Required(instruction, "name"),
                     ReadArguments(instruction), attributes,
                     OptionalOne(instruction, "IndexBounds")?.Elements().Select(bound =>
                     {
@@ -211,7 +226,7 @@ public static class VmProgramXml
                     {
                         Check(port, "Port", ["name", "access"], []);
                         return Required(port, "name");
-                    }, port => EnumValue<GraphResourceAccess>(port, "access"), StringComparer.Ordinal));
+                    }, port => EnumValue<GraphResourceAccess>(port, "access"), StringComparer.Ordinal), capability);
                 break;
             case "Call":
                 Check(instruction, "Call", ["definition"], ["Arguments"]);

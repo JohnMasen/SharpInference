@@ -136,7 +136,8 @@ public sealed class InstructionCollectionTests
     {
         var instruction = new CpuFloat32InstructionCollection().QueryInstruction(Guid.Empty, "core.add").Single();
         var recorder = new SourceInstructionRecorder(InstructionTarget.Cpu);
-        Assert.Throws<InstructionAdaptationException>(() => instruction.Invoke(recorder, []));
+        Assert.Throws<InstructionAdaptationException>(() => instruction.Invoke(recorder, [],
+            new(GraphElementType.Float32, GraphElementType.Float32)));
         Assert.Empty(recorder.Recordings);
         recorder.Record(new("first", [new("h", "helper")]));
         recorder.Record(new("second", [new("h", "helper")]));
@@ -250,7 +251,7 @@ public sealed class InstructionCollectionTests
     {
         var arguments = parameters.Select(parameter => new VmArgument(parameter.Name, parameter.Name)).ToArray();
         var kernel = new VmDefinition("op", target == VmTarget.Cpu ? VmDefinitionKind.Function : VmDefinitionKind.Kernel,
-            parameters, [new("body", new VmOperator(id, name, arguments, attributes))], target == VmTarget.Cpu ? null : new(64));
+            parameters, [new("body", new VmOperator(new(GraphElementType.Float32, GraphElementType.Float32), id, name, arguments, attributes))], target == VmTarget.Cpu ? null : new(64));
         var definitions = new List<VmDefinition> { kernel };
         if (target != VmTarget.Cpu)
             definitions.Add(new("host", VmDefinitionKind.Orchestration, parameters,
@@ -277,13 +278,14 @@ public sealed class InstructionCollectionTests
         public override InstructionTarget Target => target;
         public override bool RequiresDispatchIsolation => false;
         public override IReadOnlyList<InstructionSignature> Signatures =>
-            [new([new("state", GraphElementType.Float32, GraphResourceAccess.ReadWrite)], [])];
-        public override void Invoke(IInstructionRecorder recorder, InstructionParameter[] parameters)
+            [new([new("state", GraphElementType.Float32, GraphResourceAccess.ReadWrite)], [],
+                new(GraphElementType.Float32, GraphElementType.Float32))];
+        protected override InstructionRecording Generate(InstructionParameter[] parameters)
         {
             var state = parameters.OfType<InstructionTensorParameter>().Single();
-            recorder.Record(new(Target == InstructionTarget.Cpu
+            return new(Target == InstructionTarget.Cpu
                 ? $"{{ var values=MemoryMarshal.Cast<byte,float>({state.Expression}); for(int i=0;i<values.Length;i++) values[i]+=1; }}"
-                : $"if(i<3u) {state.Expression}.Store({state.OffsetExpression}+i*4u,asuint(asfloat({state.Expression}.Load({state.OffsetExpression}+i*4u))+1.0f));"));
+                : $"if(i<3u) {state.Expression}.Store({state.OffsetExpression}+i*4u,asuint(asfloat({state.Expression}.Load({state.OffsetExpression}+i*4u))+1.0f));");
         }
     }
 
@@ -295,18 +297,21 @@ public sealed class InstructionCollectionTests
         public int Invocations { get; private set; }
         public override IReadOnlyList<InstructionSignature> Signatures =>
             [new([new("src", GraphElementType.Float32, GraphResourceAccess.Read),
-                new("dest", GraphElementType.Float32, GraphResourceAccess.Write)], [])];
-        public override void Invoke(IInstructionRecorder recorder, InstructionParameter[] parameters)
+                new("dest", GraphElementType.Float32, GraphResourceAccess.Write)], [],
+                new(GraphElementType.Float32, GraphElementType.Float32))];
+        protected override InstructionRecording Generate(InstructionParameter[] parameters)
         {
             var input = parameters.OfType<InstructionTensorParameter>().Single(parameter => parameter.Name == "src");
             var output = parameters.OfType<InstructionTensorParameter>().Single(parameter => parameter.Name == "dest");
+            InstructionRecording recording;
             if (Target == InstructionTarget.Cpu)
-                recorder.Record(new($"Double({input.Expression}, {output.Expression});",
-                    [new("test.double", "private static void Double(ReadOnlySpan<byte> input, Span<byte> output) { var a=MemoryMarshal.Cast<byte,float>(input); var b=MemoryMarshal.Cast<byte,float>(output); for(int i=0;i<a.Length;i++) b[i]=a[i]*2; }")]));
+                recording = new($"Double({input.Expression}, {output.Expression});",
+                    [new("test.double", "private static void Double(ReadOnlySpan<byte> input, Span<byte> output) { var a=MemoryMarshal.Cast<byte,float>(input); var b=MemoryMarshal.Cast<byte,float>(output); for(int i=0;i<a.Length;i++) b[i]=a[i]*2; }")]);
             else if (Target == InstructionTarget.Direct3D12)
-                recorder.Record(new($"if(i<3u) {output.Expression}.Store({output.OffsetExpression}+i*4u, asuint(asfloat({input.Expression}.Load({input.OffsetExpression}+i*4u))*2.0f));"));
+                recording = new($"if(i<3u) {output.Expression}.Store({output.OffsetExpression}+i*4u, asuint(asfloat({input.Expression}.Load({input.OffsetExpression}+i*4u))*2.0f));");
             else throw new InstructionAdaptationException(CollectionId, Name, "No test emitter for this architecture.");
             Invocations++;
+            return recording;
         }
     }
 }

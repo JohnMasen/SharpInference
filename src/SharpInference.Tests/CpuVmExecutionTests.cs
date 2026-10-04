@@ -1,3 +1,4 @@
+using SharpInference.Graphs;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
@@ -49,7 +50,7 @@ public sealed class CpuVmExecutionTests
         var tensor = new VmTensor(VmElementType.Float32, [2]);
         var parameters = new[] { new VmParameter("input", VmAccess.ReadOnly, tensor), new VmParameter("output", VmAccess.ReadWrite, tensor) };
         var copy = new VmDefinition("copy", VmDefinitionKind.Function, parameters,
-            [new VmNode("copy", new VmOperator("core.copy", 1, [new("input", "input"), new("output", "output")]))]);
+            [new VmNode("copy", new VmOperator(new(GraphElementType.Float32, GraphElementType.Float32), "core.copy", 1, [new("input", "input"), new("output", "output")]))]);
         var large = new VmTensor(VmElementType.Float32, [4]);
         var root = new VmDefinition("root", VmDefinitionKind.Orchestration,
             [new("input", VmAccess.ReadOnly, large), new("output", VmAccess.ReadWrite, large)],
@@ -185,9 +186,9 @@ public sealed class CpuVmExecutionTests
         var tensor = new VmTensor(VmElementType.Float32, [2]);
         var definition = new VmDefinition("pipeline", VmDefinitionKind.Function,
             [new("scratch", VmAccess.ReadWrite, tensor), new("output", VmAccess.ReadWrite, tensor)],
-            [new VmNode("fill", new VmOperator("core.tensor.fill", 1, [new("output", "scratch")],
+            [new VmNode("fill", new VmOperator(new(GraphElementType.Float32, GraphElementType.Float32), "core.tensor.fill", 1, [new("output", "scratch")],
                 new Dictionary<string, string> { ["value"] = "3" })),
-             new VmNode("square", new VmOperator("core.square", 1, [new("input", "scratch"), new("output", "output")]), ["fill"])]);
+             new VmNode("square", new VmOperator(new(GraphElementType.Float32, GraphElementType.Float32), "core.square", 1, [new("input", "scratch"), new("output", "output")]), ["fill"])]);
         var program = new VmProgram("scratch", "cpu", VmTarget.Cpu,
             [new("scratch", VmSlotScope.Local, VmAccess.ReadWrite, tensor), new("output", VmSlotScope.Local, VmAccess.ReadWrite, tensor)],
             [definition], [new("run", "pipeline", [new("scratch", "scratch"), new("output", "output")])], new VmState("none", 1, []));
@@ -236,7 +237,7 @@ public sealed class CpuVmExecutionTests
         IReadOnlyDictionary<string, string> attributes, int version = 1)
     {
         var definition = new VmDefinition("function", VmDefinitionKind.Function, parameters,
-            [new VmNode("node", new VmOperator("core." + operation, version,
+            [new VmNode("node", new VmOperator(new(GraphElementType.Float32, GraphElementType.Float32), "core." + operation, version,
                 parameters.Select(p => new VmArgument(p.Name, p.Name)), attributes))]);
         return new VmProgram("test", "cpu", VmTarget.Cpu,
             parameters.Select(p => new VmSlot(p.Name, p.Access == VmAccess.ReadOnly ? VmSlotScope.Global : VmSlotScope.Local,

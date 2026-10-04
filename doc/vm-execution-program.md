@@ -46,7 +46,8 @@ access. Typed views can change shape within compatible capacity without copying
 storage; aligned slices of byte workspaces can provide typed views. Bindings
 cannot widen access permissions.
 
-`VmProgramXml` uses independent version-2 `VmProgram` XML, deterministic ordering,
+`VmProgramXml` uses standalone `VmProgram` XML without a format version number,
+with deterministic ordering,
 strict fields/enums, and DTD protection. Limits are 16 MiB of characters, 100,000
 elements, and depth 64. Structural validation checks calls, recursion, domains,
 capacity, offsets, access, and grid dimensions. Target compilers additionally
@@ -54,11 +55,58 @@ validate IC GUID/name, shapes/precision, initialization, and supported
 execution mappings. Parsing alone does not certify arbitrary GPU dataflow:
 cross-thread dependencies require explicit dispatch boundaries/barriers.
 Unsupported contracts produce diagnostics, not successful fallback execution.
-Version-1 XML is rejected; regenerate execution graphs and compiled artifacts.
+The root has no `version` attribute; unknown fields and missing required fields
+are rejected. Regenerate programs/artifacts when their contracts change.
 An `Operator` carries `collection` (GUID) and `name`, without an instruction
-version. File format, State schema and backend ABI versions remain independent.
-Legacy source constructors are retained only as a migration convenience and
-reject versions other than 1; new callers should use the GUID constructor.
+version. State schema versions and backend ABI identifiers remain independent
+of the unversioned XML format.
+All operator constructors require explicit precision requirements. The legacy
+name/version source form still rejects versions other than 1 during assembly;
+new callers should use the GUID constructor. There is no missing-precision
+default or backward-compatible XML reader.
+
+### Explicit precision requirements
+
+Storage and internal computation are independent:
+
+- `VmTensor.ElementType` describes each parameter/slot's storage type.
+- `VmOperator.Precision` is a mandatory `PrecisionRequirement`, with minimum
+  arithmetic and accumulator types. Both must be FP16 or FP32.
+- Each IC `InstructionSignature.Precision` is a `KernelPrecisionProfile`
+  declaring actual internal arithmetic and accumulator types.
+- FP32 capability satisfies an FP16 minimum; FP16 capability cannot satisfy
+  an FP32 minimum. Ports must still match exactly; no implicit casts are added.
+
+FP16 input/output therefore does not imply FP16 internal computation.
+All current T0 signatures, including the FP16 collection and mixed
+FP16-weight/FP32-activation signatures, declare FP32 internal arithmetic and
+accumulation. Logical lowering preserves each node's requirements and includes
+them in definition deduplication. Generator and target compilers validate
+capability before recording source, rejecting insufficient or ambiguous
+signatures explicitly.
+
+Every XML `Operator` has exactly one required element:
+
+```xml
+<Precision minimumArithmeticType="Float32"
+           minimumAccumulatorType="Float32" />
+```
+
+Binding adds `ResolvedPrecision` with `arithmeticType` and `accumulatorType`.
+These values are verified against the provider during compilation and saved in
+`contracts.xml`. Imports require complete resolved contracts and check they
+satisfy the program's requirements, without loading providers. Removing bound
+contracts never removes the original precision requirements. Requirements
+participate in program hashes; resolved capability participates in contract
+integrity hashes.
+
+The CPU compiler's FP32 options retain the existing baseline configuration;
+they are not evidence of an extension provider's internal precision. Provider
+metadata is trusted and must be verified through implementation/conformance
+testing. Precision minima do not promise bit-identical results or change the
+existing T0 rounding, special-value or tolerance policies.
+Tier-1 remains deferred: no fused kernels, typed expansions or stage-rounding
+metadata are introduced by this precision contract.
 
 ### Shared T0 profile
 
@@ -89,8 +137,11 @@ injecting provider instances. Architecture matching uses extensible identifiers
 (`cpu.managed`, `direct3d12`), not a generic GPU category.
 
 `QueryInstructionCollection` lists GUID/name/Tier/architecture;
-`QueryInstruction(Guid, string)` exposes supported typed parameter signatures.
-Instructions adapt one parameter array and call a backend-provided recorder.
+`QueryInstruction(Guid, string)` exposes supported typed parameter signatures
+and actual internal precision. `GetSignature(parameters, precision)` and
+`Invoke(recorder, parameters, precision)` require explicit minimum precision.
+The nonvirtual invocation entry validates target/signature/precision, performs
+provider validation and generation, then submits a complete recording.
 Recording collects source, helpers, assembly references and synchronization for
 one compilation, never a runtime reflection call.
 
@@ -310,15 +361,17 @@ and the generated program/ABI identity, per-instruction read/write contracts
 and supported options, without invoking
 providers or regenerating source. `CpuVmCompiledArtifact.LoadFromResources`
 supports embedded packages without extracting files.
-The current generated-source ABI is `cpu-vm-ic-call-frame-v3`. Generated methods
+The current generated-source ABI is `cpu-vm-ic-precision-v4`. Generated methods
 take a context and immutable call frame rather than passing every slot Span by
 value, keeping stack usage bounded for large models. Binding tables retain
 offset/access contracts without copying tensors or allocating bindings per node.
 Packages and static deployments generated with the previous ABI must be
 regenerated/rebuilt; incompatible generated-code fingerprints are rejected.
 D3D12 packages are `program.vm.zip`, containing execution metadata, generated
-HLSL and DXIL. ABI `SharpInference.D3D12Vm.raw-uav.ic.v2` includes hashed
-`contracts.xml` with generic index bounds and port access emitted by the selected IC.
+HLSL and DXIL. ABI `SharpInference.D3D12Vm.raw-uav.ic-precision.v3` includes hashed
+`contracts.xml` with generic index bounds, port access and resolved internal
+precision emitted by the selected IC. CPU and D3D12 package manifests use
+version 3; previous packages must be regenerated.
 Import verifies contracts against program structure, module membership and
 hashes without IC providers, source regeneration or DXC.
 These integrity checks do not prove arbitrary source/binary semantic equivalence

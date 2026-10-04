@@ -43,6 +43,7 @@ public sealed class D3D12VmCompiler
         VmProgramValidator.Validate(program);
         if (program.Target != VmTarget.Direct3D12)
             throw new NotSupportedException("The D3D12 VM requires a Direct3D12 program.");
+        program = VmInstructionContracts.Bind(program, registry);
         foreach (var slot in program.Slots)
             if (slot.Tensor.ByteLength > int.MaxValue)
                 throw new NotSupportedException($"Slot '{slot.Id}' exceeds the byte[] control-plane limit.");
@@ -130,7 +131,7 @@ public sealed class D3D12VmCompiler
         var instruction=registry.Resolve(op.InstructionCollectionId,op.InstructionName,InstructionTarget.Direct3D12);
         var args=VmInstructionParameters.Create(op,parameters.Values.Select(value=>value.p).ToArray(),p=>(parameters[p.Name].Name,parameters[p.Name].Name+"o"));
         var recorder=new SourceInstructionRecorder(InstructionTarget.Direct3D12);
-        instruction.Invoke(recorder,args);
+        instruction.Invoke(recorder,args,op.Precision);
         foreach(var helper in recorder.Helpers)
         {
             if(helpers.TryGetValue(helper.Name,out var existing) && existing.Source!=helper.Source)
@@ -154,7 +155,8 @@ public sealed class D3D12VmCompiler
                 {
                     var instruction = registry.Resolve(op.InstructionCollectionId,op.InstructionName,InstructionTarget.Direct3D12);
                     var nonPointwise = instruction.RequiresDispatchIsolation;
-                    var signature = instruction.GetSignature(VmInstructionParameters.Create(op, d.Parameters, parameter => (parameter.Name, "0")));
+                    var signature = instruction.GetSignature(VmInstructionParameters.Create(op, d.Parameters, parameter => (parameter.Name, "0")),
+                        op.Precision);
                     var parameters = d.Parameters.ToDictionary(p => p.Name, StringComparer.Ordinal);
                     var priorReadCount = reads.Count;
                     foreach (var writePort in signature.Ports.Where(port => port.Access != SharpInference.Graphs.GraphResourceAccess.Read))

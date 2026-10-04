@@ -69,6 +69,9 @@ public static class VmProgramValidator
                         RequireName(operation.Operation, "operation");
                         if (operation.Version <= 0)
                             Fail($"Node '{node.Id}' has an invalid operation version.");
+                        if (operation.ResolvedPrecision is { } precision &&
+                            !SharpInference.Graphs.NumericTypeCompatibility.Satisfies(precision, operation.Precision))
+                            Fail($"Node '{node.Id}' resolved precision does not satisfy its requirement.");
                         Unique(operation.Arguments, argument => argument.Parameter, "operator argument");
                         if (operation.ParameterAccesses.Count != 0 &&
                             (operation.ParameterAccesses.Count != operation.Arguments.Count ||

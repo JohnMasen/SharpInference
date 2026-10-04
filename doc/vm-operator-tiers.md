@@ -4,6 +4,9 @@ Status: T0 FP32/FP16 InstructionCollections and constructor-injected providers
 are implemented for managed CPU and Direct3D12. Tier-1/2 implementations,
 annotation discovery and control flow remain future work. The runtime contract is
 [VM execution programs](./vm-execution-program.md).
+VM operators now carry explicit arithmetic/accumulator precision requirements;
+IC signatures declare their actual internal precision. Tier-1 implementation,
+catalog additions and fusion-specific rounding metadata are deferred.
 
 ## Scope and measured Tier-0 inventory
 
@@ -113,6 +116,10 @@ It exposes 25 operation IDs and 28 signatures: the 23 measured requirements,
 two optional general-purpose operations, and three mixed-storage variants.
 The contracts and signature lists are read-only. Concrete IC providers expose
 signatures through `QueryInstruction`, not compiler-owned `TierZeroOperators`.
+Each IC signature separately declares FP32 arithmetic/accumulation, including
+FP16 input/output signatures. Storage types are per-port and must not be used to
+infer compute precision. Explicit FP16 minima may be satisfied by these FP32
+implementations without changing their existing numerical semantics.
 Logical lowering validates geometry; each IC adapts and validates its typed
 parameter array before recording any source.
 
@@ -208,6 +215,13 @@ CPU/GPU VM configurations were rerun successfully afterwards.
 
 ## Tier-1: basic merged operators (short, semantics-preserving fusion)
 
+This section is a future design, not current implementation scope. CPU/GPU may
+provide different Tier-1 subsets and mixed-storage signatures. Future fusion
+must also specify intermediate rounding: removing an FP16 intermediate store
+does not authorize removing its FP16 rounding boundary, even with FP32 internal
+arithmetic. Typed reference expansions and alternate numerical contracts remain
+later work.
+
 Tier-1 fuses a subgraph of **2-3 Tier-0 stages** without changing its algorithm.
 Use maximum Tier-0 dependency depth, not the number of tensor nodes or model
 layers. A branched subgraph may contain more than three nodes at depth three.
@@ -291,12 +305,19 @@ usable. Feature availability must be checked separately.
 `IInstructionCollectionProvider.QueryInstructionCollection()` returns
 GUID/name/Tier/architecture descriptions. `QueryInstruction(Guid, string)`
 returns implementations and their supported named parameter signatures.
-`Instruction.Invoke(IInstructionRecorder, InstructionParameter[])` runs once
+`InstructionSignature` declares named ports, attributes and an actual
+`KernelPrecisionProfile`. `GetSignature(parameters, precision)` requires the
+caller's `PrecisionRequirement`; incompatible precision and ambiguous matches
+fail explicitly.
+`Instruction.Invoke(IInstructionRecorder, InstructionParameter[], PrecisionRequirement)` runs once
 during assembly. It records source, named helpers, compile-reference assemblies
 and synchronization; it does not execute tensor math.
 Unsupported adaptation throws `InstructionAdaptationException`. T0 validates
-before recording. Recorder helper collisions are atomic and reported explicitly.
-Provider implementations must obey that same failure-atomicity contract.
+before recording. Invocation is a nonvirtual validation/generation/recording
+entry; providers implement protected validation and return a complete
+`InstructionRecording` from `Generate`. Recorder helper collisions are atomic
+and reported explicitly. No recording is submitted on validation/generation
+failure.
 
 ### Independent graph generation and backend assembly
 
@@ -445,9 +466,10 @@ must be designed with that execution-model choice.
 ## Next design sequence
 
 1. Freeze the shared Tier-0 semantic/type/numeric profile and conformance tests.
-2. Agree on extension discovery, contracts, expansion and static deployment.
-3. Bring main-equivalent Tier-0 implementations and Tier-1 patterns into the
-   external optimizer, preserving explicit graph decisions.
+2. Preserve explicit VM precision requirements and IC capabilities throughout
+   preparation, serialization and static deployment.
+3. Later agree on extension discovery and typed expansion, and consider
+   Tier-1 patterns in the external optimizer, preserving explicit decisions.
 4. Design the control-flow/value/State ABI and path-aware storage model.
 5. Add measured Tier-2 rewrites and additional model profiles.
 

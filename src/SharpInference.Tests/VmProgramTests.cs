@@ -1,3 +1,4 @@
+using SharpInference.Graphs;
 using SharpInference.Vm;
 
 namespace SharpInference.Tests;
@@ -24,6 +25,7 @@ public sealed class VmProgramTests
         var restored = VmProgramXml.Deserialize(xml);
         Assert.Equal(xml, VmProgramXml.Serialize(restored));
         Assert.Equal("VmProgram", System.Xml.Linq.XElement.Parse(xml).Name.LocalName);
+        Assert.Null(System.Xml.Linq.XElement.Parse(xml).Attribute("version"));
         Assert.DoesNotContain("Region", xml, StringComparison.Ordinal);
         Assert.Equal("state", Assert.Single(restored.State.Entries).Slot);
         Assert.Equal(3, restored.Slots.Count);
@@ -55,7 +57,7 @@ public sealed class VmProgramTests
         var nodes = new List<VmNode>();
         var parameters = new List<VmParameter>(Parameters);
         var attributes = new Dictionary<string, string> { ["test"] = "original" };
-        var operation = new VmOperator("copy", 1, FunctionArguments, attributes);
+        var operation = new VmOperator(new(GraphElementType.Float32, GraphElementType.Float32), "copy", 1, FunctionArguments, attributes);
         nodes.Add(new VmNode("copy", operation));
         var definition = new VmDefinition("copy", VmDefinitionKind.Function, parameters, nodes);
         var program = Create(slots, [definition],
@@ -222,7 +224,7 @@ public sealed class VmProgramTests
     private static VmProgram CpuProgram()
     {
         var copy = new VmDefinition("copy", VmDefinitionKind.Function, Parameters,
-            [new VmNode("copy", new VmOperator("core.copy", 1, FunctionArguments))]);
+            [new VmNode("copy", new VmOperator(new(GraphElementType.Float32, GraphElementType.Float32), "core.copy", 1, FunctionArguments))]);
         var forward = new VmDefinition("forward", VmDefinitionKind.Function, Parameters,
         [
             new VmNode("first", new VmCall("copy", FunctionArguments)),

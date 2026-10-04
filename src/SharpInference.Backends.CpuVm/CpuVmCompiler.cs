@@ -83,7 +83,7 @@ public sealed class CpuVmCompiler
 
 public sealed class CpuVmCompiledArtifact
 {
-    public const string SourceAbi = "cpu-vm-ic-call-frame-v3";
+    public const string SourceAbi = "cpu-vm-ic-precision-v4";
     internal IReadOnlyList<System.Reflection.Assembly> References { get; }
     private readonly VmProgram contracts;
     private readonly byte[]? binary;
@@ -157,6 +157,7 @@ public sealed class CpuVmCompiledArtifact
     public void Export(string directory, bool includeBinary = true)
     {
         if (includeBinary && binary is null) throw new InvalidOperationException("Compile before exporting a binary package.");
+        VmInstructionContracts.ValidateResolved(contracts);
         Directory.CreateDirectory(directory);
         var files = new Dictionary<string, byte[]>
         {
@@ -172,7 +173,7 @@ public sealed class CpuVmCompiledArtifact
         }
         foreach (var pair in files) File.WriteAllBytes(Path.Combine(directory, pair.Key), pair.Value);
         File.WriteAllText(Path.Combine(directory, "manifest.json"),
-            JsonSerializer.Serialize(new CpuVmPackageManifest(2, files.ToDictionary(pair => pair.Key, pair => Hash(pair.Value))),
+            JsonSerializer.Serialize(new CpuVmPackageManifest(3, files.ToDictionary(pair => pair.Key, pair => Hash(pair.Value))),
                 CpuVmJsonContext.Default.CpuVmPackageManifest));
     }
 
@@ -198,7 +199,7 @@ public sealed class CpuVmCompiledArtifact
             CpuVmJsonContext.Default.CpuVmPackageManifest)
             ?? throw new InvalidDataException("Missing CPU package manifest.");
         var required = new[] { "program.xml", "contracts.xml", "options.json", "CpuProgram.g.cs" };
-        if (manifest.Version != 2 || manifest.Files is null ||
+        if (manifest.Version != 3 || manifest.Files is null ||
             required.Any(name => !manifest.Files.ContainsKey(name)) ||
             manifest.Files.Keys.Any(name => !required.Contains(name) && name is not ("CpuProgram.dll" or "CpuProgram.pdb")) ||
             manifest.Files.ContainsKey("CpuProgram.dll") != manifest.Files.ContainsKey("CpuProgram.pdb"))
@@ -215,6 +216,7 @@ public sealed class CpuVmCompiledArtifact
             ?? throw new InvalidDataException("Invalid CPU compiler options.");
         var source = Encoding.UTF8.GetString(files["CpuProgram.g.cs"]);
         var contracts = VmProgramXml.Deserialize(Encoding.UTF8.GetString(files["contracts.xml"]));
+        VmInstructionContracts.ValidateResolved(contracts);
         if (VmProgramXml.Serialize(VmInstructionContracts.WithoutContracts(program)) !=
             VmProgramXml.Serialize(VmInstructionContracts.WithoutContracts(contracts)) ||
             contracts.Definitions.SelectMany(definition => definition.Nodes).Select(node => node.Instruction)

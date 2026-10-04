@@ -35,7 +35,7 @@ public static class VmTierZeroOperations
         var node = new LogicalNode(new("vm"), contract.Operation, new("vm"),
             operation.Arguments.Select(argument => new NodeResourceBinding(argument.Parameter, new(argument.Source),
                 argument.Parameter == "output" ? GraphResourceAccess.Write : GraphResourceAccess.Read)).ToArray(),
-            [], operation.Attributes, new(GraphElementType.Float32, GraphElementType.Float32));
+            [], operation.Attributes, operation.Precision);
         TierZeroOperationContracts.ValidateNode(node, resources, allowLegacyFloat16);
         return contract.ResolveInputPorts(operation.Arguments.Select(argument => argument.Parameter));
     }

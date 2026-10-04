@@ -64,10 +64,11 @@ public abstract class VmInstruction;
 
 public sealed class VmOperator : VmInstruction
 {
-    public VmOperator(Guid instructionCollectionId, string instructionName, IEnumerable<VmArgument> arguments,
+    public VmOperator(PrecisionRequirement precision, Guid instructionCollectionId, string instructionName, IEnumerable<VmArgument> arguments,
         IReadOnlyDictionary<string, string>? attributes = null, IEnumerable<InstructionIndexBound>? indexBounds = null,
-        IReadOnlyDictionary<string, GraphResourceAccess>? parameterAccesses = null)
-        : this(instructionName, 1, arguments, attributes)
+        IReadOnlyDictionary<string, GraphResourceAccess>? parameterAccesses = null,
+        KernelPrecisionProfile? resolvedPrecision = null)
+        : this(precision, instructionName, 1, arguments, attributes)
     {
         InstructionCollectionId = instructionCollectionId;
         IsLegacy = false;
@@ -75,11 +76,14 @@ public sealed class VmOperator : VmInstruction
         ParameterAccesses = new ReadOnlyDictionary<string, GraphResourceAccess>(
             parameterAccesses is null ? new Dictionary<string, GraphResourceAccess>(StringComparer.Ordinal) :
                 new Dictionary<string, GraphResourceAccess>(parameterAccesses, StringComparer.Ordinal));
+        ResolvedPrecision = resolvedPrecision;
     }
 
-    public VmOperator(string operation, int version, IEnumerable<VmArgument> arguments,
+    public VmOperator(PrecisionRequirement precision, string operation, int version, IEnumerable<VmArgument> arguments,
         IReadOnlyDictionary<string, string>? attributes = null)
     {
+        ArgumentNullException.ThrowIfNull(precision);
+        Precision = precision;
         Operation = operation;
         Version = version;
         Arguments = Array.AsReadOnly(arguments.ToArray());
@@ -89,6 +93,8 @@ public sealed class VmOperator : VmInstruction
     }
 
     public string Operation { get; }
+    public PrecisionRequirement Precision { get; }
+    public KernelPrecisionProfile? ResolvedPrecision { get; }
     public int Version { get; }
     public Guid InstructionCollectionId { get; } = InstructionCollectionIds.TierZeroFloat32;
     public string InstructionName => Operation;
@@ -160,7 +166,7 @@ public sealed class VmDefinition
             var output = operation.Arguments.SingleOrDefault(argument => argument.Parameter == "output");
             if (output is null || Parameters.SingleOrDefault(parameter => parameter.Name == output.Source)
                     ?.Tensor.ElementType != VmElementType.Float16) return node;
-            return new VmNode(node.Id, new VmOperator(InstructionCollectionIds.TierZeroFloat16,
+            return new VmNode(node.Id, new VmOperator(operation.Precision, InstructionCollectionIds.TierZeroFloat16,
                 operation.InstructionName, operation.Arguments, operation.Attributes), node.Dependencies);
         }).ToArray());
         Threads = threads;

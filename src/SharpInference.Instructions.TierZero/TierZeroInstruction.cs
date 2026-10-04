@@ -15,20 +15,7 @@ public abstract class TierZeroInstruction(Guid collectionId, string name, Instru
     public override IReadOnlyList<InstructionIndexBound> IndexBounds { get; } =
         name == "core.gather-row" ? Array.AsReadOnly<InstructionIndexBound>([new("index", "table", 0)]) : [];
 
-    public sealed override void Invoke(IInstructionRecorder recorder, InstructionParameter[] parameters)
-    {
-        ArgumentNullException.ThrowIfNull(recorder);
-        ArgumentNullException.ThrowIfNull(parameters);
-        if (recorder.Target != Target)
-            throw new InstructionAdaptationException(CollectionId, Name, $"requires {Target}, recorder is {recorder.Target}.");
-        Validate(parameters);
-        var recording = Generate(parameters);
-        recorder.Record(recording);
-    }
-
-    protected abstract InstructionRecording Generate(InstructionParameter[] parameters);
-
-    private void Validate(InstructionParameter[] parameters)
+    protected sealed override void Validate(InstructionParameter[] parameters)
     {
         try
         {
@@ -108,12 +95,11 @@ public abstract class TierZeroInstruction(Guid collectionId, string name, Instru
             Array.AsReadOnly(contract.InputPorts.Select((port, index) =>
                 new InstructionPort(port, signature.InputTypes[index], GraphResourceAccess.Read))
                 .Append(new("output", signature.OutputTypes[0], GraphResourceAccess.Write)).ToArray()),
-            Array.AsReadOnly(attributes))).ToList();
+            Array.AsReadOnly(attributes), contract.Precision)).ToList();
         if (name == "core.mat-vec")
-            result.AddRange(result.ToArray().Select(signature => signature with
-            {
-                Ports = Array.AsReadOnly(signature.Ports.Select(port => port.Name == "matrix" ? port with { Name = "weight" } : port).ToArray()),
-            }));
+            result.AddRange(result.ToArray().Select(signature => new InstructionSignature(
+                Array.AsReadOnly(signature.Ports.Select(port => port.Name == "matrix" ? port with { Name = "weight" } : port).ToArray()),
+                signature.Attributes, signature.Precision)));
         return result.AsReadOnly();
     }
 }

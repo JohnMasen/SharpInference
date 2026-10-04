@@ -29,7 +29,7 @@ public sealed class D3D12VmKernel
 /// </summary>
 public sealed class D3D12VmArtifact
 {
-    public const string Abi = "SharpInference.D3D12Vm.raw-uav.ic.v2";
+    public const string Abi = "SharpInference.D3D12Vm.raw-uav.ic-precision.v3";
     internal D3D12VmArtifact(VmProgram program, D3D12VmCompilerOptions options, IEnumerable<D3D12VmKernel> kernels,
         VmProgram? contracts = null)
     {
@@ -69,6 +69,7 @@ public sealed class D3D12VmArtifact
     public void Export(Stream destination)
     {
         ArgumentNullException.ThrowIfNull(destination);
+        VmInstructionContracts.ValidateResolved(Contracts);
         using var zip = new ZipArchive(destination, ZipArchiveMode.Create, leaveOpen: true);
         var xml = Encoding.UTF8.GetBytes(VmProgramXml.Serialize(Program));
         Write(zip, "program.xml", xml);
@@ -84,7 +85,7 @@ public sealed class D3D12VmArtifact
             Write(zip, d, dxil);
             return new Module(k.Definition, s, d, Hash(source), Hash(dxil));
         }).ToArray();
-        var manifest = JsonSerializer.Serialize(new Manifest(2, Abi, "Direct3D12", Options, Hash(xml), modules, Hash(contracts)));
+        var manifest = JsonSerializer.Serialize(new Manifest(3, Abi, "Direct3D12", Options, Hash(xml), modules, Hash(contracts)));
         Write(zip, "manifest.json", JsonSerializer.SerializeToUtf8Bytes(new Envelope(manifest, Hash(Encoding.UTF8.GetBytes(manifest)))));
     }
 
@@ -102,7 +103,7 @@ public sealed class D3D12VmArtifact
             throw new InvalidDataException("Manifest integrity check failed.");
         var manifest = JsonSerializer.Deserialize<Manifest>(envelope.Manifest) ??
             throw new InvalidDataException("Invalid artifact manifest.");
-        if (manifest.Version != 2 || manifest.BackendAbi != Abi || manifest.Target != "Direct3D12" ||
+        if (manifest.Version != 3 || manifest.BackendAbi != Abi || manifest.Target != "Direct3D12" ||
             manifest.Options is null || manifest.Modules is null)
             throw new InvalidDataException("Unsupported D3D12 VM artifact target/version/ABI.");
         D3D12VmCompiler.ValidateOptions(manifest.Options);
@@ -112,6 +113,7 @@ public sealed class D3D12VmArtifact
         var contractsXml = Read(zip, "contracts.xml");
         Verify(contractsXml, manifest.ContractsHash);
         var contracts = VmProgramXml.Deserialize(Encoding.UTF8.GetString(contractsXml));
+        VmInstructionContracts.ValidateResolved(contracts);
         if (VmProgramXml.Serialize(VmInstructionContracts.WithoutContracts(program)) !=
             VmProgramXml.Serialize(VmInstructionContracts.WithoutContracts(contracts)))
             throw new InvalidDataException("Artifact contracts differ from the execution program.");

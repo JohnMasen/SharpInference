@@ -64,8 +64,7 @@ public static class TierZeroOperationContracts
             return;
         }
         InvalidDataException Error(string reason) => new($"T0 operation '{node.Id}' ({node.Operation}): {reason}");
-        if (node.Requirements.MinimumArithmeticType != GraphElementType.Float32 ||
-            node.Requirements.MinimumAccumulatorType != GraphElementType.Float32)
+        if (!NumericTypeCompatibility.Satisfies(contract.Precision, node.Requirements))
             throw Error("requires FP32 arithmetic and accumulation.");
         var ports = contract.ResolveInputPorts(node.Resources.Select(binding => binding.Port));
         if (node.Attributes.Count != 0 || node.Resources.Count != ports.Count + 1 ||

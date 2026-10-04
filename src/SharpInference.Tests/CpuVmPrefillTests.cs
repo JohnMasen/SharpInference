@@ -1,3 +1,4 @@
+using SharpInference.Graphs;
 using System.Runtime.InteropServices;
 using SharpInference.Backends.CpuVm;
 using SharpInference.Vm;
@@ -92,13 +93,13 @@ public sealed class CpuVmPrefillTests
         };
         var gather = new VmDefinition("gather", VmDefinitionKind.Function,
             [new("table", VmAccess.ReadOnly, table), new("index", VmAccess.ReadOnly, token), new("output", VmAccess.ReadWrite, scalar)],
-            [new("gather", new VmOperator("core.gather-row", 1, [new("table", "table"), new("index", "index"), new("output", "output")]))]);
+            [new("gather", new VmOperator(new(GraphElementType.Float32, GraphElementType.Float32), "core.gather-row", 1, [new("table", "table"), new("index", "index"), new("output", "output")]))]);
         var add = new VmDefinition("add", VmDefinitionKind.Function,
             [new("left", VmAccess.ReadOnly, scalar), new("right", VmAccess.ReadOnly, scalar), new("output", VmAccess.ReadWrite, scalar)],
-            [new("add", new VmOperator("core.add", 1, [new("left", "left"), new("right", "right"), new("output", "output")]))]);
+            [new("add", new VmOperator(new(GraphElementType.Float32, GraphElementType.Float32), "core.add", 1, [new("left", "left"), new("right", "right"), new("output", "output")]))]);
         var copy = new VmDefinition("copy", VmDefinitionKind.Function,
             [new("input", VmAccess.ReadOnly, scalar), new("output", VmAccess.ReadWrite, scalar)],
-            [new("copy", new VmOperator("core.copy", 1, [new("input", "input"), new("output", "output")]))]);
+            [new("copy", new VmOperator(new(GraphElementType.Float32, GraphElementType.Float32), "core.copy", 1, [new("input", "input"), new("output", "output")]))]);
         var forwardParameters = slots.Select(s => new VmParameter(s.Id, s.Access, s.Id == "tokens" ? token : s.Tensor)).ToArray();
         var forward = new VmDefinition("forward", VmDefinitionKind.Orchestration, forwardParameters,
             [new("gather", new VmCall("gather", [new("table", "weights"), new("index", "tokens"), new("output", "scratch")])),

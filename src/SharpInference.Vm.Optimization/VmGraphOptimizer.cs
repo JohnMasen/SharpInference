@@ -67,9 +67,6 @@ public static class VmGraphOptimizer
         string? previous = null;
         foreach (var node in nodes)
         {
-            if (node.Requirements.MinimumArithmeticType != GraphElementType.Float32 ||
-                node.Requirements.MinimumAccumulatorType != GraphElementType.Float32)
-                throw new NotSupportedException($"Node '{node.Id}' requires unsupported arithmetic precision.");
             if (node.Resources.Any(binding => binding.Access == GraphResourceAccess.ReadWrite))
                 throw new NotSupportedException($"Node '{node.Id}' requires an explicit read/write operator contract.");
             var parameters = node.Resources.Select(binding => new VmParameter(binding.Port,
@@ -78,6 +75,8 @@ public static class VmGraphOptimizer
             var key = new XElement("Operator",
                 new XAttribute("name", node.Operation.Name), new XAttribute("version", node.Operation.Version),
                 new XAttribute("target", target), new XAttribute("threads", options.ThreadsPerGroup),
+                new XAttribute("minimumArithmeticType", node.Requirements.MinimumArithmeticType),
+                new XAttribute("minimumAccumulatorType", node.Requirements.MinimumAccumulatorType),
                 parameters.Select(parameter => new XElement("Parameter",
                     new XAttribute("name", parameter.Name), new XAttribute("access", parameter.Access),
                     new XAttribute("type", parameter.Tensor.ElementType),
@@ -89,7 +88,7 @@ public static class VmGraphOptimizer
             {
                 definition = new VmDefinition($"op.{definitions.Count:D4}",
                     target == VmTarget.Cpu ? VmDefinitionKind.Function : VmDefinitionKind.Kernel,
-                    parameters, [new VmNode("body", new VmOperator(
+                    parameters, [new VmNode("body", new VmOperator(node.Requirements,
                         parameters.Single(parameter => parameter.Name == "output").Tensor.ElementType == VmElementType.Float16
                             ? InstructionCollectionIds.TierZeroFloat16 : InstructionCollectionIds.TierZeroFloat32, node.Operation.Name,
                         parameters.Select(parameter => new VmArgument(parameter.Name, parameter.Name)),

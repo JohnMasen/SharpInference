@@ -105,23 +105,24 @@ public sealed class TierZeroOperationTests
             new(PrefillCapacity: 1, WeightViews: false));
         var parameters = valid.Definitions[0].Parameters;
         var arguments = parameters.Select(parameter => new VmArgument(parameter.Name, parameter.Name)).ToArray();
+        var precision = new PrecisionRequirement(GraphElementType.Float32, GraphElementType.Float32);
         var failures = new (VmOperator Operator, IReadOnlyList<VmParameter> Parameters, Type Error)[]
         {
-            (new("core.unknown", 1, arguments), parameters, typeof(NotSupportedException)),
-            (new("core.mat-vec", 2, arguments), parameters, typeof(NotSupportedException)),
-            (new("core.mat-vec", 1, arguments, new Dictionary<string, string> { ["extra"] = "1" }),
+            (new(precision, "core.unknown", 1, arguments), parameters, typeof(NotSupportedException)),
+            (new(precision, "core.mat-vec", 2, arguments), parameters, typeof(NotSupportedException)),
+            (new(precision, "core.mat-vec", 1, arguments, new Dictionary<string, string> { ["extra"] = "1" }),
                 parameters, typeof(InvalidDataException)),
-            (new("core.mat-vec", 1, arguments),
+            (new(precision, "core.mat-vec", 1, arguments),
                 parameters.Select(p => p.Name == "input" ? p with { Tensor = new(VmElementType.Float32, [1, 5]) } : p).ToArray(),
                 typeof(InvalidDataException)),
-            (new("core.mat-vec", 1, arguments),
+            (new(precision, "core.mat-vec", 1, arguments),
                 parameters.Select(p => p.Name == "input" ? p with { Tensor = new(VmElementType.Float16, [5]) } : p).ToArray(),
                 typeof(NotSupportedException)),
-            (new("core.mat-vec", 1, arguments.Select(a => a.Parameter == "input"
+            (new(precision, "core.mat-vec", 1, arguments.Select(a => a.Parameter == "input"
                 ? a with { ByteOffset = 4 } : a)), parameters, typeof(NotSupportedException)),
-            (new("core.mat-vec", 1, arguments.Select(a => a.Parameter == "output"
+            (new(precision, "core.mat-vec", 1, arguments.Select(a => a.Parameter == "output"
                 ? a with { Source = "matrix" } : a)), parameters, typeof(InvalidDataException)),
-            (new("core.mat-vec", 1, arguments.Append(new("weight", "matrix"))),
+            (new(precision, "core.mat-vec", 1, arguments.Append(new("weight", "matrix"))),
                 parameters, typeof(InvalidDataException)),
         };
         foreach (var failure in failures)

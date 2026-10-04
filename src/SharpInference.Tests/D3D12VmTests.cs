@@ -470,7 +470,7 @@ public sealed class D3D12VmTests(ITestOutputHelper output)
 
         static VmDefinition Kernel(string id, string operation, VmParameter[] parameters) =>
             new(id, VmDefinitionKind.Kernel, parameters,
-                [new("body", new VmOperator(operation, 1, parameters.Select(p => new VmArgument(p.Name, p.Name))))], new(64));
+                [new("body", new VmOperator(new(GraphElementType.Float32, GraphElementType.Float32), operation, 1, parameters.Select(p => new VmArgument(p.Name, p.Name))))], new(64));
     }
 
     private static object Compile(VmProgram program) =>
@@ -507,7 +507,7 @@ public sealed class D3D12VmTests(ITestOutputHelper output)
     {
         var args = parameters.Select(p => new VmArgument(p.Name, p.Name)).ToArray();
         var kernel = new VmDefinition("kernel", VmDefinitionKind.Kernel, parameters,
-            [new("op", new VmOperator(operation, 1, args, attributes))], threads ?? new(8, 2));
+            [new("op", new VmOperator(new(GraphElementType.Float32, GraphElementType.Float32), operation, 1, args, attributes))], threads ?? new(8, 2));
         var orchestration = new VmDefinition("host", VmDefinitionKind.Orchestration, parameters,
             [new("dispatch", new VmDispatch("kernel", args, groups ?? new(1, 2)))]);
         return new("test", "test.v1", VmTarget.Direct3D12,
@@ -684,13 +684,13 @@ public sealed class D3D12VmTests(ITestOutputHelper output)
         VmParameter[] parameters = [P("input", F(4)), P("output", F(4))];
         VmArgument[] args = [new("input", "input"), new("output", "output")];
         var leaf = new VmDefinition("leaf", VmDefinitionKind.Function, parameters,
-            [new("square", new VmOperator("core.square", 1, args))]);
+            [new("square", new VmOperator(new(GraphElementType.Float32, GraphElementType.Float32), "core.square", 1, args))]);
         var helper = new VmDefinition("helper", VmDefinitionKind.Function, parameters,
             [new("call", new VmCall("leaf", args))]);
         var kernel = new VmDefinition("first", VmDefinitionKind.Kernel, parameters,
             [new("call", new VmCall("helper", args))], new(2, 2));
         var second = new VmDefinition("second", VmDefinitionKind.Kernel, parameters,
-            [new("exp", new VmOperator("core.exp", 1, args))], new(4));
+            [new("exp", new VmOperator(new(GraphElementType.Float32, GraphElementType.Float32), "core.exp", 1, args))], new(4));
         VmParameter[] hostParameters = [P("input", F(4)), new("temporary", VmAccess.ReadWrite, F(4)), P("output", F(4))];
         var nodes = new List<VmNode>
         {
@@ -751,8 +751,8 @@ public sealed class D3D12VmTests(ITestOutputHelper output)
         VmParameter[] parameters = [P("input", F(4)), new("temp", VmAccess.ReadWrite, F(4)), P("output", F(1))];
         var kernel = new VmDefinition("k", VmDefinitionKind.Kernel, parameters,
         [
-            new("copy", new VmOperator("core.copy", 1, [new("input", "input"), new("output", "temp")])),
-            new("reduce", new VmOperator("core.reduce-sum", 1, [new("input", "temp"), new("output", "output")]), ["copy"]),
+            new("copy", new VmOperator(new(GraphElementType.Float32, GraphElementType.Float32), "core.copy", 1, [new("input", "input"), new("output", "temp")])),
+            new("reduce", new VmOperator(new(GraphElementType.Float32, GraphElementType.Float32), "core.reduce-sum", 1, [new("input", "temp"), new("output", "output")]), ["copy"]),
         ], new(4));
         var host = new VmDefinition("host", VmDefinitionKind.Orchestration, parameters,
             [new("dispatch", new VmDispatch("k", parameters.Select(p => new VmArgument(p.Name, p.Name)), new(1)))]);
@@ -787,7 +787,7 @@ public sealed class D3D12VmTests(ITestOutputHelper output)
         VmParameter[] leafParameters = [P("input", new(VmElementType.Float16, [5])), P("output", F(5))];
         VmArgument[] leafArgs = [new("input", "input"), new("output", "output")];
         var leaf = new VmDefinition("cast", VmDefinitionKind.Function, leafParameters,
-            [new("cast", new VmOperator("core.tensor.cast-f16-f32", 1, leafArgs))]);
+            [new("cast", new VmOperator(new(GraphElementType.Float32, GraphElementType.Float32), "core.tensor.cast-f16-f32", 1, leafArgs))]);
         var helper = new VmDefinition("helper", VmDefinitionKind.Function, leafParameters,
             [new("call", new VmCall("cast", leafArgs))]);
         VmParameter[] kernelParameters = [P("input", new(VmElementType.Float16, [6])), P("output", F(7))];
@@ -810,7 +810,7 @@ public sealed class D3D12VmTests(ITestOutputHelper output)
         const int count = 257;
         VmParameter[] helperParameters = [P("input", F(count)), P("output", F(count))];
         var helper = new VmDefinition("square", VmDefinitionKind.Function, helperParameters,
-            [new("square", new VmOperator("core.square", 1, [new("input", "input"), new("output", "output")]))]);
+            [new("square", new VmOperator(new(GraphElementType.Float32, GraphElementType.Float32), "core.square", 1, [new("input", "input"), new("output", "output")]))]);
         VmParameter[] parameters = [P("input", F(count)), new("temporary", VmAccess.ReadWrite, F(count)), P("output", F(count))];
         var kernel = new VmDefinition("jumbo", VmDefinitionKind.Kernel, parameters,
         [
@@ -1043,6 +1043,6 @@ public sealed class D3D12VmTests(ITestOutputHelper output)
                 [new("input", new(input), SharpInference.Graphs.GraphResourceAccess.Read),
                         new("output", new(result), SharpInference.Graphs.GraphResourceAccess.Write)],
                 dependency is null ? [] : [new(dependency)], new Dictionary<string, string>(),
-                new(SharpInference.Graphs.GraphElementType.Float32, SharpInference.Graphs.GraphElementType.Float32));
+                new(GraphElementType.Float32, GraphElementType.Float32));
     }
 }
