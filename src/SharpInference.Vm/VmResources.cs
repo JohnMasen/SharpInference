@@ -136,6 +136,7 @@ public sealed class VmResource : IDisposable
     internal void Read(ulong offset, Span<byte> destination) => storage.Read(offset, destination);
     internal byte[] GetManagedBuffer() => storage is IVmManagedStorage memory ? memory.Buffer :
         throw new NotSupportedException("This resource does not expose managed backing storage.");
+    internal IVmStorage Storage => storage;
 
     internal void Write(ulong offset, ReadOnlySpan<byte> source)
     {
@@ -188,6 +189,7 @@ public sealed class VmResourceLease : IDisposable
     internal VmResource Identity { get { lock (gate) return Resource; } }
     internal VmResourceUse AcquireUse(VmAccess access) { lock (gate) return Resource.AcquireUse(access); }
     internal byte[] GetManagedBuffer() { lock (gate) return Resource.GetManagedBuffer(); }
+    internal IVmStorage Storage { get { lock (gate) return Resource.Storage; } }
 
     public VmResourceLease Retain()
     {
@@ -338,6 +340,18 @@ public sealed class VmBindings : IDisposable
                 throw new InvalidOperationException("CPU buffer views require an active execution lease.");
             return program.Slots.Select(slot => resources[slot.Id].GetManagedBuffer()).ToArray();
         }
+
+    }
+
+    internal IVmStorage GetStorage(string slotId)
+    {
+        lock (gate)
+        {
+            if (!executing)
+                throw new InvalidOperationException("Storage access requires an active execution lease.");
+            return resources.TryGetValue(slotId, out var resource) ? resource.Storage :
+                throw new ArgumentException($"Unknown slot '{slotId}'.", nameof(slotId));
+        }
     }
 
     internal void SetStateValidity(bool valid)
@@ -451,6 +465,11 @@ public sealed class VmExecutionLease : IDisposable
     public byte[][] GetBuffers()
     {
         lock (gate) return Bindings.GetBuffers();
+    }
+
+    public IVmStorage GetStorage(string slotId)
+    {
+        lock (gate) return Bindings.GetStorage(slotId);
     }
 
     public void InvalidateState()

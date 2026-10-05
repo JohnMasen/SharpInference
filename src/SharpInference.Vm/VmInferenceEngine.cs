@@ -67,6 +67,8 @@ public sealed class VmInferenceEngine : IAsyncDisposable
                         throw new InvalidOperationException("A VM executable factory returned null.");
                     if (VmProgramXml.Serialize(executable.Program) != VmProgramXml.Serialize(component.Program))
                         throw new InvalidDataException("The executable and resource program do not match.");
+                    if (component.Program.Target == VmTarget.Direct3D12 && executable is not IVmTaskExecutable)
+                        throw new NotSupportedException("GPU inference requires queued-task execution support.");
                     return new Worker(bindings, executable, component.InputSlot, component.OutputSlot);
                 }
                 catch (Exception error)
@@ -125,78 +127,62 @@ public sealed class VmInferenceEngine : IAsyncDisposable
 
     internal void Remove(VmInferenceSession session) { lock (gate) sessions.Remove(session); }
 
-    internal ValueTask<float[]> PrefillAsync(VmSessionResources state, int[] tokens, CancellationToken cancellation)
+    internal async ValueTask<float[]> PrefillAsync(VmSessionResources state, int[] tokens, CancellationTokenSource cancellation)
     {
-        return queue.PrefillAsync((worker, token) =>
+        var entries = PrefillProgram.Entries.Where(entry => entry.Name.StartsWith("prefill.", StringComparison.Ordinal))
+            .Select(entry => (entry.Name, Tokens: int.Parse(entry.Name.AsSpan("prefill.".Length),
+                System.Globalization.CultureInfo.InvariantCulture))).OrderByDescending(entry => entry.Tokens).ToArray();
+        var result = Array.Empty<float>();
+        var advanced = false;
+        try
         {
-            lock (worker.Gate)
+            for (var offset = 0; offset < tokens.Length;)
             {
-                manager.BindSession(worker.Bindings, state);
-                try
-                {
-                    var result = Array.Empty<float>();
-                    for (var offset = 0; offset < tokens.Length;)
-                    {
-                        token.ThrowIfCancellationRequested();
-                        var entry = worker.PrefillEntries.FirstOrDefault(entry => entry.Tokens <= tokens.Length - offset);
-                        if (entry.Name is null)
-                            throw new InvalidDataException("The prefill program cannot execute this token count.");
-                        result = Run(worker, entry.Name, tokens.AsSpan(offset, entry.Tokens));
-                        offset += entry.Tokens;
-                    }
-                    return ValueTask.FromResult(result);
-                }
-                catch
-                {
-                    using var access = worker.Bindings.BeginStateAccess();
-                    access.InvalidateState();
-                    throw;
-                }
-                finally { worker.Bindings.UnbindSession(); }
+                cancellation.Token.ThrowIfCancellationRequested();
+                var entry = entries.FirstOrDefault(entry => entry.Tokens <= tokens.Length - offset);
+                if (entry.Name is null)
+                    throw new InvalidDataException("The prefill program cannot execute this token count.");
+                var request = new InferenceRequest(state, entry.Name, tokens.AsSpan(offset, entry.Tokens).ToArray(), cancellation);
+                result = await queue.PrefillAsync((worker, token) => ExecuteRequest(worker, request, token),
+                    cancellation.Token).ConfigureAwait(false);
+                advanced = true;
+                offset += entry.Tokens;
             }
-        }, cancellation);
+            return result;
+        }
+        catch
+        {
+            if (advanced)
+            {
+                using var bindings = state.CreateStateBindings();
+                using var access = bindings.BeginStateAccess();
+                access.InvalidateState();
+            }
+            throw;
+        }
     }
 
-    internal Task StartGeneration(VmSessionResources state, TaskCompletionSource<VmGenerationLease> ready,
-        CancellationToken cancellation)
+    internal ValueTask<float[]> ForwardAsync(VmSessionResources state, int token, CancellationTokenSource cancellation)
     {
-        return queue.InferenceAsync(async (worker, token) =>
-        {
-            VmGenerationLease? lease = null;
-            lock (worker.Gate)
-            {
-                manager.BindSession(worker.Bindings, state);
-                lease = new VmGenerationLease(this, worker, token);
-                ready.TrySetResult(lease);
-            }
-            try
-            {
-                await lease.End.Task.WaitAsync(token).ConfigureAwait(false);
-                return 0;
-            }
-            catch
-            {
-                lock (worker.Gate)
-                {
-                    using var access = worker.Bindings.BeginStateAccess();
-                    access.InvalidateState();
-                }
-                throw;
-            }
-            finally
-            {
-                lock (worker.Gate)
-                {
-                    lease.Close();
-                    worker.Bindings.UnbindSession();
-                }
-            }
-        }, cancellation).AsTask();
+        ValidateToken(token);
+        cancellation.Token.ThrowIfCancellationRequested();
+        var request = new InferenceRequest(state, "forward", [token], cancellation);
+        return queue.InferenceAsync((worker, stopped) => ExecuteRequest(worker, request, stopped), cancellation.Token);
     }
 
-    internal float[] Forward(Worker worker, int token)
+    private sealed record InferenceRequest(VmSessionResources State, string Entry, int[] Tokens,
+        CancellationTokenSource Cancellation);
+
+    private ValueTask<float[]> ExecuteRequest(Worker worker, InferenceRequest request, CancellationToken cancellation)
     {
-        return Run(worker, "forward", [token]);
+        cancellation.ThrowIfCancellationRequested();
+        request.Cancellation.Token.ThrowIfCancellationRequested();
+        lock (worker.Gate)
+        {
+            manager.BindSession(worker.Bindings, request.State);
+            try { return ValueTask.FromResult(Run(worker, request.Entry, request.Tokens, cancellation)); }
+            finally { worker.Bindings.UnbindSession(); }
+        }
     }
 
     internal void ValidateToken(int token)
@@ -204,15 +190,23 @@ public sealed class VmInferenceEngine : IAsyncDisposable
         if (token < 0 || token >= VocabularySize) throw new ArgumentOutOfRangeException(nameof(token));
     }
 
-    private float[] Run(Worker worker, string entry, ReadOnlySpan<int> tokens)
+    private float[] Run(Worker worker, string entry, ReadOnlySpan<int> tokens, CancellationToken cancellation)
     {
         using var access = worker.Bindings.BeginExecution();
         try
         {
-            var buffers = access.GetBuffers();
-            tokens.CopyTo(MemoryMarshal.Cast<byte, int>(buffers[worker.InputIndex].AsSpan()));
-            worker.Executable.Execute(entry, buffers);
-            return MemoryMarshal.Cast<byte, float>(buffers[worker.OutputIndex]).ToArray();
+            cancellation.ThrowIfCancellationRequested();
+            var input = worker.Bindings.Program.Slots[worker.InputIndex].Id;
+            var output = worker.Bindings.Program.Slots[worker.OutputIndex];
+            access.GetStorage(input).Write(0, MemoryMarshal.AsBytes(tokens));
+            if (worker.Executable is IVmTaskExecutable tasks)
+                tasks.ExecuteTask(entry, access, cancellation);
+            else
+                worker.Executable.Execute(entry, access.GetBuffers());
+            cancellation.ThrowIfCancellationRequested();
+            var result = new float[checked((int)output.Tensor.ElementCount)];
+            access.Read(output.Id, 0, MemoryMarshal.AsBytes(result.AsSpan()));
+            return result;
         }
         catch
         {
@@ -291,6 +285,7 @@ public sealed class VmInferenceSession : IAsyncDisposable
     private readonly object gate = new();
     private Task? shutdown;
     private bool lifetimeDisposed;
+    private VmGenerationLease? generation;
 
     internal VmInferenceSession(VmInferenceEngine engine, VmSessionResources state)
     {
@@ -308,7 +303,7 @@ public sealed class VmInferenceSession : IAsyncDisposable
             if (token < 0 || token >= engine.VocabularySize) throw new ArgumentOutOfRangeException(nameof(tokens));
         using var linked = Link(cancellation);
         await operations.WaitAsync(linked.Token).ConfigureAwait(false);
-        try { return await engine.PrefillAsync(state, snapshot, linked.Token).ConfigureAwait(false); }
+        try { return await engine.PrefillAsync(state, snapshot, linked).ConfigureAwait(false); }
         finally { operations.Release(); }
     }
 
@@ -316,38 +311,37 @@ public sealed class VmInferenceSession : IAsyncDisposable
     {
         var linked = Link(cancellation);
         var acquired = false;
-        var transferred = false;
         try
         {
             await operations.WaitAsync(linked.Token).ConfigureAwait(false);
             acquired = true;
-            var ready = new TaskCompletionSource<VmGenerationLease>(TaskCreationOptions.RunContinuationsAsynchronously);
-            var request = engine.StartGeneration(state, ready, linked.Token);
-            var completion = FinishOperationAsync(request, linked);
-            transferred = true;
-            if (await Task.WhenAny(ready.Task, completion).ConfigureAwait(false) == completion)
-                await completion.ConfigureAwait(false);
-            var lease = await ready.Task.ConfigureAwait(false);
-            lease.Completion = completion;
-            return lease;
-        }
-        finally
-        {
-            if (!transferred)
+            lock (gate)
             {
-                if (acquired) operations.Release();
-                linked.Dispose();
+                linked.Token.ThrowIfCancellationRequested();
+                return generation = new VmGenerationLease(this, linked);
             }
+        }
+        catch
+        {
+            if (acquired) operations.Release();
+            linked.Dispose();
+            throw;
         }
     }
 
-    private async Task FinishOperationAsync(Task request, CancellationTokenSource linked)
+    internal ValueTask<float[]> ForwardScopedAsync(int token, CancellationTokenSource cancellation) =>
+        engine.ForwardAsync(state, token, cancellation);
+
+    internal void ValidateToken(int token) => engine.ValidateToken(token);
+
+    internal void EndGeneration(VmGenerationLease scope)
     {
-        try { await request.ConfigureAwait(false); }
-        finally
+        lock (gate)
         {
+            if (!ReferenceEquals(generation, scope))
+                throw new InvalidOperationException("The generation scope does not own this session.");
+            generation = null;
             operations.Release();
-            linked.Dispose();
         }
     }
 
@@ -355,7 +349,7 @@ public sealed class VmInferenceSession : IAsyncDisposable
     {
         engine.ValidateToken(token);
         await using var generation = await BeginGenerationAsync(cancellation).ConfigureAwait(false);
-        return generation.ForwardToken(token);
+        return await generation.ForwardTokenAsync(token).ConfigureAwait(false);
     }
 
     public async ValueTask ExportStateAsync(Stream destination, string contextId, CancellationToken cancellation = default)
@@ -483,6 +477,13 @@ public sealed class VmInferenceSession : IAsyncDisposable
     {
         await Task.Yield();
         Stop();
+        VmGenerationLease? active;
+        lock (gate) active = generation;
+        if (active is not null)
+        {
+            try { await active.DisposeAsync().ConfigureAwait(false); }
+            catch (OperationCanceledException) when (lifetime.IsCancellationRequested) { }
+        }
         await operations.WaitAsync().ConfigureAwait(false);
         try { state.Dispose(); }
         finally
@@ -500,45 +501,65 @@ public sealed class VmInferenceSession : IAsyncDisposable
 
 public sealed class VmGenerationLease : IAsyncDisposable
 {
-    private readonly VmInferenceEngine engine;
-    private readonly VmInferenceEngine.Worker worker;
-    private readonly CancellationToken cancellation;
-    private bool closed;
-    internal TaskCompletionSource End { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
-    internal Task Completion { get; set; } = Task.CompletedTask;
+    private readonly VmInferenceSession session;
+    private readonly CancellationTokenSource cancellation;
+    private readonly SemaphoreSlim steps = new(1, 1);
+    private readonly object gate = new();
+    private Task? shutdown;
+    private Exception? failure;
 
-    internal VmGenerationLease(VmInferenceEngine engine, VmInferenceEngine.Worker worker, CancellationToken cancellation)
+    internal VmGenerationLease(VmInferenceSession session, CancellationTokenSource cancellation)
     {
-        this.engine = engine;
-        this.worker = worker;
+        this.session = session;
         this.cancellation = cancellation;
     }
 
-    public float[] ForwardToken(int token)
+    public float[] ForwardToken(int token) => ForwardTokenAsync(token).AsTask().GetAwaiter().GetResult();
+
+    public ValueTask<float[]> ForwardTokenAsync(int token, CancellationToken cancellationToken = default)
     {
-        lock (worker.Gate)
+        lock (gate)
         {
-            ObjectDisposedException.ThrowIf(closed, this);
-            cancellation.ThrowIfCancellationRequested();
-            engine.ValidateToken(token);
-            try { return engine.Forward(worker, token); }
-            catch (Exception error)
-            {
-                End.TrySetException(error);
-                throw;
-            }
+            ObjectDisposedException.ThrowIf(shutdown is not null, this);
+            session.ValidateToken(token);
+            return ForwardCoreAsync(token, cancellationToken);
         }
     }
 
-    internal void Close() => closed = true;
-
-    public async ValueTask DisposeAsync()
+    private async ValueTask<float[]> ForwardCoreAsync(int token, CancellationToken caller)
     {
-        lock (worker.Gate)
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellation.Token, caller);
+        await steps.WaitAsync(linked.Token).ConfigureAwait(false);
+        try { return await session.ForwardScopedAsync(token, linked).ConfigureAwait(false); }
+        catch (Exception error)
         {
-            closed = true;
-            End.TrySetResult();
+            lock (gate) failure ??= error;
+            throw;
         }
-        await Completion.ConfigureAwait(false);
+        finally { steps.Release(); }
+    }
+
+    public ValueTask DisposeAsync()
+    {
+        lock (gate) return new ValueTask(shutdown ??= DisposeCoreAsync());
+    }
+
+    private async Task DisposeCoreAsync()
+    {
+        await Task.Yield();
+        if (steps.CurrentCount == 0) cancellation.Cancel();
+        await steps.WaitAsync().ConfigureAwait(false);
+        var cancelled = cancellation.IsCancellationRequested;
+        try
+        {
+            session.EndGeneration(this);
+            if (failure is { } error) System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(error).Throw();
+            if (cancelled) throw new OperationCanceledException(cancellation.Token);
+        }
+        finally
+        {
+            cancellation.Dispose();
+            steps.Release();
+        }
     }
 }

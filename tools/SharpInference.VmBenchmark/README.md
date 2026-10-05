@@ -55,7 +55,7 @@ incompatible shapes or numerical disagreement. `TierOneCalls` counts actual
 forward invocations, not just reusable definitions. A profile-supplied run
 with zero T1 calls prints a warning: it is not evidence of T1 acceleration.
 
-For a fixed-main comparison, build the **same harness** against main sources
+For the historical pre-T1 main comparison, build the **same harness** against main sources
 without editing them:
 
 ```powershell
@@ -73,6 +73,28 @@ order across rounds, retain all raw samples and report noise as well as
 medians. Load/dispose large models serially; do not keep multiple GPU weight
 copies resident. Do not equate the cost-model optimum, reduced call count or
 smaller workspace with measured end-to-end speedup.
+
+For queued-task changes, main already contains T1. Build the benchmark project
+normally in both worktrees, then run:
+
+```powershell
+.\tools\SharpInference.VmBenchmark\Compare-QueuedTasks.ps1 `
+  -MainDirectory G:\GitRoot\SharpInference -ModelDirectory F:\RWKV\RWKVModels `
+  -OutputDirectory C:\results\queued-vm
+```
+
+This uses each worktree's own harness, regenerates its GPU T1 profile, and
+alternates main/queued order over two rounds. GPU uses the original ten-question
+protocol, 2+2 workers, capacity 64 and 16 greedy output tokens. CPU uses seven
+eight-token raw samples, 1+1 workers and capacity eight, with T1 disabled in both
+groups. All subsequent runs numerically compare against main round zero.
+Do not compare CPU raw-token rates directly with GPU question rates.
+Queued GPU JSON includes aggregate task counters covering warmup, validation,
+and measured execution; wall-clock compute time is not a GPU timestamp.
+The script writes `summary.json`; `-SummarizeOnly` regenerates the summary from
+completed raw reports without rerunning models. GPU pools elapsed time and token
+counts; CPU uses the pooled median of the 14 per-token samples.
+See [queued VM execution and measured results](../../doc/queued-vm-execution.md).
 
 The [measured implementation report](../../doc/tier-one-performance.md)
 includes all four models on both backends, the initial rotating experiment

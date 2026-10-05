@@ -127,7 +127,8 @@ public static class VmProgramTuner
             await using var generation = await session.BeginGenerationAsync(cancellation).ConfigureAwait(false);
             watch.Start();
             var last = Array.Empty<float>();
-            foreach (var token in tokenSnapshot) last = generation.ForwardToken(token);
+            foreach (var token in tokenSnapshot)
+                last = await generation.ForwardTokenAsync(token, cancellation).ConfigureAwait(false);
             watch.Stop();
             return (last, watch.Elapsed.TotalMilliseconds);
         }

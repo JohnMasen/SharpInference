@@ -3,6 +3,7 @@ using SharpInference.Graphs;
 using SharpInference.Instructions;
 using SharpInference.Vm;
 using SharpInference.Vm.Optimization;
+using SharpInference.Backends.D3D12Vm;
 
 namespace SharpInference.Runtime;
 
@@ -16,8 +17,13 @@ public interface IVmPrefillExecutor
     ValueTask<float[]> PrefillAsync(ReadOnlyMemory<int> tokens, CancellationToken cancellationToken);
 }
 
+public interface IVmAsyncInferenceExecutor
+{
+    ValueTask<float[]> ForwardTokenAsync(int token, CancellationToken cancellationToken);
+}
+
 public interface IVmSessionExecutor : IProcessorSessionExecutor, IProcessorStateExecutor,
-    IVmGenerationScopeExecutor, IVmPrefillExecutor
+    IVmGenerationScopeExecutor, IVmPrefillExecutor, IVmAsyncInferenceExecutor
 {
 }
 
@@ -54,6 +60,7 @@ public sealed class VmGraphBackend : IDisposable
     private readonly Func<VmProgram, Func<IVmExecutable>>? compilePrefill;
     private readonly Action<string>? exportPrefillArtifact;
     private readonly Func<VmSlot, IVmStorage>? allocate;
+    private readonly Func<D3D12VmTaskStatistics>? taskStatistics;
     private VmCompiledPlan? plan;
     private VmInferenceEngine? engine;
     private bool disposed;
@@ -64,7 +71,8 @@ public sealed class VmGraphBackend : IDisposable
         VmProgram? suppliedProgram = null, Action<string>? exportArtifact = null,
         VmProgram? suppliedPrefillProgram = null, Func<VmProgram, Func<IVmExecutable>>? compilePrefill = null,
         Action<string>? exportPrefillArtifact = null, Func<VmSlot, IVmStorage>? allocate = null,
-        string? deviceName = null, IEnumerable<IInstructionCollectionProvider>? generatorCollections = null)
+        string? deviceName = null, IEnumerable<IInstructionCollectionProvider>? generatorCollections = null,
+        Func<D3D12VmTaskStatistics>? taskStatistics = null)
     {
         this.target = target;
         this.compile = compile;
@@ -77,6 +85,7 @@ public sealed class VmGraphBackend : IDisposable
         this.compilePrefill = compilePrefill;
         this.exportPrefillArtifact = exportPrefillArtifact;
         this.allocate = allocate;
+        this.taskStatistics = taskStatistics;
         DeviceName = deviceName ?? target.ToString();
         var architecture = target == VmTarget.Cpu ? InstructionTarget.Cpu : InstructionTarget.Direct3D12;
         generator = generatorCollections is null ? null : new VmExecutionGraphGenerator(architecture, generatorCollections);
@@ -90,6 +99,7 @@ public sealed class VmGraphBackend : IDisposable
     public string DeviceName { get; }
     public TierOneOptimizationReport? OptimizationReport => generator?.LastOptimizationReport;
     public GpuMatVecOptimizationReport? MatVecOptimizationReport => generator?.LastMatVecOptimizationReport;
+    public D3D12VmTaskStatistics? TaskStatistics => taskStatistics?.Invoke();
     public VmProgram? Program => plan?.Program;
     public VmProgram? PrefillProgram => plan?.PrefillPlan?.Program ?? plan?.Program;
 
@@ -218,11 +228,16 @@ public sealed class VmGraphBackend : IDisposable
 
         public void ForwardToken(int token, Span<float> logits)
         {
-            PrepareState();
-            session.ForwardAsync(token).AsTask().GetAwaiter().GetResult().CopyTo(logits);
-            state.MarkDeviceModified();
+            ForwardTokenAsync(token, CancellationToken.None).AsTask().GetAwaiter().GetResult().CopyTo(logits);
         }
 
+        public async ValueTask<float[]> ForwardTokenAsync(int token, CancellationToken cancellationToken)
+        {
+            PrepareState();
+            var logits = await session.ForwardAsync(token, cancellationToken).ConfigureAwait(false);
+            state.MarkDeviceModified();
+            return logits;
+        }
         public void ForwardTokens(ReadOnlySpan<int> tokens, Span<float> logits)
         {
             PrefillAsync(tokens.ToArray(), CancellationToken.None).AsTask().GetAwaiter().GetResult().CopyTo(logits);
@@ -267,12 +282,16 @@ public sealed class VmGraphBackend : IDisposable
         }
 
         private sealed class Scope(VmGenerationLease lease, PortableGraphState state) :
-            IRwkvGenerationScope, IRwkvGenerationSession
+            IRwkvGenerationScope, IRwkvAsyncGenerationSession
         {
             public IRwkvGenerationSession Session => this;
-            public ReadOnlyMemory<float> ForwardToken(int token)
+            public ReadOnlyMemory<float> ForwardToken(int token) =>
+                ForwardTokenAsync(token).AsTask().GetAwaiter().GetResult();
+
+            public async ValueTask<ReadOnlyMemory<float>> ForwardTokenAsync(int token,
+                CancellationToken cancellationToken = default)
             {
-                var logits = lease.ForwardToken(token);
+                var logits = await lease.ForwardTokenAsync(token, cancellationToken).ConfigureAwait(false);
                 state.MarkDeviceModified();
                 return logits;
             }

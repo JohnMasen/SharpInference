@@ -8,6 +8,7 @@ using SharpInference.Gguf;
 using SharpInference.Runtime;
 using SharpInference.Vm;
 using SharpInference.Vm.Optimization;
+using SharpInference.Backends.D3D12Vm;
 
 internal static class QuestionBenchmark
 {
@@ -95,8 +96,12 @@ internal static class QuestionBenchmark
         Console.WriteLine($"{report.Variant} {architecture} {report.Target}: prefill {report.PrefillTokensPerSecond:F3}, " +
             $"decode {report.DecodeTokensPerSecond:F3}, end-to-end {report.EndToEndOutputTokensPerSecond:F3} tok/s.");
 
-        void Save() => File.WriteAllText(output + ".json", JsonSerializer.Serialize(report,
-            new JsonSerializerOptions { WriteIndented = true }));
+        void Save()
+        {
+            report.TaskStatistics = backend.TaskStatistics;
+            File.WriteAllText(output + ".json", JsonSerializer.Serialize(report,
+                new JsonSerializerOptions { WriteIndented = true }));
+        }
 
         async Task<Result> Measure(ProcessorSession session, int index, int count, bool validate)
         {
@@ -175,7 +180,7 @@ internal static class QuestionBenchmark
         }
         public async ValueTask<IRwkvGenerationScope> BeginGenerationAsync(CancellationToken cancellationToken = default) =>
             new Scope(this, await session.BeginGenerationAsync(cancellationToken));
-        private sealed class Scope(TrackingSession tracking, IRwkvGenerationScope inner) : IRwkvGenerationScope, IRwkvGenerationSession
+        private sealed class Scope(TrackingSession tracking, IRwkvGenerationScope inner) : IRwkvGenerationScope, IRwkvAsyncGenerationSession
         {
             public IRwkvGenerationSession Session => this;
             public ReadOnlyMemory<float> Prefill(ReadOnlySpan<int> tokens) => throw new InvalidOperationException("Already prefilled.");
@@ -183,6 +188,15 @@ internal static class QuestionBenchmark
             {
                 tracking.Tokens.Add(token);
                 return tracking.LastLogits = inner.Session.ForwardToken(token);
+            }
+            public async ValueTask<ReadOnlyMemory<float>> ForwardTokenAsync(int token,
+                CancellationToken cancellationToken = default)
+            {
+                tracking.Tokens.Add(token);
+                tracking.LastLogits = inner.Session is IRwkvAsyncGenerationSession asynchronous
+                    ? await asynchronous.ForwardTokenAsync(token, cancellationToken).ConfigureAwait(false)
+                    : inner.Session.ForwardToken(token);
+                return tracking.LastLogits;
             }
             public ValueTask DisposeAsync() => inner.DisposeAsync();
         }
@@ -205,6 +219,7 @@ internal static class QuestionBenchmark
         public double EndToEndOutputTokensPerSecond { get; set; }
         public GpuMatVecOptimizationReport? MatVecDecision { get; set; }
         public TierOneOptimizationReport? TierOneDecision { get; set; }
+        public D3D12VmTaskStatistics? TaskStatistics { get; set; }
         public List<Result> Results { get; init; } = [];
     }
 }

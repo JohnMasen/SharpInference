@@ -75,7 +75,7 @@ public sealed class VmEngine<TVm> : IAsyncDisposable where TVm : class, IDisposa
     public ValueTask<TResult> PrefillAsync<TResult>(Func<TVm, CancellationToken, ValueTask<TResult>> operation,
         CancellationToken cancellationToken = default) => prefill.Submit(operation, cancellationToken);
 
-    // One callback holds the instance for the entire generation, not just one token.
+    // Each queued callback owns its instance until execution and cleanup complete.
     public ValueTask<TResult> InferenceAsync<TResult>(Func<TVm, CancellationToken, ValueTask<TResult>> generation,
         CancellationToken cancellationToken = default) => inference.Submit(generation, cancellationToken);
 

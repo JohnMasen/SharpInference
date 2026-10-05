@@ -60,6 +60,38 @@ public sealed class RwkvTextGeneratorGraphTests
         Assert.Equal(1, session.Releases);
     }
 
+    [Fact]
+    public async Task GeneratorAwaitsQueuedForwardInsteadOfUsingSynchronousExecution()
+    {
+        var tokenizer = RwkvWorldTokenizer.LoadBundled();
+        var token = Assert.Single(tokenizer.Encode("a"));
+        var logits = new float[tokenizer.TokenIds[^1] + 1];
+        Array.Fill(logits, -100f);
+        logits[token] = 100f;
+        var session = new AsyncOnlySession(logits);
+        var output = new StringBuilder();
+        await foreach (var text in RwkvTextGenerator.GenerateFromPrefilledAsync(session, tokenizer, logits,
+            new RwkvGenerationOptions { MaxTokens = 3, TopK = 1 }))
+            output.Append(text);
+        Assert.Equal("aaa", output.ToString());
+        Assert.Equal(3, session.Steps);
+    }
+
+    private sealed class AsyncOnlySession(float[] logits) : IRwkvAsyncGenerationSession
+    {
+        public int Steps { get; private set; }
+        public ReadOnlyMemory<float> Prefill(ReadOnlySpan<int> tokens) => throw new InvalidOperationException();
+        public ReadOnlyMemory<float> ForwardToken(int token) => throw new InvalidOperationException("Use queued asynchronous inference.");
+        public async ValueTask<ReadOnlyMemory<float>> ForwardTokenAsync(int token,
+            CancellationToken cancellationToken = default)
+        {
+            await Task.Yield();
+            cancellationToken.ThrowIfCancellationRequested();
+            Steps++;
+            return logits;
+        }
+    }
+
     private sealed class ScopedSession(float[] logits) : IRwkvScopedGenerationSession, IRwkvAsyncPrefillSession
     {
         public int Prefills, Scopes, Steps, Releases;

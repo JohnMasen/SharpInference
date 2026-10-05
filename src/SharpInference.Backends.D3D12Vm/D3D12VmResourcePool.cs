@@ -23,6 +23,25 @@ public sealed class D3D12VmResourcePool : IDisposable
     private ulong nextAllocationId;
     private int executors;
     private bool disposed;
+    private ID3D12CommandQueue? readQueue;
+    private ID3D12CommandAllocator? readAllocator;
+    private ID3D12GraphicsCommandList? readCommands;
+    private ID3D12Fence? readFence;
+    private EventWaitHandle? readCompletion;
+    private ID3D12Resource? readStaging;
+    private ulong readCapacity;
+    private ulong readFenceValue;
+    private ulong completedTasks;
+    private ulong computeRecordings;
+    private ulong inputUploadBytes;
+    private ulong initialStateUploadBytes;
+    private ulong initialLocalUploadBytes;
+    private ulong stateLoadBytes;
+    private ulong stateCommitBytes;
+    private ulong cpuReadbackBytes;
+    private double preparationMilliseconds;
+    private double computeMilliseconds;
+    private double commitMilliseconds;
 
     public D3D12VmResourcePool(ID3D12Device device) =>
         Device = device ?? throw new ArgumentNullException(nameof(device));
@@ -33,6 +52,31 @@ public sealed class D3D12VmResourcePool : IDisposable
     public int ExecutorCount { get { lock (Gate) return executors; } }
     public ulong GlobalUploadCount { get { lock (Gate) return globalUploadCount; } }
     public ulong GlobalUploadBytes { get { lock (Gate) return globalUploadBytes; } }
+    public D3D12VmTaskStatistics TaskStatistics
+    {
+        get
+        {
+            lock (Gate) return new(completedTasks, computeRecordings, inputUploadBytes,
+                initialStateUploadBytes, initialLocalUploadBytes, stateLoadBytes, stateCommitBytes, cpuReadbackBytes,
+                preparationMilliseconds, computeMilliseconds, commitMilliseconds);
+        }
+    }
+
+    internal void RecordedTaskEntry() => computeRecordings = checked(computeRecordings + 1);
+
+    internal void CompletedTask(ulong inputBytes, ulong initialStateBytes, ulong localBytes, ulong loadBytes, ulong commitBytes,
+        double preparation, double compute, double commit)
+    {
+        completedTasks = checked(completedTasks + 1);
+        inputUploadBytes = checked(inputUploadBytes + inputBytes);
+        initialStateUploadBytes = checked(initialStateUploadBytes + initialStateBytes);
+        initialLocalUploadBytes = checked(initialLocalUploadBytes + localBytes);
+        stateLoadBytes = checked(stateLoadBytes + loadBytes);
+        stateCommitBytes = checked(stateCommitBytes + commitBytes);
+        preparationMilliseconds += preparation;
+        computeMilliseconds += compute;
+        commitMilliseconds += commit;
+    }
 
     /// <summary>
     /// Use as VmResourceManager's or VmInferenceEngine's allocate delegate.
@@ -94,7 +138,11 @@ public sealed class D3D12VmResourcePool : IDisposable
     /// </summary>
     public void MarkCpuModified(byte[] buffer)
     {
-        lock (Gate) Find(buffer).GlobalUploaded = false;
+        lock (Gate)
+        {
+            var allocation = Find(buffer);
+            allocation.CpuModified();
+        }
     }
 
     internal D3D12VmPooledStorage Resolve(VmSlot slot, byte[] buffer)
@@ -111,7 +159,7 @@ public sealed class D3D12VmResourcePool : IDisposable
     internal void ValidateLive(D3D12VmPooledStorage allocation)
     {
         ThrowIfDisposed();
-        if (!storage.TryGetValue(allocation.Buffer, out var current) || !ReferenceEquals(allocation, current))
+        if (!storage.TryGetValue(allocation.RawBuffer, out var current) || !ReferenceEquals(allocation, current))
             throw new ObjectDisposedException(nameof(IVmStorage), "The pooled allocation is no longer registered.");
     }
 
@@ -127,6 +175,49 @@ public sealed class D3D12VmResourcePool : IDisposable
         allocation.GlobalUploaded = true;
         globalUploadCount = checked(globalUploadCount + 1);
         globalUploadBytes = checked(globalUploadBytes + allocation.ByteLength);
+    }
+
+    internal void EnsureCpuCurrent(D3D12VmPooledStorage allocation)
+    {
+        ValidateLive(allocation);
+        if (allocation.CpuCurrent) return;
+        if (!allocation.GpuInitialized)
+            throw new InvalidOperationException("The GPU state has no valid CPU or device representation.");
+        if (readQueue is null)
+        {
+            readQueue = Device.CreateCommandQueue(CommandListType.Compute);
+            readAllocator = Device.CreateCommandAllocator(CommandListType.Compute);
+            readCommands = Device.CreateCommandList<ID3D12GraphicsCommandList>(0, CommandListType.Compute, readAllocator);
+            readCommands.Close();
+            readFence = Device.CreateFence();
+            readCompletion = new EventWaitHandle(false, EventResetMode.AutoReset);
+        }
+        var bytes = Align(allocation.ByteLength);
+        if (readCapacity < bytes)
+        {
+            readStaging?.Dispose();
+            readStaging = Device.CreateCommittedResource(HeapProperties.ReadbackHeapProperties, HeapFlags.None,
+                ResourceDescription.Buffer(bytes), ResourceStates.CopyDest);
+            readCapacity = bytes;
+        }
+        readAllocator!.Reset();
+        readCommands!.Reset(readAllocator);
+        readCommands.ResourceBarrierTransition(allocation.Resource, ResourceStates.UnorderedAccess, ResourceStates.CopySource);
+        readCommands.CopyBufferRegion(readStaging!, 0, allocation.Resource, 0, allocation.ByteLength);
+        readCommands.ResourceBarrierTransition(allocation.Resource, ResourceStates.CopySource, ResourceStates.UnorderedAccess);
+        readCommands.Close();
+        readQueue.ExecuteCommandList(readCommands);
+        var value = checked(++readFenceValue);
+        readQueue.Signal(readFence!, value).CheckError();
+        if (readFence!.CompletedValue < value)
+        {
+            readFence.SetEventOnCompletion(value, readCompletion!).CheckError();
+            while (!readCompletion!.WaitOne(TimeSpan.FromSeconds(1))) Device.DeviceRemovedReason.CheckError();
+        }
+        Device.DeviceRemovedReason.CheckError();
+        readStaging!.GetData<byte>(allocation.RawBuffer);
+        cpuReadbackBytes = checked(cpuReadbackBytes + allocation.ByteLength);
+        allocation.CpuCurrent = true;
     }
 
     internal void AttachExecutor()
@@ -169,7 +260,7 @@ public sealed class D3D12VmResourcePool : IDisposable
         lock (Gate)
         {
             if (allocation.Disposed) return;
-            if (!storage.Remove(allocation.Buffer))
+            if (!storage.Remove(allocation.RawBuffer))
                 throw new InvalidOperationException("Pooled allocation registration is missing.");
             allocations.Remove(allocation.Id);
             allocatedGpuBytes -= allocation.Resource.Description.Width;
@@ -196,6 +287,12 @@ public sealed class D3D12VmResourcePool : IDisposable
             if (executors != 0)
                 throw new InvalidOperationException("Dispose all pooled executors before disposing their resource pool.");
             foreach (var allocation in storage.Values) allocation.Release();
+            readStaging?.Dispose();
+            readCommands?.Dispose();
+            readAllocator?.Dispose();
+            readFence?.Dispose();
+            readQueue?.Dispose();
+            readCompletion?.Dispose();
             storage.Clear();
             allocations.Clear();
             allocatedGpuBytes = 0;
@@ -228,26 +325,47 @@ internal sealed class D3D12VmPooledStorage(
         get
         {
             lock (pool.Gate)
-                return data ?? throw new ObjectDisposedException(nameof(IVmStorage));
+            {
+                pool.EnsureCpuCurrent(this);
+                return RawBuffer;
+            }
         }
     }
+    internal byte[] RawBuffer => data ?? throw new ObjectDisposedException(nameof(IVmStorage));
+    internal D3D12VmResourcePool Owner => pool;
     internal ID3D12Resource Resource => resource ?? throw new ObjectDisposedException(nameof(IVmStorage));
     internal bool GlobalUploaded { get; set; }
     internal bool GpuInitialized { get; set; }
+    internal bool CpuCurrent { get; set; } = true;
     internal bool Disposed => data is null;
 
     public void Read(ulong offset, Span<byte> destination)
     {
-        lock (pool.Gate) Data(offset, destination.Length).CopyTo(destination);
+        lock (pool.Gate)
+        {
+            pool.EnsureCpuCurrent(this);
+            Data(offset, destination.Length).CopyTo(destination);
+        }
     }
     public void Write(ulong offset, ReadOnlySpan<byte> source)
     {
         lock (pool.Gate)
         {
+            if (offset != 0 || (ulong)source.Length != ByteLength) pool.EnsureCpuCurrent(this);
             source.CopyTo(Data(offset, source.Length));
-            GlobalUploaded = false;
-            GpuInitialized = false;
+            CpuModified();
         }
+    }
+    internal void CpuModified()
+    {
+        GlobalUploaded = false;
+        GpuInitialized = false;
+        CpuCurrent = true;
+    }
+    internal void GpuModified()
+    {
+        GpuInitialized = true;
+        CpuCurrent = false;
     }
     private Span<byte> Data(ulong offset, int length)
     {

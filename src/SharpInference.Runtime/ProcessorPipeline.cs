@@ -605,7 +605,8 @@ public sealed class Processor : IDisposable
     }
 }
 
-public sealed class ProcessorSession : IRwkvScopedGenerationSession, IRwkvAsyncPrefillSession, IDisposable
+public sealed class ProcessorSession : IRwkvScopedGenerationSession, IRwkvAsyncPrefillSession,
+    IRwkvAsyncGenerationSession, IDisposable
 {
     private readonly Processor owner;
     private readonly IRwkvState state;
@@ -662,10 +663,32 @@ public sealed class ProcessorSession : IRwkvScopedGenerationSession, IRwkvAsyncP
         }
     }
 
+    public async ValueTask<ReadOnlyMemory<float>> ForwardTokenAsync(int token,
+        CancellationToken cancellationToken = default)
+    {
+        lock (gate)
+        {
+            ThrowIfDisposed();
+            operationActive = true;
+        }
+        try
+        {
+            var result = await executor.ForwardTokenAsync(token, cancellationToken).ConfigureAwait(false);
+            lock (gate)
+            {
+                ObjectDisposedException.ThrowIf(disposed, this);
+                owner.ThrowIfDisposed();
+                result.CopyTo(logits);
+                return result;
+            }
+        }
+        finally { EndExclusiveOperation(); }
+    }
+
     private void EndExclusiveOperation() { lock (gate) operationActive = false; }
 
     private sealed class ExclusiveGeneration(ProcessorSession owner, IRwkvGenerationScope inner) :
-        IRwkvGenerationScope, IRwkvGenerationSession
+        IRwkvGenerationScope, IRwkvAsyncGenerationSession
     {
         private readonly object gate = new();
         private Task? shutdown;
@@ -678,6 +701,25 @@ public sealed class ProcessorSession : IRwkvScopedGenerationSession, IRwkvAsyncP
                 owner.owner.ThrowIfDisposed();
                 inner.Session.ForwardToken(token).Span.CopyTo(owner.logits);
                 return owner.logits;
+            }
+        }
+        public async ValueTask<ReadOnlyMemory<float>> ForwardTokenAsync(int token,
+            CancellationToken cancellationToken = default)
+        {
+            lock (owner.gate)
+            {
+                ObjectDisposedException.ThrowIf(owner.disposed, owner);
+                owner.owner.ThrowIfDisposed();
+            }
+            if (inner.Session is not IRwkvAsyncGenerationSession asynchronous)
+                throw new NotSupportedException("Queued generation requires asynchronous inference support.");
+            var result = await asynchronous.ForwardTokenAsync(token, cancellationToken).ConfigureAwait(false);
+            lock (owner.gate)
+            {
+                ObjectDisposedException.ThrowIf(owner.disposed, owner);
+                owner.owner.ThrowIfDisposed();
+                result.Span.CopyTo(owner.logits);
+                return result;
             }
         }
         public ReadOnlyMemory<float> Prefill(ReadOnlySpan<int> tokens) =>

@@ -244,7 +244,7 @@ internal sealed record CpuVmPackageManifest(int Version, Dictionary<string, stri
 [JsonSerializable(typeof(string))]
 internal partial class CpuVmJsonContext : JsonSerializerContext;
 
-public sealed class CpuVmExecutable : IVmExecutable
+public sealed class CpuVmExecutable : IVmTaskExecutable
 {
     private readonly CpuVmCompiledArtifact artifact;
     private ICpuVmCode? code;
@@ -274,6 +274,13 @@ public sealed class CpuVmExecutable : IVmExecutable
     {
         ArgumentNullException.ThrowIfNull(execution);
         Invoke(entryName, new CpuVmContext(execution.Program, execution.GetBuffers(), LocalInputs()));
+    }
+
+    public void ExecuteTask(string entryName, VmExecutionLease execution, CancellationToken cancellation)
+    {
+        cancellation.ThrowIfCancellationRequested();
+        Execute(entryName, execution);
+        cancellation.ThrowIfCancellationRequested();
     }
 
     private IEnumerable<string> LocalInputs() => Program.Slots

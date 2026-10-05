@@ -58,7 +58,8 @@ public static class VmBackendFactory
             }, exportPrefillArtifact: output =>
                 Save(prefillCompiled ?? throw new InvalidOperationException("The prefill VM has not been compiled."), output),
             allocate: pool.Allocate, deviceName: deviceName, generatorCollections: generatorCollections ??
-                DefaultInstructionCollections.Create().Select(provider => new TargetInstructionCollection(provider, InstructionTarget.Direct3D12)));
+                DefaultInstructionCollections.Create().Select(provider => new TargetInstructionCollection(provider, InstructionTarget.Direct3D12)),
+            taskStatistics: () => pool.TaskStatistics);
 
         static D3D12VmArtifact Load(string directory)
         {

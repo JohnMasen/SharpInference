@@ -14,7 +14,7 @@ namespace SharpInference.Backends.D3D12Vm;
 /// writable results back before returning. CPU array identity never suppresses these state transfers.
 /// Idle pooled command caches retain only allocation IDs, never storage, CPU arrays or resource wrappers.
 /// </summary>
-public sealed class D3D12VmExecutor : IVmExecutable
+public sealed class D3D12VmExecutor : IVmTaskExecutable
 {
     private readonly ID3D12Device device;
     private readonly ID3D12Resource[] buffers;
@@ -44,6 +44,9 @@ public sealed class D3D12VmExecutor : IVmExecutable
     private bool ownsDevice;
     private ulong fenceValue;
     private bool disposed;
+    private D3D12VmTaskWindow? taskWindow;
+    private ulong computeRecordCount;
+    private readonly IReadOnlyDictionary<string, VmDefinition> kernelDefinitions;
 
     public D3D12VmExecutor(ID3D12Device device, D3D12VmArtifact artifact)
         : this(device, artifact, null) { }
@@ -55,11 +58,13 @@ public sealed class D3D12VmExecutor : IVmExecutable
     {
         this.device = device ?? throw new ArgumentNullException(nameof(device));
         Artifact = artifact ?? throw new ArgumentNullException(nameof(artifact));
+        kernelDefinitions = artifact.Program.Definitions.ToDictionary(definition => definition.Id, StringComparer.Ordinal);
         this.pool = pool;
         schedules = D3D12VmSchedule.Create(artifact.Program);
-        gatherIndices = D3D12VmSchedule.GatherIndices(artifact.Contracts);
+        var contractSchedules = D3D12VmSchedule.Create(artifact.Contracts);
+        gatherIndices = D3D12VmSchedule.GatherIndices(artifact.Contracts, contractSchedules);
         entryGatherIndices = schedules.Keys.ToDictionary(name => name,
-            name => D3D12VmSchedule.GatherIndices(artifact.Contracts, name), StringComparer.Ordinal);
+            name => D3D12VmSchedule.GatherIndices(artifact.Contracts, contractSchedules, name), StringComparer.Ordinal);
         buffers = new ID3D12Resource[artifact.Program.Slots.Count];
         pooledBindings = new D3D12VmPooledStorage?[buffers.Length];
         candidateBindings = new D3D12VmPooledStorage?[buffers.Length];
@@ -120,6 +125,54 @@ public sealed class D3D12VmExecutor : IVmExecutable
     public ulong AllocatedGpuBytes => pool is null ?
         Artifact.Program.Slots.Aggregate(0UL, (sum, s) => checked(sum + Align(s.Tensor.ByteLength))) : 0;
     public ulong BindingRecordCount { get { lock (gate) return bindingRecordCount; } }
+    public ulong ComputeRecordCount { get { lock (gate) return computeRecordCount; } }
+
+    public void ExecuteTask(string entryName, VmExecutionLease lease, CancellationToken cancellation)
+    {
+        lock (gate)
+        {
+            ThrowIfDisposed();
+            if (pool is null) throw new NotSupportedException("Queued GPU tasks require a shared resource pool.");
+            taskWindow ??= new D3D12VmTaskWindow(this, pool);
+            taskWindow.Execute(entryName, lease, cancellation);
+        }
+    }
+
+    internal void BindTaskWindow(byte[][] context)
+    {
+        using var use = BeginPoolUse();
+        ValidateContext(context);
+        BindPooledContext(context, recordAll: false);
+    }
+
+    internal void ValidateTaskEntry(string entry, VmExecutionLease lease)
+    {
+        if (!entryGatherIndices.TryGetValue(entry, out var indices))
+            throw new ArgumentException($"Unknown VM entry '{entry}'.", nameof(entry));
+        Span<byte> bytes = stackalloc byte[sizeof(int)];
+        foreach (var index in indices)
+        {
+            lease.Read(Program.Slots[index.Slot].Id, index.ByteOffset, bytes);
+            var row = BitConverter.ToInt32(bytes);
+            if ((uint)row >= (uint)index.Rows)
+                throw new ArgumentOutOfRangeException(nameof(lease), "The task contains an out-of-range gather index.");
+        }
+    }
+
+    internal void ExecuteTransfer(Action<ID3D12GraphicsCommandList> record)
+    {
+        BeginTransfer();
+        record(transfer);
+        transfer.Close();
+        Submit(transfer);
+    }
+
+    internal void UploadTaskGlobals(byte[][] context, IReadOnlyList<int> slots)
+    {
+        using var use = BeginPoolUse();
+        BindPooledContext(context, recordAll: false);
+        foreach (var index in slots) UploadCore(index, context[index]);
+    }
     public int DispatchCount(string entry) => D3D12VmSchedule.Create(Artifact.Program)[entry].Count(c => c is D3D12VmDispatch);
 
     public ulong GetGpuVirtualAddress(string slot)
@@ -220,6 +273,7 @@ public sealed class D3D12VmExecutor : IVmExecutable
                 throw new InvalidOperationException($"Slot '{Program.Slots[i].Id}' requires a managed execution or explicit upload before GPU-only execution.");
         }
         if (!entriesRecorded) RecordEntries();
+        if (!entries.ContainsKey(entry)) RecordEntry(entry, schedules[entry]);
     }
 
     private void RecordCommands(ID3D12GraphicsCommandList list, IReadOnlyList<D3D12VmCommand> schedule)
@@ -232,7 +286,7 @@ public sealed class D3D12VmExecutor : IVmExecutable
                         list.ResourceBarrierUnorderedAccessView(buffers[slot]);
                     break;
                 case D3D12VmDispatch dispatch:
-                    var definition = Program.Definitions.Single(d => d.Id == dispatch.Kernel);
+                    var definition = kernelDefinitions[dispatch.Kernel];
                     list.SetComputeRootSignature(signatures[dispatch.Kernel]);
                     list.SetPipelineState(pipelines[dispatch.Kernel]);
                     var constants = new uint[2 + dispatch.Bindings.Length];
@@ -244,10 +298,32 @@ public sealed class D3D12VmExecutor : IVmExecutable
                         list.SetComputeRootUnorderedAccessView((uint)index, buffers[binding.Slot].GPUVirtualAddress);
                         constants[index + 2] = checked((uint)binding.Offset);
                     }
+
                     list.SetComputeRoot32BitConstants((uint)dispatch.Bindings.Length, constants);
                     list.Dispatch(dispatch.Groups.X, dispatch.Groups.Y, dispatch.Groups.Z);
                     break;
             }
+    }
+
+    private void RecordEntry(string name, IReadOnlyList<D3D12VmCommand> schedule)
+    {
+        var allocator = device.CreateCommandAllocator(CommandListType.Compute);
+        ID3D12GraphicsCommandList? list = null;
+        try
+        {
+            list = device.CreateCommandList<ID3D12GraphicsCommandList>(0, CommandListType.Compute, allocator);
+            RecordCommands(list, schedule);
+            list.Close();
+            entries.Add(name, (allocator, list));
+            computeRecordCount = checked(computeRecordCount + 1);
+            if (taskWindow is not null) pool!.RecordedTaskEntry();
+        }
+        catch
+        {
+            list?.Dispose();
+            allocator.Dispose();
+            throw;
+        }
     }
 
     /// <summary>
@@ -322,6 +398,8 @@ public sealed class D3D12VmExecutor : IVmExecutable
         lock (gate)
         {
             ThrowIfDisposed();
+            if (taskWindow is not null)
+                throw new InvalidOperationException("Use separate executors for managed compatibility and queued-task execution.");
             using var use = BeginPoolUse();
             if (!schedules.ContainsKey(entryName))
                 throw new ArgumentException($"Unknown VM entry '{entryName}'.", nameof(entryName));
@@ -517,7 +595,7 @@ public sealed class D3D12VmExecutor : IVmExecutable
         }
     }
 
-    private void BindPooledContext(byte[][] context)
+    private void BindPooledContext(byte[][] context, bool recordAll = true)
     {
         if (pool is null) return;
         var changed = false;
@@ -537,7 +615,13 @@ public sealed class D3D12VmExecutor : IVmExecutable
             }
             if (changed || !entriesRecorded)
             {
-                RecordEntries();
+                if (recordAll) RecordEntries();
+                else
+                {
+                    ClearEntries();
+                    entriesRecorded = true;
+                    bindingRecordCount = checked(bindingRecordCount + 1);
+                }
                 for (var i = 0; i < buffers.Length; i++)
                     recordedAllocationIds[i] = pooledBindings[i]!.Id;
             }
@@ -645,6 +729,7 @@ public sealed class D3D12VmExecutor : IVmExecutable
             if (disposed) return;
             disposed = true;
             ClearEntries();
+            taskWindow?.Dispose();
             foreach (var pipeline in pipelines.Values) pipeline.Dispose();
             foreach (var signature in signatures.Values) signature.Dispose();
             if (pool is null)

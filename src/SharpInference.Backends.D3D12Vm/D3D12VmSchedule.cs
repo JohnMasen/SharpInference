@@ -12,6 +12,10 @@ internal sealed record D3D12VmGatherIndex(int Slot, ulong ByteOffset, int Rows);
 internal static class D3D12VmSchedule
 {
     public static D3D12VmGatherIndex[] GatherIndices(VmProgram program, string? entry = null)
+        => GatherIndices(program, Create(program), entry);
+
+    public static D3D12VmGatherIndex[] GatherIndices(VmProgram program,
+        IReadOnlyDictionary<string, D3D12VmCommand[]> schedules, string? entry = null)
     {
         var definitions = program.Definitions.ToDictionary(d => d.Id, StringComparer.Ordinal);
         var result = new HashSet<D3D12VmGatherIndex>();
@@ -31,7 +35,6 @@ internal static class D3D12VmSchedule
                     result.Add(new(index.Slot, checked(index.Offset + indexArgument.ByteOffset), table.Tensor.Dimensions[bound.Axis]));
                 }
         }
-        var schedules = Create(program);
         var commands = entry is null ? schedules.Values.SelectMany(v => v) : schedules[entry];
         foreach (var dispatch in commands.OfType<D3D12VmDispatch>())
         {

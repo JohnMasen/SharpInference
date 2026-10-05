@@ -102,10 +102,13 @@ internal sealed class GenerationSession(VmInferenceSession session) : IRwkvAsync
         await session.PrefillAsync(tokens, cancellationToken).ConfigureAwait(false);
     public async ValueTask<IRwkvGenerationScope> BeginGenerationAsync(CancellationToken cancellationToken = default) =>
         new GenerationScope(await session.BeginGenerationAsync(cancellationToken).ConfigureAwait(false));
-    private sealed class GenerationScope(VmGenerationLease lease) : IRwkvGenerationScope, IRwkvGenerationSession
+    private sealed class GenerationScope(VmGenerationLease lease) : IRwkvGenerationScope, IRwkvAsyncGenerationSession
     {
         public IRwkvGenerationSession Session => this;
         public ReadOnlyMemory<float> ForwardToken(int token) => lease.ForwardToken(token);
+        public async ValueTask<ReadOnlyMemory<float>> ForwardTokenAsync(int token,
+            CancellationToken cancellationToken = default) =>
+            await lease.ForwardTokenAsync(token, cancellationToken).ConfigureAwait(false);
         public ReadOnlyMemory<float> Prefill(ReadOnlySpan<int> tokens) =>
             throw new InvalidOperationException("Prefill cannot run inside a generation lease.");
         public ValueTask DisposeAsync() => lease.DisposeAsync();

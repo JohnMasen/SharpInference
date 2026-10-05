@@ -221,9 +221,15 @@ and byte capacity before writing raw weights.
 Workers share actual GPU allocations for globals and session State, not just
 copies of CPU arrays; local allocations remain worker-private. Globals upload
 once per shared allocation. Host writes invalidate the corresponding upload.
-Mutable CPU shadows are authoritative between managed execution calls:
-uploads and readbacks complete before returning. This is an explicit correctness
-baseline, not a promise of optimal device residency or transfer performance.
+Queued execution uses fixed per-worker GPU windows. Immutable globals are shared;
+Session data is loaded and committed by GPU-to-GPU copies at task boundaries.
+Compute entries are recorded lazily against the fixed window, not re-recorded
+when the requesting Session changes. Local workspace stays device-resident.
+Host writes invalidate device data; State uploads occur after initialization or
+host modification. CPU shadows are synchronized lazily on explicit reads,
+including snapshot/fork/export. Only necessary logits are read back per task.
+Legacy managed execution retains its synchronous upload/readback semantics;
+do not mix it with queued execution on the same executor.
 
 Executors borrow core-owned storage. Idle command caches retain allocation IDs,
 not closed-session arrays or resource owners. Released/stale allocations are
@@ -260,15 +266,18 @@ not resident session State, queued inputs, or global weights.
 
 Sessions own State, not permanently assigned VMs:
 
-1. `PrefillAsync` submits bounded token input and binds an idle Prefill worker
-   to the session's State. Inputs are copied before waiting.
+1. `PrefillAsync` copies inputs and submits one bounded queue request per batch.
+   A Worker binds State, loads parameters and runs the selected VM entry.
 2. Declared `prefill.N` entries process the largest fitting chunks. Sparse
    variants are supported; the default optimizer emits hierarchical doubling
    calls rather than duplicating every slot argument for every token.
-3. `BeginGenerationAsync` leases one Inference worker for the **whole reply**.
-   All token steps use that lease, without nested queue submissions.
-4. Scope disposal, cancellation, exceptions, and early enumeration exit release
-   the worker only after in-flight execution finishes.
+3. `BeginGenerationAsync` holds only Session operation ownership for the reply.
+   It does not acquire a Worker. Every token step submits an Inference request;
+   only the queue Worker accesses the VM and completes the result Task.
+4. Requests carry a `CancellationTokenSource`. Cancellation is checked at every
+   token/batch boundary. Submitted GPU work finishes safely before cancellation
+   completes; partially executed State is invalidated and requires reset/restore.
+   Scope disposal waits for its active step before releasing Session ownership.
 
 Session operations serialize access to shared State. Reset/snapshot/fork/direct
 forward are rejected while a queued/scoped Processor operation owns the session.
@@ -285,6 +294,9 @@ excess residency. Busy errors before response start map to HTTP 503 and
 `Retry-After`; after streaming begins they become explicit SSE errors.
 Headers are deferred until the first iterator result so initial busy errors can
 still be ordinary HTTP responses.
+
+See [queued VM execution](./queued-vm-execution.md) for the fixed-window contract,
+cancellation boundaries, validation and the contemporaneous main comparison.
 
 ## Runtime configuration
 

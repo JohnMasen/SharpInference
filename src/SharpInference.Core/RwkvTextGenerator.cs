@@ -24,6 +24,11 @@ public interface IRwkvAsyncPrefillSession : IRwkvGenerationSession
     ValueTask<ReadOnlyMemory<float>> PrefillAsync(ReadOnlyMemory<int> tokens, CancellationToken cancellationToken = default);
 }
 
+public interface IRwkvAsyncGenerationSession : IRwkvGenerationSession
+{
+    ValueTask<ReadOnlyMemory<float>> ForwardTokenAsync(int token, CancellationToken cancellationToken = default);
+}
+
 public static class RwkvTextGenerator
 {
     public static async IAsyncEnumerable<char> GenerateCharactersAsync(
@@ -132,7 +137,7 @@ public static class RwkvTextGenerator
             if (stopMatcher is null)
             {
                 var text = decoder.Append(tokenBytes.Span);
-                logits = executingSession.ForwardToken(token);
+                logits = await ForwardAsync(executingSession, token, cancellationToken).ConfigureAwait(false);
                 if (text.Length > 0)
                 {
                     yield return text;
@@ -140,7 +145,7 @@ public static class RwkvTextGenerator
             }
             else
             {
-                logits = executingSession.ForwardToken(token);
+                logits = await ForwardAsync(executingSession, token, cancellationToken).ConfigureAwait(false);
                 var textStop = stopMatcher.Append(tokenBytes.Span, out var safeBytes);
                 var text = decoder.Append(safeBytes.Span);
                 if (text.Length > 0)
@@ -165,6 +170,11 @@ public static class RwkvTextGenerator
             yield return remaining;
         }
     }
+
+    private static ValueTask<ReadOnlyMemory<float>> ForwardAsync(IRwkvGenerationSession session, int token,
+        CancellationToken cancellation) => session is IRwkvAsyncGenerationSession asynchronous
+        ? asynchronous.ForwardTokenAsync(token, cancellation)
+        : ValueTask.FromResult(session.ForwardToken(token));
 
     private sealed class IncrementalUtf8Decoder
     {
