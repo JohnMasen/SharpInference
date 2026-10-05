@@ -34,6 +34,7 @@ public sealed class RwkvRuntimeFactory
                 nameof(VmRuntimeConfig.ThreadsPerGroup), nameof(VmRuntimeConfig.ReuseLocalStorage),
                 nameof(VmRuntimeConfig.NativeHalfWeights), nameof(VmRuntimeConfig.ProgramPath),
                 nameof(VmRuntimeConfig.WeightViews),
+                nameof(VmRuntimeConfig.GpuMatVecMode),
                 nameof(VmRuntimeConfig.ArtifactDirectory),
                 nameof(VmRuntimeConfig.PrefillProgramPath), nameof(VmRuntimeConfig.PrefillArtifactDirectory),
             ];

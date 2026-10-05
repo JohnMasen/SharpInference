@@ -12,6 +12,8 @@ public static class VmBackendFactory
         IEnumerable<IInstructionCollectionProvider>? generatorCollections = null)
     {
         configuration ??= new();
+        var optimization = configuration.OptimizationOptions(configuration.TierOneCostProfile is null && configuration.GpuMatVecCostProfile is null ? null :
+            VmTierOneEnvironment.Fingerprint(VmTarget.Direct3D12, adapterIndex), VmTarget.Direct3D12);
         var collections = instructionCollections?.ToArray() ?? DefaultInstructionCollections.Create();
         var compiler = new D3D12VmCompiler(collections);
         var options = configuration.EngineOptions();
@@ -37,7 +39,7 @@ public static class VmBackendFactory
             var image = loaded ?? compiler.Compile(candidate);
             compiled = image;
             return () => image.CreateExecutor(pool);
-        }, options, configuration.OptimizationOptions(), disposeCompiler: () =>
+        }, options, optimization, disposeCompiler: () =>
         {
             List<Exception>? errors = null;
             try { pool.Dispose(); }
@@ -76,6 +78,8 @@ public static class VmBackendFactory
         IEnumerable<IInstructionCollectionProvider>? generatorCollections = null)
     {
         configuration ??= new();
+        var optimization = configuration.OptimizationOptions(configuration.TierOneCostProfile is null ? null :
+            VmTierOneEnvironment.Fingerprint(VmTarget.Cpu), VmTarget.Cpu);
         var collections = instructionCollections?.ToArray() ?? DefaultInstructionCollections.Create();
         var compiler = new CpuVmCompiler(collections);
         var options = configuration.EngineOptions();
@@ -94,7 +98,7 @@ public static class VmBackendFactory
             var image = loaded ?? compiler.Compile(candidate);
             compiled = image;
             return () => image.CreateExecutor();
-        }, options, configuration.OptimizationOptions(), suppliedProgram: program,
+        }, options, optimization, suppliedProgram: program,
             exportArtifact: output => (compiled ?? throw new InvalidOperationException("The VM has not been compiled.")).Export(output),
             suppliedPrefillProgram: prefillProgram, compilePrefill: candidate =>
             {

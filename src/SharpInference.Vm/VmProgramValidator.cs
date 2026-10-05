@@ -72,6 +72,13 @@ public static class VmProgramValidator
                         if (operation.ResolvedPrecision is { } precision &&
                             !SharpInference.Graphs.NumericTypeCompatibility.Satisfies(precision, operation.Precision))
                             Fail($"Node '{node.Id}' resolved precision does not satisfy its requirement.");
+                        if (operation.ExecutionConfiguration is { } configuration &&
+                            (configuration is not (SharpInference.Instructions.CpuInstructionExecutionConfiguration or
+                                SharpInference.Instructions.D3D12InstructionExecutionConfiguration) ||
+                            configuration.Target != (program.Target == VmTarget.Cpu
+                                ? SharpInference.Instructions.InstructionTarget.Cpu
+                                : SharpInference.Instructions.InstructionTarget.Direct3D12)))
+                            Fail($"Node '{node.Id}' has an incompatible execution configuration.");
                         Unique(operation.Arguments, argument => argument.Parameter, "operator argument");
                         if (operation.ParameterAccesses.Count != 0 &&
                             (operation.ParameterAccesses.Count != operation.Arguments.Count ||
@@ -147,6 +154,7 @@ public static class VmProgramValidator
             }
         }
         ValidateCalls(definitions);
+        VmGpuLaunchContracts.Validate(program, definitions);
         foreach (var entry in entries.Values)
         {
             var definition = Resolve(definitions, entry.Definition);

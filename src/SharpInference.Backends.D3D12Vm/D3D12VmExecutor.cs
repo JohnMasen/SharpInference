@@ -146,30 +146,7 @@ public sealed class D3D12VmExecutor : IVmExecutable
                 try
                 {
                     list = device.CreateCommandList<ID3D12GraphicsCommandList>(0, CommandListType.Compute, allocator);
-                    foreach (var command in schedule)
-                        switch (command)
-                        {
-                            case D3D12VmBarrier barrier:
-                                foreach (var slot in barrier.Slots)
-                                    list.ResourceBarrierUnorderedAccessView(buffers[slot]);
-                                break;
-                            case D3D12VmDispatch dispatch:
-                                var definition = Program.Definitions.Single(d => d.Id == dispatch.Kernel);
-                                list.SetComputeRootSignature(signatures[dispatch.Kernel]);
-                                list.SetPipelineState(pipelines[dispatch.Kernel]);
-                                var constants = new uint[2 + dispatch.Bindings.Length];
-                                constants[0] = checked(dispatch.Groups.X * definition.Threads!.X);
-                                constants[1] = checked(dispatch.Groups.Y * definition.Threads.Y);
-                                for (var i = 0; i < dispatch.Bindings.Length; i++)
-                                {
-                                    var binding = dispatch.Bindings[i];
-                                    list.SetComputeRootUnorderedAccessView((uint)i, buffers[binding.Slot].GPUVirtualAddress);
-                                    constants[i + 2] = checked((uint)binding.Offset);
-                                }
-                                list.SetComputeRoot32BitConstants((uint)dispatch.Bindings.Length, constants);
-                                list.Dispatch(dispatch.Groups.X, dispatch.Groups.Y, dispatch.Groups.Z);
-                                break;
-                        }
+                    RecordCommands(list, schedule);
                     list.Close();
                     entries.Add(name, (allocator, list));
                 }
@@ -227,16 +204,82 @@ public sealed class D3D12VmExecutor : IVmExecutable
         {
             ThrowIfDisposed();
             using var use = BeginPoolUse();
-            if (!schedules.ContainsKey(entry))
-                throw new ArgumentException($"Unknown VM entry '{entry}'.", nameof(entry));
-            for (var i = 0; pool is not null && i < buffers.Length; i++)
-            {
-                var binding = RequirePooledBinding(i)!;
-                if (!binding.GpuInitialized || IsFixedGlobal(i) && !binding.GlobalUploaded)
-                    throw new InvalidOperationException($"Slot '{Program.Slots[i].Id}' requires a managed execution or explicit upload before GPU-only execution.");
-            }
-            if (!entriesRecorded) RecordEntries();
+            PrepareGpuEntry(entry);
             Submit(entries[entry].Commands);
+        }
+    }
+
+    private void PrepareGpuEntry(string entry)
+    {
+        if (!schedules.ContainsKey(entry))
+            throw new ArgumentException($"Unknown VM entry '{entry}'.", nameof(entry));
+        for (var i = 0; pool is not null && i < buffers.Length; i++)
+        {
+            var binding = RequirePooledBinding(i)!;
+            if (!binding.GpuInitialized || IsFixedGlobal(i) && !binding.GlobalUploaded)
+                throw new InvalidOperationException($"Slot '{Program.Slots[i].Id}' requires a managed execution or explicit upload before GPU-only execution.");
+        }
+        if (!entriesRecorded) RecordEntries();
+    }
+
+    private void RecordCommands(ID3D12GraphicsCommandList list, IReadOnlyList<D3D12VmCommand> schedule)
+    {
+        foreach (var command in schedule)
+            switch (command)
+            {
+                case D3D12VmBarrier barrier:
+                    foreach (var slot in barrier.Slots)
+                        list.ResourceBarrierUnorderedAccessView(buffers[slot]);
+                    break;
+                case D3D12VmDispatch dispatch:
+                    var definition = Program.Definitions.Single(d => d.Id == dispatch.Kernel);
+                    list.SetComputeRootSignature(signatures[dispatch.Kernel]);
+                    list.SetPipelineState(pipelines[dispatch.Kernel]);
+                    var constants = new uint[2 + dispatch.Bindings.Length];
+                    constants[0] = checked(dispatch.Groups.X * definition.Threads!.X);
+                    constants[1] = checked(dispatch.Groups.Y * definition.Threads.Y);
+                    for (var index = 0; index < dispatch.Bindings.Length; index++)
+                    {
+                        var binding = dispatch.Bindings[index];
+                        list.SetComputeRootUnorderedAccessView((uint)index, buffers[binding.Slot].GPUVirtualAddress);
+                        constants[index + 2] = checked((uint)binding.Offset);
+                    }
+                    list.SetComputeRoot32BitConstants((uint)dispatch.Bindings.Length, constants);
+                    list.Dispatch(dispatch.Groups.X, dispatch.Groups.Y, dispatch.Groups.Z);
+                    break;
+            }
+    }
+
+    /// <summary>
+    /// Measures GPU-resident entry execution using queue timestamps, including scheduled barriers.
+    /// Uploads and result readback are excluded. The entry executes exactly repetitions times.
+    /// This explicit profiling API is never invoked during normal inference or plan preparation.
+    /// </summary>
+    public double MeasureGpuMicroseconds(string entry, int repetitions = 8)
+    {
+        if (repetitions is < 1 or > 1024) throw new ArgumentOutOfRangeException(nameof(repetitions));
+        lock (gate)
+        {
+            ThrowIfDisposed();
+            using var use = BeginPoolUse();
+            PrepareGpuEntry(entry);
+            queue.GetTimestampFrequency(out var frequency).CheckError();
+            if (frequency == 0) throw new InvalidOperationException("GPU timestamp frequency is zero.");
+            using var queries = device.CreateQueryHeap<ID3D12QueryHeap>(new QueryHeapDescription(QueryHeapType.Timestamp, 2));
+            using var readback = device.CreateCommittedResource(HeapProperties.ReadbackHeapProperties, HeapFlags.None,
+                ResourceDescription.Buffer(16), ResourceStates.CopyDest);
+            using var allocator = device.CreateCommandAllocator(CommandListType.Compute);
+            using var commands = device.CreateCommandList<ID3D12GraphicsCommandList>(0, CommandListType.Compute, allocator);
+            commands.EndQuery(queries, QueryType.Timestamp, 0);
+            for (var index = 0; index < repetitions; index++) RecordCommands(commands, schedules[entry]);
+            commands.EndQuery(queries, QueryType.Timestamp, 1);
+            commands.ResolveQueryData(queries, QueryType.Timestamp, 0, 2, readback, 0);
+            commands.Close();
+            Submit(commands);
+            var ticks = new ulong[2];
+            readback.GetData<ulong>(ticks);
+            if (ticks[1] <= ticks[0]) throw new InvalidOperationException("GPU timestamps did not advance.");
+            return (ticks[1] - ticks[0]) * (1_000_000d / frequency) / repetitions;
         }
     }
 
@@ -580,6 +623,10 @@ public sealed class D3D12VmExecutor : IVmExecutable
     private void Submit(ID3D12GraphicsCommandList list)
     {
         queue.ExecuteCommandList(list);
+        WaitForCompletion();
+    }
+    private void WaitForCompletion()
+    {
         var value = checked(++fenceValue);
         queue.Signal(fence, value).CheckError();
         if (fence.CompletedValue < value)

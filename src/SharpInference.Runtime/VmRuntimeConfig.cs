@@ -15,6 +15,10 @@ public sealed class VmRuntimeConfig
     public bool ReuseLocalStorage { get; init; } = true;
     public bool NativeHalfWeights { get; init; } = true;
     public bool WeightViews { get; init; } = true;
+    public GpuMatVecMode GpuMatVecMode { get; init; } = GpuMatVecMode.Default;
+    public TierOneCostProfile? GpuMatVecCostProfile { get; init; }
+    public TierOneCostProfile? TierOneCostProfile { get; init; }
+    public int TierOneMaximumSearchStates { get; init; } = 100_000;
     public string? ProgramPath { get; init; }
     public string? ArtifactDirectory { get; init; }
     public string? PrefillProgramPath { get; init; }
@@ -22,6 +26,11 @@ public sealed class VmRuntimeConfig
 
     public VmEngineOptions EngineOptions()
     {
+        if (!Enum.IsDefined(GpuMatVecMode))
+            throw new InvalidOperationException("Unknown GPU MatVec mode.");
+        if (GpuMatVecMode == GpuMatVecMode.Profile && GpuMatVecCostProfile is null ||
+            GpuMatVecMode != GpuMatVecMode.Profile && GpuMatVecCostProfile is not null)
+            throw new InvalidOperationException("GPU MatVec profile mode requires an explicit profile, and other modes cannot accept one.");
         var options = new VmEngineOptions(PrefillQueueCapacity, InferenceQueueCapacity,
             PrefillInstances, InferenceInstances, MaximumPrefillTokens);
         options.Validate();
@@ -34,5 +43,13 @@ public sealed class VmRuntimeConfig
         return options;
     }
 
-    public VmOptimizationOptions OptimizationOptions() => new(ReuseLocalStorage, ThreadsPerGroup, PrefillCapacity, NativeHalfWeights, WeightViews);
+    public VmOptimizationOptions OptimizationOptions(string? tierOneEnvironmentFingerprint = null, VmTarget? target = null) =>
+        new(ReuseLocalStorage, ThreadsPerGroup, PrefillCapacity, NativeHalfWeights, WeightViews,
+            TierOneCostProfile is null ? null : new(TierOneCostProfile,
+                tierOneEnvironmentFingerprint ?? throw new InvalidOperationException("A current hardware/runtime fingerprint is required to enable T1."),
+                TierOneMaximumSearchStates),
+            GpuMatVecMode == GpuMatVecMode.Default ||
+                target == VmTarget.Cpu && GpuMatVecMode == GpuMatVecMode.Serial ? null :
+                new(GpuMatVecMode, GpuMatVecCostProfile,
+                    GpuMatVecMode == GpuMatVecMode.Profile ? tierOneEnvironmentFingerprint : null));
 }

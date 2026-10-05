@@ -17,7 +17,7 @@ public sealed class InstructionCollectionTests
     public void CollectionsExposePrecisionAndExtensibleArchitecture()
     {
         var registry = new InstructionRegistry(DefaultInstructionCollections.Create());
-        Assert.Equal(4, registry.QueryInstructionCollection().Count);
+        Assert.Equal(6, registry.QueryInstructionCollection().Count);
         Assert.Equal(2, registry.QueryInstruction(Guid.Empty, "core.add").Count);
         Assert.Equal(GraphElementType.Float16, registry.Resolve(InstructionCollectionIds.TierZeroFloat16,
             "core.add", InstructionTarget.Cpu).Signatures[0].Ports[0].ElementType);
@@ -52,7 +52,7 @@ public sealed class InstructionCollectionTests
         var remote = VmProgramXml.Deserialize(VmProgramXml.Serialize(program));
         var backend = new CpuVmCompiler(DefaultInstructionCollections.Create());
         Assert.Single(generator.InstructionCollections.QueryInstructionCollection());
-        Assert.Equal(4, backend.InstructionCollections.QueryInstructionCollection().Count);
+        Assert.Equal(6, backend.InstructionCollections.QueryInstructionCollection().Count);
         Assert.True(backend.Compile(remote).HasBinary);
         Assert.Throws<NotSupportedException>(() => new VmExecutionGraphGenerator(InstructionTarget.Cpu, []).Generate(graph));
         Assert.All(remote.Definitions.SelectMany(definition => definition.Nodes).Select(node => node.Instruction)
@@ -68,7 +68,7 @@ public sealed class InstructionCollectionTests
         var generator = RwkvRuntimeFactory.CreateGraphGenerator(catalog, InstructionTarget.Cpu);
         Assert.Equal(architecture, generator.ModelArchitecture);
         Assert.Equal(InstructionTarget.Cpu, generator.Architecture);
-        Assert.Equal(2, generator.InstructionCollections.QueryInstructionCollection().Count);
+        Assert.Equal(3, generator.InstructionCollections.QueryInstructionCollection().Count);
         Assert.All(generator.InstructionCollections.QueryInstructionCollection(),
             collection => Assert.Equal(InstructionTarget.Cpu, collection.Architecture));
         Assert.Equal(VmTarget.Cpu, generator.Generate(catalog).Target);

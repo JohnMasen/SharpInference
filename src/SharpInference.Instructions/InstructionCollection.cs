@@ -7,6 +7,7 @@ public static class InstructionCollectionIds
 {
     public static readonly Guid TierZeroFloat32 = Guid.Empty;
     public static readonly Guid TierZeroFloat16 = new("00000000-0000-0000-0000-000000000001");
+    public static readonly Guid TierOneFloat32 = new("697cfcb5-8e65-4e4f-9c3b-742c30b057cc");
 }
 
 public readonly record struct InstructionTarget
@@ -80,23 +81,43 @@ public abstract class Instruction
     public abstract IReadOnlyList<InstructionSignature> Signatures { get; }
     public virtual bool RequiresDispatchIsolation => true;
     public virtual IReadOnlyList<InstructionIndexBound> IndexBounds => [];
-    public void Invoke(IInstructionRecorder recorder, InstructionParameter[] parameters, PrecisionRequirement precision)
+    public void Invoke(IInstructionRecorder recorder, InstructionParameter[] parameters, PrecisionRequirement precision,
+        InstructionExecutionConfiguration? executionConfiguration = null)
     {
         ArgumentNullException.ThrowIfNull(recorder);
         if (recorder.Target != Target)
             throw new InstructionAdaptationException(CollectionId, Name, $"requires {Target}, recorder is {recorder.Target}.");
-        GetSignature(parameters, precision);
+        Adapt(parameters, precision, executionConfiguration);
+        recorder.Record(GenerateConfigured(parameters, executionConfiguration));
+    }
+
+    public InstructionSignature Adapt(InstructionParameter[] parameters, PrecisionRequirement precision,
+        InstructionExecutionConfiguration? executionConfiguration = null)
+    {
+        var signature = GetSignature(parameters, precision, executionConfiguration);
         Validate(parameters);
-        recorder.Record(Generate(parameters));
+        return signature;
+    }
+
+    protected virtual void ValidateExecutionConfiguration(InstructionExecutionConfiguration? configuration)
+    {
+        if (configuration is not null)
+            throw new InstructionAdaptationException(CollectionId, Name, "This instruction does not accept an execution configuration.");
     }
 
     protected virtual void Validate(InstructionParameter[] parameters) { }
     protected abstract InstructionRecording Generate(InstructionParameter[] parameters);
+    protected virtual InstructionRecording GenerateConfigured(InstructionParameter[] parameters,
+        InstructionExecutionConfiguration? configuration) => Generate(parameters);
 
-    public InstructionSignature GetSignature(InstructionParameter[] parameters, PrecisionRequirement precision)
+    public InstructionSignature GetSignature(InstructionParameter[] parameters, PrecisionRequirement precision,
+        InstructionExecutionConfiguration? executionConfiguration = null)
     {
         ArgumentNullException.ThrowIfNull(parameters);
         ArgumentNullException.ThrowIfNull(precision);
+        if (executionConfiguration is not null && executionConfiguration.Target != Target)
+            throw new InstructionAdaptationException(CollectionId, Name, "Execution configuration has a different target.");
+        ValidateExecutionConfiguration(executionConfiguration);
         if (parameters.Any(parameter => parameter is null) ||
             parameters.Select(parameter => parameter.Name).Distinct(StringComparer.Ordinal).Count() != parameters.Length ||
             parameters.Any(parameter => parameter is not (InstructionTensorParameter or InstructionAttributeParameter)))
@@ -133,7 +154,7 @@ public sealed class InstructionAdaptationException : InvalidOperationException
         : base($"Instruction '{collectionId:D}/{name}' cannot adapt parameters: {reason}", inner) { }
 }
 
-public sealed class InstructionRegistry : IInstructionCollectionProvider
+public sealed class InstructionRegistry : IInstructionCollectionProvider, IInstructionOptimizationProvider
 {
     private readonly IReadOnlyList<IInstructionCollectionProvider> providers;
     private readonly IReadOnlyList<InstructionCollectionDescription> collections;
@@ -156,6 +177,18 @@ public sealed class InstructionRegistry : IInstructionCollectionProvider
     }
 
     public IReadOnlyList<InstructionCollectionDescription> QueryInstructionCollection() => collections;
+
+    public IReadOnlyList<InstructionOptimizationCapability> QueryOptimizationCapabilities()
+    {
+        var capabilities = providers.OfType<IInstructionOptimizationProvider>()
+            .SelectMany(provider => provider.QueryOptimizationCapabilities()).ToArray();
+        if (capabilities.GroupBy(value => (value.CollectionId, value.Name, value.Target, value.Configuration))
+            .Any(group => group.Count() != 1))
+            throw new InvalidDataException("Ambiguous optimization capabilities.");
+        foreach (var capability in capabilities)
+            Resolve(capability.CollectionId, capability.Name, capability.Target);
+        return Array.AsReadOnly(capabilities);
+    }
 
     public IReadOnlyList<Instruction> QueryInstruction(Guid collectionId, string instructionName)
     {

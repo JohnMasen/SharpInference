@@ -1,12 +1,13 @@
 # VM instruction collections and operator tiers
 
 Status: T0 FP32/FP16 InstructionCollections and constructor-injected providers
-are implemented for managed CPU and Direct3D12. Tier-1/2 implementations,
-annotation discovery and control flow remain future work. The runtime contract is
+are implemented for managed CPU and Direct3D12. The FP32 pointwise Tier-1
+catalog, target kernels and explicit offline-cost selection are implemented.
+Tier-2, annotation discovery and control flow remain future work. The runtime contract is
 [VM execution programs](./vm-execution-program.md).
 VM operators now carry explicit arithmetic/accumulator precision requirements;
-IC signatures declare their actual internal precision. Tier-1 implementation,
-catalog additions and fusion-specific rounding metadata are deferred.
+IC signatures declare their actual internal precision. T1 preserves canonical
+FP32 stage rounding; FP16/mixed-storage T1 signatures remain deferred.
 
 ## Scope and measured Tier-0 inventory
 
@@ -124,7 +125,9 @@ Logical lowering validates geometry; each IC adapts and validates its typed
 parameter array before recording any source.
 
 The implementations reuse existing CPU numerical kernels and explicit tensor
-loops, and generate one unfused serial-output GPU kernel per lowered operation.
+loops. GPU lowering generates one unfused kernel per operation. New MatVec
+graphs default to the cooperative implementation; other reductions retain
+their serial-output baseline.
 GPU MatVec/BatchedMatVec and whole/last-axis reductions use compensated FP32
 summation. Neumaier residuals are marked `precise` to prevent reassociation from
 discarding compensation; non-finite sums explicitly discard the residual so
@@ -168,6 +171,45 @@ regressions. Hardware tests
 must pass on each supported target device; the current host is not proof for
 every future mobile/console device.
 
+### GPU MatVec execution variants
+
+`core.mat-vec` keeps its existing T0 mathematical signature. Null configuration
+retains the serial baseline; `serial-matvec` selects it explicitly.
+`cooperative-matvec` assigns one 64-thread group to each output row. Adjacent
+lanes load adjacent columns directly from FP32/FP16 storage, accumulate FP32
+Neumaier `(sum, correction)` pairs, and merge both components through a fixed
+shared-memory tree. Only lane zero stores the result. There is no full-weight
+FP32 cast, cross-dispatch partial-sum buffer, wave-size assumption or added T1
+operator. BatchedMatVec and other reductions remain unchanged.
+
+The shared execution descriptor determines the group size and row grid.
+Rows above 65535 use a balanced two-dimensional grid (`65536 -> 32768 x 2`).
+The compiler passes group/lane context explicitly through device functions.
+VM validation requires one isolated cooperative MatVec per kernel, matching
+threads and dispatch grid, including after XML/artifact import. All lanes
+participate in barriers; column tails contribute no products and padded rows
+are uniformly inactive. Existing typed views, alias checks and output barriers
+remain in force.
+
+`VmRuntimeConfig.GpuMatVecMode` defaults to `Default`: new GPU graphs explicitly
+select the cooperative implementation; CPU graphs are unchanged. `Serial`
+remains an explicit baseline and `Cooperative` an explicit override.
+An existing unconfigured MatVec in saved XML/artifacts keeps its serial
+meaning; compilers do not rewrite old graphs.
+`Profile` requires an explicitly supplied `GpuMatVecCostProfile`; it reuses the
+offline sample schema but is independent of T1 selection. Exact matrix shape,
+all three storage types, implementation/environment fingerprints, reference
+thread size, distinct-input alias domain and storage-reuse policy must match.
+Profiles older than 30 days, over five minutes in the future, missing domains,
+or nonpositive conservative savings retain serial and appear in
+`MatVecOptimizationReport`. Runtime never benchmarks or auto-loads costs.
+
+The offline `matvec-profile` tool measures resident compute-queue GPU
+timestamps, including the scheduled output barrier and command-list execution
+but excluding uploads and result readback. End-to-end model testing remains
+necessary: managed entry transfers and other kernels are not accelerated by
+this MatVec implementation. See the [benchmark tool](../tools/SharpInference.VmBenchmark/README.md).
+
 The related 264-test regression selection also validates RWKV-6/7 CPU/GPU
 Prefill, inference, logits, State continuation/transport and artifact reload,
 including the existing rwkvcpp golden-logits fixture. All passed without skips.
@@ -176,7 +218,8 @@ GPU Maximum/Relu explicitly implement NaN/signed-zero behavior; CPU and GPU
 Tanh correct signed-zero handling where existing approximations differ.
 
 Regenerate pre-existing compiled artifacts to use these numerical fixes.
-Tier-1/2 implementations and control-flow proposals below remain unimplemented.
+The acceptance results below describe the T0 baseline. T1 is described separately;
+Tier-2 and control-flow proposals remain unimplemented.
 
 ### Actual tiny and full-model acceptance
 
@@ -215,12 +258,71 @@ CPU/GPU VM configurations were rerun successfully afterwards.
 
 ## Tier-1: basic merged operators (short, semantics-preserving fusion)
 
-This section is a future design, not current implementation scope. CPU/GPU may
-provide different Tier-1 subsets and mixed-storage signatures. Future fusion
-must also specify intermediate rounding: removing an FP16 intermediate store
-does not authorize removing its FP16 rounding boundary, even with FP32 internal
-arithmetic. Typed reference expansions and alternate numerical contracts remain
-later work.
+The current CPU and Direct3D12 implementation shares 13 canonical all-FP32
+definitions in IC `697cfcb5-8e65-4e4f-9c3b-742c30b057cc`. Input ports are
+`a`/`b`/`c`/`d` as needed, with `output`; all operands have identical dense
+shapes. The output cannot alias an input. Each canonical T0 stage retains an
+FP32 intermediate: removing its storage does not permit cross-stage FMA or
+reassociation. Add/Multiply operand exchange and Square/self-Multiply
+equivalence are permitted; NaN payload identity is not promised.
+
+| Canonical name | FP32 stage expansion |
+|---|---|
+| `add-rsqrt` | Add -> RSqrt |
+| `maximum-rsqrt` | Maximum -> RSqrt |
+| `multiply-add` | Multiply -> Add |
+| `add-multiply-add` | Add -> Multiply -> Add |
+| `multiply-multiply-add` | Multiply -> Multiply -> Add |
+| `multiply-add-multiply` | Multiply -> Add -> Multiply |
+| `difference-mix` | Subtract(a,b) -> Multiply(c) -> Add(b) |
+| `multiply-add-subtract` | Multiply(a,b) -> Add(c) -> Subtract(b) |
+| `multiply-self-sigmoid` | Sigmoid(a) -> Multiply(a) |
+| `add-sigmoid` | Add -> Sigmoid |
+| `exp-subtract-exp` | Exp(a) -> Subtract(b,temporary) -> Exp |
+| `sigmoid-multiply-exp` | Sigmoid(a) -> Multiply(b) -> Exp |
+| `relu-square` | Relu -> Square |
+
+CPU configuration `adaptive-pointwise` uses the existing
+`TensorPrimitives.MultiplyAdd`, adaptive `Vector<float>` arithmetic loops and
+scalar tails. Nonlinear combinations use bounded 256-element output blocks
+and the existing TensorPrimitives stages, not a claimed register-only pass.
+Scalar/SIMD dispatch remains inside the backend/library/JIT; the optimizer
+does not select SIMD widths. D3D12 configuration `register-pointwise` retains
+canonical `precise float` stages in registers and stores only the final tensor.
+These are execution/dataflow optimization candidates, not evidence of a new
+faster transcendental algorithm.
+
+Default registration does **not** enable fusion. `VmRuntimeConfig.TierOneCostProfile`
+must explicitly supply trusted offline samples. The hardware/driver, host,
+runtime, code, exact shape, input-alias class, thread group and allocation
+configuration must match. Profiles older than 30 days, future-dated profiles,
+missing measurements and nonpositive conservative savings retain T0 with a
+report diagnostic. There is no prepare-time benchmark or runtime tuning.
+The conservative gain is reference sample Q25 * 0.98 minus candidate Q75 * 1.02;
+this is a screening margin, not a statistical confidence interval.
+
+Matching uses reaching writes, not just adjacent operators or ResourceId as SSA.
+External intermediate consumers, State writes, Copy boundaries, region changes,
+output aliasing and cyclic contractions reject candidates. Selected plans
+remove intermediates and recompute allocation, calls, dispatches and barriers.
+Interval components use weighted-interval DP; other overlap components use
+bounded branch-and-bound. An independently optimal relaxed combination is
+accepted as model-optimal only if its joint contraction is acyclic; otherwise
+the full constrained candidate set is searched.
+
+`OptimizationReport` distinguishes `ModelOptimal`, `BestFoundWithinBudget`
+and `BaselineRetained`. Optimality refers only to the registered candidate
+space under additive measured segment savings. Unmodeled cache, scheduling
+and whole-plan allocation interactions can invalidate a hardware speedup
+prediction; actual model benchmarking remains mandatory. No memory saving is
+added to the cost objective without a measured price. A legal profitable
+incumbent may be used when the search budget is exhausted.
+
+FP16/mixed T1, reduction/MatVec/State-update fusion, alternative numerical
+contracts and algorithmic T2 rewrites remain later work. See the
+[offline profiling and comparison tool](../tools/SharpInference.VmBenchmark/README.md).
+Measured tiny/7B CPU/GPU results, numerical acceptance and limitations are in
+the [T1 performance report](./tier-one-performance.md).
 
 Tier-1 fuses a subgraph of **2-3 Tier-0 stages** without changing its algorithm.
 Use maximum Tier-0 dependency depth, not the number of tensor nodes or model
@@ -234,14 +336,14 @@ Examples:
 - `(x - previous) * scale + previous` (depth 3).
 - A depth-three branched multiply/add chain with several read-only inputs.
 
-Main's existing fused expressions fit this boundary:
+The historical execution-reference dump's fused expressions fit this boundary:
 
 | Model | Depth 2 invocations | Depth 3 invocations | Total |
 |---|---:|---:|---:|
 | V6 | 322 | 322 | 644 |
 | V7 | 257 | 417 | 674 |
 
-These counts are identical on CPU/GPU. Main's 11 typed fused definitions per
+These reference counts are identical on CPU/GPU. The dump's 11 typed fused definitions per
 model are the initial design reference; this does not assert 11 distinct
 mathematical formulas.
 

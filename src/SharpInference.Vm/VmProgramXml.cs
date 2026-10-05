@@ -157,6 +157,9 @@ public static class VmProgramXml
                 operation.ResolvedPrecision is null ? null : new XElement("ResolvedPrecision",
                     new XAttribute("arithmeticType", operation.ResolvedPrecision.ArithmeticType),
                     new XAttribute("accumulatorType", operation.ResolvedPrecision.AccumulatorType)),
+                operation.ExecutionConfiguration is null ? null : new XElement("ExecutionConfiguration",
+                    new XAttribute("target", operation.ExecutionConfiguration.Target.Architecture),
+                    new XAttribute("implementation", operation.ExecutionConfiguration.Implementation.Value)),
                 new XElement("Attributes", operation.Attributes.OrderBy(pair => pair.Key, StringComparer.Ordinal)
                     .Select(pair => new XElement("Attribute",
                         new XAttribute("name", pair.Key), new XAttribute("value", pair.Value)))),
@@ -194,7 +197,7 @@ public static class VmProgramXml
         switch (instruction.Name.LocalName)
         {
             case "Operator":
-                Check(instruction, "Operator", ["name", "collection"], ["Arguments", "Precision", "ResolvedPrecision", "Attributes", "IndexBounds", "ParameterAccesses"]);
+                Check(instruction, "Operator", ["name", "collection"], ["Arguments", "Precision", "ResolvedPrecision", "ExecutionConfiguration", "Attributes", "IndexBounds", "ParameterAccesses"]);
                 var precision = One(instruction, "Precision");
                 Check(precision, "Precision", ["minimumArithmeticType", "minimumAccumulatorType"], []);
                 var requirement = new PrecisionRequirement(EnumValue<GraphElementType>(precision, "minimumArithmeticType"),
@@ -206,6 +209,19 @@ public static class VmProgramXml
                     Check(resolved, "ResolvedPrecision", ["arithmeticType", "accumulatorType"], []);
                     capability = new(EnumValue<GraphElementType>(resolved, "arithmeticType"),
                         EnumValue<GraphElementType>(resolved, "accumulatorType"));
+                }
+                var configuration = OptionalOne(instruction, "ExecutionConfiguration");
+                InstructionExecutionConfiguration? executionConfiguration = null;
+                if (configuration is not null)
+                {
+                    Check(configuration, "ExecutionConfiguration", ["target", "implementation"], []);
+                    var implementation = new InstructionImplementationId(Required(configuration, "implementation"));
+                    executionConfiguration = Required(configuration, "target") switch
+                    {
+                        "cpu.managed" => new CpuInstructionExecutionConfiguration(implementation),
+                        "direct3d12" => new D3D12InstructionExecutionConfiguration(implementation),
+                        _ => throw new InvalidDataException("Unknown execution configuration target."),
+                    };
                 }
                 var attributes = new Dictionary<string, string>(StringComparer.Ordinal);
                 foreach (var attribute in Container(instruction, "Attributes", "Attribute"))
@@ -226,7 +242,8 @@ public static class VmProgramXml
                     {
                         Check(port, "Port", ["name", "access"], []);
                         return Required(port, "name");
-                    }, port => EnumValue<GraphResourceAccess>(port, "access"), StringComparer.Ordinal), capability);
+                    }, port => EnumValue<GraphResourceAccess>(port, "access"), StringComparer.Ordinal), capability,
+                    executionConfiguration);
                 break;
             case "Call":
                 Check(instruction, "Call", ["definition"], ["Arguments"]);

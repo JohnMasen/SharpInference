@@ -88,6 +88,8 @@ public sealed class VmGraphBackend : IDisposable
     private IExecutionKernelCatalog KernelCatalog { get; }
     public VmTarget Target => target;
     public string DeviceName { get; }
+    public TierOneOptimizationReport? OptimizationReport => generator?.LastOptimizationReport;
+    public GpuMatVecOptimizationReport? MatVecOptimizationReport => generator?.LastMatVecOptimizationReport;
     public VmProgram? Program => plan?.Program;
     public VmProgram? PrefillProgram => plan?.PrefillPlan?.Program ?? plan?.Program;
 

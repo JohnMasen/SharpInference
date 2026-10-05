@@ -5,6 +5,65 @@ using SharpInference.Vm;
 namespace SharpInference.Instructions.D3D12;
 internal sealed class GpuTierZeroInstruction(Guid id,string name) : TierZeroInstruction(id,name,InstructionTarget.Direct3D12)
 {
+    protected override void ValidateExecutionConfiguration(InstructionExecutionConfiguration? configuration)
+    {
+        if (configuration is null) return;
+        if (Name != "core.mat-vec" ||
+            configuration != GpuMatVecExecution.Serial && configuration != GpuMatVecExecution.Cooperative)
+            throw new InstructionAdaptationException(CollectionId, Name, "Unsupported GPU MatVec execution configuration.");
+    }
+
+    protected override InstructionRecording GenerateConfigured(InstructionParameter[] values,
+        InstructionExecutionConfiguration? configuration)
+    {
+        if (configuration != GpuMatVecExecution.Cooperative) return Generate(values);
+        var tensors = values.OfType<InstructionTensorParameter>().ToDictionary(parameter => parameter.Name);
+        var matrix = tensors.GetValueOrDefault("weight") ?? tensors["matrix"];
+        var input = tensors["input"];
+        var output = tensors["output"];
+        var rows = matrix.Tensor.Dimensions[0];
+        var columns = matrix.Tensor.Dimensions[1];
+        string Load(InstructionTensorParameter tensor, string index) =>
+            $"load{(tensor.Tensor.ElementType == GraphElementType.Float16 ? 16 : 32)}({tensor.Expression},{tensor.OffsetExpression},{index})";
+        var store = output.Tensor.ElementType == GraphElementType.Float16
+            ? $"store16({output.Expression},{output.OffsetExpression},row,result);"
+            : $"{output.Expression}.Store({output.OffsetExpression}+row*4u,asuint(result));";
+        var baseline = Generate(values);
+        var code = $$"""
+            {
+                uint row=gpu.groupId.x+gpu.groupId.y*gpu.groupCount.x+gpu.groupId.z*gpu.groupCount.x*gpu.groupCount.y;
+                uint lane=gpu.groupIndex;
+                if(row<{{rows}}u) {
+                    precise float sum=0.0f, correction=0.0f;
+                    for(uint j=lane;j<{{columns}}u;j+=64u) {
+                        precise float product={{Load(matrix, $"row*{columns}u+j")}}*{{Load(input, "j")}};
+                        add32(sum,correction,product);
+                    }
+                    matvecSum[lane]=sum;
+                    matvecCorrection[lane]=correction;
+                    GroupMemoryBarrierWithGroupSync();
+                    for(uint step=32u;step>0u;step>>=1u) {
+                        if(lane<step) {
+                            precise float left=matvecSum[lane], residual=matvecCorrection[lane];
+                            add32(left,residual,matvecSum[lane+step]);
+                            add32(left,residual,matvecCorrection[lane+step]);
+                            matvecSum[lane]=left;
+                            matvecCorrection[lane]=residual;
+                        }
+                        GroupMemoryBarrierWithGroupSync();
+                    }
+                    if(lane==0u) {
+                        precise float result=matvecSum[0]+matvecCorrection[0];
+                        {{store}}
+                    }
+                }
+            }
+            """;
+        return new(code, baseline.Helpers.Append(new("t0.matvec.shared",
+            "groupshared float matvecSum[64]; groupshared float matvecCorrection[64];")),
+            InstructionSynchronization.GroupMemoryBarrier);
+    }
+
     protected override InstructionRecording Generate(InstructionParameter[] values)
     {
         var tensors=values.OfType<InstructionTensorParameter>().ToArray();
@@ -18,9 +77,9 @@ internal sealed class GpuTierZeroInstruction(Guid id,string name) : TierZeroInst
         var offsets=tensors.ToDictionary(p=>p.Name,p=>p.OffsetExpression);
         var op=new VmOperator(new(GraphElementType.Float32, GraphElementType.Float32),CollectionId,Name,tensors.Select(p=>new VmArgument(p.Name,p.Name)),values.OfType<InstructionAttributeParameter>().ToDictionary(p=>p.Name,p=>p.Value));
         return new InstructionRecording(Operator(op,parameters,offsets),[
-            new InstructionHelper("t0.helper.0", "float load32(RWByteAddressBuffer b, uint o, uint i) { return asfloat(b.Load(o + i * 4)); }"),
+            GpuInstructionHelpers.Load32,
             new InstructionHelper("t0.helper.1", "float load16(RWByteAddressBuffer b, uint o, uint i) { uint a=o+i*2; return f16tof32((b.Load(a & ~3u) >> ((a & 2u)*8u)) & 65535u); }"),
-            new InstructionHelper("t0.helper.2", "float maximum32(float a, float b) { if(isnan(a) || isnan(b)) return asfloat(0x7fc00000u); if(a==0.0f && b==0.0f) return asfloat((asuint(a)&asuint(b))&0x80000000u); return a>b ? a : b; }"),
+            GpuInstructionHelpers.Maximum32,
             new InstructionHelper("t0.helper.3", "void add32(inout float sum, inout float correction, float value) { precise float total=sum+value; if(isfinite(total)) { precise float residual=abs(sum)>=abs(value) ? (sum-total)+value : (value-total)+sum; correction+=residual; } else correction=0.0f; sum=total; }"),
             new InstructionHelper("t0.store16", "void store16(RWByteAddressBuffer b,uint o,uint i,float value) { uint a=o+i*2u; uint shift=(a&2u)*8u; uint mask=65535u<<shift; uint bits=(f32tof16(value)&65535u)<<shift; uint old=b.Load(a&~3u); uint observed; do { uint next=(old&~mask)|bits; b.InterlockedCompareExchange(a&~3u,old,next,observed); if(observed==old) break; old=observed; } while(true); }")]);
     }

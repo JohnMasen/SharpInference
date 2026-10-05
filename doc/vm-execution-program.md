@@ -105,8 +105,32 @@ they are not evidence of an extension provider's internal precision. Provider
 metadata is trusted and must be verified through implementation/conformance
 testing. Precision minima do not promise bit-identical results or change the
 existing T0 rounding, special-value or tolerance policies.
-Tier-1 remains deferred: no fused kernels, typed expansions or stage-rounding
-metadata are introduced by this precision contract.
+The precision contract alone does not introduce fusion. The separately
+implemented FP32 T1 catalog preserves its declared canonical stage rounding;
+see [operator tiers](./vm-operator-tiers.md).
+
+### Independent execution configuration
+
+An implementation choice is separate from mathematical `Attributes` and
+precision requirements. `VmOperator.ExecutionConfiguration` is an immutable
+`CpuInstructionExecutionConfiguration` or `D3D12InstructionExecutionConfiguration`
+with an immutable validated `InstructionImplementationId`.
+
+```xml
+<ExecutionConfiguration target="cpu.managed"
+                        implementation="adaptive-pointwise" />
+```
+
+T0 normally rejects nonnull execution configurations; GPU MatVec accepts
+`serial-matvec` and `cooperative-matvec`. The latter requires its isolated
+64-thread kernel and row-based dispatch grid, validated even on artifact
+import. See [GPU MatVec execution variants](vm-operator-tiers.md#gpu-matvec-execution-variants).
+T1 requires its exact target
+configuration; unknown implementations and target mismatches fail before
+source recording. `Adapt`, binding, contract stripping, XML, generated code
+and saved artifacts preserve and validate the selection. Unknown attributes,
+children and duplicate configuration elements are rejected. No XML format
+version or fixed CPU SIMD-width attribute is introduced.
 
 ### Shared T0 profile
 
@@ -125,7 +149,8 @@ FP16 input/output tensors on CPU and Direct3D12 with FP32 accumulation and FP16
 output rounding. Reshape retains copy semantics. Runtime tensor-slot allocation,
 in-place operator outputs, implicit broadcasting and silent fallback are not
 introduced. Existing numerical kernels are reused rather than adding another
-interpreter. Tier-1/2 implementations and automatic extension discovery are not
+interpreter. FP32 pointwise T1 is available but selected only with explicit
+trusted offline costs; Tier-2 and automatic extension discovery are not
 implemented. Trusted provider instances are supplied by the host.
 
 ### IC assembly boundary

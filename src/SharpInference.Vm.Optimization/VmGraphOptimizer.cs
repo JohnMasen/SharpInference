@@ -6,11 +6,16 @@ namespace SharpInference.Vm.Optimization;
 
 public sealed record VmOptimizationOptions(
     bool ReuseLocalStorage = true, uint ThreadsPerGroup = 64, int PrefillCapacity = 64,
-    bool NativeHalfWeights = true, bool WeightViews = true);
+    bool NativeHalfWeights = true, bool WeightViews = true, TierOneOptimizationSettings? TierOne = null,
+    GpuMatVecOptimizationSettings? GpuMatVec = null);
 
 public static class VmGraphOptimizer
 {
     public static VmProgram Optimize(LogicalGraph logical, VmTarget target, VmOptimizationOptions? options = null)
+        => OptimizeWithReport(logical, target, options).Program;
+
+    public static VmOptimizationResult OptimizeWithReport(LogicalGraph logical, VmTarget target,
+        VmOptimizationOptions? options = null, IReadOnlyList<InstructionOptimizationCapability>? capabilities = null)
     {
         ArgumentNullException.ThrowIfNull(logical);
         options ??= new VmOptimizationOptions();
@@ -18,6 +23,8 @@ public static class VmGraphOptimizer
             throw new ArgumentOutOfRangeException(nameof(options), "Thread group size must be between 1 and 1024.");
         if (options.PrefillCapacity is < 1 or > 1024)
             throw new ArgumentOutOfRangeException(nameof(options), "Prefill capacity must be between 1 and 1024.");
+        if (target != VmTarget.Direct3D12 && options.GpuMatVec is not null)
+            throw new NotSupportedException("GPU MatVec settings require a Direct3D12 target.");
         GraphValidator.Validate(logical);
         TierZeroOperationContracts.ValidateGraph(logical);
         var execution = new GraphOptimizer().Optimize(logical,
@@ -28,6 +35,12 @@ public static class VmGraphOptimizer
         IReadOnlyList<ExecutionNode> nodes = execution.Nodes;
         if (options.WeightViews)
             (nodes, aliases) = LowerWeightViews(execution, descriptors, options.NativeHalfWeights);
+        execution = new ExecutionGraph(execution.Identity, execution.Model, descriptors.Values, execution.Regions,
+            nodes, execution.Inputs, execution.Outputs, execution.GraphState);
+        var selection = TierOneGraphSelection.Apply(execution, target, options, capabilities ?? [], aliases);
+        execution = selection.Graph;
+        nodes = execution.Nodes;
+        var retainedResources = execution.Resources.Select(resource => resource.Id).ToHashSet();
         var physical = new Dictionary<ResourceId, string>();
         var slots = new List<VmSlot>();
         if (options.ReuseLocalStorage)
@@ -48,6 +61,7 @@ public static class VmGraphOptimizer
         }
         foreach (var resource in logical.Resources)
         {
+            if (!retainedResources.Contains(resource.Id)) continue;
             if (aliases.ContainsKey(resource.Id)) continue;
             if (physical.ContainsKey(resource.Id)) continue;
             physical.Add(resource.Id, resource.Id.Value);
@@ -65,16 +79,34 @@ public static class VmGraphOptimizer
         var sequence = new List<VmNode>();
         var rootParameters = slots.Select(slot => new VmParameter(slot.Id, slot.Access, slot.Tensor)).ToArray();
         string? previous = null;
+        var matVecCalls = 0;
+        var cooperativeCalls = 0;
+        var matVecDiagnostics = new HashSet<string>(StringComparer.Ordinal);
         foreach (var node in nodes)
         {
+            selection.Implementations.TryGetValue(node.Id, out var implementation);
             if (node.Resources.Any(binding => binding.Access == GraphResourceAccess.ReadWrite))
                 throw new NotSupportedException($"Node '{node.Id}' requires an explicit read/write operator contract.");
             var parameters = node.Resources.Select(binding => new VmParameter(binding.Port,
                 binding.Access == GraphResourceAccess.Read ? VmAccess.ReadOnly : VmAccess.ReadWrite,
                 Tensor(descriptors[binding.Resource].Tensor))).ToArray();
+            InstructionExecutionConfiguration? configuration = implementation?.Configuration;
+            var threads = options.ThreadsPerGroup;
+            var cooperative = false;
+            if (target == VmTarget.Direct3D12 && node.Operation.Name == "core.mat-vec")
+            {
+                matVecCalls++;
+                var choice = options.GpuMatVec is { } settings ? settings.Select(parameters, options) :
+                    (Cooperative: true, Diagnostic: "Default GPU MatVec implementation: cooperative.");
+                cooperative = choice.Cooperative;
+                matVecDiagnostics.Add(choice.Diagnostic);
+                configuration = cooperative ? GpuMatVecExecution.Cooperative : GpuMatVecExecution.Serial;
+                if (cooperative) { threads = GpuMatVecExecution.Threads; cooperativeCalls++; }
+            }
             var key = new XElement("Operator",
                 new XAttribute("name", node.Operation.Name), new XAttribute("version", node.Operation.Version),
-                new XAttribute("target", target), new XAttribute("threads", options.ThreadsPerGroup),
+                new XAttribute("target", target), new XAttribute("threads", threads),
+                configuration is null ? null : new XAttribute("implementation", configuration.Implementation.Value),
                 new XAttribute("minimumArithmeticType", node.Requirements.MinimumArithmeticType),
                 new XAttribute("minimumAccumulatorType", node.Requirements.MinimumAccumulatorType),
                 parameters.Select(parameter => new XElement("Parameter",
@@ -89,11 +121,12 @@ public static class VmGraphOptimizer
                 definition = new VmDefinition($"op.{definitions.Count:D4}",
                     target == VmTarget.Cpu ? VmDefinitionKind.Function : VmDefinitionKind.Kernel,
                     parameters, [new VmNode("body", new VmOperator(node.Requirements,
-                        parameters.Single(parameter => parameter.Name == "output").Tensor.ElementType == VmElementType.Float16
-                            ? InstructionCollectionIds.TierZeroFloat16 : InstructionCollectionIds.TierZeroFloat32, node.Operation.Name,
+                        implementation?.CollectionId ?? (parameters.Single(parameter => parameter.Name == "output").Tensor.ElementType == VmElementType.Float16
+                            ? InstructionCollectionIds.TierZeroFloat16 : InstructionCollectionIds.TierZeroFloat32),
+                        implementation?.Name ?? node.Operation.Name,
                         parameters.Select(parameter => new VmArgument(parameter.Name, parameter.Name)),
-                        node.Attributes))],
-                    target == VmTarget.Direct3D12 ? new VmThreadGroup(options.ThreadsPerGroup) : null);
+                        node.Attributes, executionConfiguration: configuration))],
+                    target == VmTarget.Direct3D12 ? new VmThreadGroup(threads) : null);
                 definitions.Add(definition);
                 keys.Add(key, definition);
             }
@@ -105,11 +138,18 @@ public static class VmGraphOptimizer
             else
             {
                 var output = parameters.Single(parameter => parameter.Access == VmAccess.ReadWrite);
-                var groups = checked((uint)((output.Tensor.ElementCount + options.ThreadsPerGroup - 1) /
-                    options.ThreadsPerGroup));
-                if (groups > 65535)
-                    throw new NotSupportedException($"Node '{node.Id}' exceeds the configured one-dimensional GPU dispatch grid.");
-                instruction = new VmDispatch(definition.Id, arguments, new VmThreadGroup(groups));
+                if (cooperative)
+                {
+                    var groups = GpuMatVecExecution.Groups(output.Tensor.ElementCount);
+                    instruction = new VmDispatch(definition.Id, arguments, new(groups.X, groups.Y));
+                }
+                else
+                {
+                    var groups = checked((uint)((output.Tensor.ElementCount + threads - 1) / threads));
+                    if (groups > 65535)
+                        throw new NotSupportedException($"Node '{node.Id}' exceeds the configured one-dimensional GPU dispatch grid.");
+                    instruction = new VmDispatch(definition.Id, arguments, new(groups));
+                }
             }
             var id = node.Id.Value;
             sequence.Add(new VmNode(id, instruction, previous is null ? [] : [previous]));
@@ -148,9 +188,11 @@ public static class VmGraphOptimizer
                 entries.Add(new VmEntry(id, id, slots.Select(slot => new VmArgument(slot.Id, slot.Id))));
             }
         }
-        return new VmProgram(logical.Identity.Name, $"vm:{logical.Model.StateAbiId}", target,
+        var program = new VmProgram(logical.Identity.Name, $"vm:{logical.Model.StateAbiId}", target,
             slots, definitions, entries, new VmState(logical.GraphState.Schema.Name, 1,
                 logical.GraphState.Entries.Select(entry => new VmStateEntry(entry.Name, physical[entry.Resource]))));
+        return new(program, selection.Report, new(matVecCalls, cooperativeCalls,
+            Array.AsReadOnly(matVecDiagnostics.Order(StringComparer.Ordinal).ToArray())));
     }
 
     private static (IReadOnlyList<ExecutionNode> Nodes, Dictionary<ResourceId, ResourceId> Aliases) LowerWeightViews(

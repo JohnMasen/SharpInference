@@ -92,7 +92,7 @@ internal sealed class CpuVmSourceGenerator
                     contract.ParameterAccesses[tensor.Name] != GraphResourceAccess.Read),
             } : parameter).ToArray();
         var start = recorder.Recordings.Count;
-        instruction.Invoke(recorder,parameters,operation.Precision);
+        instruction.Invoke(recorder,parameters,operation.Precision,operation.ExecutionConfiguration);
         foreach (var recording in recorder.Recordings.Skip(start))
             code.AppendLine(recording.Source);
     }

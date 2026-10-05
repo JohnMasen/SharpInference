@@ -8,7 +8,7 @@ public static class VmInstructionContracts
         program.Slots, program.Definitions.Select(definition => new VmDefinition(definition.Id, definition.Kind,
             definition.Parameters, definition.Nodes.Select(node => node.Instruction is VmOperator operation
                 ? new VmNode(node.Id, new VmOperator(operation.Precision, operation.InstructionCollectionId, operation.InstructionName,
-                    operation.Arguments, operation.Attributes), node.Dependencies) : node), definition.Threads)),
+                    operation.Arguments, operation.Attributes, executionConfiguration: operation.ExecutionConfiguration), node.Dependencies) : node), definition.Threads)),
         program.Entries, program.State);
 
     public static VmProgram Bind(VmProgram program, InstructionRegistry registry)
@@ -25,8 +25,8 @@ public static class VmInstructionContracts
                 InstructionSignature signature;
                 try
                 {
-                    signature = instruction.GetSignature(VmInstructionParameters.Create(operation, definition.Parameters, parameter => (parameter.Name, "0")),
-                        operation.Precision);
+                    signature = instruction.Adapt(VmInstructionParameters.Create(operation, definition.Parameters, parameter => (parameter.Name, "0")),
+                        operation.Precision, operation.ExecutionConfiguration);
                 }
                 catch (InstructionAdaptationException error)
                 {
@@ -45,7 +45,8 @@ public static class VmInstructionContracts
                     throw new InvalidDataException($"Index constraints conflict with '{operation.InstructionName}'.");
                 changed = true;
                 return new VmNode(node.Id, new VmOperator(operation.Precision, operation.InstructionCollectionId, operation.InstructionName,
-                    operation.Arguments, operation.Attributes, instruction.IndexBounds, accesses, signature.Precision), node.Dependencies);
+                    operation.Arguments, operation.Attributes, instruction.IndexBounds, accesses, signature.Precision,
+                    operation.ExecutionConfiguration), node.Dependencies);
             }), definition.Threads)).ToArray();
         return changed ? new VmProgram(program.Name, program.Abi, program.Target, program.Slots,
             definitions, program.Entries, program.State) : program;

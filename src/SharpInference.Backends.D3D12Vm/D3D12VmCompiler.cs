@@ -73,7 +73,7 @@ public sealed class D3D12VmCompiler
                     Emit(definitions[call.Definition]);
                 var parameters = definition.Parameters.Select((p, i) => (p, i))
                     .ToDictionary(v => v.p.Name, v => (v.p, Name: $"p{v.i}"), StringComparer.Ordinal);
-                source.Append($"void {names[definition.Id]}(uint i");
+                source.Append($"void {names[definition.Id]}(uint i, GpuExecutionContext gpu");
                 foreach (var (_, name) in parameters.Values)
                     source.Append($", RWByteAddressBuffer {name}, uint {name}o");
                 source.AppendLine(") {");
@@ -82,7 +82,7 @@ public sealed class D3D12VmCompiler
                     source.AppendLine("{");
                     if (node.Instruction is VmCall call)
                     {
-                        source.Append($"{names[call.Definition]}(i");
+                        source.Append($"{names[call.Definition]}(i, gpu");
                         foreach (var p in definitions[call.Definition].Parameters)
                         {
                             var arg = call.Arguments.Single(a => a.Parameter == p.Name);
@@ -101,15 +101,17 @@ public sealed class D3D12VmCompiler
             }
             ValidateDeviceHazards(kernel, definitions);
             Emit(kernel);
-            source.Insert(0,string.Join(Environment.NewLine,helpers.Values.Select(helper=>helper.Source))+Environment.NewLine);
+            source.Insert(0,"struct GpuExecutionContext { uint3 groupId; uint3 groupCount; uint groupIndex; };\n" +
+                string.Join(Environment.NewLine,helpers.Values.Select(helper=>helper.Source))+Environment.NewLine);
             for (var i = 0; i < kernel.Parameters.Count; i++)
                 source.AppendLine($"RWByteAddressBuffer b{i} : register(u{i});");
             source.AppendLine("cbuffer Bindings : register(b0) { uint width; uint height; " +
                 string.Join(" ", Enumerable.Range(0, kernel.Parameters.Count).Select(i => $"uint offset{i};")) + " };");
             var t = kernel.Threads!;
             source.AppendLine($"[numthreads({t.X},{t.Y},{t.Z})]");
-            source.AppendLine("void main(uint3 tid : SV_DispatchThreadID) {");
-            source.Append($"{names[kernel.Id]}(tid.x + tid.y * width + tid.z * width * height");
+            source.AppendLine("void main(uint3 tid : SV_DispatchThreadID, uint3 gid : SV_GroupID, uint gi : SV_GroupIndex) {");
+            source.AppendLine($"GpuExecutionContext gpu; gpu.groupId=gid; gpu.groupCount=uint3(width/{t.X}u,height/{t.Y}u,1u); gpu.groupIndex=gi;");
+            source.Append($"{names[kernel.Id]}(tid.x + tid.y * width + tid.z * width * height, gpu");
             for (var i = 0; i < kernel.Parameters.Count; i++)
                 source.Append($", b{i}, offset{i}");
             source.AppendLine("); }");
@@ -131,7 +133,7 @@ public sealed class D3D12VmCompiler
         var instruction=registry.Resolve(op.InstructionCollectionId,op.InstructionName,InstructionTarget.Direct3D12);
         var args=VmInstructionParameters.Create(op,parameters.Values.Select(value=>value.p).ToArray(),p=>(parameters[p.Name].Name,parameters[p.Name].Name+"o"));
         var recorder=new SourceInstructionRecorder(InstructionTarget.Direct3D12);
-        instruction.Invoke(recorder,args,op.Precision);
+        instruction.Invoke(recorder,args,op.Precision,op.ExecutionConfiguration);
         foreach(var helper in recorder.Helpers)
         {
             if(helpers.TryGetValue(helper.Name,out var existing) && existing.Source!=helper.Source)
@@ -155,8 +157,8 @@ public sealed class D3D12VmCompiler
                 {
                     var instruction = registry.Resolve(op.InstructionCollectionId,op.InstructionName,InstructionTarget.Direct3D12);
                     var nonPointwise = instruction.RequiresDispatchIsolation;
-                    var signature = instruction.GetSignature(VmInstructionParameters.Create(op, d.Parameters, parameter => (parameter.Name, "0")),
-                        op.Precision);
+                    var signature = instruction.Adapt(VmInstructionParameters.Create(op, d.Parameters, parameter => (parameter.Name, "0")),
+                        op.Precision, op.ExecutionConfiguration);
                     var parameters = d.Parameters.ToDictionary(p => p.Name, StringComparer.Ordinal);
                     var priorReadCount = reads.Count;
                     foreach (var writePort in signature.Ports.Where(port => port.Access != SharpInference.Graphs.GraphResourceAccess.Read))

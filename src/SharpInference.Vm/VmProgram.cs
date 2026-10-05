@@ -67,7 +67,8 @@ public sealed class VmOperator : VmInstruction
     public VmOperator(PrecisionRequirement precision, Guid instructionCollectionId, string instructionName, IEnumerable<VmArgument> arguments,
         IReadOnlyDictionary<string, string>? attributes = null, IEnumerable<InstructionIndexBound>? indexBounds = null,
         IReadOnlyDictionary<string, GraphResourceAccess>? parameterAccesses = null,
-        KernelPrecisionProfile? resolvedPrecision = null)
+        KernelPrecisionProfile? resolvedPrecision = null,
+        InstructionExecutionConfiguration? executionConfiguration = null)
         : this(precision, instructionName, 1, arguments, attributes)
     {
         InstructionCollectionId = instructionCollectionId;
@@ -77,6 +78,7 @@ public sealed class VmOperator : VmInstruction
             parameterAccesses is null ? new Dictionary<string, GraphResourceAccess>(StringComparer.Ordinal) :
                 new Dictionary<string, GraphResourceAccess>(parameterAccesses, StringComparer.Ordinal));
         ResolvedPrecision = resolvedPrecision;
+        ExecutionConfiguration = executionConfiguration;
     }
 
     public VmOperator(PrecisionRequirement precision, string operation, int version, IEnumerable<VmArgument> arguments,
@@ -95,6 +97,7 @@ public sealed class VmOperator : VmInstruction
     public string Operation { get; }
     public PrecisionRequirement Precision { get; }
     public KernelPrecisionProfile? ResolvedPrecision { get; }
+    public InstructionExecutionConfiguration? ExecutionConfiguration { get; }
     public int Version { get; }
     public Guid InstructionCollectionId { get; } = InstructionCollectionIds.TierZeroFloat32;
     public string InstructionName => Operation;

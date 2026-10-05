@@ -15,6 +15,8 @@ public sealed class RwkvRuntimeFactoryTests
     [InlineData("InferenceQueueCapacity", "0")]
     [InlineData("PrefillCapacity", "1025")]
     [InlineData("UnknownSetting", "1")]
+    [InlineData("GpuMatVecMode", "999")]
+    [InlineData("GpuMatVecMode", "Profile")]
     public void RejectsInvalidOrUnknownVmConfiguration(string option, string value)
     {
         using var catalog = TestModelLoader.OpenCatalog(TestModel.Rwkv6);
