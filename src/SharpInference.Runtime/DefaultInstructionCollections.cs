@@ -9,5 +9,6 @@ public static class DefaultInstructionCollections
     public static IReadOnlyList<IInstructionCollectionProvider> Create() =>
         [new CpuFloat32InstructionCollection(), new CpuFloat16InstructionCollection(),
             new GpuFloat32InstructionCollection(), new GpuFloat16InstructionCollection(),
-            new CpuTierOneInstructionCollection(), new GpuTierOneInstructionCollection()];
+            new CpuTierOneInstructionCollection(), new GpuTierOneInstructionCollection(),
+            new GpuTransformerInstructionCollection()];
 }

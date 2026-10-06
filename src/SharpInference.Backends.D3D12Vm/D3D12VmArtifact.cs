@@ -53,6 +53,27 @@ public sealed class D3D12VmArtifact
     }
 
     /// <summary>
+    /// Creates an independent VM whose read-only global slots must all be explicitly uploaded before use.
+    /// This avoids zero-initializing large resident model weights.
+    /// </summary>
+    public D3D12VmExecutor CreateExecutorForExplicitGlobalUploads(int adapterIndex = 0)
+    {
+        var (device, _) = D3D12VmDeviceFactory.Create(adapterIndex);
+        return D3D12VmExecutor.CreateOwned(device, this, skipReadOnlyGlobalInitialization: true);
+    }
+
+    /// <summary>
+    /// Creates an independent VM without initializing any slot. The caller must upload every
+    /// control/global value before it is read, and the program must overwrite scratch/state before reading it.
+    /// </summary>
+    public D3D12VmExecutor CreateExecutorForExplicitInitialization(int adapterIndex = 0)
+    {
+        var (device, _) = D3D12VmDeviceFactory.Create(adapterIndex);
+        return D3D12VmExecutor.CreateOwned(
+            device, this, skipReadOnlyGlobalInitialization: true, skipAllInitialization: true);
+    }
+
+    /// <summary>
     /// Creates an independent VM on a caller-owned device. Sharing the device does not share
     /// GPU weight allocations; each VM owns all of its slot resources.
     /// </summary>

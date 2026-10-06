@@ -12,7 +12,44 @@ public sealed record RwkvModelMetadata(
     int LayerCount,
     int HeadCount,
     int HeadSize,
-    string ArchitectureId);
+    string ArchitectureId)
+{
+    public ModelMetadata ToModelMetadata() => new(
+        ArchitectureId,
+        new Dictionary<string, long>(StringComparer.Ordinal)
+        {
+            ["vocabulary"] = VocabularySize,
+            ["embedding"] = EmbeddingSize,
+            ["layers"] = LayerCount,
+            ["attentionHeads"] = HeadCount,
+            ["attentionHeadSize"] = HeadSize,
+        });
+}
+
+public sealed class ModelMetadata
+{
+    public ModelMetadata(
+        string architectureId,
+        IReadOnlyDictionary<string, long>? dimensions = null,
+        IReadOnlyDictionary<string, string>? attributes = null)
+    {
+        ArchitectureId = string.IsNullOrWhiteSpace(architectureId)
+            ? throw new ArgumentException("A model architecture identifier is required.", nameof(architectureId))
+            : architectureId;
+        Dimensions = new Dictionary<string, long>(
+            dimensions ?? new Dictionary<string, long>(), StringComparer.Ordinal);
+        Attributes = new Dictionary<string, string>(
+            attributes ?? new Dictionary<string, string>(), StringComparer.Ordinal);
+        if (Dimensions.Any(value => string.IsNullOrWhiteSpace(value.Key) || value.Value <= 0))
+            throw new ArgumentException("Model dimensions require names and positive values.", nameof(dimensions));
+        if (Attributes.Any(value => string.IsNullOrWhiteSpace(value.Key) || value.Value is null))
+            throw new ArgumentException("Model attributes require names and values.", nameof(attributes));
+    }
+
+    public string ArchitectureId { get; }
+    public IReadOnlyDictionary<string, long> Dimensions { get; }
+    public IReadOnlyDictionary<string, string> Attributes { get; }
+}
 
 public interface IModelTensor
 {
@@ -53,9 +90,15 @@ public interface IModelWeightPreflight
     void PrepareWeightPlan(IModelTensorCatalog tensors);
 }
 
-public interface IRwkvModel
+public interface IModel
+{
+    ModelMetadata ModelMetadata { get; }
+}
+
+public interface IRwkvModel : IModel
 {
     RwkvModelMetadata Metadata { get; }
+    ModelMetadata IModel.ModelMetadata => Metadata.ToModelMetadata();
 }
 
 public interface IRwkvState

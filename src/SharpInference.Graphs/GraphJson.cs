@@ -164,7 +164,7 @@ public static class GraphJson
     private static GraphParts ReadParts(JsonElement root)
     {
         var identity = root.GetProperty("Identity").Deserialize<GraphIdentity>(Options)!;
-        var model = root.GetProperty("Model").Deserialize<GraphModelSignature>(Options)!;
+        var model = ReadModel(root.GetProperty("Model"));
         var resources = root.GetProperty("Resources").EnumerateArray().Select(item =>
         {
             var tensor = item.GetProperty("Tensor");
@@ -191,6 +191,29 @@ public static class GraphJson
         return new GraphParts(identity, model, resources, regions,
             Strings(root, "Inputs").Select(value => new ResourceId(value)).ToArray(),
             Strings(root, "Outputs").Select(value => new ResourceId(value)).ToArray(), graphState);
+    }
+
+    private static GraphModelSignature ReadModel(JsonElement model)
+    {
+        if (!model.TryGetProperty("ModelType", out var modelType))
+        {
+            return new GraphModelSignature(
+                model.GetProperty("VocabularySize").GetInt32(),
+                model.GetProperty("EmbeddingSize").GetInt32(),
+                model.GetProperty("LayerCount").GetInt32(),
+                model.GetProperty("HeadCount").GetInt32(),
+                model.GetProperty("HeadSize").GetInt32(),
+                Text(model, "StateAbiId"));
+        }
+
+        var dimensions = model.GetProperty("Dimensions").EnumerateObject()
+            .ToDictionary(value => value.Name, value => value.Value.GetInt32(), StringComparer.Ordinal);
+        var attributes = model.TryGetProperty("Attributes", out var values)
+            ? values.EnumerateObject().ToDictionary(
+                value => value.Name, value => value.Value.GetString()!, StringComparer.Ordinal)
+            : new Dictionary<string, string>(StringComparer.Ordinal);
+        return new GraphModelSignature(
+            modelType.GetString()!, Text(model, "StateAbiId"), dimensions, attributes);
     }
 
     private static string Text(JsonElement item, string property) => item.GetProperty(property).GetString()!;

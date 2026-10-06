@@ -1,6 +1,8 @@
 <Solution>
   <Folder Name="/src/">
     <Project Path="src/SharpInference.Abstractions/SharpInference.Abstractions.csproj" />
+    <Project Path="src/SharpInference.Architectures.Phi4/SharpInference.Architectures.Phi4.csproj" />
+    <Project Path="src/SharpInference.Architectures.Phi4.D3D12/SharpInference.Architectures.Phi4.D3D12.csproj" />
     <Project Path="src/SharpInference.Architectures.Rwkv6/SharpInference.Architectures.Rwkv6.csproj" />
     <Project Path="src/SharpInference.Architectures.Rwkv7/SharpInference.Architectures.Rwkv7.csproj" />
     <Project Path="src/SharpInference.Backends.CpuVm/SharpInference.Backends.CpuVm.csproj" />
