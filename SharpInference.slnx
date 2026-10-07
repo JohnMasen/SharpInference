@@ -16,6 +16,9 @@
     <Project Path="src/SharpInference.Instructions.TierZero/SharpInference.Instructions.TierZero.csproj" />
     <Project Path="src/SharpInference.Instructions.Cpu/SharpInference.Instructions.Cpu.csproj" />
     <Project Path="src/SharpInference.Instructions.D3D12/SharpInference.Instructions.D3D12.csproj" />
+    <Project Path="src/SharpInference.Instructions.Phi4/SharpInference.Instructions.Phi4.csproj" />
+    <Project Path="src/SharpInference.Instructions.Phi4.Cpu/SharpInference.Instructions.Phi4.Cpu.csproj" />
+    <Project Path="src/SharpInference.Instructions.Phi4.D3D12/SharpInference.Instructions.Phi4.D3D12.csproj" />
     <Project Path="src/SharpInference.Gguf/SharpInference.Gguf.csproj" />
     <Project Path="src/SharpInference.Gguf.Tests/SharpInference.Gguf.Tests.csproj" />
     <Project Path="src/SharpInference.Integration/SharpInference.Integration.csproj" />

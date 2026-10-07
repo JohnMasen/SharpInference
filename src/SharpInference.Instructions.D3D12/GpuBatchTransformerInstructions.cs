@@ -520,6 +520,7 @@ internal sealed class GpuBatchCausalSoftmaxInstruction() : GpuBatchTransformerIn
                         GroupMemoryBarrierWithGroupSync();
                     }
                     maximum=transformerBatchReduction[0];
+                    GroupMemoryBarrierWithGroupSync();
                     precise float sum=0.0f;
                     if(active>=0) {
                         for(uint token=gpu.groupIndex;

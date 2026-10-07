@@ -49,7 +49,8 @@ public sealed class VmResource : IDisposable
     private readonly IVmStorage storage;
     private int references = 1;
     private bool ownerDisposed;
-    private bool localBound;
+    private int localBindingReaders;
+    private bool localBindingWriter;
     private bool valid = true;
     private int readers;
     private bool writer;
@@ -96,16 +97,22 @@ public sealed class VmResource : IDisposable
         }
     }
 
-    internal VmResourceLease AcquireBinding()
+    internal VmResourceLease AcquireBinding(VmAccess access)
     {
         lock (gate)
         {
             ObjectDisposedException.ThrowIf(references == 0, this);
-            if (Scope == VmSlotScope.Local && localBound)
-                throw new InvalidOperationException("Local storage cannot be bound to multiple slots or VMs.");
+            if (Scope == VmSlotScope.Local &&
+                (localBindingWriter || access == VmAccess.ReadWrite && localBindingReaders != 0))
+                throw new InvalidOperationException(
+                    "Local storage cannot have overlapping writable bindings.");
             references = checked(references + 1);
-            if (Scope == VmSlotScope.Local) localBound = true;
-            return new VmResourceLease(this, binding: true);
+            if (Scope == VmSlotScope.Local)
+            {
+                if (access == VmAccess.ReadWrite) localBindingWriter = true;
+                else localBindingReaders++;
+            }
+            return new VmResourceLease(this, access);
         }
     }
 
@@ -144,14 +151,18 @@ public sealed class VmResource : IDisposable
         storage.Write(offset, source);
     }
 
-    internal void Release(bool binding = false)
+    internal void Release(VmAccess? bindingAccess = null)
     {
         var dispose = false;
         lock (gate)
         {
             if (references <= 0)
                 throw new InvalidOperationException("Unbalanced resource release.");
-            if (binding && Scope == VmSlotScope.Local) localBound = false;
+            if (bindingAccess is not null && Scope == VmSlotScope.Local)
+            {
+                if (bindingAccess == VmAccess.ReadWrite) localBindingWriter = false;
+                else localBindingReaders--;
+            }
             dispose = --references == 0;
         }
         if (dispose) storage.Dispose();
@@ -172,19 +183,19 @@ public sealed class VmResourceLease : IDisposable
 {
     private readonly object gate = new();
     private VmResource? resource;
-    private readonly bool binding;
+    private readonly VmAccess? bindingAccess;
 
-    internal VmResourceLease(VmResource resource, bool binding = false)
+    internal VmResourceLease(VmResource resource, VmAccess? bindingAccess = null)
     {
         this.resource = resource;
-        this.binding = binding;
+        this.bindingAccess = bindingAccess;
     }
     public VmTensor Tensor { get { lock (gate) return Resource.Tensor; } }
     public VmSlotScope Scope { get { lock (gate) return Resource.Scope; } }
     public VmAccess Access { get { lock (gate) return Resource.Access; } }
     internal bool Valid { get { lock (gate) return Resource.Valid; } }
     internal void SetValidity(bool value) { lock (gate) Resource.SetValidity(value); }
-    internal VmResourceLease AcquireBinding() { lock (gate) return Resource.AcquireBinding(); }
+    internal VmResourceLease AcquireBinding(VmAccess access) { lock (gate) return Resource.AcquireBinding(access); }
     internal VmResource Identity { get { lock (gate) return Resource; } }
     internal VmResourceUse AcquireUse(VmAccess access) { lock (gate) return Resource.AcquireUse(access); }
     internal byte[] GetManagedBuffer() { lock (gate) return Resource.GetManagedBuffer(); }
@@ -232,7 +243,7 @@ public sealed class VmResourceLease : IDisposable
             released = resource;
             resource = null;
         }
-        released?.Release(binding);
+        released?.Release(bindingAccess);
     }
 }
 
@@ -278,7 +289,7 @@ public sealed class VmBindings : IDisposable
                 slot.Scope != validationLease.Scope ||
                 slot.Access == VmAccess.ReadWrite && validationLease.Access != VmAccess.ReadWrite)
                 throw new ArgumentException($"Resource is incompatible with slot '{slotId}'.", nameof(resource));
-            var owned = validationLease.AcquireBinding();
+            var owned = validationLease.AcquireBinding(slot.Access);
             resources.Remove(slotId, out var previous);
             resources.Add(slotId, owned);
             previous?.Dispose();

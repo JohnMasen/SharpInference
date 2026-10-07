@@ -544,6 +544,25 @@ public sealed class D3D12VmExecutor : IVmExecutable
         }
     }
 
+    public void InitializeSlots(IReadOnlyList<byte[]> buffers, IEnumerable<int> slots)
+    {
+        ArgumentNullException.ThrowIfNull(buffers);
+        ArgumentNullException.ThrowIfNull(slots);
+        lock (gate)
+        {
+            ThrowIfDisposed();
+            using var use = BeginPoolUse();
+            foreach (var slot in slots.Distinct())
+            {
+                ValidateSlot(slot);
+                var binding = RequirePooledBinding(slot);
+                if (binding is not null && binding.GpuInitialized)
+                    continue;
+                UploadCore(slot, buffers[slot]);
+            }
+        }
+    }
+
     private void UploadCore(int slot, byte[] bytes)
     {
         var binding = RequirePooledBinding(slot);

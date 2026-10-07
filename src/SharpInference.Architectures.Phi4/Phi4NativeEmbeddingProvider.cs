@@ -338,6 +338,22 @@ public sealed class Phi4NativeEmbeddingProvider : IPhi4EmbeddingProvider
         return result.ToArray();
     }
 
+    public float[] EncodeAudioProjected(
+        Phi4AudioFeatures audio,
+        string projectionMode,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(audio);
+        if (projectionMode is not ("speech" or "vision"))
+            throw new ArgumentException(
+                $"Unknown Phi-4 audio projection mode '{projectionMode}'.", nameof(projectionMode));
+        var rows = EncodeAudios([audio], projectionMode, cancellationToken);
+        var result = new float[checked(rows.Length * TextWidth)];
+        for (var index = 0; index < rows.Length; index++)
+            rows[index].CopyTo(result, index * TextWidth);
+        return result;
+    }
+
     private float[] EncodeAudio(Phi4AudioFeatures audio, CancellationToken cancellationToken)
     {
         const int featureCount = 80;

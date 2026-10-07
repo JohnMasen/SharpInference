@@ -305,6 +305,42 @@ public sealed class Phi4InferenceTests
         Assert.Equal((ulong)((tokens.Length + 15) / 16 + 1), result.DecoderSubmissions);
     }
 
+    [Phi4GoldenVisionFact]
+    public void D3D12MultimodalSession_MatchesGoldenImageAudioDecisionWithCpuAudio()
+    {
+        using var package = Phi4ModelPackage.Open(ModelDirectory());
+        var fixture = Path.Combine(
+            ModelDirectory(), "golden", "processor", "vision_speech", "tensors");
+        var pixels = ReadNpyFloat32(Path.Combine(fixture, "input_image_embeds.npy"));
+        var mask = ReadNpyFloat32(Path.Combine(fixture, "image_attention_mask.npy"));
+        var audioFeatures = ReadNpyFloat32(Path.Combine(fixture, "input_audio_embeds.npy"));
+        var tokens = ReadNpyInt64(Path.Combine(fixture, "input_ids.npy"))
+            .Select(value => checked((int)value))
+            .ToArray();
+        var image = new Phi4ImageFeatures(pixels, mask, 7, 896, 1344, 1841);
+        var prepared = new Phi4PreparedInput(
+            tokens,
+            Enumerable.Repeat(true, tokens.Length).ToArray(),
+            [image],
+            [new Phi4AudioFeatures(audioFeatures, 351, 80, 44)],
+            Phi4Adapter.Vision,
+            "vision");
+        var logits = ReadNpyFloat32(Path.Combine(
+            ModelDirectory(), "golden", "model", "vision_speech", "tensors",
+            "prefill__logits.npy"));
+        var expected = Array.IndexOf(logits, logits.Max());
+
+        using var session = new Phi4D3D12MultimodalSession(
+            package,
+            maximumContext: 2048,
+            maximumAudioFrames: 352,
+            audioBackend: Phi4AudioExecutionBackend.Cpu);
+        var result = session.Generate(prepared, maximumNewTokens: 1);
+
+        Assert.Equal([expected], result.GeneratedTokenIds);
+        Assert.Equal((ulong)((tokens.Length + 15) / 16 + 1), result.DecoderSubmissions);
+    }
+
     [Phi4GoldenModelFact]
     public void TextRuntime_MatchesGoldenPrefillLogits()
     {
@@ -425,6 +461,53 @@ public sealed class Phi4InferenceTests
             .ToArray();
         AssertEmbeddingClose(ToEmbeddings(speech), expectedSpeech, 0.025, 0.2f);
         Assert.True(component.QueueSubmissionCount >= submissions + 2);
+    }
+
+    [Phi4GoldenModelFact]
+    public async Task CpuAudioVm_MatchesGoldenProjectors()
+    {
+        using var package = Phi4ModelPackage.Open(ModelDirectory());
+        var features = ReadNpyFloat32(Path.Combine(
+            ModelDirectory(), "golden", "processor", "speech", "tensors",
+            "input_audio_embeds.npy"));
+        var input = new Phi4AudioFeatures(features, 351, 80, 44);
+        var host = new HostMemoryStorageAdapter(
+            new StorageDomain("cpu", "0", "phi4-audio-test"));
+        using var component = new Phi4CpuAudioComponent(package, host, input.FrameCount);
+
+        await using (var output = component.Encode(input, Phi4AudioProjector.Vision))
+        {
+            var bytes = new byte[output.Handle.ByteLength];
+            await host.DownloadAsync(output.Handle, bytes, CancellationToken.None);
+            var actual = MemoryMarshal.Cast<byte, float>(bytes).ToArray();
+            var expected = ReadNpyFloat32(Path.Combine(
+                ModelDirectory(), "golden", "model", "vision_speech", "tensors",
+                "prefill__audio__vision_projector_output.npy"));
+            AssertEmbeddingClose(ToEmbeddings(actual[..checked(input.EmbedSize * 3072)]),
+                expected, 0.025, 0.2f);
+        }
+
+        await using (var output = component.Encode(input, Phi4AudioProjector.Speech))
+        {
+            var bytes = new byte[output.Handle.ByteLength];
+            await host.DownloadAsync(output.Handle, bytes, CancellationToken.None);
+            var actual = MemoryMarshal.Cast<byte, float>(bytes).ToArray();
+            var fused = ReadNpyFloat32(Path.Combine(
+                ModelDirectory(), "golden", "model", "speech", "tensors",
+                "prefill__fused_embedding.npy"));
+            var tokens = package.Tokenizer.Encode(
+                "<|user|><|endoftext11|>Transcribe the attached audio.<|end|><|assistant|>");
+            var expanded = tokens.SelectMany(token =>
+                token == Phi4Tokenizer.AudioTokenId
+                    ? Enumerable.Repeat(token, input.EmbedSize)
+                    : [token]).ToArray();
+            var expected = expanded.Select((token, index) => (token, index))
+                .Where(value => value.token == Phi4Tokenizer.AudioTokenId)
+                .SelectMany(value => fused.AsSpan(value.index * 3072, 3072).ToArray())
+                .ToArray();
+            AssertEmbeddingClose(ToEmbeddings(actual[..checked(input.EmbedSize * 3072)]),
+                expected, 0.025, 0.2f);
+        }
     }
 
     [Phi4GoldenModelFact]

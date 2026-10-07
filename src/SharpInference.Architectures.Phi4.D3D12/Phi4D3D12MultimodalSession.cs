@@ -10,6 +10,12 @@ public sealed record Phi4D3D12GenerationResult(
     string Text,
     ulong DecoderSubmissions);
 
+public enum Phi4AudioExecutionBackend
+{
+    D3D12,
+    Cpu,
+}
+
 public sealed class Phi4D3D12MultimodalSession : IDisposable
 {
     private readonly object gate = new();
@@ -19,6 +25,10 @@ public sealed class Phi4D3D12MultimodalSession : IDisposable
     private readonly Phi4D3D12VisionComponent vision;
     private readonly Phi4D3D12AudioComponent audio;
     private readonly Phi4D3D12FusionComponent fusion;
+    private readonly HostMemoryStorageAdapter hostStorage;
+    private readonly Phi4CpuAudioComponent? cpuAudio;
+    private readonly Phi4AudioExecutionBackend audioBackend;
+    private readonly StorageDomain domain;
     private readonly int maximumContext;
     private bool disposed;
 
@@ -26,12 +36,17 @@ public sealed class Phi4D3D12MultimodalSession : IDisposable
         Phi4ModelPackage package,
         int maximumContext = 4096,
         int maximumAudioFrames = 4096,
-        int adapterIndex = 0)
+        int adapterIndex = 0,
+        Phi4AudioExecutionBackend audioBackend = Phi4AudioExecutionBackend.D3D12)
     {
         this.package = package ?? throw new ArgumentNullException(nameof(package));
         if (maximumContext <= 0)
             throw new ArgumentOutOfRangeException(nameof(maximumContext));
+        if (!Enum.IsDefined(audioBackend))
+            throw new ArgumentOutOfRangeException(nameof(audioBackend));
         this.maximumContext = maximumContext;
+        this.audioBackend = audioBackend;
+        hostStorage = new(new StorageDomain("cpu", "0", "phi4-host"));
         (device, _) = D3D12VmDeviceFactory.Create(adapterIndex);
         D3D12VmResourcePool? createdPool = null;
         Phi4D3D12VisionComponent? createdVision = null;
@@ -40,7 +55,7 @@ public sealed class Phi4D3D12MultimodalSession : IDisposable
         try
         {
             createdPool = new D3D12VmResourcePool(device);
-            var domain = new StorageDomain(
+            domain = new StorageDomain(
                 "d3d12",
                 D3D12VmDeviceFactory.HardwareIdentity(adapterIndex),
                 "phi4-multimodal");
@@ -52,6 +67,9 @@ public sealed class Phi4D3D12MultimodalSession : IDisposable
             vision = createdVision;
             audio = createdAudio;
             fusion = createdFusion;
+            cpuAudio = audioBackend == Phi4AudioExecutionBackend.Cpu
+                ? new Phi4CpuAudioComponent(package, hostStorage, maximumAudioFrames)
+                : null;
         }
         catch
         {
@@ -89,8 +107,18 @@ public sealed class Phi4D3D12MultimodalSession : IDisposable
                     : throw new ArgumentException(
                         $"Unknown audio projection mode '{input.AudioProjectionMode}'.",
                         nameof(input));
+            var d3dAdapter = new Phi4D3D12StorageAdapter(pool, domain);
+            var resourceManager = new LogicalVmResourceManager(
+                new HostStagingStorageTransferService(
+                    [hostStorage, d3dAdapter],
+                    new ArrayHostStagingAllocator()));
             var audioTasks = input.Audios.Select(features => Task.Run(
-                () => audio.EncodeResident(features, projector), cancellationToken)).ToArray();
+                () => EncodeAudio(
+                    features,
+                    projector,
+                    input.AudioProjectionMode,
+                    cancellationToken),
+                cancellationToken)).ToArray();
             var mediaTasks = imageTasks.Cast<Task>().Concat(audioTasks).ToArray();
             try
             {
@@ -100,23 +128,47 @@ public sealed class Phi4D3D12MultimodalSession : IDisposable
             {
                 DisposeCompleted(imageTasks);
                 DisposeCompleted(audioTasks);
+                resourceManager.DisposeAsync().AsTask().GetAwaiter().GetResult();
                 throw;
             }
 
             var imageLeases = imageTasks.Select(task => task.Result).ToArray();
-            var audioLeases = audioTasks.Select(task => task.Result).ToArray();
+            var audioResults = audioTasks.Select(task => task.Result).ToArray();
+            var audioLeases = audioResults.Select(result => result.Lease).ToArray();
             try
             {
-                var images = imageLeases.Select(
-                    lease => new Phi4D3D12VisionEmbedding(vision, lease)).ToArray();
-                var audios = audioLeases.Select(
-                    lease => new Phi4D3D12AudioEmbedding(audio, lease)).ToArray();
-                using var fused = fusion.Fuse(input.TokenIds, images, audios);
+                var images = imageLeases.Select((lease, index) =>
+                {
+                    var port = vision.ProjectedEmbeddingsPort(
+                        Phi4VisionBucket.FromFeatures(input.Images[index]));
+                    var value = resourceManager.Publish(port, lease);
+                    return new Phi4ResourceEmbedding(
+                        value,
+                        checked((int)port.Tensor.Dimensions[0]));
+                }).ToArray();
+                var audios = audioResults.Select(result =>
+                {
+                    var value = resourceManager.Publish(
+                        result.Port,
+                        result.Lease,
+                        new TensorView([result.ValidTokenCount, 3072]));
+                    return new Phi4ResourceEmbedding(value, result.ValidTokenCount);
+                }).ToArray();
+                using var fused = fusion.Fuse(
+                    input.TokenIds,
+                    resourceManager,
+                    images,
+                    audios,
+                    cancellationToken);
+                var fusedValue = resourceManager.Publish(
+                    fusion.FusedEmbeddingsPort(input.TokenIds.Length),
+                    fused);
                 using var decoder = new Phi4D3D12TextSession(
                     package,
                     pool,
-                    fusion,
-                    fused,
+                    domain,
+                    resourceManager,
+                    fusedValue,
                     maximumContext,
                     input.Adapter);
                 var inferenceSubmissions = decoder.QueueSubmissionCount;
@@ -140,6 +192,7 @@ public sealed class Phi4D3D12MultimodalSession : IDisposable
             }
             finally
             {
+                resourceManager.DisposeAsync().AsTask().GetAwaiter().GetResult();
                 foreach (var lease in audioLeases)
                     lease.Dispose();
                 foreach (var lease in imageLeases)
@@ -155,6 +208,7 @@ public sealed class Phi4D3D12MultimodalSession : IDisposable
             if (disposed)
                 return;
             fusion.Dispose();
+            cpuAudio?.Dispose();
             audio.Dispose();
             vision.Dispose();
             pool.Dispose();
@@ -164,10 +218,40 @@ public sealed class Phi4D3D12MultimodalSession : IDisposable
     }
 
     private static void DisposeCompleted<T>(IEnumerable<Task<T>> tasks)
-        where T : IStorageLease
     {
         foreach (var task in tasks)
             if (task.IsCompletedSuccessfully)
-                task.Result.Dispose();
+            {
+                if (task.Result is IStorageLease lease)
+                    lease.Dispose();
+                else if (task.Result is AudioEncoding audio)
+                    audio.Lease.Dispose();
+            }
     }
+
+    private AudioEncoding EncodeAudio(
+        Phi4AudioFeatures features,
+        Phi4AudioProjector projector,
+        string projectionMode,
+        CancellationToken cancellationToken)
+    {
+        if (audioBackend == Phi4AudioExecutionBackend.D3D12)
+        {
+            var gpuLease = audio.EncodeResident(features, projector);
+            var handle = gpuLease.Handle as IPhi4AudioEmbeddingHandle ??
+                throw new InvalidDataException("D3D12 audio output is missing embedding metadata.");
+            return new(gpuLease, handle.ValidTokenCount, audio.ProjectedEmbeddingsPort());
+        }
+
+        var cpuLease = cpuAudio!.Encode(features, projector, cancellationToken);
+        return new(
+            cpuLease,
+            features.EmbedSize,
+            cpuAudio.ProjectedEmbeddingsPort());
+    }
+
+    private sealed record AudioEncoding(
+        IStorageLease Lease,
+        int ValidTokenCount,
+        ComponentPortDescriptor Port);
 }

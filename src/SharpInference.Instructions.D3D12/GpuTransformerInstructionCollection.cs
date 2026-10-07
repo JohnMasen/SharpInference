@@ -15,6 +15,7 @@ public sealed class GpuTransformerInstructionCollection : IInstructionCollection
             new GpuGroupedQueryScoresInstruction(),
             new GpuCausalSoftmaxInstruction(),
             new GpuGroupedQueryValuesInstruction(),
+            new GpuGroupedQueryAttentionInstruction(),
             new GpuArgMaxInstruction(),
             new GpuScaledAddInstruction(),
             new GpuEmbeddingGatherBatchInstruction(),
@@ -40,6 +41,111 @@ public sealed class GpuTransformerInstructionCollection : IInstructionCollection
         instructions.TryGetValue(instructionName, out var instruction)
             ? [instruction]
             : [];
+}
+
+internal sealed class GpuGroupedQueryAttentionInstruction() : GpuTransformerInstruction(
+    "transformer.grouped-query-attention",
+    [
+        new("query", GraphElementType.Float32, GraphResourceAccess.Read),
+        new("key_cache", GraphElementType.Float32, GraphResourceAccess.Read),
+        new("value_cache", GraphElementType.Float32, GraphResourceAccess.Read),
+        new("position", GraphElementType.Int32, GraphResourceAccess.Read),
+        new("output", GraphElementType.Float32, GraphResourceAccess.Write),
+    ])
+{
+    protected override InstructionRecording Generate(InstructionParameter[] parameters)
+    {
+        var tensors = Tensors(parameters);
+        var query = tensors["query"];
+        var keyCache = tensors["key_cache"];
+        var valueCache = tensors["value_cache"];
+        var position = tensors["position"];
+        var output = tensors["output"];
+        if (keyCache.Tensor.Dimensions.Count != 3 ||
+            !keyCache.Tensor.Dimensions.SequenceEqual(valueCache.Tensor.Dimensions))
+            throw new InstructionAdaptationException(
+                CollectionId, Name, "Expected matching rank-three key and value caches.");
+        var context = keyCache.Tensor.Dimensions[0];
+        var keyValueHeads = keyCache.Tensor.Dimensions[1];
+        var headSize = keyCache.Tensor.Dimensions[2];
+        var queryValues = query.Tensor.Dimensions.Aggregate(
+            1, (product, dimension) => checked(product * dimension));
+        var outputValues = output.Tensor.Dimensions.Aggregate(
+            1, (product, dimension) => checked(product * dimension));
+        if (queryValues != outputValues || queryValues % headSize != 0)
+            throw new InstructionAdaptationException(
+                CollectionId, Name, "Query and output must contain complete matching heads.");
+        var queryHeads = queryValues / headSize;
+        if (queryHeads % keyValueHeads != 0)
+            throw new InstructionAdaptationException(
+                CollectionId, Name, "Query heads must be divisible by key/value heads.");
+        var scale = (1f / MathF.Sqrt(headSize)).ToString(
+            "R", CultureInfo.InvariantCulture);
+        return new($$"""
+            {
+                uint head=gpu.groupId.x+gpu.groupId.y*gpu.groupCount.x;
+                uint lane=gpu.groupIndex;
+                if(head<{{queryHeads}}u) {
+                    uint kvHead=head/{{queryHeads / keyValueHeads}}u;
+                    uint active=min(
+                        (uint)max(0,asint({{position.Expression}}.Load(
+                            {{position.OffsetExpression}}))),
+                        {{context - 1}}u);
+                    precise float localMaximum=-3.402823466e+38f;
+                    for(uint token=lane;token<=active;token+=64u) {
+                        precise float score=0.0f;
+                        for(uint channel=0u;channel<{{headSize}}u;channel++)
+                            score+={{Load(query, $"head*{headSize}u+channel")}}*
+                                {{Load(keyCache,
+                                    $"(token*{keyValueHeads}u+kvHead)*{headSize}u+channel")}};
+                        score*={{scale}}f;
+                        transformerAttentionScores[token]=score;
+                        localMaximum=max(localMaximum,score);
+                    }
+                    transformerReduction[lane]=localMaximum;
+                    GroupMemoryBarrierWithGroupSync();
+                    for(uint step=32u;step>0u;step>>=1u) {
+                        if(lane<step)
+                            transformerReduction[lane]=max(
+                                transformerReduction[lane],
+                                transformerReduction[lane+step]);
+                        GroupMemoryBarrierWithGroupSync();
+                    }
+                    precise float maximum=transformerReduction[0];
+                    GroupMemoryBarrierWithGroupSync();
+                    precise float localDenominator=0.0f;
+                    for(uint token=lane;token<=active;token+=64u) {
+                        precise float probability=exp(
+                            transformerAttentionScores[token]-maximum);
+                        transformerAttentionScores[token]=probability;
+                        localDenominator+=probability;
+                    }
+                    transformerReduction[lane]=localDenominator;
+                    GroupMemoryBarrierWithGroupSync();
+                    for(uint step=32u;step>0u;step>>=1u) {
+                        if(lane<step)
+                            transformerReduction[lane]+=transformerReduction[lane+step];
+                        GroupMemoryBarrierWithGroupSync();
+                    }
+                    precise float denominator=transformerReduction[0];
+                    for(uint channel=lane;channel<{{headSize}}u;channel+=64u) {
+                        precise float value=0.0f;
+                        for(uint token=0u;token<=active;token++)
+                            value+=transformerAttentionScores[token]*
+                                {{Load(valueCache,
+                                    $"(token*{keyValueHeads}u+kvHead)*{headSize}u+channel")}};
+                        {{Store(output, $"head*{headSize}u+channel", "value/denominator")}}
+                    }
+                }
+            }
+            """,
+        [
+            GpuInstructionHelpers.Load32,
+            GpuRmsNormInstruction.ReductionHelper,
+            new("transformer.attention-scores",
+                $"groupshared float transformerAttentionScores[{context}];")
+        ], InstructionSynchronization.GroupMemoryBarrier);
+    }
 }
 
 internal sealed class GpuScaledAddInstruction() : GpuTransformerInstruction(
@@ -523,6 +629,7 @@ internal sealed class GpuCausalSoftmaxInstruction() : GpuTransformerInstruction(
                                 GroupMemoryBarrierWithGroupSync();
                             }
                             maximum=transformerReduction[0];
+                            GroupMemoryBarrierWithGroupSync();
                             precise float sum=0.0f;
                             for(uint token=gpu.groupIndex;token<=uint(active) && token<{{context}}u;token+=64u)
                                 sum+=exp({{Load(scores, $"head*{context}u+token")}}-maximum);

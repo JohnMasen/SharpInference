@@ -64,6 +64,21 @@ public sealed class ComponentStorageTests
         Assert.Empty(events);
     }
 
+    [Fact]
+    public async Task HostMemoryAdapter_RoundTripsOwnedStorage()
+    {
+        var domain = new StorageDomain("cpu", "0", "host");
+        var adapter = new HostMemoryStorageAdapter(domain);
+        byte[] expected = [1, 2, 3, 4, 5, 6, 7, 8];
+        await using var lease = adapter.CreateLease(Descriptor, expected);
+        var actual = new byte[expected.Length];
+
+        await adapter.DownloadAsync(lease.Handle, actual, CancellationToken.None);
+
+        Assert.Equal(expected, actual);
+        Assert.Equal(domain, lease.Handle.Domain);
+    }
+
     private static ComponentPortDescriptor Port(StorageDomain domain) =>
         new("embedding", 1, Descriptor, GraphResourceAccess.Read,
             GraphResourceLifetime.Invocation, [domain]);

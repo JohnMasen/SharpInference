@@ -16,6 +16,10 @@ public sealed record Phi4D3D12AudioEmbedding(
     Phi4D3D12AudioComponent Component,
     IStorageLease Lease);
 
+public sealed record Phi4ResourceEmbedding(
+    VmDataReference Resource,
+    int ValidTokenCount);
+
 public interface IPhi4FusedEmbeddingHandle : IStorageHandle
 {
     int TokenCount { get; }
@@ -71,15 +75,40 @@ public sealed class Phi4D3D12FusionComponent : IDisposable
         {
             ObjectDisposedException.ThrowIf(disposed, this);
             var plan = BuildPlan(tokenIds, images, audios);
+            return FuseCore(tokenIds, plan);
+        }
+    }
+
+    public IStorageLease Fuse(
+        IReadOnlyList<int> tokenIds,
+        LogicalVmResourceManager resources,
+        IReadOnlyList<Phi4ResourceEmbedding>? images = null,
+        IReadOnlyList<Phi4ResourceEmbedding>? audios = null,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(tokenIds);
+        ArgumentNullException.ThrowIfNull(resources);
+        if (tokenIds.Count == 0)
+            throw new ArgumentException("At least one token is required.", nameof(tokenIds));
+        images ??= [];
+        audios ??= [];
+        lock (gate)
+        {
+            ObjectDisposedException.ThrowIf(disposed, this);
+            var plan = BuildPlan(
+                tokenIds, resources, images, audios, cancellationToken);
+            return FuseCore(tokenIds, plan);
+        }
+    }
+
+    private IStorageLease FuseCore(
+        IReadOnlyList<int> tokenIds,
+        FusionPlan plan)
+    {
             var build = BuildProgram(tokenIds.Count, plan);
             using var bindings = manager.CreateBindings(build.Program);
-            foreach (var image in plan.Images)
-                image.Source.Component.BindOutput(
-                    bindings, image.Slot, image.Source.Lease);
-            foreach (var audio in plan.Audios)
-                audio.Source.Component.BindOutput(
-                    bindings, audio.Slot, audio.Source.Lease);
-
+            foreach (var media in plan.Images.Concat(plan.Audios))
+                media.Bind(bindings);
             var outputSlot = build.Program.Slots.Single(slot => slot.Id == "fused_embeddings");
             var outputResource = new VmResource(
                 outputSlot.Tensor,
@@ -110,6 +139,10 @@ public sealed class Phi4D3D12FusionComponent : IDisposable
                     if (!tokenEmbeddingUploaded)
                         uploads.Add(build.TokenEmbeddingSlot);
                     executor.UploadSlots(buffers, uploads);
+                    executor.InitializeSlots(
+                        buffers,
+                        plan.Images.Concat(plan.Audios).Select(media =>
+                            build.Program.Slots.ToList().FindIndex(slot => slot.Id == media.Slot)));
                     tokenEmbeddingUploaded = true;
                     executor.Execute("fuse");
                 }
@@ -130,7 +163,6 @@ public sealed class Phi4D3D12FusionComponent : IDisposable
                 executor.Dispose();
                 throw;
             }
-        }
     }
 
     public float[] Readback(IStorageLease output)
@@ -151,7 +183,7 @@ public sealed class Phi4D3D12FusionComponent : IDisposable
         ArgumentNullException.ThrowIfNull(bindings);
         ArgumentException.ThrowIfNullOrWhiteSpace(slotId);
         lock (gate)
-            bindings.Bind(slotId, RequireOutput(output).Resource);
+            RequireOutput(output).Bind(bindings, slotId);
     }
 
     public D3D12VmExecutor CreateExecutor(D3D12VmArtifact artifact)
@@ -194,13 +226,13 @@ public sealed class Phi4D3D12FusionComponent : IDisposable
         storage.Write(0, tokenEmbedding.Bytes);
     }
 
-    private static FusionPlan BuildPlan(
+    private FusionPlan BuildPlan(
         IReadOnlyList<int> tokenIds,
         IReadOnlyList<Phi4D3D12VisionEmbedding> images,
         IReadOnlyList<Phi4D3D12AudioEmbedding> audios)
     {
-        var imagePlans = new List<MediaPlan<Phi4D3D12VisionEmbedding>>();
-        var audioPlans = new List<MediaPlan<Phi4D3D12AudioEmbedding>>();
+        var imagePlans = new List<MediaPlan>();
+        var audioPlans = new List<MediaPlan>();
         var position = 0;
         var imageIndex = 0;
         var audioIndex = 0;
@@ -214,7 +246,13 @@ public sealed class Phi4D3D12FusionComponent : IDisposable
                 var source = images[imageIndex++];
                 var rows = checked((int)source.Lease.Handle.Descriptor.Dimensions[0]);
                 RequirePlaceholderRun(tokenIds, position, rows, Phi4Tokenizer.ImageTokenId, "image");
-                imagePlans.Add(new($"image_embeddings_{imagePlans.Count}", position, rows, source));
+                var slot = $"image_embeddings_{imagePlans.Count}";
+                imagePlans.Add(new(
+                    slot,
+                    position,
+                    rows,
+                    source.Lease.Handle.Descriptor,
+                    bindings => source.Component.BindOutput(bindings, slot, source.Lease)));
                 position += rows;
             }
             else if (tokenIds[position] == Phi4Tokenizer.AudioTokenId)
@@ -228,11 +266,13 @@ public sealed class Phi4D3D12FusionComponent : IDisposable
                 RequirePlaceholderRun(
                     tokenIds, position, handle.ValidTokenCount,
                     Phi4Tokenizer.AudioTokenId, "audio");
+                var slot = $"audio_embeddings_{audioPlans.Count}";
                 audioPlans.Add(new(
-                    $"audio_embeddings_{audioPlans.Count}",
+                    slot,
                     position,
                     handle.ValidTokenCount,
-                    source));
+                    source.Lease.Handle.Descriptor,
+                    bindings => source.Component.BindOutput(bindings, slot, source.Lease)));
                 position += handle.ValidTokenCount;
             }
             else
@@ -247,6 +287,85 @@ public sealed class Phi4D3D12FusionComponent : IDisposable
             throw new InvalidDataException(
                 "The number of media embeddings does not match the token placeholders.");
         return new(imagePlans, audioPlans);
+    }
+
+    private FusionPlan BuildPlan(
+        IReadOnlyList<int> tokenIds,
+        LogicalVmResourceManager resources,
+        IReadOnlyList<Phi4ResourceEmbedding> images,
+        IReadOnlyList<Phi4ResourceEmbedding> audios,
+        CancellationToken cancellationToken)
+    {
+        var imagePlans = new List<MediaPlan>();
+        var audioPlans = new List<MediaPlan>();
+        var position = 0;
+        var imageIndex = 0;
+        var audioIndex = 0;
+        while (position < tokenIds.Count)
+        {
+            if (tokenIds[position] == Phi4Tokenizer.ImageTokenId)
+            {
+                if (imageIndex >= images.Count)
+                    throw new InvalidDataException(
+                        "The token sequence has more image placeholders than image embeddings.");
+                var source = images[imageIndex++];
+                var rows = source.ValidTokenCount;
+                RequirePlaceholderRun(tokenIds, position, rows, Phi4Tokenizer.ImageTokenId, "image");
+                imagePlans.Add(ResourcePlan(
+                    $"image_embeddings_{imagePlans.Count}", position, rows, source.Resource));
+                position += rows;
+            }
+            else if (tokenIds[position] == Phi4Tokenizer.AudioTokenId)
+            {
+                if (audioIndex >= audios.Count)
+                    throw new InvalidDataException(
+                        "The token sequence has more audio placeholders than audio embeddings.");
+                var source = audios[audioIndex++];
+                var rows = source.ValidTokenCount;
+                RequirePlaceholderRun(tokenIds, position, rows, Phi4Tokenizer.AudioTokenId, "audio");
+                audioPlans.Add(ResourcePlan(
+                    $"audio_embeddings_{audioPlans.Count}", position, rows, source.Resource));
+                position += rows;
+            }
+            else
+            {
+                if ((uint)tokenIds[position] >= VocabularySize)
+                    throw new ArgumentOutOfRangeException(
+                        nameof(tokenIds), $"Token {tokenIds[position]} is outside the vocabulary.");
+                position++;
+            }
+        }
+        if (imageIndex != images.Count || audioIndex != audios.Count)
+            throw new InvalidDataException(
+                "The number of media embeddings does not match the token placeholders.");
+        return new(imagePlans, audioPlans);
+
+        MediaPlan ResourcePlan(
+            string slot,
+            int outputStart,
+            int rows,
+            VmDataReference source)
+        {
+            var target = new ComponentPortDescriptor(
+                source.Port.SemanticName,
+                source.Port.AbiVersion,
+                source.Port.Tensor,
+                GraphResourceAccess.Read,
+                GraphResourceLifetime.Invocation,
+                [Domain]);
+            return new(
+                slot,
+                outputStart,
+                rows,
+                source.Port.Tensor,
+                bindings => resources.BindAsync(
+                    source,
+                    Domain,
+                    target,
+                    bindings,
+                    slot,
+                    cancellationToken).AsTask().GetAwaiter().GetResult());
+        }
     }
 
     private static void RequirePlaceholderRun(
@@ -288,14 +407,14 @@ public sealed class Phi4D3D12FusionComponent : IDisposable
             slots.Add(new(
                 image.Slot,
                 VmSlotScope.Local,
-                VmAccess.ReadWrite,
-                Tensor(image.Source.Lease.Handle.Descriptor)));
+                VmAccess.ReadOnly,
+                Tensor(image.Descriptor)));
         foreach (var audio in plan.Audios)
             slots.Add(new(
                 audio.Slot,
                 VmSlotScope.Local,
-                VmAccess.ReadWrite,
-                Tensor(audio.Source.Lease.Handle.Descriptor)));
+                VmAccess.ReadOnly,
+                Tensor(audio.Descriptor)));
 
         var definitions = new List<VmDefinition>();
         var nodes = new List<VmNode>();
@@ -326,7 +445,7 @@ public sealed class Phi4D3D12FusionComponent : IDisposable
         nodes.Add(new("gather_barrier", new VmBarrier(["fused_embeddings"]), ["gather"]));
 
         var nodeIndex = 0;
-        foreach (var media in plan.Images.Cast<IMediaPlan>().Concat(plan.Audios))
+        foreach (var media in plan.Images.Concat(plan.Audios))
         {
             var input = slots.Single(slot => slot.Id == media.Slot);
             var parameters = new[]
@@ -412,22 +531,16 @@ public sealed class Phi4D3D12FusionComponent : IDisposable
             },
             descriptor.Dimensions.ToArray());
 
-    private interface IMediaPlan
-    {
-        string Slot { get; }
-        int OutputStart { get; }
-        int Rows { get; }
-    }
-
-    private sealed record MediaPlan<T>(
+    private sealed record MediaPlan(
         string Slot,
         int OutputStart,
         int Rows,
-        T Source) : IMediaPlan;
+        TensorDescriptor Descriptor,
+        Action<VmBindings> Bind);
 
     private sealed record FusionPlan(
-        IReadOnlyList<MediaPlan<Phi4D3D12VisionEmbedding>> Images,
-        IReadOnlyList<MediaPlan<Phi4D3D12AudioEmbedding>> Audios);
+        IReadOnlyList<MediaPlan> Images,
+        IReadOnlyList<MediaPlan> Audios);
 
     private sealed record FusionBuild(
         VmProgram Program,
@@ -441,7 +554,7 @@ public sealed class Phi4D3D12FusionComponent : IDisposable
         TensorDescriptor descriptor,
         VmResourceLease resource,
         D3D12VmExecutor executor,
-        int tokenCount) : IPhi4FusedEmbeddingHandle
+        int tokenCount) : IPhi4FusedEmbeddingHandle, IVmBindableStorageHandle
     {
         public Guid Id { get; } = Guid.NewGuid();
         public Guid ComponentId { get; } = componentId;
@@ -451,6 +564,12 @@ public sealed class Phi4D3D12FusionComponent : IDisposable
         public int TokenCount { get; } = tokenCount;
         public VmResourceLease Resource { get; } = resource;
         public D3D12VmExecutor Executor { get; } = executor;
+
+        public void Bind(VmBindings bindings, string slotId)
+        {
+            using var retained = Resource.Retain();
+            bindings.Bind(slotId, retained);
+        }
 
         public void Dispose()
         {

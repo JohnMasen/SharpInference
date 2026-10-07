@@ -36,7 +36,10 @@ internal sealed class CpuTierZeroInstruction(Guid id, string name) : TierZeroIns
                 "core.divide" => "Divide", "core.maximum" => "Maximum", "core.exp" => "Exp", "core.tanh" => "Tanh",
                 "core.sigmoid" => "Sigmoid", "core.rsqrt" => "ReciprocalSquareRoot", "core.square" => "Square",
                 "core.relu" => "Relu", "core.reduce-sum" => "ReduceSum", "core.reduce-mean" => "ReduceMean",
-                "core.mat-vec" => "MatVec", "core.gather-row" => "GatherRow", _ => throw new NotSupportedException(Name),
+                "core.mat-vec" => "MatVec", "core.matrix-multiply" => "MatrixMultiply",
+                "core.affine" => "Affine",
+                "core.bias-add" => "BiasAdd", "core.gather-row" => "GatherRow",
+                _ => throw new NotSupportedException(Name),
             };
             var invocation = primitive + method;
             if (Name == "core.tanh" && !half)
@@ -44,10 +47,21 @@ internal sealed class CpuTierZeroInstruction(Guid id, string name) : TierZeroIns
             if (Name is "core.mat-vec" or "core.gather-row" && !half &&
                 tensors[inputs[0]].Tensor.ElementType == GraphElementType.Float16)
                 invocation = "SharpInference.Instructions.Cpu.CpuInstructionNumerics." + method;
+            if (Name is "core.matrix-multiply" or "core.bias-add" or "core.affine")
+                invocation = "SharpInference.Instructions.Cpu.CpuInstructionNumerics." + method;
             if (Name is "core.reduce-sum" or "core.reduce-mean")
                 code.AppendLine($"o[0] = {invocation}(s0);");
             else if (Name == "core.mat-vec")
                 code.AppendLine($"{invocation}(s0,s1,o,{tensors[inputs[0]].Tensor.Dimensions[0]},{tensors[inputs[0]].Tensor.Dimensions[1]});");
+            else if (Name == "core.matrix-multiply")
+                code.AppendLine($"{invocation}(s0,s1,o,{tensors["left"].Tensor.Dimensions[0]},{tensors["left"].Tensor.Dimensions[1]},{tensors["right"].Tensor.Dimensions[0]},{tensors["right"].Tensor.Dimensions[1]},{attributes["transpose_left"].ToLowerInvariant()},{attributes["transpose_right"].ToLowerInvariant()});");
+            else if (Name == "core.affine")
+            {
+                code.AppendLine($"SharpInference.Instructions.Cpu.CpuInstructionNumerics.MatrixMultiply(s0,s1,o,{tensors["left"].Tensor.Dimensions[0]},{tensors["left"].Tensor.Dimensions[1]},{tensors["right"].Tensor.Dimensions[0]},{tensors["right"].Tensor.Dimensions[1]},{attributes["transpose_left"].ToLowerInvariant()},{attributes["transpose_right"].ToLowerInvariant()});");
+                code.AppendLine("SharpInference.Instructions.Cpu.CpuInstructionNumerics.BiasAdd(o,s2,o);");
+            }
+            else if (Name == "core.bias-add")
+                code.AppendLine($"{invocation}(s0,s1,o);");
             else if (Name == "core.gather-row")
                 code.AppendLine($"{invocation}(s0,s1[0],{tensors["table"].Tensor.Dimensions[1]},o);");
             else code.AppendLine($"{invocation}({string.Join(",", inputs.Select((_, i) => $"s{i}").Append("o"))});");

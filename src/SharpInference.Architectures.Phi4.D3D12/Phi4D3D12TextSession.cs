@@ -71,21 +71,70 @@ public sealed class Phi4D3D12TextSession : IDisposable
         IStorageLease fusedEmbeddings,
         int maximumContext = 4096,
         Phi4Adapter adapter = Phi4Adapter.None)
+        : this(
+            package,
+            pool,
+            GetFusedTokenCount(fusedEmbeddings),
+            maximumContext,
+            adapter,
+            bindings => fusion.BindOutput(bindings, "fused_embeddings", fusedEmbeddings))
+    {
+        ArgumentNullException.ThrowIfNull(fusion);
+    }
+
+    public Phi4D3D12TextSession(
+        Phi4ModelPackage package,
+        D3D12VmResourcePool pool,
+        StorageDomain domain,
+        LogicalVmResourceManager resources,
+        VmDataReference fusedEmbeddings,
+        int maximumContext = 4096,
+        Phi4Adapter adapter = Phi4Adapter.None)
+        : this(
+            package,
+            pool,
+            GetFusedTokenCount(fusedEmbeddings),
+            maximumContext,
+            adapter,
+            bindings =>
+            {
+                var target = new ComponentPortDescriptor(
+                    fusedEmbeddings.Port.SemanticName,
+                    fusedEmbeddings.Port.AbiVersion,
+                    fusedEmbeddings.Port.Tensor,
+                    GraphResourceAccess.Read,
+                    GraphResourceLifetime.Invocation,
+                    [domain]);
+                resources.BindAsync(
+                    fusedEmbeddings,
+                    domain,
+                    target,
+                    bindings,
+                    "fused_embeddings").AsTask().GetAwaiter().GetResult();
+            })
+    {
+        ArgumentNullException.ThrowIfNull(domain);
+        ArgumentNullException.ThrowIfNull(resources);
+    }
+
+    private Phi4D3D12TextSession(
+        Phi4ModelPackage package,
+        D3D12VmResourcePool pool,
+        int promptTokenCount,
+        int maximumContext,
+        Phi4Adapter adapter,
+        Action<VmBindings> bindFusedEmbeddings)
     {
         ArgumentNullException.ThrowIfNull(package);
         ArgumentNullException.ThrowIfNull(pool);
-        ArgumentNullException.ThrowIfNull(fusion);
-        ArgumentNullException.ThrowIfNull(fusedEmbeddings);
+        ArgumentNullException.ThrowIfNull(bindFusedEmbeddings);
         if (maximumContext <= 0)
             throw new ArgumentOutOfRangeException(nameof(maximumContext));
-        if (fusedEmbeddings.Handle is not IPhi4FusedEmbeddingHandle fusedHandle)
-            throw new ArgumentException(
-                "A Phi-4 fused embedding lease is required.", nameof(fusedEmbeddings));
         MaximumContext = maximumContext;
-        fusedTokenCount = fusedHandle.TokenCount;
+        fusedTokenCount = promptTokenCount;
         if (fusedTokenCount > maximumContext)
             throw new ArgumentException(
-                "The fused prompt exceeds the decoder context.", nameof(fusedEmbeddings));
+                "The fused prompt exceeds the decoder context.", nameof(promptTokenCount));
         var build = Build(package, maximumContext, adapter, fusedTokenCount);
         var weights = build.Weights.ToDictionary(
             item => item.Slot,
@@ -112,7 +161,7 @@ public sealed class Phi4D3D12TextSession : IDisposable
             bindings = resourceManager.CreateBindings(build.Program);
             sessionResources = resourceManager.CreateSession(build.Program);
             resourceManager.BindSession(bindings, sessionResources);
-            fusion.BindOutput(bindings, "fused_embeddings", fusedEmbeddings);
+            bindFusedEmbeddings(bindings);
             executor = new D3D12VmCompiler(DefaultInstructionCollections.Create())
                 .Compile(build.Program)
                 .CreateExecutor(pool);
@@ -135,6 +184,25 @@ public sealed class Phi4D3D12TextSession : IDisposable
             resourceManager.Dispose();
             throw;
         }
+    }
+
+    private static int GetFusedTokenCount(IStorageLease fusedEmbeddings)
+    {
+        ArgumentNullException.ThrowIfNull(fusedEmbeddings);
+        return fusedEmbeddings.Handle is IPhi4FusedEmbeddingHandle fusedHandle
+            ? fusedHandle.TokenCount
+            : throw new ArgumentException(
+                "A Phi-4 fused embedding lease is required.", nameof(fusedEmbeddings));
+    }
+
+    private static int GetFusedTokenCount(VmDataReference fusedEmbeddings)
+    {
+        ArgumentNullException.ThrowIfNull(fusedEmbeddings);
+        return fusedEmbeddings.View.Dimensions.Count == 2 &&
+            fusedEmbeddings.View.Dimensions[1] == EmbeddingSize
+            ? fusedEmbeddings.View.Dimensions[0]
+            : throw new ArgumentException(
+                "A Phi-4 fused embedding resource is required.", nameof(fusedEmbeddings));
     }
 
     public int MaximumContext { get; }
@@ -572,6 +640,16 @@ public sealed class Phi4D3D12TextSession : IDisposable
             ("output", VmAccess.ReadWrite, F(EmbeddingSize)));
         var valueKernel = Kernel("gqa_values", valueParameters,
             Operation("transformer.gqa-values", valueParameters));
+        var attentionParameters = Parameters(
+            ("query", VmAccess.ReadOnly, F(QuerySize)),
+            ("key_cache", VmAccess.ReadOnly, F(context, KeyValueHeads, HeadSize)),
+            ("value_cache", VmAccess.ReadOnly, F(context, KeyValueHeads, HeadSize)),
+            ("position", VmAccess.ReadOnly, I(1)),
+            ("output", VmAccess.ReadWrite, F(EmbeddingSize)));
+        var groupedQueryAttentionKernel = Kernel(
+            "grouped_query_attention",
+            attentionParameters,
+            Operation("transformer.grouped-query-attention", attentionParameters));
         var swigluParameters = Parameters(
             ("gate_up", VmAccess.ReadOnly, F(IntermediateSize * 2)),
             ("output", VmAccess.ReadWrite, F(IntermediateSize)));
@@ -801,17 +879,13 @@ public sealed class Phi4D3D12TextSession : IDisposable
                     ("frequencies", "rope_frequencies"), ("query", "query"),
                     ("key_cache", $"key_cache_{layer}"), ("value_cache", $"value_cache_{layer}")),
                 "query", $"key_cache_{layer}", $"value_cache_{layer}");
-            Dispatch(scoreKernel, new(checked((uint)((QueryHeads * context + 63) / 64))),
-                Arguments(("query", "query"), ("key_cache", $"key_cache_{layer}"),
-                    ("position", "position"), ("scores", "scores")),
-                "scores");
-            Dispatch(softmaxKernel, new(QueryHeads),
-                Arguments(("scores", "scores"), ("position", "position"),
-                    ("probabilities", "probabilities")),
-                "probabilities");
-            Dispatch(valueKernel, new(48),
-                Arguments(("probabilities", "probabilities"), ("value_cache", $"value_cache_{layer}"),
-                    ("position", "position"), ("output", "attention")),
+            Dispatch(groupedQueryAttentionKernel, new(QueryHeads),
+                Arguments(
+                    ("query", "query"),
+                    ("key_cache", $"key_cache_{layer}"),
+                    ("value_cache", $"value_cache_{layer}"),
+                    ("position", "position"),
+                    ("output", "attention")),
                 "attention");
             DispatchProjection(attentionOutputKernel, $"attn_output_weight_{layer}",
                 $"attn_output_{layer}", "attention", EmbeddingSize,

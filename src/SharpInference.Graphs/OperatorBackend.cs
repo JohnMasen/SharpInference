@@ -322,6 +322,9 @@ public static class PrimitiveGraphOperations
     public static readonly GraphOperationId ReduceSum = new("core.reduce-sum");
     public static readonly GraphOperationId ReduceMean = new("core.reduce-mean");
     public static readonly GraphOperationId MatVec = new("core.mat-vec");
+    public static readonly GraphOperationId MatrixMultiply = new("core.matrix-multiply");
+    public static readonly GraphOperationId Affine = new("core.affine");
+    public static readonly GraphOperationId BiasAdd = new("core.bias-add");
     public static readonly GraphOperationId GatherRow = new("core.gather-row");
 
     public static IReadOnlyList<PrimitiveOperatorDescription> CreateStandardDescriptions(bool includeFp16 = true) =>

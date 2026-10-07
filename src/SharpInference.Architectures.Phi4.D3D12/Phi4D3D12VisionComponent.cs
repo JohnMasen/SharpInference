@@ -3,6 +3,8 @@ using SharpInference.Backends.D3D12Vm;
 using SharpInference.Gguf;
 using SharpInference.Graphs;
 using SharpInference.Instructions;
+using SharpInference.Instructions.Phi4;
+using SharpInference.Instructions.Phi4.D3D12;
 using SharpInference.Runtime;
 using SharpInference.Vm;
 using Vortice.Direct3D12;
@@ -282,8 +284,7 @@ public sealed class Phi4D3D12VisionComponent : IDisposable
             if (handle.ComponentId != componentId ||
                 handle.SemanticName != "phi4.vision.projected_embeddings")
                 throw new InvalidDataException("The output belongs to a different component or port.");
-            using var retained = handle.Resource.Retain();
-            bindings.Bind(slotId, retained);
+            handle.Bind(bindings, slotId);
         }
     }
 
@@ -320,7 +321,7 @@ public sealed class Phi4D3D12VisionComponent : IDisposable
             return runtime;
         var program = BuildProgram(bucket, omni);
         var providers = DefaultInstructionCollections.Create()
-            .Append<IInstructionCollectionProvider>(new Phi4VisionInstructionCollection())
+            .Append<IInstructionCollectionProvider>(new Phi4D3D12VisionInstructionCollection())
             .ToArray();
         var artifact = new D3D12VmCompiler(providers).Compile(program);
         runtime = new BucketRuntime(this, bucket, artifact);
@@ -519,28 +520,37 @@ public sealed class Phi4D3D12VisionComponent : IDisposable
             VmParameter[] parameters,
             string operation,
             IReadOnlyDictionary<string, string>? attributes = null,
-            Guid? collection = null)
+            Guid? collection = null,
+            InstructionExecutionConfiguration? executionConfiguration = null,
+            VmThreadGroup? threads = null)
         {
             var instruction = new VmOperator(
                 new(GraphElementType.Float32, GraphElementType.Float32),
-                collection ?? Phi4VisionInstructionCollectionIds.VisionFloat32,
+                collection ?? Phi4InstructionCollectionIds.VisionFloat32,
                 operation,
                 parameters.Select(parameter => new VmArgument(parameter.Name, parameter.Name)),
-                attributes);
+                attributes,
+                executionConfiguration: executionConfiguration);
             definitions.Add(new(
                 id, VmDefinitionKind.Kernel, parameters,
-                [new("body", instruction)], new(64)));
+                [new("body", instruction)], threads ?? new(64)));
             return id;
         }
         void Dispatch(
             string kernel,
             ulong groups,
             VmArgument[] arguments,
+            params string[] writes) =>
+            DispatchGrid(kernel, DispatchGroups(groups), arguments, writes);
+        void DispatchGrid(
+            string kernel,
+            VmThreadGroup groups,
+            VmArgument[] arguments,
             params string[] writes)
         {
             var dispatchId = $"dispatch_{nodeIndex++}";
             nodes.Add(new(dispatchId, new VmDispatch(
-                kernel, arguments, DispatchGroups(groups))));
+                kernel, arguments, groups)));
             nodes.Add(new(
                 $"barrier_{nodeIndex++}", new VmBarrier(writes), [dispatchId]));
         }
@@ -628,7 +638,7 @@ public sealed class Phi4D3D12VisionComponent : IDisposable
             ("output", VmAccess.ReadWrite,
                 F(1, PatchGrid, PatchGrid, VisionWidth)));
         var patchKernel = Kernel(
-            "patch_embedding", patchParameters, "vision.patch-embedding",
+            "patch_embedding", patchParameters, Phi4VisionInstructionNames.PatchEmbedding,
             new Dictionary<string, string>
             {
                 ["crop_size"] = CropSize.ToString(),
@@ -643,17 +653,32 @@ public sealed class Phi4D3D12VisionComponent : IDisposable
             ("output", VmAccess.ReadWrite,
                 F(1, PatchGrid, PatchGrid, VisionWidth)));
         var layerNormKernel = Kernel(
-            "layer_norm", layerNormParameters, "vision.layer-norm",
+            "layer_norm", layerNormParameters, Phi4VisionInstructionNames.LayerNorm,
             new Dictionary<string, string> { ["epsilon"] = "1E-06" });
 
-        string LinearKernel(string id, int rows, int inputWidth, int outputWidth)
+        string LinearKernel(
+            string id,
+            int rows,
+            int inputWidth,
+            int outputWidth)
         {
             var parameters = Parameters(
-                ("input", VmAccess.ReadOnly, F(rows, inputWidth)),
-                ("weight", VmAccess.ReadOnly, H(outputWidth, inputWidth)),
+                ("left", VmAccess.ReadOnly, F(rows, inputWidth)),
+                ("right", VmAccess.ReadOnly, H(outputWidth, inputWidth)),
                 ("bias", VmAccess.ReadOnly, H(outputWidth)),
                 ("output", VmAccess.ReadWrite, F(rows, outputWidth)));
-            return Kernel(id, parameters, "vision.linear");
+            return Kernel(
+                id,
+                parameters,
+                "core.affine",
+                new Dictionary<string, string>
+                {
+                    ["transpose_left"] = "false",
+                    ["transpose_right"] = "true",
+                },
+                InstructionCollectionIds.TierZeroFloat32,
+                GpuMatrixMultiplyExecution.Tiled,
+                new(8, 8));
         }
         var visionLinear = LinearKernel(
             "linear_vision", PatchGrid * PatchGrid, VisionWidth, VisionWidth);
@@ -661,6 +686,28 @@ public sealed class Phi4D3D12VisionComponent : IDisposable
             "linear_ffn_up", PatchGrid * PatchGrid, VisionWidth, IntermediateWidth);
         var ffnDownLinear = LinearKernel(
             "linear_ffn_down", PatchGrid * PatchGrid, IntermediateWidth, VisionWidth);
+        void DispatchLinear(
+            string kernel,
+            int rows,
+            int outputWidth,
+            string input,
+            ulong inputOffset,
+            string weight,
+            string bias,
+            string output,
+            ulong outputOffset)
+        {
+            var groups = GpuMatrixMultiplyExecution.TileGroups(rows, outputWidth);
+            DispatchGrid(
+                kernel,
+                new(groups.X, groups.Y),
+                SliceArguments(
+                    ("left", input, inputOffset),
+                    ("right", weight, 0),
+                    ("bias", bias, 0),
+                    ("output", output, outputOffset)),
+                output);
+        }
 
         var attentionParameters = Parameters(
             ("query", VmAccess.ReadOnly,
@@ -673,7 +720,7 @@ public sealed class Phi4D3D12VisionComponent : IDisposable
             ("output", VmAccess.ReadWrite,
                 F(1, PatchGrid * PatchGrid, VisionWidth)));
         var attentionKernel = Kernel(
-            "self_attention", attentionParameters, "vision.self-attention",
+            "self_attention", attentionParameters, Phi4VisionInstructionNames.Attention,
             new Dictionary<string, string> { ["heads"] = HeadCount.ToString() });
         var addParameters = Parameters(
             ("left", VmAccess.ReadOnly,
@@ -689,13 +736,13 @@ public sealed class Phi4D3D12VisionComponent : IDisposable
             ("input", VmAccess.ReadOnly, F(PatchGrid * PatchGrid, IntermediateWidth)),
             ("output", VmAccess.ReadWrite, F(PatchGrid * PatchGrid, IntermediateWidth)));
         var geluVisionKernel = Kernel(
-            "gelu_vision", geluVisionParameters, "vision.gelu-tanh");
+            "gelu_vision", geluVisionParameters, Phi4VisionInstructionNames.Gelu);
         var poolParameters = Parameters(
             ("input", VmAccess.ReadOnly,
                 F(1, PatchGrid, PatchGrid, VisionWidth)),
             ("output", VmAccess.ReadWrite,
                 F(1, CompressedGrid, CompressedGrid, VisionWidth)));
-        var poolKernel = Kernel("pool_2x2", poolParameters, "vision.pool-2x2");
+        var poolKernel = Kernel("pool_2x2", poolParameters, Phi4VisionInstructionNames.Pool2x2);
         var gatherParameters = Parameters(
             ("input", VmAccess.ReadOnly,
                 F(bucket.CropCount, CompressedGrid, CompressedGrid, VisionWidth)),
@@ -703,7 +750,7 @@ public sealed class Phi4D3D12VisionComponent : IDisposable
             ("sub_separator", VmAccess.ReadOnly, H(VisionWidth)),
             ("global_separator", VmAccess.ReadOnly, H(VisionWidth)),
             ("output", VmAccess.ReadWrite, F(bucket.ImageTokenCount, VisionWidth)));
-        var gatherKernel = Kernel("hd_gather", gatherParameters, "vision.hd-gather");
+        var gatherKernel = Kernel("hd_gather", gatherParameters, Phi4VisionInstructionNames.HdGather);
 
         var entryRanges = new List<(string Id, int Start, int Count)>();
         var pixelCropBytes = checked((ulong)(3 * CropSize * CropSize * sizeof(float)));
@@ -757,14 +804,16 @@ public sealed class Phi4D3D12VisionComponent : IDisposable
                     ("attn_v", "value"),
                 })
                 {
-                    Dispatch(
-                        visionLinear, DivideRoundUp((ulong)cropVisionValues, 64),
-                        SliceArguments(
-                            ("input", "normalized", visionOffset),
-                            ("weight", WeightSlot(prefix + name + ".weight"), 0),
-                            ("bias", WeightSlot(prefix + name + ".bias"), 0),
-                            ("output", destination, visionOffset)),
-                        destination);
+                    DispatchLinear(
+                        visionLinear,
+                        PatchGrid * PatchGrid,
+                        VisionWidth,
+                        "normalized",
+                        visionOffset,
+                        WeightSlot(prefix + name + ".weight"),
+                        WeightSlot(prefix + name + ".bias"),
+                        destination,
+                        visionOffset);
                 }
                 Dispatch(
                     attentionKernel,
@@ -776,14 +825,16 @@ public sealed class Phi4D3D12VisionComponent : IDisposable
                         ("mask", "mask", maskOffset),
                         ("output", "attention", visionOffset)),
                     "attention");
-                Dispatch(
-                    visionLinear, DivideRoundUp((ulong)cropVisionValues, 64),
-                    SliceArguments(
-                        ("input", "attention", visionOffset),
-                        ("weight", WeightSlot(prefix + "attn_out.weight"), 0),
-                        ("bias", WeightSlot(prefix + "attn_out.bias"), 0),
-                        ("output", "projected", visionOffset)),
-                    "projected");
+                DispatchLinear(
+                    visionLinear,
+                    PatchGrid * PatchGrid,
+                    VisionWidth,
+                    "attention",
+                    visionOffset,
+                    WeightSlot(prefix + "attn_out.weight"),
+                    WeightSlot(prefix + "attn_out.bias"),
+                    "projected",
+                    visionOffset);
                 Dispatch(
                     addKernel, DivideRoundUp((ulong)cropVisionValues, 64),
                     SliceArguments(
@@ -799,28 +850,32 @@ public sealed class Phi4D3D12VisionComponent : IDisposable
                         ("bias", WeightSlot(prefix + "ln2.bias"), 0),
                         ("output", "normalized", visionOffset)),
                     "normalized");
-                Dispatch(
-                    ffnUpLinear, DivideRoundUp((ulong)cropIntermediateValues, 64),
-                    SliceArguments(
-                        ("input", "normalized", visionOffset),
-                        ("weight", WeightSlot(prefix + "ffn_up.weight"), 0),
-                        ("bias", WeightSlot(prefix + "ffn_up.bias"), 0),
-                        ("output", "ffn_up", intermediateOffset)),
-                    "ffn_up");
+                DispatchLinear(
+                    ffnUpLinear,
+                    PatchGrid * PatchGrid,
+                    IntermediateWidth,
+                    "normalized",
+                    visionOffset,
+                    WeightSlot(prefix + "ffn_up.weight"),
+                    WeightSlot(prefix + "ffn_up.bias"),
+                    "ffn_up",
+                    intermediateOffset);
                 Dispatch(
                     geluVisionKernel, DivideRoundUp((ulong)cropIntermediateValues, 64),
                     SliceArguments(
                         ("input", "ffn_up", intermediateOffset),
                         ("output", "ffn_activated", intermediateOffset)),
                     "ffn_activated");
-                Dispatch(
-                    ffnDownLinear, DivideRoundUp((ulong)cropVisionValues, 64),
-                    SliceArguments(
-                        ("input", "ffn_activated", intermediateOffset),
-                        ("weight", WeightSlot(prefix + "ffn_down.weight"), 0),
-                        ("bias", WeightSlot(prefix + "ffn_down.bias"), 0),
-                        ("output", "projected", visionOffset)),
-                    "projected");
+                DispatchLinear(
+                    ffnDownLinear,
+                    PatchGrid * PatchGrid,
+                    VisionWidth,
+                    "ffn_activated",
+                    intermediateOffset,
+                    WeightSlot(prefix + "ffn_down.weight"),
+                    WeightSlot(prefix + "ffn_down.bias"),
+                    "projected",
+                    visionOffset);
                 Dispatch(
                     addKernel, DivideRoundUp((ulong)cropVisionValues, 64),
                     SliceArguments(
@@ -856,7 +911,8 @@ public sealed class Phi4D3D12VisionComponent : IDisposable
         entryRanges.Add(("hd_gather_entry", gatherStart, nodes.Count - gatherStart));
 
         const int projectorChunkSize = 32;
-        var projectorKernels = new Dictionary<int, (string Input, string Gelu, string Output)>();
+        var projectorKernels =
+            new Dictionary<int, (string Input, string Gelu, string Output)>();
         for (var token = 0; token < bucket.ImageTokenCount; token += projectorChunkSize)
         {
             var count = Math.Min(projectorChunkSize, bucket.ImageTokenCount - token);
@@ -868,7 +924,7 @@ public sealed class Phi4D3D12VisionComponent : IDisposable
                     ("input", VmAccess.ReadOnly, F(count, TextWidth)),
                     ("output", VmAccess.ReadWrite, F(count, TextWidth)));
                 var geluKernel = Kernel(
-                    $"gelu_projector_{count}", geluParameters, "vision.gelu-tanh");
+                    $"gelu_projector_{count}", geluParameters, Phi4VisionInstructionNames.Gelu);
                 var outputKernel = LinearKernel(
                     $"linear_projector_output_{count}", count, TextWidth, TextWidth);
                 kernels = (inputKernel, geluKernel, outputKernel);
@@ -878,28 +934,32 @@ public sealed class Phi4D3D12VisionComponent : IDisposable
             var hdOffset = checked((ulong)token * VisionWidth * sizeof(float));
             var projectedOffset = checked((ulong)token * TextWidth * sizeof(float));
             var values = checked((ulong)count * TextWidth);
-            Dispatch(
-                kernels.Input, DivideRoundUp(values, 64),
-                SliceArguments(
-                    ("input", "hd", hdOffset),
-                    ("weight", WeightSlot("mm.0.weight"), 0),
-                    ("bias", WeightSlot("mm.0.bias"), 0),
-                    ("output", "project_hidden", projectedOffset)),
-                "project_hidden");
+            DispatchLinear(
+                kernels.Input,
+                count,
+                TextWidth,
+                "hd",
+                hdOffset,
+                WeightSlot("mm.0.weight"),
+                WeightSlot("mm.0.bias"),
+                "project_hidden",
+                projectedOffset);
             Dispatch(
                 kernels.Gelu, DivideRoundUp(values, 64),
                 SliceArguments(
                     ("input", "project_hidden", projectedOffset),
                     ("output", "project_activated", projectedOffset)),
                 "project_activated");
-            Dispatch(
-                kernels.Output, DivideRoundUp(values, 64),
-                SliceArguments(
-                    ("input", "project_activated", projectedOffset),
-                    ("weight", WeightSlot("mm.2.weight"), 0),
-                    ("bias", WeightSlot("mm.2.bias"), 0),
-                    ("output", "output", projectedOffset)),
-                "output");
+            DispatchLinear(
+                kernels.Output,
+                count,
+                TextWidth,
+                "project_activated",
+                projectedOffset,
+                WeightSlot("mm.2.weight"),
+                WeightSlot("mm.2.bias"),
+                "output",
+                projectedOffset);
             entryRanges.Add((
                 $"project_{token}_{count}", start, nodes.Count - start));
         }
@@ -1074,7 +1134,7 @@ public sealed class Phi4D3D12VisionComponent : IDisposable
         }
     }
 
-    private sealed class VisionStorageHandle : IStorageHandle, IDisposable
+    private sealed class VisionStorageHandle : IVmBindableStorageHandle, IDisposable
     {
         private VmResourceLease? resource;
 
@@ -1105,6 +1165,12 @@ public sealed class Phi4D3D12VisionComponent : IDisposable
         public Phi4VisionBucket? Bucket { get; }
         public VmResourceLease Resource =>
             resource ?? throw new ObjectDisposedException(nameof(VisionStorageHandle));
+
+        public void Bind(VmBindings bindings, string slotId)
+        {
+            using var retained = Resource.Retain();
+            bindings.Bind(slotId, retained);
+        }
 
         public void Dispose() => Interlocked.Exchange(ref resource, null)?.Dispose();
     }

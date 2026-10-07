@@ -1,21 +1,16 @@
 using System.Globalization;
 using SharpInference.Graphs;
 using SharpInference.Instructions;
+using SharpInference.Instructions.Phi4;
 
-namespace SharpInference.Architectures.Phi4.D3D12;
+namespace SharpInference.Instructions.Phi4.D3D12;
 
-internal static class Phi4VisionInstructionCollectionIds
-{
-    public static readonly Guid VisionFloat32 = new("9757d3a4-a4d6-42d8-89e2-1333a38dca4b");
-}
-
-internal sealed class Phi4VisionInstructionCollection : IInstructionCollectionProvider
+public sealed class Phi4D3D12VisionInstructionCollection : IInstructionCollectionProvider
 {
     private readonly IReadOnlyDictionary<string, Instruction> instructions =
         new Instruction[]
         {
             new VisionPatchEmbeddingInstruction(),
-            new VisionLinearInstruction(),
             new VisionLayerNormInstruction(),
             new VisionAttentionInstruction(),
             new VisionGeluInstruction(),
@@ -24,11 +19,11 @@ internal sealed class Phi4VisionInstructionCollection : IInstructionCollectionPr
         }.ToDictionary(instruction => instruction.Name, StringComparer.Ordinal);
 
     public IReadOnlyList<InstructionCollectionDescription> QueryInstructionCollection() =>
-        [new(Phi4VisionInstructionCollectionIds.VisionFloat32,
-            "FP32 vision tensor operations", 1, InstructionTarget.Direct3D12)];
+        [new(Phi4InstructionCollectionIds.VisionFloat32,
+            "Phi-4 FP32 Vision operations", 1, InstructionTarget.Direct3D12)];
 
     public IReadOnlyList<Instruction> QueryInstruction(Guid collectionId, string instructionName) =>
-        collectionId == Phi4VisionInstructionCollectionIds.VisionFloat32 &&
+        collectionId == Phi4InstructionCollectionIds.VisionFloat32 &&
         instructions.TryGetValue(instructionName, out var instruction)
             ? [instruction]
             : [];
@@ -60,7 +55,7 @@ internal abstract class VisionInstruction(
         }
         """);
 
-    public override Guid CollectionId => Phi4VisionInstructionCollectionIds.VisionFloat32;
+    public override Guid CollectionId => Phi4InstructionCollectionIds.VisionFloat32;
     public override string Name => name;
     public override InstructionTarget Target => InstructionTarget.Direct3D12;
     public override IReadOnlyList<InstructionSignature> Signatures { get; } =
@@ -81,7 +76,7 @@ internal abstract class VisionInstruction(
         if (!int.TryParse(attributes[name], NumberStyles.None, CultureInfo.InvariantCulture, out var value) ||
             value <= 0)
             throw new InstructionAdaptationException(
-                Phi4VisionInstructionCollectionIds.VisionFloat32, name,
+                Phi4InstructionCollectionIds.VisionFloat32, name,
                 $"Attribute '{name}' must be a positive integer.");
         return value;
     }
@@ -91,7 +86,7 @@ internal abstract class VisionInstruction(
 }
 
 internal sealed class VisionPatchEmbeddingInstruction() : VisionInstruction(
-    "vision.patch-embedding",
+    Phi4VisionInstructionNames.PatchEmbedding,
     [
         new("pixels", GraphElementType.Float32, GraphResourceAccess.Read),
         new("mask", GraphElementType.Float32, GraphResourceAccess.Read),
@@ -164,49 +159,8 @@ internal sealed class VisionPatchEmbeddingInstruction() : VisionInstruction(
     }
 }
 
-internal sealed class VisionLinearInstruction() : VisionInstruction(
-    "vision.linear",
-    [
-        new("input", GraphElementType.Float32, GraphResourceAccess.Read),
-        new("weight", GraphElementType.Float16, GraphResourceAccess.Read),
-        new("bias", GraphElementType.Float16, GraphResourceAccess.Read),
-        new("output", GraphElementType.Float32, GraphResourceAccess.Write),
-    ])
-{
-    protected override InstructionRecording Generate(InstructionParameter[] parameters)
-    {
-        var tensors = Tensors(parameters);
-        var input = tensors["input"];
-        var weight = tensors["weight"];
-        var bias = tensors["bias"];
-        var output = tensors["output"];
-        var inputWidth = weight.Tensor.Dimensions[1];
-        var outputWidth = weight.Tensor.Dimensions[0];
-        var count = output.Tensor.Dimensions.Aggregate(
-            1UL, (product, dimension) => checked(product * (ulong)dimension));
-        var source = $$"""
-            {
-                uint group=gpu.groupId.x+gpu.groupId.y*gpu.groupCount.x;
-                uint i=group*64u+gpu.groupIndex;
-                if(i<{{count}}u) {
-                    uint row=i/{{outputWidth}}u;
-                    uint destination=i%{{outputWidth}}u;
-                    precise float sum=visionLoad16({{Buffer(bias)}},{{Offset(bias)}},destination);
-                    for(uint sourceIndex=0u;sourceIndex<{{inputWidth}}u;sourceIndex++)
-                        sum+=visionLoad32({{Buffer(input)}},{{Offset(input)}},
-                            row*{{inputWidth}}u+sourceIndex)*
-                            visionLoad16({{Buffer(weight)}},{{Offset(weight)}},
-                                destination*{{inputWidth}}u+sourceIndex);
-                    visionStore32({{Buffer(output)}},{{Offset(output)}},i,sum);
-                }
-            }
-            """;
-        return new(source, [LoadStoreHelper]);
-    }
-}
-
 internal sealed class VisionLayerNormInstruction() : VisionInstruction(
-    "vision.layer-norm",
+    Phi4VisionInstructionNames.LayerNorm,
     [
         new("input", GraphElementType.Float32, GraphResourceAccess.Read),
         new("weight", GraphElementType.Float16, GraphResourceAccess.Read),
@@ -281,7 +235,7 @@ internal sealed class VisionLayerNormInstruction() : VisionInstruction(
 }
 
 internal sealed class VisionAttentionInstruction() : VisionInstruction(
-    "vision.self-attention",
+    Phi4VisionInstructionNames.Attention,
     [
         new("query", GraphElementType.Float32, GraphResourceAccess.Read),
         new("key", GraphElementType.Float32, GraphResourceAccess.Read),
@@ -343,6 +297,7 @@ internal sealed class VisionAttentionInstruction() : VisionInstruction(
                         GroupMemoryBarrierWithGroupSync();
                     }
                     precise float maximum=visionReduction[0];
+                    GroupMemoryBarrierWithGroupSync();
                     precise float localDenominator=0.0f;
                     for(uint sourceToken=lane;sourceToken<{{tokens}}u;sourceToken+=64u) {
                         precise float probability=
@@ -386,7 +341,7 @@ internal sealed class VisionAttentionInstruction() : VisionInstruction(
 }
 
 internal sealed class VisionGeluInstruction() : VisionInstruction(
-    "vision.gelu-tanh",
+    Phi4VisionInstructionNames.Gelu,
     [
         new("input", GraphElementType.Float32, GraphResourceAccess.Read),
         new("output", GraphElementType.Float32, GraphResourceAccess.Write),
@@ -416,7 +371,7 @@ internal sealed class VisionGeluInstruction() : VisionInstruction(
 }
 
 internal sealed class VisionPool2x2Instruction() : VisionInstruction(
-    "vision.pool-2x2",
+    Phi4VisionInstructionNames.Pool2x2,
     [
         new("input", GraphElementType.Float32, GraphResourceAccess.Read),
         new("output", GraphElementType.Float32, GraphResourceAccess.Write),
@@ -461,7 +416,7 @@ internal sealed class VisionPool2x2Instruction() : VisionInstruction(
 }
 
 internal sealed class VisionHdGatherInstruction() : VisionInstruction(
-    "vision.hd-gather",
+    Phi4VisionInstructionNames.HdGather,
     [
         new("input", GraphElementType.Float32, GraphResourceAccess.Read),
         new("mapping", GraphElementType.Int32, GraphResourceAccess.Read),

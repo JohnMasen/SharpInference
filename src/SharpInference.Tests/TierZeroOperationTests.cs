@@ -18,13 +18,14 @@ public sealed class TierZeroOperationTests
     public void CatalogHasOneCommonVersionedProfileAndImmutableSignatures()
     {
         Assert.Equal("core.t0.fp32@1", TierZeroOperationContracts.Profile);
-        Assert.Equal(25, TierZeroOperationContracts.Contracts.Count);
+        Assert.Equal(28, TierZeroOperationContracts.Contracts.Count);
         Assert.Equal(23, TierZeroOperationContracts.RequiredContracts.Count);
-        Assert.Equal(28, Signatures().Count());
+        Assert.Equal(35, Signatures().Count());
         var providers = SharpInference.Runtime.DefaultInstructionCollections.Create();
         Assert.Equal(new CpuVmCompiler(providers).InstructionCollections.QueryInstructionCollection(),
             new D3D12VmCompiler(providers).InstructionCollections.QueryInstructionCollection());
-        Assert.Equal(["core.divide", "core.reduce-sum"],
+        Assert.Equal(
+            ["core.divide", "core.reduce-sum", "core.matrix-multiply", "core.bias-add", "core.affine"],
             TierZeroOperationContracts.Contracts.Where(contract => !contract.RequiredByRwkv)
                 .Select(contract => contract.Operation.Name));
         Assert.All(TierZeroOperationContracts.Contracts, contract =>
@@ -327,6 +328,36 @@ public sealed class TierZeroOperationTests
                 expected = Enumerable.Range(0, batched ? 6 : 3).Select(row =>
                     Enumerable.Range(0, 5).Sum(column =>
                         inputs[0].Values[row * 5 + column] * inputs[1].Values[(batched ? row / 3 * 5 : 0) + column])).ToArray(); break;
+            case "core.matrix-multiply":
+            case "core.affine":
+                Input("left", [2, 3], Values(6));
+                Input("right", [4, 3], Values(12));
+                if (operation == "core.affine") Input("bias", [4], Values(4));
+                outputShape = [2, 4];
+                attributes = new Dictionary<string, string>
+                {
+                    ["transpose_left"] = "false",
+                    ["transpose_right"] = "true",
+                };
+                expected = Enumerable.Range(0, 8).Select(element =>
+                {
+                    var row = element / 4;
+                    var column = element % 4;
+                    var value = Enumerable.Range(0, 3).Sum(index =>
+                        inputs[0].Values[row * 3 + index] *
+                        inputs[1].Values[column * 3 + index]);
+                    return operation == "core.affine"
+                        ? value + inputs[2].Values[column]
+                        : value;
+                }).ToArray();
+                break;
+            case "core.bias-add":
+                Input("input", [2, 3], Values(6));
+                Input("bias", [3], Values(3));
+                outputShape = [2, 3];
+                expected = inputs[0].Values.Select((value, index) =>
+                    value + inputs[1].Values[index % 3]).ToArray();
+                break;
             case "core.gather-row":
                 Input("table", [7, 5], Values(35)); Input("index", [1], [6]);
                 outputShape = [5]; expected = inputs[0].Values.Skip(30).ToArray(); break;

@@ -4,6 +4,8 @@ using SharpInference.Backends.D3D12Vm;
 using SharpInference.Gguf;
 using SharpInference.Graphs;
 using SharpInference.Instructions;
+using SharpInference.Instructions.Phi4;
+using SharpInference.Instructions.Phi4.D3D12;
 using SharpInference.Runtime;
 using SharpInference.Vm;
 using Vortice.Direct3D12;
@@ -56,7 +58,7 @@ public sealed class Phi4D3D12AudioComponent : IDisposable
             ownsPool = true;
             Domain = new StorageDomain(
                 "d3d12", $"{name}:{adapterIndex}", $"phi4-audio-{componentId:N}");
-            var build = Build(package.Omni, FrameBucket);
+            var build = Build(package.Omni, FrameBucket, VmTarget.Direct3D12);
             initializers = build.Initializers.ToDictionary(
                 value => value.Slot, value => value.Bytes, StringComparer.Ordinal);
             resources = new VmResourceManager(InitializeGlobal, pool.Allocate);
@@ -81,7 +83,7 @@ public sealed class Phi4D3D12AudioComponent : IDisposable
         Domain = domain ?? throw new ArgumentNullException(nameof(domain));
         FrameBucket = GetFrameBucket(maximumFrames);
         TokenBucket = DivideRoundUp(FrameBucket, 8);
-        var build = Build(package.Omni, FrameBucket);
+        var build = Build(package.Omni, FrameBucket, VmTarget.Direct3D12);
         initializers = build.Initializers.ToDictionary(
             value => value.Slot, value => value.Bytes, StringComparer.Ordinal);
         resources = new VmResourceManager(InitializeGlobal, pool.Allocate);
@@ -198,8 +200,7 @@ public sealed class Phi4D3D12AudioComponent : IDisposable
         {
             ObjectDisposedException.ThrowIf(disposed, this);
             var handle = RequireOutputHandle(output);
-            using var retained = handle.Resource.Retain();
-            bindings.Bind(slotId, retained);
+            handle.Bind(bindings, slotId);
         }
     }
 
@@ -251,7 +252,7 @@ public sealed class Phi4D3D12AudioComponent : IDisposable
     {
         var providers = DefaultInstructionCollections.Create()
             .Append<IInstructionCollectionProvider>(
-                new Phi4D3D12ConformerInstructionCollection());
+                new Phi4D3D12AudioInstructionCollection());
         var artifact = new D3D12VmCompiler(providers).Compile(program);
         return new(this, artifact);
     }
@@ -322,7 +323,7 @@ public sealed class Phi4D3D12AudioComponent : IDisposable
     private static IStorageLease CreateLease(AudioStorageHandle handle) =>
         StorageLease.Create(handle, released => ((AudioStorageHandle)released).Dispose());
 
-    private static BuildResult Build(GgufModelFile omni, int frames)
+    internal static BuildResult Build(GgufModelFile omni, int frames, VmTarget target)
     {
         const int heads = 16;
         const int intermediate = 1536;
@@ -386,7 +387,7 @@ public sealed class Phi4D3D12AudioComponent : IDisposable
             Guid? collection = null,
             InstructionExecutionConfiguration? configuration = null) =>
             new(new(GraphElementType.Float32, GraphElementType.Float32),
-                collection ?? Phi4D3D12ConformerInstructionIds.Collection,
+                collection ?? Phi4InstructionCollectionIds.AudioFloat32,
                 name,
                 parameters.Select(parameter => new VmArgument(parameter.Name, parameter.Name)),
                 attributes,
@@ -395,14 +396,15 @@ public sealed class Phi4D3D12AudioComponent : IDisposable
             string name,
             VmParameter[] parameters,
             VmOperator operation,
-            uint threads = 64)
+            VmThreadGroup? threads = null)
         {
+            var threadGroup = threads ?? new(64);
             var key = string.Join(
                 "|",
                 name,
                 operation.InstructionCollectionId,
                 operation.InstructionName,
-                threads,
+                threadGroup,
                 string.Join(";", parameters.Select(parameter =>
                     $"{parameter.Name}:{parameter.Access}:{parameter.Tensor.ElementType}:" +
                     string.Join(",", parameter.Tensor.Dimensions))),
@@ -412,9 +414,13 @@ public sealed class Phi4D3D12AudioComponent : IDisposable
             if (kernelCache.TryGetValue(key, out var existing))
                 return existing;
             var id = $"{name}_{kernelIndex++}";
-            definitions.Add(new(
-                id, VmDefinitionKind.Kernel, parameters,
-                [new("body", operation)], new(threads)));
+            definitions.Add(target == VmTarget.Direct3D12
+                ? new(
+                    id, VmDefinitionKind.Kernel, parameters,
+                    [new("body", operation)], threadGroup)
+                : new(
+                    id, VmDefinitionKind.Function, parameters,
+                    [new("body", operation)]));
             kernelCache.Add(key, id);
             return id;
         }
@@ -427,11 +433,20 @@ public sealed class Phi4D3D12AudioComponent : IDisposable
             var dispatchId = $"dispatch_{nodeIndex++}";
             nodes.Add(new(
                 dispatchId,
-                new VmDispatch(kernel, arguments, groups),
+                target == VmTarget.Direct3D12
+                    ? new VmDispatch(kernel, arguments, groups)
+                    : new VmCall(kernel, arguments),
                 previousNode is null ? [] : [previousNode]));
-            var barrierId = $"barrier_{nodeIndex++}";
-            nodes.Add(new(barrierId, new VmBarrier(writes), [dispatchId]));
-            previousNode = barrierId;
+            if (target == VmTarget.Direct3D12)
+            {
+                var barrierId = $"barrier_{nodeIndex++}";
+                nodes.Add(new(barrierId, new VmBarrier(writes), [dispatchId]));
+                previousNode = barrierId;
+            }
+            else
+            {
+                previousNode = dispatchId;
+            }
         }
         static IReadOnlyDictionary<string, string> Attr(
             params (string Name, object Value)[] values) =>
@@ -483,7 +498,7 @@ public sealed class Phi4D3D12AudioComponent : IDisposable
         var normalizeKernel = Kernel(
             "normalize_features",
             normalizeParameters,
-            Operation("conformer.normalize-features", normalizeParameters,
+            Operation(Phi4AudioInstructionNames.NormalizeFeatures, normalizeParameters,
                 Attr(("frames", frames), ("features", FeatureCount))));
         Dispatch(
             normalizeKernel,
@@ -522,7 +537,7 @@ public sealed class Phi4D3D12AudioComponent : IDisposable
             var kernel = Kernel(
                 "conv2d",
                 parameters,
-                Operation("conformer.conv2d", parameters,
+                Operation(Phi4AudioInstructionNames.Conv2D, parameters,
                     Attr(
                         ("input_height", inputHeight), ("input_width", inputWidth),
                         ("input_channels", inputChannels), ("output_height", outputHeight),
@@ -567,7 +582,7 @@ public sealed class Phi4D3D12AudioComponent : IDisposable
             var kernel = Kernel(
                 "bias_activation",
                 parameters,
-                Operation("conformer.bias-activation", parameters,
+                Operation(Phi4AudioInstructionNames.BiasActivation, parameters,
                     Attr(("count", count), ("width", width), ("activation", activation))));
             Dispatch(
                 kernel,
@@ -599,7 +614,7 @@ public sealed class Phi4D3D12AudioComponent : IDisposable
         var flattenKernel = Kernel(
             "flatten_subsampling",
             flattenParameters,
-            Operation("conformer.flatten-subsampling", flattenParameters,
+            Operation(Phi4AudioInstructionNames.FlattenSubsampling, flattenParameters,
                 Attr(("tokens", tokens), ("frequency", 10), ("channels", AudioWidth))));
         Dispatch(
             flattenKernel,
@@ -607,24 +622,50 @@ public sealed class Phi4D3D12AudioComponent : IDisposable
             Arguments(("input", "subsample_3", 0), ("output", "flattened", 0)),
             "flattened");
 
-        var matVecKernels = new Dictionary<(int Input, int Output, VmElementType Type), string>();
-        string MatVecKernel(int inputWidth, int outputWidth, VmElementType weightType)
+        var matrixMultiplyKernels =
+            new Dictionary<
+                (int Rows, int Input, int Output, VmElementType Type, bool Affine),
+                string>();
+        string MatrixMultiplyKernel(
+            int rows,
+            int inputWidth,
+            int outputWidth,
+            VmElementType weightType,
+            bool affine)
         {
-            if (matVecKernels.TryGetValue((inputWidth, outputWidth, weightType), out var existing))
+            if (matrixMultiplyKernels.TryGetValue(
+                    (rows, inputWidth, outputWidth, weightType, affine), out var existing))
                 return existing;
-            var parameters = Parameters(
-                ("weight", VmAccess.ReadOnly,
+            var parameterList = new List<VmParameter>
+            {
+                new("left", VmAccess.ReadOnly, F(rows, inputWidth)),
+                new("right", VmAccess.ReadOnly,
                     new VmTensor(weightType, [outputWidth, inputWidth])),
-                ("input", VmAccess.ReadOnly, F(inputWidth)),
-                ("output", VmAccess.ReadWrite, F(outputWidth)));
+            };
+            if (affine)
+                parameterList.Add(new("bias", VmAccess.ReadOnly, F(outputWidth)));
+            parameterList.Add(new("output", VmAccess.ReadWrite, F(rows, outputWidth)));
+            var parameters = parameterList.ToArray();
             var operation = new VmOperator(
                 new(GraphElementType.Float32, GraphElementType.Float32),
                 InstructionCollectionIds.TierZeroFloat32,
-                "core.mat-vec",
+                affine ? "core.affine" : "core.matrix-multiply",
                 parameters.Select(parameter => new VmArgument(parameter.Name, parameter.Name)),
-                executionConfiguration: GpuMatVecExecution.Cooperative);
-            var kernel = Kernel("matvec", parameters, operation);
-            matVecKernels.Add((inputWidth, outputWidth, weightType), kernel);
+                new Dictionary<string, string>
+                {
+                    ["transpose_left"] = "false",
+                    ["transpose_right"] = "true",
+                },
+                executionConfiguration: target == VmTarget.Direct3D12
+                    ? GpuMatrixMultiplyExecution.Tiled
+                    : null);
+            var kernel = Kernel(
+                affine ? "affine" : "matrix_multiply",
+                parameters,
+                operation,
+                target == VmTarget.Direct3D12 ? new(8, 8) : null);
+            matrixMultiplyKernels.Add(
+                (rows, inputWidth, outputWidth, weightType, affine), kernel);
             return kernel;
         }
 
@@ -641,24 +682,31 @@ public sealed class Phi4D3D12AudioComponent : IDisposable
             var weightType = tensor.Type == GgufModelTensorType.Float16
                 ? VmElementType.Float16
                 : VmElementType.Float32;
-            var kernel = MatVecKernel(inputWidth, outputWidth, weightType);
+            var affine = activation == "none";
+            var kernel = MatrixMultiplyKernel(
+                rows, inputWidth, outputWidth, weightType, affine);
             var weight = Weight(tensor.Name, matrix: true);
-            var groups = GpuMatVecExecution.Groups((ulong)outputWidth);
-            for (var row = 0; row < rows; row++)
-                Dispatch(
-                    kernel,
-                    new(groups.X, groups.Y),
-                    Arguments(
-                        ("weight", weight, 0),
-                        ("input", source, checked((ulong)(row * inputWidth * sizeof(float)))),
-                        ("output", destination, checked((ulong)(row * outputWidth * sizeof(float))))),
-                    destination);
-            BiasActivation(
-                destination,
-                Weight(prefix + ".bias"),
-                outputWidth,
-                checked(rows * outputWidth),
-                activation);
+            var groups = GpuMatrixMultiplyExecution.TileGroups(rows, outputWidth);
+            var arguments = new List<(string Parameter, string Source, ulong Offset)>
+            {
+                ("left", source, 0),
+                ("right", weight, 0),
+            };
+            if (affine)
+                arguments.Add(("bias", Weight(prefix + ".bias"), 0));
+            arguments.Add(("output", destination, 0));
+            Dispatch(
+                kernel,
+                new(groups.X, groups.Y),
+                Arguments(arguments.ToArray()),
+                destination);
+            if (!affine)
+                BiasActivation(
+                    destination,
+                    Weight(prefix + ".bias"),
+                    outputWidth,
+                    checked(rows * outputWidth),
+                    activation);
         }
 
         void LayerNorm(string source, string destination, string prefix)
@@ -671,7 +719,7 @@ public sealed class Phi4D3D12AudioComponent : IDisposable
             var kernel = Kernel(
                 "layer_norm",
                 parameters,
-                Operation("conformer.layer-norm", parameters,
+                Operation(Phi4AudioInstructionNames.LayerNorm, parameters,
                     Attr(("rows", tokens), ("width", AudioWidth), ("epsilon", 1e-5f))));
             Dispatch(
                 kernel,
@@ -694,7 +742,7 @@ public sealed class Phi4D3D12AudioComponent : IDisposable
             var kernel = Kernel(
                 "residual",
                 parameters,
-                Operation("conformer.residual", parameters,
+                Operation(Phi4AudioInstructionNames.Residual, parameters,
                     Attr(("count", count), ("scale", scale))));
             Dispatch(
                 kernel,
@@ -720,7 +768,7 @@ public sealed class Phi4D3D12AudioComponent : IDisposable
             var kernel = Kernel(
                 "swi_glu",
                 parameters,
-                Operation("conformer.swi-glu", parameters,
+                Operation(Phi4AudioInstructionNames.SwiGlu, parameters,
                     Attr(("rows", tokens), ("width", intermediate))));
             Dispatch(
                 kernel,
@@ -761,13 +809,15 @@ public sealed class Phi4D3D12AudioComponent : IDisposable
             var attentionKernel = Kernel(
                 "relative_attention",
                 attentionParameters,
-                Operation("conformer.relative-attention", attentionParameters,
+                Operation(Phi4AudioInstructionNames.RelativeAttention, attentionParameters,
                     Attr(
                         ("tokens", tokens), ("width", AudioWidth),
                         ("heads", heads), ("subsampling", 8))));
+            var attentionGroups = GpuMatVecExecution.Groups(
+                checked((ulong)tokens * (ulong)heads));
             Dispatch(
                 attentionKernel,
-                Grid(tokens * AudioWidth),
+                new(attentionGroups.X, attentionGroups.Y),
                 Arguments(
                     ("query", "query", 0),
                     ("key", "key", 0),
@@ -791,7 +841,7 @@ public sealed class Phi4D3D12AudioComponent : IDisposable
             var convGluKernel = Kernel(
                 "conv_glu",
                 convGluParameters,
-                Operation("conformer.swi-glu", convGluParameters,
+                Operation(Phi4AudioInstructionNames.SwiGlu, convGluParameters,
                     Attr(("rows", tokens), ("width", AudioWidth))));
             Dispatch(
                 convGluKernel,
@@ -838,7 +888,7 @@ public sealed class Phi4D3D12AudioComponent : IDisposable
             var kernel = Kernel(
                 "conv1d",
                 parameters,
-                Operation("conformer.conv1d", parameters,
+                Operation(Phi4AudioInstructionNames.Conv1D, parameters,
                     Attr(
                         ("input_length", length), ("input_channels", inputChannels),
                         ("output_length", outputLength), ("output_channels", outputChannels),
@@ -917,7 +967,7 @@ public sealed class Phi4D3D12AudioComponent : IDisposable
             new VmProgram(
                 $"phi4-audio-{frames}",
                 "phi4.audio.d3d12",
-                VmTarget.Direct3D12,
+                target,
                 slots,
                 definitions,
                 entries,
@@ -1054,7 +1104,7 @@ public sealed class Phi4D3D12AudioComponent : IDisposable
         }
     }
 
-    private sealed class AudioStorageHandle : IPhi4AudioEmbeddingHandle, IDisposable
+    private sealed class AudioStorageHandle : IPhi4AudioEmbeddingHandle, IVmBindableStorageHandle, IDisposable
     {
         private VmResourceLease? resource;
 
@@ -1092,10 +1142,16 @@ public sealed class Phi4D3D12AudioComponent : IDisposable
         public VmResourceLease Resource =>
             resource ?? throw new ObjectDisposedException(nameof(AudioStorageHandle));
 
+        public void Bind(VmBindings bindings, string slotId)
+        {
+            using var retained = Resource.Retain();
+            bindings.Bind(slotId, retained);
+        }
+
         public void Dispose() =>
             Interlocked.Exchange(ref resource, null)?.Dispose();
     }
 
-    private sealed record Initializer(string Slot, byte[] Bytes);
-    private sealed record BuildResult(VmProgram Program, IReadOnlyList<Initializer> Initializers);
+    internal sealed record Initializer(string Slot, byte[] Bytes);
+    internal sealed record BuildResult(VmProgram Program, IReadOnlyList<Initializer> Initializers);
 }

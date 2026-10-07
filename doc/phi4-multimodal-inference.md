@@ -176,14 +176,66 @@ scheduling and CPU preprocessing overlap, but the vision and audio GPU queues
 do not yet execute concurrently. Each component remains independently
 bucketed and optimizable.
 
-A heterogeneous image+audio schedule is possible: run the vision encoder on
-GPU while running the audio encoder on CPU, then upload the much smaller
-projected audio tensor into the D3D12 fusion domain. This can reduce latency
-when CPU audio finishes no later than GPU vision and the saved serialized GPU
-audio time exceeds the final embedding upload. Running vision on CPU is
-generally unattractive because the CPU SigLIP path is substantially slower.
-The current multimodal session does not automatically choose a heterogeneous
-schedule; it keeps both encoders on D3D12 for predictable zero-copy behavior.
+A heterogeneous image+audio schedule is available by constructing
+`Phi4D3D12MultimodalSession` with
+`audioBackend: Phi4AudioExecutionBackend.Cpu`. Vision remains on D3D12 while
+the CPU VM Conformer and projector execute in parallel. The projected
+audio tensor is published in a host `StorageDomain`; the logical resource
+manager stages it exactly once into the Fusion D3D12 domain. The default
+remains `Phi4AudioExecutionBackend.D3D12`.
+
+Phi-4 model operations use dedicated instruction collections in
+`SharpInference.Instructions.Phi4`. The Audio VM builder emits the same
+`phi4.audio.*` semantics for both targets: CPU programs use functions and
+calls supplied by `SharpInference.Instructions.Phi4.Cpu`, while D3D12 programs
+use kernels and dispatches supplied by `SharpInference.Instructions.Phi4.D3D12`.
+The CPU path therefore uses the standard VM compiler and backend rather than
+calling the native/reference embedding provider.
+
+Instruction semantics are layered by meaning rather than model usage:
+
+- Tier Zero provides `core.matrix-multiply`, `core.bias-add`, and the fused
+  mathematical `core.affine` operation. Audio uses one matrix multiplication
+  for all tokens instead of expanding the operation into one MatVec dispatch
+  per token. D3D12 Audio and Vision select an 8x8 shared-memory tiled execution
+  configuration, while unconfigured programs retain the portable serial
+  implementation. Vision projections use `core.affine`; there is no
+  `phi4.vision.linear` instruction. Audio linears without an activation also
+  use `core.affine`, avoiding a separate bias dispatch.
+- Transformer instructions provide model-independent algorithms such as
+  `transformer.grouped-query-attention`. Decoder token generation uses this
+  fused GQA operation instead of materializing separate score and probability
+  tensors.
+- The Phi-4 collections retain operations with Phi-4-specific layouts or
+  behavior, including Audio relative attention, feature subsampling, and
+  Vision HD gathering. D3D12 Audio relative attention assigns one workgroup to
+  each token/head, computes QK and softmax once in group-shared memory, and
+  reuses those probabilities for every channel in the head.
+
+### VM resource connections
+
+The runtime exposes VM component input/output metadata separately from the
+existing `VmProgram` ABI. `VmConnectionRegistry` permits one output port to
+feed multiple read-only input ports, rejects duplicate input producers and
+cycles, and does not permit input ports to become alias sources.
+
+`LogicalVmResourceManager` publishes an immutable logical value for each
+completed output. It retains one physical replica per `StorageDomain`;
+same-domain consumers bind the resident resource directly, while the first
+consumer in another domain invokes `IStorageTransferService`. Concurrent and
+later consumers in that domain reuse the cached replica, so multicast causes
+at most one transfer per target domain. `PrepareBindingsAsync` resolves the
+registered producer, acquires the appropriate replica, and binds it to the
+consumer VM slot before execution. Phi-4 resident handles implement the
+generic bindable-storage contract, while their existing `BindOutput` methods
+remain compatibility wrappers.
+
+The multimodal session publishes Vision and Audio outputs as logical resource
+values, Fusion resolves and binds those values, and the fused output is
+published again for the Decoder. This removes component-specific binding from
+the orchestration path. D3D12 resources remain resident when domains match;
+CPU Audio uses `HostMemoryStorageAdapter` and
+`Phi4D3D12StorageAdapter` for the single projected-embedding upload.
 
 Fused prefill uses true 16-token batched projections, RMSNorm, RoPE/KV writes,
 GQA attention, SwiGLU, residuals, and LoRA updates. A tail chunk carries a

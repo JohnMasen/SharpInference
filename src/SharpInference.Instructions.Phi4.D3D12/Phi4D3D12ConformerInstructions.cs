@@ -1,22 +1,18 @@
 using System.Globalization;
 using SharpInference.Graphs;
 using SharpInference.Instructions;
+using SharpInference.Instructions.Phi4;
 
-namespace SharpInference.Architectures.Phi4.D3D12;
+namespace SharpInference.Instructions.Phi4.D3D12;
 
-internal static class Phi4D3D12ConformerInstructionIds
-{
-    public static readonly Guid Collection = new("6c4a8c67-0fd8-4a7d-9e99-f5369584e7df");
-}
-
-internal sealed class Phi4D3D12ConformerInstructionCollection : IInstructionCollectionProvider
+public sealed class Phi4D3D12AudioInstructionCollection : IInstructionCollectionProvider
 {
     private readonly IReadOnlyDictionary<string, Instruction> instructions =
         new Instruction[]
         {
             new NormalizeFeaturesInstruction(),
-            new ConvolutionInstruction("conformer.conv1d", dimensions: 1),
-            new ConvolutionInstruction("conformer.conv2d", dimensions: 2),
+            new ConvolutionInstruction(Phi4AudioInstructionNames.Conv1D, dimensions: 1),
+            new ConvolutionInstruction(Phi4AudioInstructionNames.Conv2D, dimensions: 2),
             new FlattenSubsamplingInstruction(),
             new LayerNormInstruction(),
             new BiasActivationInstruction(),
@@ -26,11 +22,11 @@ internal sealed class Phi4D3D12ConformerInstructionCollection : IInstructionColl
         }.ToDictionary(value => value.Name, StringComparer.Ordinal);
 
     public IReadOnlyList<InstructionCollectionDescription> QueryInstructionCollection() =>
-        [new(Phi4D3D12ConformerInstructionIds.Collection,
-            "Generic FP32 Conformer operations", 2, InstructionTarget.Direct3D12)];
+        [new(Phi4InstructionCollectionIds.AudioFloat32,
+            "Phi-4 FP32 Audio operations", 2, InstructionTarget.Direct3D12)];
 
     public IReadOnlyList<Instruction> QueryInstruction(Guid collectionId, string instructionName) =>
-        collectionId == Phi4D3D12ConformerInstructionIds.Collection &&
+        collectionId == Phi4InstructionCollectionIds.AudioFloat32 &&
         instructions.TryGetValue(instructionName, out var instruction)
             ? [instruction]
             : [];
@@ -44,7 +40,7 @@ internal abstract class ConformerInstruction(
     private static readonly KernelPrecisionProfile Precision =
         new(GraphElementType.Float32, GraphElementType.Float32);
 
-    public override Guid CollectionId => Phi4D3D12ConformerInstructionIds.Collection;
+    public override Guid CollectionId => Phi4InstructionCollectionIds.AudioFloat32;
     public override string Name => name;
     public override InstructionTarget Target => InstructionTarget.Direct3D12;
     public override IReadOnlyList<InstructionSignature> Signatures { get; } =
@@ -65,7 +61,7 @@ internal abstract class ConformerInstruction(
         if (!int.TryParse(attributes[name], NumberStyles.None, CultureInfo.InvariantCulture, out var value) ||
             value <= 0)
             throw new InstructionAdaptationException(
-                Phi4D3D12ConformerInstructionIds.Collection, name,
+                Phi4InstructionCollectionIds.AudioFloat32, name,
                 $"Attribute '{name}' must be a positive integer.");
         return value;
     }
@@ -77,7 +73,7 @@ internal abstract class ConformerInstruction(
         if (!int.TryParse(attributes[name], NumberStyles.None, CultureInfo.InvariantCulture, out var value) ||
             value < 0)
             throw new InstructionAdaptationException(
-                Phi4D3D12ConformerInstructionIds.Collection, name,
+                Phi4InstructionCollectionIds.AudioFloat32, name,
                 $"Attribute '{name}' must be a non-negative integer.");
         return value;
     }
@@ -91,7 +87,7 @@ internal abstract class ConformerInstruction(
             !float.IsFinite(value) ||
             value <= 0)
             throw new InstructionAdaptationException(
-                Phi4D3D12ConformerInstructionIds.Collection, name,
+                Phi4InstructionCollectionIds.AudioFloat32, name,
                 $"Attribute '{name}' must be finite and positive.");
         return value;
     }
@@ -124,7 +120,7 @@ internal abstract class ConformerInstruction(
 }
 
 internal sealed class NormalizeFeaturesInstruction() : ConformerInstruction(
-    "conformer.normalize-features",
+    Phi4AudioInstructionNames.NormalizeFeatures,
     [
         new("input", GraphElementType.Float32, GraphResourceAccess.Read),
         new("mean", GraphElementType.Float32, GraphResourceAccess.Read),
@@ -269,7 +265,7 @@ internal sealed class ConvolutionInstruction(string name, int dimensions) : Conf
 }
 
 internal sealed class FlattenSubsamplingInstruction() : ConformerInstruction(
-    "conformer.flatten-subsampling",
+    Phi4AudioInstructionNames.FlattenSubsampling,
     [
         new("input", GraphElementType.Float32, GraphResourceAccess.Read),
         new("output", GraphElementType.Float32, GraphResourceAccess.Write),
@@ -301,7 +297,7 @@ internal sealed class FlattenSubsamplingInstruction() : ConformerInstruction(
 }
 
 internal sealed class LayerNormInstruction() : ConformerInstruction(
-    "conformer.layer-norm",
+    Phi4AudioInstructionNames.LayerNorm,
     [
         new("input", GraphElementType.Float32, GraphResourceAccess.Read),
         new("weight", GraphElementType.Float32, GraphResourceAccess.Read),
@@ -357,7 +353,7 @@ internal sealed class LayerNormInstruction() : ConformerInstruction(
 }
 
 internal sealed class BiasActivationInstruction() : ConformerInstruction(
-    "conformer.bias-activation",
+    Phi4AudioInstructionNames.BiasActivation,
     [
         new("input", GraphElementType.Float32, GraphResourceAccess.Read),
         new("bias", GraphElementType.Float32, GraphResourceAccess.Read),
@@ -397,7 +393,7 @@ internal sealed class BiasActivationInstruction() : ConformerInstruction(
 }
 
 internal sealed class SwiGluInstruction() : ConformerInstruction(
-    "conformer.swi-glu",
+    Phi4AudioInstructionNames.SwiGlu,
     [
         new("input", GraphElementType.Float32, GraphResourceAccess.Read),
         new("bias_first", GraphElementType.Float32, GraphResourceAccess.Read),
@@ -432,7 +428,7 @@ internal sealed class SwiGluInstruction() : ConformerInstruction(
 }
 
 internal sealed class ResidualInstruction() : ConformerInstruction(
-    "conformer.residual",
+    Phi4AudioInstructionNames.Residual,
     [
         new("hidden", GraphElementType.Float32, GraphResourceAccess.Read),
         new("update", GraphElementType.Float32, GraphResourceAccess.Read),
@@ -465,7 +461,7 @@ internal sealed class ResidualInstruction() : ConformerInstruction(
 }
 
 internal sealed class RelativeAttentionInstruction() : ConformerInstruction(
-    "conformer.relative-attention",
+    Phi4AudioInstructionNames.RelativeAttention,
     [
         new("query", GraphElementType.Float32, GraphResourceAccess.Read),
         new("key", GraphElementType.Float32, GraphResourceAccess.Read),
@@ -496,38 +492,81 @@ internal sealed class RelativeAttentionInstruction() : ConformerInstruction(
         var output = tensors["output"];
         var source = $$"""
             {
-                if(i<{{tokens * width}}u) {
-                    uint token=i/{{width}}u;
-                    uint channel=i%{{width}}u;
-                    uint head=channel/{{headWidth}}u;
-                    uint headChannel=channel%{{headWidth}}u;
-                    uint activeTokens=min({{tokens}}u,((uint)max(1,{{Load(frameCount, "0u")}})+{{subsampling - 1}}u)/{{subsampling}}u);
-                    precise float maximum=-3.402823466e+38f;
-                    for(uint source=0u;source<activeTokens;source++) {
+                uint work=gpu.groupId.x+gpu.groupId.y*gpu.groupCount.x;
+                uint lane=gpu.groupIndex;
+                if(work<{{tokens * heads}}u) {
+                    uint token=work/{{heads}}u;
+                    uint head=work%{{heads}}u;
+                    uint activeTokens=min(
+                        {{tokens}}u,
+                        ((uint)max(1,{{Load(frameCount, "0u")}})+
+                            {{subsampling - 1}}u)/{{subsampling}}u);
+                    if(token>=activeTokens) {
+                        for(uint headChannel=lane;headChannel<{{headWidth}}u;headChannel+=64u)
+                            {{Store(output,
+                                $"token*{width}u+head*{headWidth}u+headChannel",
+                                "0.0f")}}
+                        return;
+                    }
+                    precise float localMaximum=-3.402823466e+38f;
+                    for(uint source=lane;source<activeTokens;source+=64u) {
                         precise float score=0.0f;
                         for(uint j=0u;j<{{headWidth}}u;j++)
                             score+={{Load(query, $"token*{width}u+head*{headWidth}u+j")}}*
                                 {{Load(key, $"source*{width}u+head*{headWidth}u+j")}};
                         int relative=clamp((int)source-(int)token,-500,499)+500;
                         score=score*{{scale}}f+{{Load(bias, $"relative*{heads}u+head")}};
-                        maximum=max(maximum,score);
+                        conformerAttentionScores[source]=score;
+                        localMaximum=max(localMaximum,score);
                     }
-                    precise float denominator=0.0f;
-                    precise float result=0.0f;
-                    for(uint source=0u;source<activeTokens;source++) {
-                        precise float score=0.0f;
-                        for(uint j=0u;j<{{headWidth}}u;j++)
-                            score+={{Load(query, $"token*{width}u+head*{headWidth}u+j")}}*
-                                {{Load(key, $"source*{width}u+head*{headWidth}u+j")}};
-                        int relative=clamp((int)source-(int)token,-500,499)+500;
-                        score=exp(score*{{scale}}f+{{Load(bias, $"relative*{heads}u+head")}}-maximum);
-                        denominator+=score;
-                        result+=score*{{Load(value, $"source*{width}u+head*{headWidth}u+headChannel")}};
+                    conformerAttentionReduction[lane]=localMaximum;
+                    GroupMemoryBarrierWithGroupSync();
+                    for(uint step=32u;step>0u;step>>=1u) {
+                        if(lane<step)
+                            conformerAttentionReduction[lane]=max(
+                                conformerAttentionReduction[lane],
+                                conformerAttentionReduction[lane+step]);
+                        GroupMemoryBarrierWithGroupSync();
                     }
-                    {{Store(output, "i", "token<activeTokens?result/denominator:0.0f")}}
+                    precise float maximum=conformerAttentionReduction[0];
+                    GroupMemoryBarrierWithGroupSync();
+                    precise float localDenominator=0.0f;
+                    for(uint source=lane;source<activeTokens;source+=64u) {
+                        precise float probability=exp(
+                            conformerAttentionScores[source]-maximum);
+                        conformerAttentionScores[source]=probability;
+                        localDenominator+=probability;
+                    }
+                    conformerAttentionReduction[lane]=localDenominator;
+                    GroupMemoryBarrierWithGroupSync();
+                    for(uint step=32u;step>0u;step>>=1u) {
+                        if(lane<step)
+                            conformerAttentionReduction[lane]+=
+                                conformerAttentionReduction[lane+step];
+                        GroupMemoryBarrierWithGroupSync();
+                    }
+                    precise float denominator=conformerAttentionReduction[0];
+                    for(uint headChannel=lane;headChannel<{{headWidth}}u;headChannel+=64u) {
+                        precise float result=0.0f;
+                        for(uint source=0u;source<activeTokens;source++)
+                            result+=conformerAttentionScores[source]*
+                                {{Load(value,
+                                    $"source*{width}u+head*{headWidth}u+headChannel")}};
+                        {{Store(output,
+                            $"token*{width}u+head*{headWidth}u+headChannel",
+                            "result/denominator")}}
+                    }
                 }
             }
             """;
-        return new(source, LoadHelpers);
+        return new(source,
+            LoadHelpers.Concat(
+            [
+                new("conformer.attention.scores",
+                    $"groupshared float conformerAttentionScores[{tokens}];"),
+                new("conformer.attention.reduction",
+                    "groupshared float conformerAttentionReduction[64];"),
+            ]),
+            InstructionSynchronization.GroupMemoryBarrier);
     }
 }

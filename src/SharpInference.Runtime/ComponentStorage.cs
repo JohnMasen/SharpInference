@@ -1,4 +1,5 @@
 using SharpInference.Graphs;
+using SharpInference.Vm;
 
 namespace SharpInference.Runtime;
 
@@ -83,6 +84,11 @@ public interface IStorageHandle
     long ByteLength { get; }
 }
 
+public interface IVmBindableStorageHandle : IStorageHandle
+{
+    void Bind(VmBindings bindings, string slotId);
+}
+
 public interface IStorageLease : IDisposable, IAsyncDisposable
 {
     IStorageHandle Handle { get; }
@@ -160,6 +166,30 @@ public interface IHostStagingAllocator
     ValueTask<IHostStagingBuffer> RentAsync(int byteLength, CancellationToken cancellationToken);
 }
 
+public sealed class ArrayHostStagingAllocator : IHostStagingAllocator
+{
+    private sealed class Buffer(int byteLength) : IHostStagingBuffer
+    {
+        private byte[]? bytes = new byte[byteLength];
+        public Memory<byte> Memory =>
+            bytes ?? throw new ObjectDisposedException(nameof(Buffer));
+        public ValueTask DisposeAsync()
+        {
+            bytes = null;
+            return ValueTask.CompletedTask;
+        }
+    }
+
+    public ValueTask<IHostStagingBuffer> RentAsync(
+        int byteLength,
+        CancellationToken cancellationToken)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(byteLength);
+        cancellationToken.ThrowIfCancellationRequested();
+        return ValueTask.FromResult<IHostStagingBuffer>(new Buffer(byteLength));
+    }
+}
+
 public interface IStorageDomainAdapter
 {
     StorageDomain Domain { get; }
@@ -171,6 +201,53 @@ public interface IStorageDomainAdapter
         TensorDescriptor descriptor,
         ReadOnlyMemory<byte> source,
         CancellationToken cancellationToken);
+}
+
+public sealed class HostMemoryStorageAdapter : IStorageDomainAdapter
+{
+    private sealed record HostMemoryHandle(
+        Guid Id,
+        StorageDomain Domain,
+        TensorDescriptor Descriptor,
+        byte[] Bytes) : IStorageHandle
+    {
+        public long ByteLength => Bytes.LongLength;
+    }
+
+    public HostMemoryStorageAdapter(StorageDomain domain) =>
+        Domain = domain ?? throw new ArgumentNullException(nameof(domain));
+
+    public StorageDomain Domain { get; }
+
+    public IStorageLease CreateLease(TensorDescriptor descriptor, ReadOnlySpan<byte> source)
+    {
+        ArgumentNullException.ThrowIfNull(descriptor);
+        var handle = new HostMemoryHandle(Guid.NewGuid(), Domain, descriptor, source.ToArray());
+        return StorageLease.Create(handle, static _ => { });
+    }
+
+    public ValueTask DownloadAsync(
+        IStorageHandle source,
+        Memory<byte> destination,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (source is not HostMemoryHandle handle || handle.Domain != Domain)
+            throw new ArgumentException("The source is not owned by this host storage adapter.", nameof(source));
+        if (destination.Length != handle.Bytes.Length)
+            throw new ArgumentException("The destination size does not match the host storage.", nameof(destination));
+        handle.Bytes.CopyTo(destination);
+        return ValueTask.CompletedTask;
+    }
+
+    public ValueTask<IStorageLease> UploadAsync(
+        TensorDescriptor descriptor,
+        ReadOnlyMemory<byte> source,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        return ValueTask.FromResult(CreateLease(descriptor, source.Span));
+    }
 }
 
 public interface IStorageTransferService
