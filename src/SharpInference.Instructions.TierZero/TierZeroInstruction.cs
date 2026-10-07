@@ -91,6 +91,8 @@ public abstract class TierZeroInstruction(Guid collectionId, string name, Instru
         {
             "core.tensor.fill" => ["value"], "core.tensor.slice" => ["axis", "start", "length"], _ => [],
         };
+        if (name is "core.matrix-multiply" or "core.affine")
+            attributes = ["transpose_left", "transpose_right"];
         var result = signatures.Select(signature => new InstructionSignature(
             Array.AsReadOnly(contract.InputPorts.Select((port, index) =>
                 new InstructionPort(port, signature.InputTypes[index], GraphResourceAccess.Read))

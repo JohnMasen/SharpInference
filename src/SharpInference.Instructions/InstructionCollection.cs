@@ -8,6 +8,7 @@ public static class InstructionCollectionIds
     public static readonly Guid TierZeroFloat32 = Guid.Empty;
     public static readonly Guid TierZeroFloat16 = new("00000000-0000-0000-0000-000000000001");
     public static readonly Guid TierOneFloat32 = new("697cfcb5-8e65-4e4f-9c3b-742c30b057cc");
+    public static readonly Guid TransformerFloat32 = new("824d0f9c-16c7-46d8-b49d-0f91d6a4ec83");
 }
 
 public readonly record struct InstructionTarget

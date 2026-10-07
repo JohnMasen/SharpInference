@@ -427,7 +427,7 @@ public enum ProcessorExecutionGraphKind
     Prefill,
 }
 
-public sealed class Processor : IDisposable
+public sealed class Processor : IProcessor
 {
     private readonly ProcessorBuildContext context;
     private readonly IReadOnlyList<IProcessorBuildStep> steps;
@@ -446,9 +446,19 @@ public sealed class Processor : IDisposable
         Metadata = context.Metadata!;
         LogicalGraph = context.LogicalGraph;
         PreparedPlan = context.PreparedPlan!;
+        Capabilities = new ProcessorCapabilities(
+            [ProcessorInputModality.Text],
+            ProcessorOutputModality.Tensor,
+            text: new ProcessorTextCapabilities(int.MaxValue),
+            execution: new ProcessorExecutionCapabilities(1, 1,
+                new HashSet<string>(StringComparer.Ordinal)
+                {
+                    backend.GetType().FullName ?? backend.GetType().Name,
+                }));
     }
 
     public RwkvModelMetadata Metadata { get; }
+    public ProcessorCapabilities Capabilities { get; }
     public LogicalGraph? LogicalGraph { get; }
     public VmCompiledPlan PreparedPlan { get; }
 
@@ -559,6 +569,8 @@ public sealed class Processor : IDisposable
         return CreateSession(architecture.CreateState(model));
     }
 
+    IProcessorSession IProcessor.CreateSession() => CreateSession();
+
     internal ProcessorSession CreateSession(IRwkvState state)
     {
         ThrowIfDisposed();
@@ -605,8 +617,9 @@ public sealed class Processor : IDisposable
     }
 }
 
-public sealed class ProcessorSession : IRwkvScopedGenerationSession, IRwkvAsyncPrefillSession,
-    IRwkvAsyncGenerationSession, IDisposable
+public sealed class ProcessorSession :
+    IRwkvScopedGenerationSession, IRwkvAsyncPrefillSession,
+    IRwkvAsyncGenerationSession, IProcessorSession
 {
     private readonly Processor owner;
     private readonly IRwkvState state;
@@ -615,6 +628,8 @@ public sealed class ProcessorSession : IRwkvScopedGenerationSession, IRwkvAsyncP
     private readonly object gate = new();
     private bool disposed;
     private bool operationActive;
+
+    IProcessor IProcessorSession.Processor => owner;
 
     internal ProcessorSession(
         Processor owner, IRwkvModel model, IRwkvState state,

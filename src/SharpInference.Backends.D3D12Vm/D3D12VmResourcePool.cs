@@ -149,7 +149,8 @@ public sealed class D3D12VmResourcePool : IDisposable
     {
         var allocation = Find(buffer);
         var descriptor = allocation.Slot;
-        if (descriptor.Scope != slot.Scope || descriptor.Access != slot.Access ||
+        if (descriptor.Scope != slot.Scope ||
+            slot.Access == VmAccess.ReadWrite && descriptor.Access != VmAccess.ReadWrite ||
             descriptor.Tensor.ElementType != slot.Tensor.ElementType ||
             !descriptor.Tensor.Dimensions.SequenceEqual(slot.Tensor.Dimensions))
             throw new ArgumentException($"Pooled backing for slot '{slot.Id}' has a different scope, access, type or shape.", nameof(buffer));

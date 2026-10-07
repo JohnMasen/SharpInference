@@ -138,13 +138,100 @@ public sealed class GraphState : IReadOnlyList<GraphStateEntry>
 
 public sealed record GraphIdentity(string ArchitectureId, int IrVersion, string Name);
 
-public sealed record GraphModelSignature(
-    int VocabularySize,
-    int EmbeddingSize,
-    int LayerCount,
-    int HeadCount,
-    int HeadSize,
-    string StateAbiId);
+public sealed class GraphModelSignature : IEquatable<GraphModelSignature>
+{
+    public const string VocabularyDimension = "vocabulary";
+    public const string EmbeddingDimension = "embedding";
+    public const string LayerDimension = "layers";
+    public const string HeadCountDimension = "attentionHeads";
+    public const string HeadSizeDimension = "attentionHeadSize";
+
+    public GraphModelSignature(
+        int vocabularySize,
+        int embeddingSize,
+        int layerCount,
+        int headCount,
+        int headSize,
+        string stateAbiId)
+        : this("rwkv", stateAbiId, new Dictionary<string, int>(StringComparer.Ordinal)
+        {
+            [VocabularyDimension] = vocabularySize,
+            [EmbeddingDimension] = embeddingSize,
+            [LayerDimension] = layerCount,
+            [HeadCountDimension] = headCount,
+            [HeadSizeDimension] = headSize,
+        })
+    {
+    }
+
+    public GraphModelSignature(
+        string modelType,
+        string stateAbiId,
+        IReadOnlyDictionary<string, int> dimensions,
+        IReadOnlyDictionary<string, string>? attributes = null)
+    {
+        ModelType = string.IsNullOrWhiteSpace(modelType)
+            ? throw new ArgumentException("A graph model type is required.", nameof(modelType))
+            : modelType;
+        StateAbiId = string.IsNullOrWhiteSpace(stateAbiId)
+            ? throw new ArgumentException("A state ABI identifier is required.", nameof(stateAbiId))
+            : stateAbiId;
+        ArgumentNullException.ThrowIfNull(dimensions);
+        if (dimensions.Any(value => string.IsNullOrWhiteSpace(value.Key) || value.Value <= 0))
+            throw new ArgumentException("Graph model dimensions require names and positive values.", nameof(dimensions));
+        if (attributes?.Any(value => string.IsNullOrWhiteSpace(value.Key) || value.Value is null) == true)
+            throw new ArgumentException("Graph model attributes require names and values.", nameof(attributes));
+        Dimensions = new System.Collections.ObjectModel.ReadOnlyDictionary<string, int>(
+            new Dictionary<string, int>(dimensions, StringComparer.Ordinal));
+        Attributes = new System.Collections.ObjectModel.ReadOnlyDictionary<string, string>(
+            new Dictionary<string, string>(attributes ?? new Dictionary<string, string>(), StringComparer.Ordinal));
+    }
+
+    public string ModelType { get; }
+    public string StateAbiId { get; }
+    public IReadOnlyDictionary<string, int> Dimensions { get; }
+    public IReadOnlyDictionary<string, string> Attributes { get; }
+    public int VocabularySize => DimensionOrZero(VocabularyDimension);
+    public int EmbeddingSize => DimensionOrZero(EmbeddingDimension);
+    public int LayerCount => DimensionOrZero(LayerDimension);
+    public int HeadCount => DimensionOrZero(HeadCountDimension);
+    public int HeadSize => DimensionOrZero(HeadSizeDimension);
+    public bool IsRwkvCompatible =>
+        VocabularySize > 0 && EmbeddingSize > 0 && LayerCount > 0 &&
+        HeadCount > 0 && HeadSize > 0 &&
+        HeadCount * (long)HeadSize == EmbeddingSize;
+
+    public bool Equals(GraphModelSignature? other) =>
+        other is not null &&
+        string.Equals(ModelType, other.ModelType, StringComparison.Ordinal) &&
+        string.Equals(StateAbiId, other.StateAbiId, StringComparison.Ordinal) &&
+        Dimensions.OrderBy(value => value.Key, StringComparer.Ordinal)
+            .SequenceEqual(other.Dimensions.OrderBy(value => value.Key, StringComparer.Ordinal)) &&
+        Attributes.OrderBy(value => value.Key, StringComparer.Ordinal)
+            .SequenceEqual(other.Attributes.OrderBy(value => value.Key, StringComparer.Ordinal));
+
+    public override bool Equals(object? obj) => Equals(obj as GraphModelSignature);
+
+    public override int GetHashCode()
+    {
+        var hash = new HashCode();
+        hash.Add(ModelType, StringComparer.Ordinal);
+        hash.Add(StateAbiId, StringComparer.Ordinal);
+        foreach (var value in Dimensions.OrderBy(value => value.Key, StringComparer.Ordinal))
+        {
+            hash.Add(value.Key, StringComparer.Ordinal);
+            hash.Add(value.Value);
+        }
+        foreach (var value in Attributes.OrderBy(value => value.Key, StringComparer.Ordinal))
+        {
+            hash.Add(value.Key, StringComparer.Ordinal);
+            hash.Add(value.Value, StringComparer.Ordinal);
+        }
+        return hash.ToHashCode();
+    }
+
+    private int DimensionOrZero(string name) => Dimensions.TryGetValue(name, out var value) ? value : 0;
+}
 
 public sealed record GraphResource(
     ResourceId Id,

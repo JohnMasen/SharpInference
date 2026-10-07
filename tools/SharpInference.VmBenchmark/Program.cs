@@ -3,6 +3,8 @@ using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text.Json;
 using SharpInference;
+using SharpInference.Architectures.Phi4;
+using SharpInference.Architectures.Phi4.D3D12;
 using SharpInference.Gguf;
 using SharpInference.Graphs;
 using SharpInference.Runtime;
@@ -15,6 +17,11 @@ using SharpInference.Vm.Optimization;
 #endif
 
 var arguments = Arguments.Parse(args);
+if (arguments.Command == "phi4")
+{
+    Phi4Benchmark.Run(arguments);
+    return;
+}
 #if TIER_ONE
 if (arguments.Command == "profile")
 {
@@ -165,6 +172,211 @@ void Decode()
 }
 
 static double Median(double[] values) => values.Order().ElementAt(values.Length / 2);
+
+internal static class Phi4Benchmark
+{
+    private const string Prompt =
+        "<|user|>What is the result of 1+1? Explain briefly.<|end|><|assistant|>";
+
+    public static void Run(Arguments arguments)
+    {
+        var modelDirectory = Path.GetFullPath(arguments.Required("model"));
+        var tokenCount = arguments.Number("tokens", 16);
+        var samples = arguments.Number("samples", 3);
+        if (tokenCount <= 0)
+            throw new ArgumentOutOfRangeException("tokens", "Token count must be positive.");
+        if (samples <= 0)
+            throw new ArgumentOutOfRangeException("samples", "Sample count must be positive.");
+
+        var setup = Stopwatch.StartNew();
+        using var package = Phi4ModelPackage.Open(modelDirectory);
+        var adapterIndex = arguments.Optional("adapter") is { } adapterText
+            ? int.Parse(adapterText, System.Globalization.CultureInfo.InvariantCulture)
+            : 0;
+        ArgumentOutOfRangeException.ThrowIfNegative(adapterIndex);
+        var backendName = arguments.Optional("backend");
+        if (backendName == "d3d12-session")
+        {
+            RunResidentSession(
+                arguments, package, adapterIndex, tokenCount, samples, setup);
+            return;
+        }
+        using var projector = backendName switch
+        {
+            null or "cpu" => null,
+            "d3d12" => new Phi4D3D12MatrixProjector(package, adapterIndex),
+            var backend => throw new ArgumentException($"Unsupported Phi-4 backend '{backend}'."),
+        };
+        var model = package.CreateTextModel(projector);
+        setup.Stop();
+        var encoded = package.Tokenizer.Encode(Prompt);
+        var tokens = Enumerable.Range(0, tokenCount)
+            .Select(index => encoded[index % encoded.Length])
+            .ToArray();
+
+        ForceCollection();
+        var allocatedBefore = GC.GetTotalAllocatedBytes(true);
+        var collectionsBefore = CollectionCounts();
+
+        var coldSession = model.CreateSession();
+        var watch = Stopwatch.StartNew();
+        var coldLogits = coldSession.ForwardToken(tokens[0]);
+        watch.Stop();
+        var coldMilliseconds = watch.Elapsed.TotalMilliseconds;
+
+        var decode = new double[samples];
+        for (var sample = 0; sample < samples; sample++)
+        {
+            watch.Restart();
+            coldSession.ForwardToken(tokens[(sample + 1) % tokens.Length]);
+            watch.Stop();
+            decode[sample] = watch.Elapsed.TotalMilliseconds;
+        }
+
+        var prefill = new double[samples];
+        for (var sample = 0; sample < samples; sample++)
+        {
+            var session = model.CreateSession();
+            watch.Restart();
+            foreach (var token in tokens)
+                session.ForwardToken(token);
+            watch.Stop();
+            prefill[sample] = watch.Elapsed.TotalMilliseconds;
+        }
+
+        var allocatedBytes = GC.GetTotalAllocatedBytes(true) - allocatedBefore;
+        var collectionsAfter = CollectionCounts();
+        var decodeMedian = Median(decode);
+        var prefillMedian = Median(prefill);
+        var result = new
+        {
+            ModelDirectory = modelDirectory,
+            Backend = projector is null ? "cpu" : "d3d12-resident-projections",
+            Runtime = RuntimeInformation.FrameworkDescription,
+            Machine = Environment.MachineName,
+            ProcessorCount = Environment.ProcessorCount,
+            Tokens = tokenCount,
+            Samples = samples,
+            SetupMilliseconds = setup.Elapsed.TotalMilliseconds,
+            ColdFirstTokenMilliseconds = coldMilliseconds,
+            WarmDecodeMillisecondsPerToken = decode,
+            WarmDecodeMedianMillisecondsPerToken = decodeMedian,
+            WarmDecodeTokensPerSecond = 1000 / decodeMedian,
+            PrefillMilliseconds = prefill,
+            PrefillMedianMilliseconds = prefillMedian,
+            PrefillTokensPerSecond = tokenCount * 1000 / prefillMedian,
+            AllocatedBytes = allocatedBytes,
+            Gen0Collections = collectionsAfter[0] - collectionsBefore[0],
+            Gen1Collections = collectionsAfter[1] - collectionsBefore[1],
+            Gen2Collections = collectionsAfter[2] - collectionsBefore[2],
+            ArgMax = Array.IndexOf(coldLogits, coldLogits.Max()),
+        };
+
+        var json = JsonSerializer.Serialize(result, new JsonSerializerOptions { WriteIndented = true });
+        if (arguments.Optional("output") is { } output)
+        {
+            var path = Path.GetFullPath(output);
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            File.WriteAllText(path, json);
+        }
+        Console.WriteLine(json);
+    }
+
+    private static void RunResidentSession(
+        Arguments arguments,
+        Phi4ModelPackage package,
+        int adapterIndex,
+        int tokenCount,
+        int samples,
+        Stopwatch setup)
+    {
+        using var session = new Phi4D3D12TextSession(
+            package,
+            arguments.Optional("context") is { } contextText
+                ? int.Parse(contextText, System.Globalization.CultureInfo.InvariantCulture)
+                : Math.Max(64, tokenCount + samples + 1),
+            adapterIndex);
+        setup.Stop();
+        var encoded = package.Tokenizer.Encode(Prompt);
+        var tokens = Enumerable.Range(0, tokenCount)
+            .Select(index => encoded[index % encoded.Length])
+            .ToArray();
+        ForceCollection();
+        var allocatedBefore = GC.GetTotalAllocatedBytes(true);
+        var collectionsBefore = CollectionCounts();
+        var watch = Stopwatch.StartNew();
+        var firstToken = session.ForwardToken(tokens[0]);
+        watch.Stop();
+        var coldMilliseconds = watch.Elapsed.TotalMilliseconds;
+        var decode = new double[samples];
+        for (var sample = 0; sample < samples; sample++)
+        {
+            watch.Restart();
+            session.ForwardToken(tokens[(sample + 1) % tokens.Length]);
+            watch.Stop();
+            decode[sample] = watch.Elapsed.TotalMilliseconds;
+        }
+        var prefill = new double[samples];
+        for (var sample = 0; sample < samples; sample++)
+        {
+            session.Reset();
+            watch.Restart();
+            foreach (var token in tokens)
+                session.ForwardToken(token);
+            watch.Stop();
+            prefill[sample] = watch.Elapsed.TotalMilliseconds;
+        }
+        var allocatedBytes = GC.GetTotalAllocatedBytes(true) - allocatedBefore;
+        var collectionsAfter = CollectionCounts();
+        var decodeMedian = Median(decode);
+        var prefillMedian = Median(prefill);
+        var result = new
+        {
+            ModelDirectory = package.Directory,
+            Backend = "d3d12-resident-session",
+            Runtime = RuntimeInformation.FrameworkDescription,
+            Machine = Environment.MachineName,
+            ProcessorCount = Environment.ProcessorCount,
+            Tokens = tokenCount,
+            ContextCapacity = session.MaximumContext,
+            Samples = samples,
+            SetupMilliseconds = setup.Elapsed.TotalMilliseconds,
+            ColdFirstTokenMilliseconds = coldMilliseconds,
+            WarmDecodeMillisecondsPerToken = decode,
+            WarmDecodeMedianMillisecondsPerToken = decodeMedian,
+            WarmDecodeTokensPerSecond = 1000 / decodeMedian,
+            PrefillMilliseconds = prefill,
+            PrefillMedianMilliseconds = prefillMedian,
+            PrefillTokensPerSecond = tokenCount * 1000 / prefillMedian,
+            AllocatedBytes = allocatedBytes,
+            Gen0Collections = collectionsAfter[0] - collectionsBefore[0],
+            Gen1Collections = collectionsAfter[1] - collectionsBefore[1],
+            Gen2Collections = collectionsAfter[2] - collectionsBefore[2],
+            ArgMax = firstToken,
+        };
+        var json = JsonSerializer.Serialize(result, new JsonSerializerOptions { WriteIndented = true });
+        if (arguments.Optional("output") is { } output)
+        {
+            var path = Path.GetFullPath(output);
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            File.WriteAllText(path, json);
+        }
+        Console.WriteLine(json);
+    }
+
+    private static int[] CollectionCounts() =>
+        [GC.CollectionCount(0), GC.CollectionCount(1), GC.CollectionCount(2)];
+
+    private static void ForceCollection()
+    {
+        GC.Collect();
+        GC.WaitForPendingFinalizers();
+        GC.Collect();
+    }
+
+    private static double Median(double[] values) =>
+        values.Order().ElementAt(values.Length / 2);
+}
 
 internal sealed record NumericComparison(int Count, float MaximumAbsoluteError, float MaximumScaledError)
 {

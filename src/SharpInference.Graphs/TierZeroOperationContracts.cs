@@ -67,7 +67,16 @@ public static class TierZeroOperationContracts
         if (!NumericTypeCompatibility.Satisfies(contract.Precision, node.Requirements))
             throw Error("requires FP32 arithmetic and accumulation.");
         var ports = contract.ResolveInputPorts(node.Resources.Select(binding => binding.Port));
-        if (node.Attributes.Count != 0 || node.Resources.Count != ports.Count + 1 ||
+        var validAttributes =
+            node.Operation is var operation &&
+            (operation == PrimitiveGraphOperations.MatrixMultiply ||
+                operation == PrimitiveGraphOperations.Affine)
+            ? node.Attributes.Count == 2 &&
+                node.Attributes.Keys.ToHashSet(StringComparer.Ordinal)
+                    .SetEquals(["transpose_left", "transpose_right"]) &&
+                node.Attributes.Values.All(value => value is "true" or "false")
+            : node.Attributes.Count == 0;
+        if (!validAttributes || node.Resources.Count != ports.Count + 1 ||
             !ports.Append("output").ToHashSet(StringComparer.Ordinal)
                 .SetEquals(node.Resources.Select(binding => binding.Port)) ||
             node.Resources.Any(binding => binding.Access !=
@@ -104,6 +113,22 @@ public static class TierZeroOperationContracts
             "core.mat-vec" => shape.Count == 2 &&
                 inputs[1].Tensor.Dimensions.SequenceEqual([shape[1]]) &&
                 dimensions.SequenceEqual([shape[0]]),
+            "core.matrix-multiply" => MatrixMultiplyDimensions(
+                inputs[0].Tensor.Dimensions,
+                inputs[1].Tensor.Dimensions,
+                dimensions,
+                node.Attributes["transpose_left"] == "true",
+                node.Attributes["transpose_right"] == "true"),
+            "core.affine" => MatrixMultiplyDimensions(
+                    inputs[0].Tensor.Dimensions,
+                    inputs[1].Tensor.Dimensions,
+                    dimensions,
+                    node.Attributes["transpose_left"] == "true",
+                    node.Attributes["transpose_right"] == "true") &&
+                inputs[2].Tensor.Dimensions.SequenceEqual([dimensions[^1]]),
+            "core.bias-add" => shape.Count >= 1 &&
+                inputs[1].Tensor.Dimensions.SequenceEqual([shape[^1]]) &&
+                dimensions.SequenceEqual(shape),
             "core.gather-row" => shape.Count == 2 &&
                 inputs[1].Tensor.Dimensions.SequenceEqual([1]) &&
                 dimensions.SequenceEqual([shape[1]]),
@@ -144,6 +169,47 @@ public static class TierZeroOperationContracts
                 contract.Operation == PortableTensorOperationContracts.BatchedMatVec
                     ? [contract.Signature, new OperatorSignature([f16, f32], [f32])]
                     : [contract.Signature], required: true)));
+        contracts.Add(new TierZeroOperationContract(
+            PrimitiveGraphOperations.MatrixMultiply,
+            ["left", "right"],
+            [
+                new OperatorSignature([f32, f32], [f32]),
+                new OperatorSignature([f32, f16], [f32]),
+            ],
+            required: false));
+        contracts.Add(new TierZeroOperationContract(
+            PrimitiveGraphOperations.BiasAdd,
+            ["input", "bias"],
+            [
+                new OperatorSignature([f32, f32], [f32]),
+                new OperatorSignature([f32, f16], [f32]),
+            ],
+            required: false));
+        contracts.Add(new TierZeroOperationContract(
+            PrimitiveGraphOperations.Affine,
+            ["left", "right", "bias"],
+            [
+                new OperatorSignature([f32, f32, f32], [f32]),
+                new OperatorSignature([f32, f16, f16], [f32]),
+                new OperatorSignature([f32, f16, f32], [f32]),
+            ],
+            required: false));
         return Array.AsReadOnly(contracts.ToArray());
+    }
+
+    private static bool MatrixMultiplyDimensions(
+        IReadOnlyList<int> left,
+        IReadOnlyList<int> right,
+        IReadOnlyList<int> output,
+        bool transposeLeft,
+        bool transposeRight)
+    {
+        if (left.Count != 2 || right.Count != 2 || output.Count != 2)
+            return false;
+        var rows = transposeLeft ? left[1] : left[0];
+        var leftInner = transposeLeft ? left[0] : left[1];
+        var rightInner = transposeRight ? right[1] : right[0];
+        var columns = transposeRight ? right[0] : right[1];
+        return leftInner == rightInner && output.SequenceEqual([rows, columns]);
     }
 }

@@ -38,23 +38,31 @@ public sealed class D3D12VmExecutor : IVmTaskExecutable
     private readonly Dictionary<string, ID3D12RootSignature> signatures = new(StringComparer.Ordinal);
     private readonly Dictionary<string, ID3D12PipelineState> pipelines = new(StringComparer.Ordinal);
     private readonly Dictionary<string, (ID3D12CommandAllocator Allocator, ID3D12GraphicsCommandList Commands)> entries = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, CombinedTransferEntry> combinedTransferEntries =
+        new(StringComparer.Ordinal);
     private readonly object gate = new();
     private readonly ConditionalWeakTable<VmProgram, string> leasePrograms = new();
     private string? programXml;
     private bool ownsDevice;
     private ulong fenceValue;
+    private ulong submissionCount;
     private bool disposed;
     private D3D12VmTaskWindow? taskWindow;
     private ulong computeRecordCount;
     private readonly IReadOnlyDictionary<string, VmDefinition> kernelDefinitions;
 
     public D3D12VmExecutor(ID3D12Device device, D3D12VmArtifact artifact)
-        : this(device, artifact, null) { }
+        : this(device, artifact, null, false) { }
 
     public D3D12VmExecutor(D3D12VmResourcePool pool, D3D12VmArtifact artifact)
-        : this((pool ?? throw new ArgumentNullException(nameof(pool))).Device, artifact, pool) { }
+        : this((pool ?? throw new ArgumentNullException(nameof(pool))).Device, artifact, pool, false) { }
 
-    private D3D12VmExecutor(ID3D12Device device, D3D12VmArtifact artifact, D3D12VmResourcePool? pool)
+    private D3D12VmExecutor(
+        ID3D12Device device,
+        D3D12VmArtifact artifact,
+        D3D12VmResourcePool? pool,
+        bool skipReadOnlyGlobalInitialization,
+        bool skipAllInitialization = false)
     {
         this.device = device ?? throw new ArgumentNullException(nameof(device));
         Artifact = artifact ?? throw new ArgumentNullException(nameof(artifact));
@@ -96,18 +104,31 @@ public sealed class D3D12VmExecutor : IVmTaskExecutable
                 var signature = device.CreateRootSignature(new RootSignatureDescription(RootSignatureFlags.None, parameters.ToArray()),
                     RootSignatureVersion.Version10);
                 signatures.Add(kernel.Definition, signature);
-                pipelines.Add(kernel.Definition, device.CreateComputePipelineState(new ComputePipelineStateDescription
+                try
                 {
-                    RootSignature = signature,
-                    ComputeShader = kernel.Bytecode,
-                }));
+                    pipelines.Add(kernel.Definition, device.CreateComputePipelineState(new ComputePipelineStateDescription
+                    {
+                        RootSignature = signature,
+                        ComputeShader = kernel.Bytecode,
+                    }));
+                }
+                catch (Exception error)
+                {
+                    throw new InvalidOperationException(
+                        $"Failed to create the D3D12 pipeline for kernel '{kernel.Definition}'.", error);
+                }
             }
             if (pool is null)
             {
                 RecordEntries();
                 // Pooled resources are initialized from their authoritative shadows at first use.
                 for (var i = 0; i < buffers.Length; i++)
+                {
+                    if (skipAllInitialization ||
+                        skipReadOnlyGlobalInitialization && IsFixedGlobal(i))
+                        continue;
                     Upload(i, new byte[checked((int)artifact.Program.Slots[i].Tensor.ByteLength)]);
+                }
             }
         }
         catch
@@ -173,6 +194,7 @@ public sealed class D3D12VmExecutor : IVmTaskExecutable
         BindPooledContext(context, recordAll: false);
         foreach (var index in slots) UploadCore(index, context[index]);
     }
+    public ulong SubmissionCount { get { lock (gate) return submissionCount; } }
     public int DispatchCount(string entry) => D3D12VmSchedule.Create(Artifact.Program)[entry].Count(c => c is D3D12VmDispatch);
 
     public ulong GetGpuVirtualAddress(string slot)
@@ -190,6 +212,8 @@ public sealed class D3D12VmExecutor : IVmTaskExecutable
     private void RecordEntries()
     {
         ClearEntries();
+        foreach (var value in combinedTransferEntries.Values) value.Dispose();
+        combinedTransferEntries.Clear();
         try
         {
             foreach (var (name, schedule) in schedules)
@@ -227,11 +251,16 @@ public sealed class D3D12VmExecutor : IVmTaskExecutable
         entriesRecorded = false;
     }
 
-    internal static D3D12VmExecutor CreateOwned(ID3D12Device device, D3D12VmArtifact artifact)
+    internal static D3D12VmExecutor CreateOwned(
+        ID3D12Device device,
+        D3D12VmArtifact artifact,
+        bool skipReadOnlyGlobalInitialization = false,
+        bool skipAllInitialization = false)
     {
         try
         {
-            var executor = new D3D12VmExecutor(device, artifact);
+            var executor = new D3D12VmExecutor(
+                device, artifact, null, skipReadOnlyGlobalInitialization, skipAllInitialization);
             executor.ownsDevice = true;
             return executor;
         }
@@ -259,6 +288,95 @@ public sealed class D3D12VmExecutor : IVmTaskExecutable
             using var use = BeginPoolUse();
             PrepareGpuEntry(entry);
             Submit(entries[entry].Commands);
+        }
+    }
+
+    /// <summary>
+    /// Uploads one control slot, executes an entry, and reads one result slot with a single queue
+    /// submission and fence wait. Intended for token-boundary inference transfers.
+    /// </summary>
+    public void ExecuteWithTransfers(
+            string entry,
+            string uploadSlot,
+            byte[] uploadBytes,
+            string readbackSlot,
+            byte[] readbackBytes)
+        {
+            ArgumentNullException.ThrowIfNull(uploadBytes);
+            ArgumentNullException.ThrowIfNull(readbackBytes);
+            lock (gate)
+            {
+                ThrowIfDisposed();
+                using var use = BeginPoolUse();
+                if (!schedules.TryGetValue(entry, out var schedule))
+                    throw new ArgumentException($"Unknown VM entry '{entry}'.", nameof(entry));
+                PrepareGpuEntry(entry);
+                var uploadIndex = SlotIndex(uploadSlot);
+                var readbackIndex = SlotIndex(readbackSlot);
+                ValidateBuffer(uploadIndex, uploadBytes);
+                ValidateBuffer(readbackIndex, readbackBytes);
+                var key = $"{entry}\0{uploadIndex}\0{readbackIndex}";
+                if (!combinedTransferEntries.TryGetValue(key, out var combined))
+                {
+                    var upload = device.CreateCommittedResource(
+                        HeapProperties.UploadHeapProperties,
+                        HeapFlags.None,
+                        ResourceDescription.Buffer(Align((ulong)uploadBytes.Length)),
+                        ResourceStates.GenericRead);
+                    var readback = device.CreateCommittedResource(
+                        HeapProperties.ReadbackHeapProperties,
+                        HeapFlags.None,
+                        ResourceDescription.Buffer(Align((ulong)readbackBytes.Length)),
+                        ResourceStates.CopyDest);
+                    var allocator = device.CreateCommandAllocator(CommandListType.Compute);
+                    var commands = device.CreateCommandList<ID3D12GraphicsCommandList>(
+                        0, CommandListType.Compute, allocator);
+                    try
+                    {
+                        commands.ResourceBarrierTransition(
+                            buffers[uploadIndex], ResourceStates.UnorderedAccess, ResourceStates.CopyDest);
+                        commands.CopyBufferRegion(
+                            buffers[uploadIndex], 0, upload, 0, (ulong)uploadBytes.Length);
+                        commands.ResourceBarrierTransition(
+                            buffers[uploadIndex], ResourceStates.CopyDest, ResourceStates.UnorderedAccess);
+                        RecordCommands(commands, schedule);
+                        commands.ResourceBarrierTransition(
+                            buffers[readbackIndex], ResourceStates.UnorderedAccess, ResourceStates.CopySource);
+                        commands.CopyBufferRegion(
+                            readback, 0, buffers[readbackIndex], 0, (ulong)readbackBytes.Length);
+                        commands.ResourceBarrierTransition(
+                            buffers[readbackIndex], ResourceStates.CopySource, ResourceStates.UnorderedAccess);
+                        commands.Close();
+                        combined = new(upload, readback, allocator, commands);
+                        combinedTransferEntries.Add(key, combined);
+                    }
+                    catch
+                    {
+                        commands.Dispose();
+                        allocator.Dispose();
+                        readback.Dispose();
+                        upload.Dispose();
+                        throw;
+                    }
+                }
+                combined.Upload.SetData<byte>(uploadBytes);
+                Submit(combined.Commands);
+                combined.Readback.GetData<byte>(readbackBytes);
+        }
+    }
+
+    private sealed record CombinedTransferEntry(
+        ID3D12Resource Upload,
+        ID3D12Resource Readback,
+        ID3D12CommandAllocator Allocator,
+        ID3D12GraphicsCommandList Commands) : IDisposable
+    {
+        public void Dispose()
+        {
+            Commands.Dispose();
+            Allocator.Dispose();
+            Readback.Dispose();
+            Upload.Dispose();
         }
     }
 
@@ -475,6 +593,7 @@ public sealed class D3D12VmExecutor : IVmTaskExecutable
 
     /// <summary>Uploads an exact slot-sized CPU payload. CPU gather indices are range-checked before transfer.</summary>
     public void Upload(string slot, byte[] bytes) => Upload(SlotIndex(slot), bytes);
+    public void Upload(string slot, ReadOnlySpan<byte> bytes) => Upload(SlotIndex(slot), bytes);
     public void Upload(int slot, byte[] bytes)
     {
         lock (gate)
@@ -483,6 +602,42 @@ public sealed class D3D12VmExecutor : IVmTaskExecutable
             using var use = BeginPoolUse();
             ValidateUpload(slot, bytes);
             UploadCore(slot, bytes);
+        }
+    }
+
+    public void Upload(int slot, ReadOnlySpan<byte> bytes)
+    {
+        lock (gate)
+        {
+            ThrowIfDisposed();
+            using var use = BeginPoolUse();
+            ValidateSlot(slot);
+            if ((ulong)bytes.Length != Program.Slots[slot].Tensor.ByteLength)
+                throw new ArgumentException(
+                    $"Expected {Program.Slots[slot].Tensor.ByteLength} bytes for slot '{Program.Slots[slot].Id}', received {bytes.Length}.",
+                    nameof(bytes));
+            if (RequirePooledBinding(slot) is not null)
+                throw new NotSupportedException("Span uploads do not support pooled resource bindings.");
+            UploadCore(slot, bytes);
+        }
+    }
+
+    public void InitializeSlots(IReadOnlyList<byte[]> buffers, IEnumerable<int> slots)
+    {
+        ArgumentNullException.ThrowIfNull(buffers);
+        ArgumentNullException.ThrowIfNull(slots);
+        lock (gate)
+        {
+            ThrowIfDisposed();
+            using var use = BeginPoolUse();
+            foreach (var slot in slots.Distinct())
+            {
+                ValidateSlot(slot);
+                var binding = RequirePooledBinding(slot);
+                if (binding is not null && binding.GpuInitialized)
+                    continue;
+                UploadCore(slot, buffers[slot]);
+            }
         }
     }
 
@@ -508,6 +663,19 @@ public sealed class D3D12VmExecutor : IVmTaskExecutable
             binding.GpuInitialized = true;
             if (IsFixedGlobal(slot)) pool!.UploadedGlobal(binding);
         }
+    }
+
+    private void UploadCore(int slot, ReadOnlySpan<byte> bytes)
+    {
+        using var upload = device.CreateCommittedResource(HeapProperties.UploadHeapProperties, HeapFlags.None,
+            ResourceDescription.Buffer(Align((ulong)bytes.Length)), ResourceStates.GenericRead);
+        upload.SetData(bytes);
+        BeginTransfer();
+        transfer.ResourceBarrierTransition(buffers[slot], ResourceStates.UnorderedAccess, ResourceStates.CopyDest);
+        transfer.CopyBufferRegion(buffers[slot], 0, upload, 0, (ulong)bytes.Length);
+        transfer.ResourceBarrierTransition(buffers[slot], ResourceStates.CopyDest, ResourceStates.UnorderedAccess);
+        transfer.Close();
+        Submit(transfer);
     }
 
     /// <summary>Copies one persistent GPU slot back to an owned CPU byte array.</summary>
@@ -707,6 +875,7 @@ public sealed class D3D12VmExecutor : IVmTaskExecutable
     private void Submit(ID3D12GraphicsCommandList list)
     {
         queue.ExecuteCommandList(list);
+        submissionCount = checked(submissionCount + 1);
         WaitForCompletion();
     }
     private void WaitForCompletion()
@@ -728,6 +897,8 @@ public sealed class D3D12VmExecutor : IVmTaskExecutable
         {
             if (disposed) return;
             disposed = true;
+            foreach (var entry in combinedTransferEntries.Values) entry.Dispose();
+            combinedTransferEntries.Clear();
             ClearEntries();
             taskWindow?.Dispose();
             foreach (var pipeline in pipelines.Values) pipeline.Dispose();

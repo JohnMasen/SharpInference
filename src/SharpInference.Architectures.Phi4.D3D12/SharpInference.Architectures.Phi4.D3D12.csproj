@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\SharpInference.Architectures.Phi4\SharpInference.Architectures.Phi4.csproj" />
+    <ProjectReference Include="..\SharpInference.Backends.D3D12Vm\SharpInference.Backends.D3D12Vm.csproj" />
+    <ProjectReference Include="..\SharpInference.Backends.CpuVm\SharpInference.Backends.CpuVm.csproj" />
+    <ProjectReference Include="..\SharpInference.Runtime\SharpInference.Runtime.csproj" />
+    <ProjectReference Include="..\SharpInference.Vm.Optimization\SharpInference.Vm.Optimization.csproj" />
+    <ProjectReference Include="..\SharpInference.Instructions.Phi4.Cpu\SharpInference.Instructions.Phi4.Cpu.csproj" />
+    <ProjectReference Include="..\SharpInference.Instructions.Phi4.D3D12\SharpInference.Instructions.Phi4.D3D12.csproj" />
+  </ItemGroup>
+</Project>

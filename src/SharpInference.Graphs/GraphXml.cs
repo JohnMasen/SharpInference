@@ -122,10 +122,7 @@ public static class GraphXml
         new("Graph", new XAttribute("kind", kind), new XAttribute("version", SchemaVersion),
             new XElement("Identity", new XAttribute("architectureId", identity.ArchitectureId),
                 new XAttribute("irVersion", identity.IrVersion), new XAttribute("name", identity.Name)),
-            new XElement("Model", new XAttribute("vocabularySize", model.VocabularySize),
-                new XAttribute("embeddingSize", model.EmbeddingSize), new XAttribute("layerCount", model.LayerCount),
-                new XAttribute("headCount", model.HeadCount), new XAttribute("headSize", model.HeadSize),
-                new XAttribute("stateAbiId", model.StateAbiId)),
+            CreateModel(model),
             new XElement("Resources", resources.Select(resource =>
                 new XElement("Resource", new XAttribute("id", resource.Id.Value), new XAttribute("name", resource.Name),
                     new XAttribute("kind", resource.Kind), new XAttribute("lifetime", resource.Lifetime),
@@ -145,6 +142,29 @@ public static class GraphXml
                 new XElement("Schema", new XAttribute("name", graphState.Schema.Name)),
                 new XElement("Slots", graphState.Slots.Select(slot => new XElement("Slot",
                     new XAttribute("name", slot.Name), new XAttribute("resource", slot.Resource.Value))))));
+
+    private static XElement CreateModel(GraphModelSignature model)
+    {
+        if (string.Equals(model.ModelType, "rwkv", StringComparison.Ordinal) &&
+            model.IsRwkvCompatible && model.Attributes.Count == 0 &&
+            model.Dimensions.Count == 5)
+        {
+            return new XElement("Model", new XAttribute("vocabularySize", model.VocabularySize),
+                new XAttribute("embeddingSize", model.EmbeddingSize), new XAttribute("layerCount", model.LayerCount),
+                new XAttribute("headCount", model.HeadCount), new XAttribute("headSize", model.HeadSize),
+                new XAttribute("stateAbiId", model.StateAbiId));
+        }
+
+        return new XElement("Model",
+            new XAttribute("modelType", model.ModelType),
+            new XAttribute("stateAbiId", model.StateAbiId),
+            new XElement("Dimensions", model.Dimensions.OrderBy(value => value.Key, StringComparer.Ordinal)
+                .Select(value => new XElement("Dimension",
+                    new XAttribute("name", value.Key), new XAttribute("size", value.Value)))),
+            new XElement("Attributes", model.Attributes.OrderBy(value => value.Key, StringComparer.Ordinal)
+                .Select(value => new XElement("Attribute",
+                    new XAttribute("name", value.Key), new XAttribute("value", value.Value)))));
+    }
 
     private static XElement CreateNode(string id, GraphOperationId operation, RegionId region,
         IReadOnlyList<NodeResourceBinding> resources, IEnumerable<string> dependencies,
@@ -251,7 +271,10 @@ public static class GraphXml
         var identity = sections[0];
         Check(identity, "Identity", "architectureId", "irVersion", "name");
         var model = sections[1];
-        Check(model, "Model", "vocabularySize", "embeddingSize", "layerCount", "headCount", "headSize", "stateAbiId");
+        var genericModel = model.Attribute("modelType") is not null;
+        Check(model, "Model", genericModel
+            ? ["modelType", "stateAbiId"]
+            : ["vocabularySize", "embeddingSize", "layerCount", "headCount", "headSize", "stateAbiId"]);
         var resources = Children(sections[2], "Resource").Select(item =>
         {
             Check(item, "Resource", "id", "name", "kind", "lifetime", "scope", "bindingKey", "deviceId");
@@ -281,11 +304,35 @@ public static class GraphXml
         }).ToArray();
         return new GraphParts(
             new GraphIdentity(Required(identity, "architectureId"), Number(identity, "irVersion"), Required(identity, "name")),
-            new GraphModelSignature(Number(model, "vocabularySize"), Number(model, "embeddingSize"),
-                Number(model, "layerCount"), Number(model, "headCount"), Number(model, "headSize"),
-                Required(model, "stateAbiId")),
+            ReadModel(model, genericModel),
             resources, regions, ReadRefs(sections[4]), ReadRefs(sections[5]),
             hasState ? ReadGraphState(sections[6]) : null, sections[hasState ? 7 : 6]);
+    }
+
+    private static GraphModelSignature ReadModel(XElement model, bool generic)
+    {
+        if (!generic)
+        {
+            return new GraphModelSignature(Number(model, "vocabularySize"), Number(model, "embeddingSize"),
+                Number(model, "layerCount"), Number(model, "headCount"), Number(model, "headSize"),
+                Required(model, "stateAbiId"));
+        }
+
+        var sections = Ordered(model, "Dimensions", "Attributes");
+        Check(sections[0], "Dimensions");
+        Check(sections[1], "Attributes");
+        var dimensions = Children(sections[0], "Dimension").ToDictionary(value =>
+        {
+            Check(value, "Dimension", "name", "size");
+            return Required(value, "name");
+        }, value => Number(value, "size"), StringComparer.Ordinal);
+        var attributes = Children(sections[1], "Attribute").ToDictionary(value =>
+        {
+            Check(value, "Attribute", "name", "value");
+            return Required(value, "name");
+        }, value => Required(value, "value"), StringComparer.Ordinal);
+        return new GraphModelSignature(
+            Required(model, "modelType"), Required(model, "stateAbiId"), dimensions, attributes);
     }
 
     private static GraphState ReadGraphState(XElement element)

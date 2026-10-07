@@ -117,8 +117,10 @@ public static class GraphValidator
             throw new InvalidDataException("The graph identity is invalid.");
         }
 
-        if (model.VocabularySize <= 0 || model.EmbeddingSize <= 0 || model.LayerCount <= 0 ||
-            model.HeadCount <= 0 || model.HeadSize <= 0 || string.IsNullOrWhiteSpace(model.StateAbiId))
+        if (string.IsNullOrWhiteSpace(model.ModelType) ||
+            string.IsNullOrWhiteSpace(model.StateAbiId) ||
+            model.Dimensions.Any(value => string.IsNullOrWhiteSpace(value.Key) || value.Value <= 0) ||
+            string.Equals(model.ModelType, "rwkv", StringComparison.Ordinal) && !model.IsRwkvCompatible)
         {
             throw new InvalidDataException("The graph model signature is invalid.");
         }

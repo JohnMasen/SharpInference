@@ -127,6 +127,21 @@ public sealed class GpuMatVecTests
     }
 
     [Fact]
+    public void SpanUploadExecutesWithoutOwnedSourceArray()
+    {
+        using var executor = Compiler().Compile(
+            GpuMatVecReferencePrograms.Create(3, 2, true)).CreateExecutor();
+        var matrix = Bytes([1, 2, 3, 4, 5, 6], VmElementType.Float32);
+        var input = Bytes([2, 3], VmElementType.Float32);
+
+        executor.Upload("matrix", matrix.AsSpan());
+        executor.Upload("input", input.AsSpan());
+        executor.Execute("forward");
+
+        Assert.Equal([8, 18, 28], Values(executor.Readback("output"), VmElementType.Float32));
+    }
+
+    [Fact]
     public void TimestampMeasurementExecutesExactlyTheRequestedNumberOfDispatches()
     {
         VmParameter[] parameters = [new("output", VmAccess.ReadWrite, new(VmElementType.Float32, [1]))];
