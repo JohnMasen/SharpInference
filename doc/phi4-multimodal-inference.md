@@ -263,3 +263,7 @@ chunks using batched shared-weight matrix projections and causal attention.
 The D3D12 components are independently testable. `Phi4Processor` continues to
 select the CPU implementation by default; applications opt into the GPU
 multimodal path by constructing `Phi4D3D12MultimodalSession`.
+
+An independent [automatic UAV barrier experiment](./phi4-barrier-experiment.md)
+reduced scheduled barrier command groups but did not demonstrate a stable
+runtime improvement. Its implementation is not part of the retained runtime.
