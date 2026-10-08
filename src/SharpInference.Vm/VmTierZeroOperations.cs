@@ -2,8 +2,14 @@ using SharpInference.Graphs;
 
 namespace SharpInference.Vm;
 
+/// <summary>Validates VM operators against tier-zero graph operation contracts.</summary>
 public static class VmTierZeroOperations
 {
+    /// <summary>Validates an operator and returns its resolved input port order.</summary>
+    /// <param name="operation">The tier-zero operator to validate.</param>
+    /// <param name="parameters">The VM parameters available to the operator.</param>
+    /// <param name="allowLegacyFloat16">Whether legacy float16 contracts are accepted.</param>
+    /// <returns>The input port names resolved by the operation contract.</returns>
     public static IReadOnlyList<string> Validate(VmOperator operation,
         IReadOnlyList<VmParameter> parameters, bool allowLegacyFloat16 = false)
     {

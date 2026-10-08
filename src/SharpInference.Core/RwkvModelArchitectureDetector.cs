@@ -1,7 +1,11 @@
 namespace SharpInference;
 
+/// <summary>Identifies the supported RWKV architecture represented by a model file's tensor names.</summary>
 public static class RwkvModelArchitectureDetector
 {
+    /// <summary>Opens a model file and identifies its supported RWKV architecture.</summary>
+    /// <param name="modelPath">The path to the GGML model file.</param>
+    /// <returns><c>rwkv-7</c> or <c>rwkv-6</c>, depending on the tensor contract found in the file.</returns>
     public static string Detect(string modelPath)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(modelPath);
@@ -9,6 +13,10 @@ public static class RwkvModelArchitectureDetector
         return Detect(catalog);
     }
 
+    /// <summary>Identifies the supported RWKV architecture represented by a tensor catalog.</summary>
+    /// <param name="catalog">The tensor catalog to inspect.</param>
+    /// <returns><c>rwkv-7</c> when RWKV-7 marker tensors are present, or <c>rwkv-6</c> for RWKV-6 markers.</returns>
+    /// <exception cref="NotSupportedException">The catalog does not match either supported tensor contract.</exception>
     public static string Detect(IModelTensorCatalog catalog)
     {
         ArgumentNullException.ThrowIfNull(catalog);

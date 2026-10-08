@@ -5,8 +5,15 @@ using SharpInference.Instructions;
 
 namespace SharpInference.Runtime;
 
+/// <summary>Creates CPU and Direct3D12 VM graph backends from runtime configuration.</summary>
 public static class VmBackendFactory
 {
+    /// <summary>Creates a Direct3D12 VM graph backend and its device resources.</summary>
+    /// <param name="configuration">Optional runtime configuration.</param>
+    /// <param name="adapterIndex">The Direct3D12 adapter index.</param>
+    /// <param name="instructionCollections">Optional instruction collections used for compilation.</param>
+    /// <param name="generatorCollections">Optional instruction collections used for graph generation.</param>
+    /// <returns>A configured Direct3D12 graph backend.</returns>
     public static VmGraphBackend CreateD3D12(VmRuntimeConfig? configuration = null, int adapterIndex = 0,
         IEnumerable<IInstructionCollectionProvider>? instructionCollections = null,
         IEnumerable<IInstructionCollectionProvider>? generatorCollections = null)
@@ -74,6 +81,11 @@ public static class VmBackendFactory
         }
     }
 
+    /// <summary>Creates a CPU VM graph backend from runtime configuration.</summary>
+    /// <param name="configuration">Optional runtime configuration.</param>
+    /// <param name="instructionCollections">Optional instruction collections used for compilation.</param>
+    /// <param name="generatorCollections">Optional instruction collections used for graph generation.</param>
+    /// <returns>A configured CPU graph backend.</returns>
     public static VmGraphBackend CreateCpu(VmRuntimeConfig? configuration = null,
         IEnumerable<IInstructionCollectionProvider>? instructionCollections = null,
         IEnumerable<IInstructionCollectionProvider>? generatorCollections = null)

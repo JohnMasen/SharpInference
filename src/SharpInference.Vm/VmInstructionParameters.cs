@@ -3,8 +3,14 @@ using SharpInference.Instructions;
 
 namespace SharpInference.Vm;
 
+/// <summary>Converts VM operator arguments and attributes into instruction parameters.</summary>
 public static class VmInstructionParameters
 {
+    /// <summary>Creates instruction parameters using VM tensor metadata and an expression resolver.</summary>
+    /// <param name="operation">The VM operator to convert.</param>
+    /// <param name="parameters">The definition parameters referenced by the operator.</param>
+    /// <param name="expression">Resolves each VM parameter to an instruction expression and offset.</param>
+    /// <returns>Instruction tensor and attribute parameters in the operator's argument order.</returns>
     public static InstructionParameter[] Create(VmOperator operation, IReadOnlyList<VmParameter> parameters,
         Func<VmParameter, (string Expression, string Offset)> expression)
     {

@@ -2,8 +2,10 @@ using SharpInference.Instructions;
 
 namespace SharpInference.Vm;
 
+/// <summary>Resolves, removes, and validates instruction contracts embedded in VM programs.</summary>
 public static class VmInstructionContracts
 {
+    /// <summary>Creates a copy of a program with resolved instruction contract fields removed.</summary>
     public static VmProgram WithoutContracts(VmProgram program) => new(program.Name, program.Abi, program.Target,
         program.Slots, program.Definitions.Select(definition => new VmDefinition(definition.Id, definition.Kind,
             definition.Parameters, definition.Nodes.Select(node => node.Instruction is VmOperator operation
@@ -11,6 +13,10 @@ public static class VmInstructionContracts
                     operation.Arguments, operation.Attributes, executionConfiguration: operation.ExecutionConfiguration), node.Dependencies) : node), definition.Threads)),
         program.Entries, program.State);
 
+    /// <summary>Resolves instruction implementations and binds their precision, access, and index contracts.</summary>
+    /// <param name="program">The program whose operators are to be resolved.</param>
+    /// <param name="registry">The instruction registry used for resolution.</param>
+    /// <returns>The original program when contracts already match, otherwise a program containing resolved contracts.</returns>
     public static VmProgram Bind(VmProgram program, InstructionRegistry registry)
     {
         var target = program.Target == VmTarget.Cpu ? InstructionTarget.Cpu : InstructionTarget.Direct3D12;
@@ -52,6 +58,8 @@ public static class VmInstructionContracts
             definitions, program.Entries, program.State) : program;
     }
 
+    /// <summary>Validates the program and requires every VM operator to contain a resolved contract.</summary>
+    /// <param name="program">The program to validate.</param>
     public static void ValidateResolved(VmProgram program)
     {
         VmProgramValidator.Validate(program);

@@ -1,5 +1,6 @@
 namespace SharpInference.Vm;
 
+/// <summary>Provides byte-addressable storage for VM resources.</summary>
 public interface IVmStorage : IDisposable
 {
     ulong ByteLength { get; }
@@ -7,15 +8,19 @@ public interface IVmStorage : IDisposable
     void Write(ulong offset, ReadOnlySpan<byte> source);
 }
 
+/// <summary>Provides VM storage backed by a managed byte array.</summary>
 public interface IVmManagedStorage : IVmStorage
 {
     byte[] Buffer { get; }
 }
 
+/// <summary>Stores VM resource bytes in a managed array.</summary>
 public sealed class VmMemoryStorage : IVmManagedStorage
 {
     private byte[]? data;
 
+    /// <summary>Allocates storage with the specified byte capacity.</summary>
+    /// <param name="byteLength">The positive storage capacity in bytes.</param>
     public VmMemoryStorage(int byteLength)
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(byteLength);
@@ -26,9 +31,11 @@ public sealed class VmMemoryStorage : IVmManagedStorage
     public ulong ByteLength { get; }
     public byte[] Buffer => data ?? throw new ObjectDisposedException(nameof(VmMemoryStorage));
 
+    /// <summary>Reads bytes from storage into the destination span.</summary>
     public void Read(ulong offset, Span<byte> destination) =>
         Data(offset, destination.Length).CopyTo(destination);
 
+    /// <summary>Writes source bytes into storage.</summary>
     public void Write(ulong offset, ReadOnlySpan<byte> source) =>
         source.CopyTo(Data(offset, source.Length));
 
@@ -40,9 +47,11 @@ public sealed class VmMemoryStorage : IVmManagedStorage
         return buffer.AsSpan(checked((int)offset), length);
     }
 
+    /// <summary>Releases the managed byte array.</summary>
     public void Dispose() => data = null;
 }
 
+/// <summary>Owns storage and coordinates VM resource references and access leases.</summary>
 public sealed class VmResource : IDisposable
 {
     private readonly object gate = new();
@@ -55,6 +64,11 @@ public sealed class VmResource : IDisposable
     private int readers;
     private bool writer;
 
+    /// <summary>Creates a resource whose storage capacity matches a tensor descriptor.</summary>
+    /// <param name="tensor">The tensor descriptor represented by the storage.</param>
+    /// <param name="scope">The VM slot scope of the resource.</param>
+    /// <param name="access">The permitted resource access.</param>
+    /// <param name="storage">The storage backing the resource.</param>
     public VmResource(VmTensor tensor, VmSlotScope scope, VmAccess access, IVmStorage storage)
     {
         ArgumentNullException.ThrowIfNull(tensor);
@@ -77,6 +91,7 @@ public sealed class VmResource : IDisposable
     internal bool Valid { get { lock (gate) return valid; } }
     internal void SetValidity(bool value) { lock (gate) valid = value; }
 
+    /// <summary>Acquires an owning reference lease for the resource.</summary>
     public VmResourceLease Acquire()
     {
         lock (gate)
@@ -169,6 +184,7 @@ public sealed class VmResource : IDisposable
         if (dispose) storage.Dispose();
     }
 
+    /// <summary>Releases the owner's reference to the resource.</summary>
     public void Dispose()
     {
         lock (gate)
@@ -180,6 +196,7 @@ public sealed class VmResource : IDisposable
     }
 }
 
+/// <summary>Represents a disposable reference to a VM resource.</summary>
 public sealed class VmResourceLease : IDisposable
 {
     private readonly object gate = new();
@@ -191,8 +208,13 @@ public sealed class VmResourceLease : IDisposable
         this.resource = resource;
         this.bindingAccess = bindingAccess;
     }
+    /// <summary>Gets the tensor descriptor of the leased resource.</summary>
     public VmTensor Tensor { get { lock (gate) return Resource.Tensor; } }
+
+    /// <summary>Gets the slot scope of the leased resource.</summary>
     public VmSlotScope Scope { get { lock (gate) return Resource.Scope; } }
+
+    /// <summary>Gets the access mode of the leased resource.</summary>
     public VmAccess Access { get { lock (gate) return Resource.Access; } }
     internal bool Valid { get { lock (gate) return Resource.Valid; } }
     internal void SetValidity(bool value) { lock (gate) Resource.SetValidity(value); }

@@ -12,6 +12,9 @@ public sealed record GraphPrefillOptimizationContext(
 /// <summary>Builds a prefill execution graph from a model's existing inference graph.</summary>
 public interface IPrefillGraphOptimizer
 {
+    /// <summary>Determines whether the optimizer can build a prefill graph for the supplied context.</summary>
     bool CanOptimize(GraphPrefillOptimizationContext context);
+
+    /// <summary>Builds an optimized prefill execution graph.</summary>
     ExecutionGraph Optimize(GraphPrefillOptimizationContext context);
 }

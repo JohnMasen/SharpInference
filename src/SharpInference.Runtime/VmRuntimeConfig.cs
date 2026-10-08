@@ -3,6 +3,7 @@ using SharpInference.Vm.Optimization;
 
 namespace SharpInference.Runtime;
 
+/// <summary>Configures VM queueing, compilation, storage, and optimization behavior.</summary>
 public sealed class VmRuntimeConfig
 {
     public int PrefillInstances { get; init; } = 2;
@@ -24,6 +25,8 @@ public sealed class VmRuntimeConfig
     public string? PrefillProgramPath { get; init; }
     public string? PrefillArtifactDirectory { get; init; }
 
+    /// <summary>Builds and validates VM engine queue and capacity options.</summary>
+    /// <returns>Validated engine options.</returns>
     public VmEngineOptions EngineOptions()
     {
         if (!Enum.IsDefined(GpuMatVecMode))
@@ -43,6 +46,10 @@ public sealed class VmRuntimeConfig
         return options;
     }
 
+    /// <summary>Builds optimization options for the selected target and environment fingerprint.</summary>
+    /// <param name="tierOneEnvironmentFingerprint">The hardware/runtime fingerprint required for tier-one profiling.</param>
+    /// <param name="target">The selected VM execution target.</param>
+    /// <returns>VM optimization options derived from this configuration.</returns>
     public VmOptimizationOptions OptimizationOptions(string? tierOneEnvironmentFingerprint = null, VmTarget? target = null) =>
         new(ReuseLocalStorage, ThreadsPerGroup, PrefillCapacity, NativeHalfWeights, WeightViews,
             TierOneCostProfile is null ? null : new(TierOneCostProfile,

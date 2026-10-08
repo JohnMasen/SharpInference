@@ -3,34 +3,47 @@ using System.Text;
 
 namespace SharpInference;
 
+/// <summary>Provides synchronous prefill and single-token forward operations for generation.</summary>
 public interface IRwkvGenerationSession
 {
     ReadOnlyMemory<float> Prefill(ReadOnlySpan<int> tokens);
     ReadOnlyMemory<float> ForwardToken(int token);
 }
 
+/// <summary>Owns a scoped generation session until asynchronously disposed.</summary>
 public interface IRwkvGenerationScope : IAsyncDisposable
 {
     IRwkvGenerationSession Session { get; }
 }
 
+/// <summary>Provides generation sessions that can be isolated for a generation operation.</summary>
 public interface IRwkvScopedGenerationSession : IRwkvGenerationSession
 {
     ValueTask<IRwkvGenerationScope> BeginGenerationAsync(CancellationToken cancellationToken = default);
 }
 
+/// <summary>Adds asynchronous prompt prefill to a generation session.</summary>
 public interface IRwkvAsyncPrefillSession : IRwkvGenerationSession
 {
     ValueTask<ReadOnlyMemory<float>> PrefillAsync(ReadOnlyMemory<int> tokens, CancellationToken cancellationToken = default);
 }
 
+/// <summary>Adds asynchronous single-token forwarding to a generation session.</summary>
 public interface IRwkvAsyncGenerationSession : IRwkvGenerationSession
 {
     ValueTask<ReadOnlyMemory<float>> ForwardTokenAsync(int token, CancellationToken cancellationToken = default);
 }
 
+/// <summary>Generates text from RWKV logits and a World tokenizer.</summary>
 public static class RwkvTextGenerator
 {
+    /// <summary>Generates output one UTF-16 character at a time.</summary>
+    /// <param name="session">The model generation session.</param>
+    /// <param name="tokenizer">The tokenizer used to decode sampled tokens.</param>
+    /// <param name="prompt">The initial text prompt.</param>
+    /// <param name="options">Optional sampling and stopping options.</param>
+    /// <param name="cancellationToken">Token used to cancel generation.</param>
+    /// <returns>An asynchronous sequence of generated characters.</returns>
     public static async IAsyncEnumerable<char> GenerateCharactersAsync(
         IRwkvGenerationSession session,
         RwkvWorldTokenizer tokenizer,
@@ -47,6 +60,13 @@ public static class RwkvTextGenerator
         }
     }
 
+    /// <summary>Encodes a text prompt and generates decoded output chunks.</summary>
+    /// <param name="session">The model generation session.</param>
+    /// <param name="tokenizer">The tokenizer used for prompt encoding and output decoding.</param>
+    /// <param name="prompt">The initial text prompt.</param>
+    /// <param name="options">Optional sampling and stopping options.</param>
+    /// <param name="cancellationToken">Token used to cancel generation.</param>
+    /// <returns>An asynchronous sequence of generated text chunks.</returns>
     public static async IAsyncEnumerable<string> GenerateAsync(
         IRwkvGenerationSession session,
         RwkvWorldTokenizer tokenizer,
@@ -69,6 +89,14 @@ public static class RwkvTextGenerator
         }
     }
 
+    /// <summary>Prefills a token prompt and generates decoded output chunks.</summary>
+    /// <param name="session">The model generation session.</param>
+    /// <param name="tokenizer">The tokenizer used to decode sampled output.</param>
+    /// <param name="promptTokens">The non-empty token prompt to prefill.</param>
+    /// <param name="options">Optional sampling and stopping options.</param>
+    /// <param name="cancellationToken">Token used to cancel generation.</param>
+    /// <returns>An asynchronous sequence of generated text chunks.</returns>
+    /// <exception cref="ArgumentException">The prompt contains no tokens.</exception>
     public static async IAsyncEnumerable<string> GenerateAsync(
         IRwkvGenerationSession session,
         RwkvWorldTokenizer tokenizer,
@@ -101,6 +129,14 @@ public static class RwkvTextGenerator
         }
     }
 
+    /// <summary>Generates decoded output beginning with already computed logits.</summary>
+    /// <param name="session">The model generation session used for subsequent tokens.</param>
+    /// <param name="tokenizer">The tokenizer used to decode sampled tokens.</param>
+    /// <param name="initialLogits">The logits produced by the prompt prefill.</param>
+    /// <param name="options">Optional sampling and stopping options.</param>
+    /// <param name="cancellationToken">Token used to cancel generation.</param>
+    /// <returns>An asynchronous sequence of generated text chunks.</returns>
+    /// <exception cref="ArgumentException">The initial logits are empty.</exception>
     public static async IAsyncEnumerable<string> GenerateFromPrefilledAsync(
         IRwkvGenerationSession session,
         RwkvWorldTokenizer tokenizer,

@@ -4,6 +4,7 @@ using System.Text;
 
 namespace SharpInference.Gguf;
 
+/// <summary>Identifies the GGUF metadata value representation.</summary>
 public enum GgufMetadataType : uint
 {
     UInt8 = 0,
@@ -21,6 +22,7 @@ public enum GgufMetadataType : uint
     Float64 = 12,
 }
 
+/// <summary>Identifies the storage type of a tensor in a GGUF model file.</summary>
 public enum GgufModelTensorType : uint
 {
     Float32 = 0,
@@ -45,6 +47,7 @@ public enum GgufModelTensorType : uint
     BFloat16 = 30,
 }
 
+/// <summary>Reads GGUF v3 model metadata and exposes memory-mapped tensor data.</summary>
 public sealed unsafe class GgufModelFile : IDisposable
 {
     private const uint Magic = 0x46554747;
@@ -71,10 +74,18 @@ public sealed unsafe class GgufModelFile : IDisposable
         this.pointer = pointer;
     }
 
+    /// <summary>Gets the normalized path of the mapped GGUF file.</summary>
     public string Path { get; }
+
+    /// <summary>Gets the GGUF metadata values keyed by metadata name.</summary>
     public IReadOnlyDictionary<string, object> Metadata { get; }
+
+    /// <summary>Gets the tensor descriptors and mapped tensor views keyed by tensor name.</summary>
     public IReadOnlyDictionary<string, GgufModelTensor> Tensors { get; }
 
+    /// <summary>Opens a GGUF v3 model file and maps its tensor data for read-only access.</summary>
+    /// <param name="path">The path to the GGUF model file.</param>
+    /// <returns>An opened model file that must be disposed.</returns>
     public static GgufModelFile Open(string path)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);

@@ -17,6 +17,11 @@ public enum GgufTensorType : uint
 /// <summary>A named tensor in GGUF dimension order, with its raw little-endian bytes.</summary>
 public sealed class GgufStateTensor
 {
+    /// <summary>Creates a state tensor with copied dimensions and supplied raw data.</summary>
+    /// <param name="name">The tensor name.</param>
+    /// <param name="type">The unquantized tensor storage type.</param>
+    /// <param name="dimensions">The tensor dimensions in GGUF order.</param>
+    /// <param name="data">The tensor's raw little-endian bytes.</param>
     public GgufStateTensor(string name, GgufTensorType type, IEnumerable<ulong> dimensions, ReadOnlyMemory<byte> data)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
@@ -27,15 +32,25 @@ public sealed class GgufStateTensor
         Data = data;
     }
 
+    /// <summary>Gets the tensor name.</summary>
     public string Name { get; }
+
+    /// <summary>Gets the tensor storage type.</summary>
     public GgufTensorType Type { get; }
+
+    /// <summary>Gets the tensor dimensions in GGUF order.</summary>
     public IReadOnlyList<ulong> Dimensions { get; }
+
+    /// <summary>Gets the raw little-endian tensor bytes.</summary>
     public ReadOnlyMemory<byte> Data { get; }
 }
 
 /// <summary>A state schema name and the exact set of persisted tensors.</summary>
 public sealed class GgufState
 {
+    /// <summary>Creates a named state containing the supplied tensors.</summary>
+    /// <param name="schemaName">The state schema identifier.</param>
+    /// <param name="tensors">The tensors persisted by the state.</param>
     public GgufState(string schemaName, IEnumerable<GgufStateTensor> tensors)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(schemaName);
@@ -44,7 +59,10 @@ public sealed class GgufState
         Tensors = Array.AsReadOnly(tensors.ToArray());
     }
 
+    /// <summary>Gets the state schema identifier.</summary>
     public string SchemaName { get; }
+
+    /// <summary>Gets the tensors persisted by the state.</summary>
     public IReadOnlyList<GgufStateTensor> Tensors { get; }
 }
 
@@ -60,6 +78,9 @@ public static class GgufStateFile
     private const string SchemaKey = "sharpinference.state_schema.name";
     private static readonly UTF8Encoding Utf8 = new(false, true);
 
+    /// <summary>Writes a state as a GGUF v3 file at the stream's current position.</summary>
+    /// <param name="stream">A writable, seekable stream that remains open.</param>
+    /// <param name="state">The state to serialize.</param>
     public static void Write(Stream stream, GgufState state)
     {
         ArgumentNullException.ThrowIfNull(stream);
@@ -111,6 +132,9 @@ public static class GgufStateFile
         writer.Flush();
     }
 
+    /// <summary>Reads a GGUF v3 state from the stream's current position.</summary>
+    /// <param name="stream">A readable, seekable stream that remains open.</param>
+    /// <returns>The deserialized state.</returns>
     public static GgufState Read(Stream stream)
     {
         ArgumentNullException.ThrowIfNull(stream);

@@ -7,9 +7,16 @@ namespace SharpInference.Graphs;
 /// </summary>
 public interface IResourceMapBase<TResource> where TResource : class
 {
+    /// <summary>Gets graph resource metadata known to the map.</summary>
     IReadOnlyList<GraphResource> Resources { get; }
+
+    /// <summary>Attempts to retrieve graph metadata by resource identifier.</summary>
     bool TryGetMetadata(ResourceId id, out GraphResource metadata);
+
+    /// <summary>Attempts to retrieve a bound backend resource by identifier.</summary>
     bool TryGetResource(ResourceId id, out TResource? resource);
+
+    /// <summary>Binds a compatible backend resource to a graph resource.</summary>
     void SetResource(ResourceId id, TResource resource);
 }
 
@@ -27,6 +34,9 @@ public sealed class GraphResourceMap<TResource> : IResourceMapBase<TResource> wh
     private readonly object gate = new();
     private bool bindingsSealed;
 
+    /// <summary>Creates a resource map from graph metadata and a compatibility predicate.</summary>
+    /// <param name="resources">The graph resources accepted by the map.</param>
+    /// <param name="isCompatible">Checks whether a backend value matches resource metadata.</param>
     public GraphResourceMap(IEnumerable<GraphResource> resources, Func<GraphResource, TResource, bool> isCompatible)
     {
         ArgumentNullException.ThrowIfNull(resources);
@@ -37,6 +47,9 @@ public sealed class GraphResourceMap<TResource> : IResourceMapBase<TResource> wh
         Resources = Array.AsReadOnly(entries);
     }
 
+    /// <summary>Creates a resource map using resources and private ownership from an execution graph.</summary>
+    /// <param name="graph">The graph defining resource metadata and private owners.</param>
+    /// <param name="isCompatible">Checks whether a backend value matches resource metadata.</param>
     public GraphResourceMap(ExecutionGraph graph, Func<GraphResource, TResource, bool> isCompatible)
         : this((graph ?? throw new ArgumentNullException(nameof(graph))).Resources, isCompatible)
     {
@@ -62,8 +75,10 @@ public sealed class GraphResourceMap<TResource> : IResourceMapBase<TResource> wh
         }
     }
 
+    /// <summary>Binds a public resource.</summary>
     public void SetResource(ResourceId id, TResource resource) => Bind(id, resource, null);
 
+    /// <summary>Binds a resource that is private to the specified execution node.</summary>
     public void SetPrivateResource(ExecutionNodeId owner, ResourceId id, TResource resource)
     {
         if (!privateOwners.TryGetValue(id, out var actualOwner) || actualOwner != owner)
@@ -71,6 +86,7 @@ public sealed class GraphResourceMap<TResource> : IResourceMapBase<TResource> wh
         Bind(id, resource, owner);
     }
 
+    /// <summary>Prevents further resource bindings while allowing existing resources to be read.</summary>
     public void SealBindings()
     {
         lock (gate)

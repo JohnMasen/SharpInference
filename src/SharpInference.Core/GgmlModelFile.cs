@@ -4,6 +4,7 @@ using Microsoft.Win32.SafeHandles;
 
 namespace SharpInference;
 
+/// <summary>Reads supported GGML RWKV model files through a read-only memory mapping.</summary>
 public sealed unsafe class GgmlModelFile : IModelFile
 {
     private const uint Magic = 0x67676d66;
@@ -36,12 +37,23 @@ public sealed unsafe class GgmlModelFile : IModelFile
         Names = new ReadOnlyCollection<string>(tensors.Keys.OrderBy(static name => name, StringComparer.Ordinal).ToArray());
     }
 
+    /// <summary>Gets the vocabulary size stored in the GGML header.</summary>
     public int VocabularySize { get; }
+
+    /// <summary>Gets the embedding size stored in the GGML header.</summary>
     public int EmbeddingSize { get; }
+
+    /// <summary>Gets the layer count stored in the GGML header.</summary>
     public int LayerCount { get; }
+
+    /// <summary>Gets the path of the mapped model file.</summary>
     public string Path { get; }
+
+    /// <summary>Gets the names of tensors found in the file, sorted ordinally.</summary>
     public IReadOnlyCollection<string> Names { get; }
 
+    /// <summary>Validates the fixed GGML header without retaining a file mapping.</summary>
+    /// <param name="path">The path to the model file.</param>
     public static void ValidateHeader(string path)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
@@ -71,6 +83,9 @@ public sealed unsafe class GgmlModelFile : IModelFile
         ValidateHeaderFields(magic, version, defaultType);
     }
 
+    /// <summary>Opens and memory-maps a supported GGML model file for read-only tensor access.</summary>
+    /// <param name="path">The path to the model file.</param>
+    /// <returns>A mapped model file that must be disposed after use.</returns>
     public static GgmlModelFile Open(string path)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
@@ -144,13 +159,22 @@ public sealed unsafe class GgmlModelFile : IModelFile
         }
     }
 
+    /// <summary>Attempts to retrieve a tensor by name.</summary>
+    /// <param name="name">The tensor name to find.</param>
+    /// <param name="tensor">The matching tensor when found.</param>
+    /// <returns><see langword="true"/> when the tensor exists; otherwise, <see langword="false"/>.</returns>
     public bool TryGet(string name, out IModelTensor tensor) => tensors.TryGetValue(name, out tensor!);
 
+    /// <summary>Retrieves a tensor by name.</summary>
+    /// <param name="name">The required tensor name.</param>
+    /// <returns>The matching tensor.</returns>
+    /// <exception cref="InvalidDataException">The tensor is not present in the file.</exception>
     public IModelTensor GetRequired(string name) =>
         tensors.TryGetValue(name, out var tensor)
             ? tensor
             : throw new InvalidDataException($"The GGML model is missing required tensor '{name}'.");
 
+    /// <summary>Releases the memory mapping and view accessor held by this model file.</summary>
     public void Dispose()
     {
         if (disposed)
@@ -209,6 +233,8 @@ public sealed unsafe class GgmlModelFile : IModelFile
         private readonly int elementCount;
         private float[]? convertedFloatValues;
 
+        /// <summary>Creates a tensor view over bytes in the mapped GGML file.</summary>
+        /// <exception cref="InvalidDataException">The tensor contains more elements than the managed runtime can index.</exception>
         public MappedTensor(string name, RwkvTensorDataType dataType, int[] dimensions, byte* values, long elementCount)
         {
             if (elementCount > int.MaxValue)
@@ -223,9 +249,16 @@ public sealed unsafe class GgmlModelFile : IModelFile
             this.elementCount = (int)elementCount;
         }
 
+        /// <summary>Gets the tensor name.</summary>
         public string Name { get; }
+
+        /// <summary>Gets the tensor data type.</summary>
         public RwkvTensorDataType DataType { get; }
+
+        /// <summary>Gets the tensor dimensions from the file metadata.</summary>
         public IReadOnlyList<int> Dimensions { get; }
+
+        /// <summary>Gets float32 values, converting float16 mapped values lazily when necessary.</summary>
         public ReadOnlySpan<float> FloatValues
         {
             get
@@ -239,6 +272,7 @@ public sealed unsafe class GgmlModelFile : IModelFile
             }
         }
 
+        /// <summary>Gets the mapped float16 values, or an empty span for other data types.</summary>
         public ReadOnlySpan<Half> HalfValues =>
             DataType == RwkvTensorDataType.Float16
                 ? new ReadOnlySpan<Half>((Half*)values, elementCount)

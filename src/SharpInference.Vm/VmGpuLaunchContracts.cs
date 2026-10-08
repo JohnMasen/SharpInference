@@ -4,6 +4,10 @@ namespace SharpInference.Vm;
 
 internal static class VmGpuLaunchContracts
 {
+    /// <summary>Validates GPU kernel thread groups and dispatch grids against VM operations.</summary>
+    /// <param name="program">The VM program containing kernels and dispatches.</param>
+    /// <param name="definitions">Definitions used to expand called operations.</param>
+    /// <exception cref="InvalidDataException">A kernel or dispatch violates a supported GPU launch contract.</exception>
     public static void Validate(VmProgram program, IReadOnlyDictionary<string, VmDefinition> definitions)
     {
         var grids = new Dictionary<string, VmThreadGroup>(StringComparer.Ordinal);

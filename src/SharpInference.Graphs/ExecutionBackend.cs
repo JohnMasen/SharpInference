@@ -1,10 +1,12 @@
 namespace SharpInference.Graphs;
 
+/// <summary>Represents an executable backend plan for an execution graph.</summary>
 public interface IBackendExecutablePlan
 {
     ExecutionGraph Graph { get; }
 }
 
+/// <summary>Identifies why a backend could not prepare an execution node.</summary>
 public enum BackendPreparationFailureReason
 {
     UnsupportedOperation,
@@ -16,6 +18,7 @@ public enum BackendPreparationFailureReason
     ResourceLimitExceeded,
 }
 
+/// <summary>Describes one backend preparation failure and the implementations considered.</summary>
 public sealed record BackendPreparationDiagnostic(
     ExecutionNodeId? NodeId,
     GraphOperationId? Operation,
@@ -25,6 +28,7 @@ public sealed record BackendPreparationDiagnostic(
     PrecisionRequirement? RequiredPrecision,
     IReadOnlyList<OperatorImplementationDescription> AvailableImplementations);
 
+/// <summary>Represents either a prepared backend plan or preparation diagnostics.</summary>
 public abstract record BackendPreparationResult
 {
     private BackendPreparationResult()
@@ -33,6 +37,8 @@ public abstract record BackendPreparationResult
 
     public sealed record Success : BackendPreparationResult
     {
+        /// <summary>Creates a successful result containing an executable plan.</summary>
+        /// <param name="plan">The prepared executable plan.</param>
         public Success(IBackendExecutablePlan plan)
         {
             Plan = plan ?? throw new ArgumentNullException(nameof(plan));
@@ -43,6 +49,8 @@ public abstract record BackendPreparationResult
 
     public sealed record Failure : BackendPreparationResult
     {
+        /// <summary>Creates a failed result containing one or more diagnostics.</summary>
+        /// <param name="diagnostics">The diagnostics explaining preparation failures.</param>
         public Failure(IEnumerable<BackendPreparationDiagnostic> diagnostics)
         {
             Diagnostics = diagnostics?.ToArray() ?? throw new ArgumentNullException(nameof(diagnostics));
@@ -55,6 +63,9 @@ public abstract record BackendPreparationResult
         public IReadOnlyList<BackendPreparationDiagnostic> Diagnostics { get; }
     }
 
+    /// <summary>Returns the prepared plan or throws an exception containing failure diagnostics.</summary>
+    /// <param name="backendId">The identifier of the backend that performed preparation.</param>
+    /// <returns>The prepared executable plan.</returns>
     public IBackendExecutablePlan GetPlanOrThrow(string backendId) => this switch
     {
         Success success => success.Plan,
@@ -63,6 +74,7 @@ public abstract record BackendPreparationResult
     };
 }
 
+/// <summary>Reports that a backend could not prepare one or more execution nodes.</summary>
 public sealed class BackendPreparationException : InvalidOperationException
 {
     public BackendPreparationException(
@@ -99,6 +111,7 @@ public sealed class BackendPreparationException : InvalidOperationException
     }
 }
 
+/// <summary>Contains implementation selections and diagnostics from backend preflight.</summary>
 public sealed class BackendPreflightResult
 {
     internal BackendPreflightResult(
@@ -114,8 +127,13 @@ public sealed class BackendPreflightResult
     public bool Succeeded => Diagnostics.Count == 0;
 }
 
+/// <summary>Selects compatible backend implementations before execution.</summary>
 public static class BackendPreparation
 {
+    /// <summary>Preflights each graph node against implementations supplied by the resolver.</summary>
+    /// <param name="graph">The execution graph to inspect.</param>
+    /// <param name="implementationResolver">Resolves candidate implementations for each node.</param>
+    /// <returns>Selections for compatible nodes and diagnostics for nodes without a selection.</returns>
     public static BackendPreflightResult Preflight(
         ExecutionGraph graph,
         Func<ExecutionNode, IReadOnlyList<OperatorImplementationDescription>> implementationResolver)

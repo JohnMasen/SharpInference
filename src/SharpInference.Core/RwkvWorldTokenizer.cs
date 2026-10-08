@@ -2,6 +2,7 @@ using System.Text;
 
 namespace SharpInference;
 
+/// <summary>Encodes UTF-8 text with the RWKV World vocabulary and decodes token identifiers.</summary>
 public sealed class RwkvWorldTokenizer
 {
     private const string BundledVocabularyResourceName = "SharpInference.Resources.rwkv_vocab_v20230424.txt";
@@ -27,8 +28,12 @@ public sealed class RwkvWorldTokenizer
         }
     }
 
+    /// <summary>Gets all token identifiers in ascending order.</summary>
     public IReadOnlyList<int> TokenIds => tokenIds;
 
+    /// <summary>Loads a tokenizer from a vocabulary file.</summary>
+    /// <param name="vocabularyPath">The path to a vocabulary file in the expected World format.</param>
+    /// <returns>A tokenizer populated from the file.</returns>
     public static RwkvWorldTokenizer Load(string vocabularyPath)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(vocabularyPath);
@@ -36,6 +41,8 @@ public sealed class RwkvWorldTokenizer
         return Load(stream);
     }
 
+    /// <summary>Loads the vocabulary embedded in the SharpInference.Core assembly.</summary>
+    /// <returns>A tokenizer populated from the bundled vocabulary.</returns>
     public static RwkvWorldTokenizer LoadBundled()
     {
         using var stream = typeof(RwkvWorldTokenizer).Assembly.GetManifestResourceStream(BundledVocabularyResourceName)
@@ -83,12 +90,19 @@ public sealed class RwkvWorldTokenizer
         return new RwkvWorldTokenizer(tokens);
     }
 
+    /// <summary>Encodes a string as UTF-8 bytes and tokenizes those bytes.</summary>
+    /// <param name="text">The text to encode.</param>
+    /// <returns>The token identifiers selected using longest matching vocabulary entries.</returns>
     public IReadOnlyList<int> Encode(string text)
     {
         ArgumentNullException.ThrowIfNull(text);
         return Encode(Encoding.UTF8.GetBytes(text));
     }
 
+    /// <summary>Encodes UTF-8 bytes using the vocabulary trie.</summary>
+    /// <param name="bytes">The bytes to tokenize.</param>
+    /// <returns>The token identifiers selected using longest matching vocabulary entries.</returns>
+    /// <exception cref="InvalidDataException">The vocabulary has no token matching the next input byte.</exception>
     public IReadOnlyList<int> Encode(ReadOnlySpan<byte> bytes)
     {
         var result = new List<int>();
@@ -119,6 +133,10 @@ public sealed class RwkvWorldTokenizer
         return result;
     }
 
+    /// <summary>Gets the vocabulary bytes associated with a token identifier.</summary>
+    /// <param name="token">The token identifier to decode.</param>
+    /// <returns>The bytes represented by the token.</returns>
+    /// <exception cref="ArgumentOutOfRangeException">The token identifier is not in the vocabulary.</exception>
     public ReadOnlyMemory<byte> DecodeBytes(int token)
     {
         return tokens.TryGetValue(token, out var bytes)
@@ -126,6 +144,9 @@ public sealed class RwkvWorldTokenizer
             : throw new ArgumentOutOfRangeException(nameof(token), $"The vocabulary does not contain token {token}.");
     }
 
+    /// <summary>Decodes token identifiers to a UTF-8 string.</summary>
+    /// <param name="tokenIds">The token identifiers to concatenate and decode.</param>
+    /// <returns>The UTF-8 text represented by the tokens.</returns>
     public string Decode(IEnumerable<int> tokenIds)
     {
         ArgumentNullException.ThrowIfNull(tokenIds);
@@ -262,6 +283,7 @@ public sealed class RwkvWorldTokenizer
 
     private static void AppendUtf8(List<byte> destination, string value) => destination.AddRange(Encoding.UTF8.GetBytes(value));
 
+    /// <summary>Stores one byte position in the vocabulary prefix trie.</summary>
     private sealed class TrieNode
     {
         public TrieNode?[] Children { get; } = new TrieNode[256];

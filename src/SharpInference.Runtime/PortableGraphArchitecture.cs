@@ -2,11 +2,15 @@ using SharpInference.Graphs;
 
 namespace SharpInference.Runtime;
 
+/// <summary>Adapts a compiled portable VM graph to the RWKV architecture contract.</summary>
 public sealed class PortableGraphArchitecture : IRwkvArchitecture, IModelWeightOwnershipPolicy
 {
     private readonly VmGraphBackend backend;
     private readonly VmCompiledPlan plan;
 
+    /// <summary>Creates an architecture adapter for a backend and compiled graph plan.</summary>
+    /// <param name="backend">The VM graph backend used for execution and weight preparation.</param>
+    /// <param name="plan">The compiled plan whose binding graph defines the model contract.</param>
     public PortableGraphArchitecture(VmGraphBackend backend, VmCompiledPlan plan)
     {
         this.backend = backend ?? throw new ArgumentNullException(nameof(backend));
@@ -16,6 +20,7 @@ public sealed class PortableGraphArchitecture : IRwkvArchitecture, IModelWeightO
     public string Id => plan.BindingGraph.Identity.ArchitectureId;
     public bool RequiresCpuWeightCopy => false;
 
+    /// <summary>Checks model dimensions and weight tensor descriptors against the binding graph.</summary>
     public bool CanLoad(IModelTensorCatalog tensors)
     {
         ArgumentNullException.ThrowIfNull(tensors);
@@ -35,6 +40,7 @@ public sealed class PortableGraphArchitecture : IRwkvArchitecture, IModelWeightO
                        }));
     }
 
+    /// <summary>Binds a compatible tensor catalog to a portable graph model and prepares its weights.</summary>
     public IRwkvModel Bind(IModelTensorCatalog tensors)
     {
         if (!CanLoad(tensors))
@@ -48,6 +54,7 @@ public sealed class PortableGraphArchitecture : IRwkvArchitecture, IModelWeightO
         return model;
     }
 
+    /// <summary>Creates state for a model bound to this adapter's graph.</summary>
     public IRwkvState CreateState(IRwkvModel model)
     {
         if (model is not PortableGraphModel portable || !ReferenceEquals(portable.Graph, plan.BindingGraph))
@@ -55,6 +62,7 @@ public sealed class PortableGraphArchitecture : IRwkvArchitecture, IModelWeightO
         return new PortableGraphState(plan.BindingGraph);
     }
 
+    /// <summary>Executes one token through a temporary session and writes its logits.</summary>
     public void ForwardToken(IRwkvModel model, int token, IRwkvState state, Span<float> logits)
     {
         using var session = backend.CreateSessionExecutor(model, state, plan);
