@@ -65,7 +65,7 @@ public sealed class CpuLargePortableResidencyTests(ITestOutputHelper output)
         {
             var constructTimer = Stopwatch.StartNew();
             using var processor = Processor.LoadGraph(path,
-                new PortableRwkv7GraphProvider(), VmBackendFactory.CreateCpu());
+                new PortableRwkv7GraphProvider(), SharpInference.Runtime.Cpu.CpuVmBackendFactory.Create());
             constructTimer.Stop();
             var constructed = MemorySample.Capture();
             using var session = processor.CreateSession();

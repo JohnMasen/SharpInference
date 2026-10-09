@@ -200,7 +200,7 @@ public sealed class CpuPortableTensorOperationsTests
     {
         var builder = new LogicalGraphBuilder(
             new GraphIdentity("tensor-test", 1, "portable-tensor"),
-            new GraphModelSignature(2, 2, 1, 1, 2, "tensor.state"))
+            TestGraphSignatures.Create(2, 2, 1, 1, 2, "tensor.state"))
             .AddRegion("root", GraphRegionTypes.Graph, "root");
         foreach (var source in sources)
             builder.AddResource(source.Port, source.Port, GraphResourceKind.Input,
@@ -258,7 +258,7 @@ public sealed class CpuPortableTensorOperationsTests
         public IModelTensor GetRequired(string name) =>
             name == "weight" ? this : throw new InvalidDataException(name);
         public string Name => "weight";
-        public RwkvTensorDataType DataType => RwkvTensorDataType.Float16;
+        public TensorDataType DataType => TensorDataType.Float16;
         public IReadOnlyList<int> Dimensions => [2];
         public ReadOnlySpan<float> FloatValues => [];
         public ReadOnlySpan<Half> HalfValues => values;

@@ -383,8 +383,8 @@ internal sealed class GpuResidentRwkv6Experiment : IDisposable
     {
         if (weights.TryGetValue(name, out var cached)) return cached;
         var tensor = model.GetRequired(name);
-        bool half = tensor.DataType == RwkvTensorDataType.Float16;
-        if (!half && tensor.DataType != RwkvTensorDataType.Float32)
+        bool half = tensor.DataType == TensorDataType.Float16;
+        if (!half && tensor.DataType != TensorDataType.Float32)
             throw new NotSupportedException($"Unsupported tensor type for {name}: {tensor.DataType}.");
         bool vector = tensor.Dimensions.Count == 1 ||
             name.EndsWith(".att.time_faaaa", StringComparison.Ordinal) ||

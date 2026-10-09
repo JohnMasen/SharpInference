@@ -9,10 +9,10 @@ namespace SharpInference.Tests;
 public sealed class PortableRwkv7GraphProviderTests
 {
     [Theory]
-    [InlineData(RwkvTensorDataType.Float32, 1)]
-    [InlineData(RwkvTensorDataType.Float16, 2)]
+    [InlineData(TensorDataType.Float32, 1)]
+    [InlineData(TensorDataType.Float16, 2)]
     public void BuildsCompletePrimitiveGraphWithVersionedTensorContracts(
-        RwkvTensorDataType weightType, int layerCount)
+        TensorDataType weightType, int layerCount)
     {
         var catalog = new Catalog(layerCount, weightType);
         var graph = new PortableRwkv7GraphProvider().Build(catalog);
@@ -47,7 +47,7 @@ public sealed class PortableRwkv7GraphProviderTests
 
         var casts = graph.Nodes.Count(node =>
             node.Operation == PortableTensorOperationContracts.CastFp16ToFp32);
-        Assert.Equal(weightType == RwkvTensorDataType.Float16 ? catalog.Names.Count : 0, casts);
+        Assert.Equal(weightType == TensorDataType.Float16 ? catalog.Names.Count : 0, casts);
         Assert.Equal(layerCount, graph.Nodes.Count(node =>
             node.Operation == PrimitiveGraphOperations.Copy &&
             node.Resources.Any(binding => binding.Access == GraphResourceAccess.Write &&
@@ -64,7 +64,7 @@ public sealed class PortableRwkv7GraphProviderTests
     [Fact]
     public void WkvUpdateIsExplicitMatrixAlgebraWithOldStateProjectionAndNewStateOutput()
     {
-        var graph = new PortableRwkv7GraphProvider().Build(new Catalog(1, RwkvTensorDataType.Float32));
+        var graph = new PortableRwkv7GraphProvider().Build(new Catalog(1, TensorDataType.Float32));
         var producers = graph.Nodes.SelectMany(node => node.Resources
             .Where(binding => binding.Access == GraphResourceAccess.Write &&
                 !binding.Resource.Value.StartsWith("state.", StringComparison.Ordinal))
@@ -107,7 +107,7 @@ public sealed class PortableRwkv7GraphProviderTests
     [Fact]
     public void RejectsInvalidLowRankProjectionShapeInsteadOfProducingMisleadingGraph()
     {
-        var catalog = new Catalog(1, RwkvTensorDataType.Float32, invalidW2: true);
+        var catalog = new Catalog(1, TensorDataType.Float32, invalidW2: true);
         Assert.Throws<InvalidDataException>(() => new PortableRwkv7GraphProvider().Build(catalog));
     }
 
@@ -130,7 +130,7 @@ public sealed class PortableRwkv7GraphProviderTests
                 new float[checked(dims.Aggregate(1, (product, dimension) =>
                     checked(product * dimension)))]);
         }).ToArray();
-        using var processor = Processor.LoadGraph(path, graph, VmBackendFactory.CreateCpu());
+        using var processor = Processor.LoadGraph(path, graph, SharpInference.Runtime.Cpu.CpuVmBackendFactory.Create());
         using var session = processor.CreateSession();
         foreach (var token in new[] { (int)'"', (int)'i', (int)'n' })
         {
@@ -162,7 +162,7 @@ public sealed class PortableRwkv7GraphProviderTests
     {
         private readonly Dictionary<string, IModelTensor> tensors = new(StringComparer.Ordinal);
 
-        public Catalog(int layerCount, RwkvTensorDataType type, bool invalidW2 = false)
+        public Catalog(int layerCount, TensorDataType type, bool invalidW2 = false)
         {
             LayerCount = layerCount;
             void Add(string name, params int[] dimensions) =>
@@ -216,7 +216,7 @@ public sealed class PortableRwkv7GraphProviderTests
         public IModelTensor GetRequired(string name) => tensors[name];
     }
 
-    private sealed record Tensor(string Name, IReadOnlyList<int> Dimensions, RwkvTensorDataType DataType)
+    private sealed record Tensor(string Name, IReadOnlyList<int> Dimensions, TensorDataType DataType)
         : IModelTensor
     {
         public ReadOnlySpan<float> FloatValues => [];

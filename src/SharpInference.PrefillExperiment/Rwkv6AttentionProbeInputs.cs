@@ -36,7 +36,7 @@ internal sealed record Rwkv6AttentionProbeInputs(
             if (tensor.Dimensions.Count != 2 ||
                 tensor.Dimensions[0] != width || tensor.Dimensions[1] != width)
                 throw new InvalidDataException($"The attention projection '{tensor.Name}' must be {width}x{width}.");
-            return tensor.DataType == RwkvTensorDataType.Float16
+            return tensor.DataType == TensorDataType.Float16
                 ? tensor.HalfValues.ToArray()
                 : tensor.FloatValues.ToArray().Select(value => (Half)value).ToArray();
         }
@@ -96,7 +96,7 @@ internal sealed record Rwkv6AttentionProbeInputs(
         {
             var id = token % model.VocabularySize;
             var offset = checked(id * width);
-            if (embedding.DataType == RwkvTensorDataType.Float16)
+            if (embedding.DataType == TensorDataType.Float16)
             {
                 var values = embedding.HalfValues.Slice(offset, width);
                 for (var i = 0; i < width; i++) raw[i] = (float)values[i];

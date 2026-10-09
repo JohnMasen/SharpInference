@@ -361,10 +361,13 @@ execution surface is `VmProgram`, not an old `ExecutionGraph`.
 The internal binding graph only describes model/State metadata.
 
 ```csharp
-using var processor = Processor.LoadGraph(
+var modules = new SharpInference.Graphs.ModelGraphModuleRegistry();
+modules.Register(new SharpInference.Architectures.Rwkv7.Rwkv7ModelModule());
+using var processor = Processor.Load(
     weightsPath,
-    RwkvRuntimeFactory.CreateGraphProvider("rwkv-7"),
-    VmBackendFactory.CreateCpu(new VmRuntimeConfig
+    new GgmlModelReader(),
+    modules,
+    SharpInference.Runtime.Cpu.CpuVmBackendFactory.Create(new VmRuntimeConfig
     {
         ArtifactDirectory = "inference-package",
         PrefillArtifactDirectory = "prefill-package",

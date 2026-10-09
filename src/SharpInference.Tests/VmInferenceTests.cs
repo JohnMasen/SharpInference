@@ -147,7 +147,7 @@ public sealed class VmInferenceTests
     internal static LogicalGraph Graph()
     {
         var builder = new LogicalGraphBuilder(new("test", 1, "accumulator"),
-            new(8, 1, 1, 1, 1, "test-state"))
+            TestGraphSignatures.Create(8, 1, 1, 1, 1, "test-state"))
             .SetStateSchema(new StateSchema("accumulator-state"));
         builder.AddRegion("graph", GraphRegionTypes.Graph, "graph");
         builder.AddResource("token", "token", GraphResourceKind.Input, GraphResourceLifetime.External,

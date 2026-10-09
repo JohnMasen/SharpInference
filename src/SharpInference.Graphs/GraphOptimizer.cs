@@ -190,6 +190,12 @@ public sealed class GraphOptimizer
     {
         ArgumentNullException.ThrowIfNull(graph);
         options ??= new GraphOptimizationOptions();
+        if (graph.Nodes.Any(node => node.Resources.Any(binding => binding.View is not null)))
+        {
+            if (options.Boundary != OptimizationBoundary.Off || options.DefinitionPolicy != GraphDefinitionPolicy.PreserveExpanded)
+                throw new NotSupportedException("View-bound graphs currently require expanded definitions and disabled fusion.");
+            eliminateDeadNodes = false;
+        }
         if (options.MaximumPasses <= 0)
         {
             throw new ArgumentOutOfRangeException(nameof(options), "MaximumPasses must be positive.");

@@ -88,6 +88,8 @@ public sealed class CpuPrimitiveGraphExecutor
         IPrimitiveOperatorBackend? backend, bool retainCatalogWeights)
     {
         this.graph = graph ?? throw new ArgumentNullException(nameof(graph));
+        if (graph.Nodes.Any(node => node.Resources.Any(binding => binding.View is not null)))
+            throw new NotSupportedException("The primitive reference executor does not support tensor-view bindings; use a VM adapter.");
         this.backend = backend ?? CpuPrimitiveOperatorBackend.Instance;
         resources = graph.Resources.ToDictionary(resource => resource.Id);
         if (graph.Inputs.Any(id => resources[id].Kind != GraphResourceKind.Input) ||
@@ -122,8 +124,8 @@ public sealed class CpuPrimitiveGraphExecutor
             var tensor = catalog.GetRequired(resource.BindingKey!);
             var type = tensor.DataType switch
             {
-                RwkvTensorDataType.Float32 => GraphElementType.Float32,
-                RwkvTensorDataType.Float16 => GraphElementType.Float16,
+                TensorDataType.Float32 => GraphElementType.Float32,
+                TensorDataType.Float16 => GraphElementType.Float16,
                 _ => throw new NotSupportedException($"Weight '{resource.Id}' has unsupported storage type."),
             };
             if (type != resource.Tensor.ElementType ||
@@ -341,7 +343,7 @@ public sealed class CpuPrimitiveGraphExecutor
         }
     }
 
-    private void ValidateViews(IReadOnlyList<RwkvStateView> views)
+    private void ValidateViews(IReadOnlyList<Float32StateView> views)
     {
         for (var index = 0; index < views.Count; index++)
         {

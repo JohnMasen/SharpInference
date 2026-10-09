@@ -19,8 +19,8 @@ public sealed class GraphModelMetadataTests
 
         Assert.Equal(signature, json.Model);
         Assert.Equal(signature, xml.Model);
-        Assert.Equal(0, signature.VocabularySize);
-        Assert.False(signature.IsRwkvCompatible);
+        Assert.DoesNotContain("vocabulary", signature.Dimensions.Keys);
+        Assert.False(RwkvGraphSignatures.IsCompatible(signature));
     }
 
     [Fact]
@@ -28,12 +28,12 @@ public sealed class GraphModelMetadataTests
     {
         var metadata = new RwkvModelMetadata(32, 16, 2, 4, 4, "rwkv-7");
         var generic = metadata.ToModelMetadata();
-        var signature = new GraphModelSignature(32, 16, 2, 4, 4, "rwkv-7.state@1");
+        var signature = RwkvGraphSignatures.Create(32, 16, 2, 4, 4, "rwkv-7.state@1");
 
         Assert.Equal("rwkv-7", generic.ArchitectureId);
         Assert.Equal(16, generic.Dimensions["embedding"]);
-        Assert.True(signature.IsRwkvCompatible);
-        Assert.Equal(32, signature.VocabularySize);
+        Assert.True(RwkvGraphSignatures.IsCompatible(signature));
+        Assert.Equal(32, signature.Dimensions["vocabulary"]);
     }
 
     private static LogicalGraph EmptyGraph(GraphModelSignature signature) =>

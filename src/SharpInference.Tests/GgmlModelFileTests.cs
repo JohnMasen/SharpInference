@@ -106,7 +106,7 @@ public sealed class GgmlModelFileTests
         {
             using var model = GgmlModelFile.Open(path);
             var tensor = model.GetRequired("h");
-            Assert.Equal(RwkvTensorDataType.Float16, tensor.DataType);
+            Assert.Equal(TensorDataType.Float16, tensor.DataType);
             Assert.Equal((Half)1.5f, tensor.HalfValues[0]);
             Assert.Equal(1.5f, tensor.FloatValues[0]);
         }

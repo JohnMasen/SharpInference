@@ -27,7 +27,7 @@ public sealed class CpuVmExecutionTests
     {
         var example = Example(operation, type);
         var program = ProgramFor(operation, example.Parameters, example.Attributes);
-        var artifact = new CpuVmCompiler(SharpInference.Runtime.DefaultInstructionCollections.Create()).Compile(program);
+        var artifact = new CpuVmCompiler(SharpInference.Runtime.Cpu.CpuInstructionCollections.Create()).Compile(program);
         Assert.Contains("private static void D0", artifact.Source);
         Assert.DoesNotContain("CpuPrimitiveGraphExecutor", artifact.Source);
         Assert.Contains("#line 1 \"vm/function/node\"", artifact.Source);
@@ -59,7 +59,7 @@ public sealed class CpuVmExecutionTests
         var program = new VmProgram("reuse", "cpu", VmTarget.Cpu,
             [new("x", VmSlotScope.Global, VmAccess.ReadOnly, large), new("y", VmSlotScope.Local, VmAccess.ReadWrite, large)],
             [copy, root], [new("run", "root", [new("input", "x"), new("output", "y")])], new VmState("none", 1, []));
-        var artifact = new CpuVmCompiler(SharpInference.Runtime.DefaultInstructionCollections.Create()).Compile(program);
+        var artifact = new CpuVmCompiler(SharpInference.Runtime.Cpu.CpuInstructionCollections.Create()).Compile(program);
         Assert.Equal(1, artifact.Source.Split("private static void D0").Length - 1);
         using var executable = artifact.LoadExecutable();
         var buffers = new[] { Bytes([1, 2, 3, 4], VmElementType.Float32), new byte[16] };
@@ -76,19 +76,19 @@ public sealed class CpuVmExecutionTests
         var parameters = example.Parameters.Select(p => p.Name == "matrix" ? p with { Name = "weight" } : p).ToArray();
         var program = ProgramFor("mat-vec", parameters, EmptyAttributes);
         Assert.Contains(program.Definitions[0].Parameters, p => p.Name == "weight");
-        using var executable = new CpuVmCompiler(SharpInference.Runtime.DefaultInstructionCollections.Create()).Compile(program).LoadExecutable();
+        using var executable = new CpuVmCompiler(SharpInference.Runtime.Cpu.CpuInstructionCollections.Create()).Compile(program).LoadExecutable();
         var buffers = example.Inputs.Append(new byte[(int)parameters[^1].Tensor.ByteLength]).ToArray();
         executable.Invoke("run", executable.Prepare(buffers));
         Assert.Equal(example.Expected, Values(buffers[^1], type));
         var ambiguous = parameters.Append(example.Parameters[0]).ToArray();
-        Assert.Throws<SharpInference.Instructions.InstructionAdaptationException>(() => new CpuVmCompiler(SharpInference.Runtime.DefaultInstructionCollections.Create()).GenerateSource(ProgramFor("mat-vec", ambiguous, EmptyAttributes)));
+        Assert.Throws<SharpInference.Instructions.InstructionAdaptationException>(() => new CpuVmCompiler(SharpInference.Runtime.Cpu.CpuInstructionCollections.Create()).GenerateSource(ProgramFor("mat-vec", ambiguous, EmptyAttributes)));
     }
 
     [Fact]
     public void ReloadsActualBinaryAndSourcePackagesWithIntegrity()
     {
         var example = Example("add", VmElementType.Float32);
-        var artifact = new CpuVmCompiler(SharpInference.Runtime.DefaultInstructionCollections.Create()).Compile(ProgramFor("add", example.Parameters, example.Attributes));
+        var artifact = new CpuVmCompiler(SharpInference.Runtime.Cpu.CpuInstructionCollections.Create()).Compile(ProgramFor("add", example.Parameters, example.Attributes));
         var directory = Path.Combine(Path.GetTempPath(), "cpuvm-" + Guid.NewGuid().ToString("N"));
         try
         {
@@ -123,7 +123,7 @@ public sealed class CpuVmExecutionTests
     public void RejectsUnknownOperationsVersionsTypesPrecisionAndReadOnlyWrites()
     {
         var example = Example("copy", VmElementType.Float32);
-        var compiler = new CpuVmCompiler(SharpInference.Runtime.DefaultInstructionCollections.Create());
+        var compiler = new CpuVmCompiler(SharpInference.Runtime.Cpu.CpuInstructionCollections.Create());
         Assert.Throws<NotSupportedException>(() => compiler.GenerateSource(ProgramFor("unknown", example.Parameters, EmptyAttributes)));
         Assert.Throws<NotSupportedException>(() => compiler.GenerateSource(ProgramFor("copy", example.Parameters, EmptyAttributes, version: 2)));
         Assert.Throws<SharpInference.Instructions.InstructionAdaptationException>(() => compiler.GenerateSource(ProgramFor("copy",
@@ -139,14 +139,14 @@ public sealed class CpuVmExecutionTests
     {
         var example = Example("copy", VmElementType.Float32);
         var standard = ProgramFor("copy", example.Parameters, EmptyAttributes);
-        using var executable = new CpuVmCompiler(SharpInference.Runtime.DefaultInstructionCollections.Create()).Compile(standard).LoadExecutable();
+        using var executable = new CpuVmCompiler(SharpInference.Runtime.Cpu.CpuInstructionCollections.Create()).Compile(standard).LoadExecutable();
         var shared = new byte[8];
         Assert.Throws<ArgumentException>(() => executable.Prepare([shared, shared]));
         Assert.Throws<ArgumentException>(() => executable.Prepare([new byte[4], new byte[8]]));
         var local = new VmProgram("local", "cpu", VmTarget.Cpu,
             standard.Slots.Select(s => s with { Scope = VmSlotScope.Local }), standard.Definitions,
             standard.Entries, standard.State);
-        using var localExecutable = new CpuVmCompiler(SharpInference.Runtime.DefaultInstructionCollections.Create()).Compile(local).LoadExecutable();
+        using var localExecutable = new CpuVmCompiler(SharpInference.Runtime.Cpu.CpuInstructionCollections.Create()).Compile(local).LoadExecutable();
         var buffers = new[] { example.Inputs[0], new byte[8] };
         Assert.Throws<InvalidOperationException>(() => localExecutable.Invoke("run", localExecutable.Prepare(buffers)));
         localExecutable.Invoke("run", localExecutable.Prepare(buffers, ["input"]));
@@ -154,14 +154,14 @@ public sealed class CpuVmExecutionTests
         var overlap = new VmProgram("overlap", "cpu", VmTarget.Cpu,
             [new("both", VmSlotScope.Session, VmAccess.ReadWrite, example.Parameters[0].Tensor)],
             standard.Definitions, [new("run", "function", [new("input", "both"), new("output", "both")])], standard.State);
-        Assert.Throws<InvalidDataException>(() => new CpuVmCompiler(SharpInference.Runtime.DefaultInstructionCollections.Create()).GenerateSource(overlap));
+        Assert.Throws<InvalidDataException>(() => new CpuVmCompiler(SharpInference.Runtime.Cpu.CpuInstructionCollections.Create()).GenerateSource(overlap));
     }
 
     [Fact]
     public void PublishesGeneratedSourceForStaticCompilation()
     {
         var example = Example("add", VmElementType.Float32);
-        var source = new CpuVmCompiler(SharpInference.Runtime.DefaultInstructionCollections.Create()).GenerateSource(ProgramFor("add", example.Parameters, EmptyAttributes));
+        var source = new CpuVmCompiler(SharpInference.Runtime.Cpu.CpuInstructionCollections.Create()).GenerateSource(ProgramFor("add", example.Parameters, EmptyAttributes));
         Assert.False(source.HasBinary);
         Assert.Contains("public sealed class CpuProgram : ICpuVmCode", source.Source);
         Assert.Throws<InvalidDataException>(() => source.CreateExecutable(new StaticAdd("wrong")));
@@ -173,7 +173,7 @@ public sealed class CpuVmExecutionTests
     public void RejectsLegacySpanSourceAbiForSameProgram()
     {
         var example = Example("add", VmElementType.Float32);
-        var artifact = new CpuVmCompiler(SharpInference.Runtime.DefaultInstructionCollections.Create()).GenerateSource(ProgramFor("add", example.Parameters, EmptyAttributes));
+        var artifact = new CpuVmCompiler(SharpInference.Runtime.Cpu.CpuInstructionCollections.Create()).GenerateSource(ProgramFor("add", example.Parameters, EmptyAttributes));
         var legacyHash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(VmProgramXml.Serialize(artifact.Program))));
         var error = Assert.Throws<InvalidDataException>(() => artifact.CreateExecutor(new StaticAdd(legacyHash)));
         Assert.Contains("source ABI", error.Message);
@@ -192,14 +192,14 @@ public sealed class CpuVmExecutionTests
         var program = new VmProgram("scratch", "cpu", VmTarget.Cpu,
             [new("scratch", VmSlotScope.Local, VmAccess.ReadWrite, tensor), new("output", VmSlotScope.Local, VmAccess.ReadWrite, tensor)],
             [definition], [new("run", "pipeline", [new("scratch", "scratch"), new("output", "output")])], new VmState("none", 1, []));
-        using (var executable = new CpuVmCompiler(SharpInference.Runtime.DefaultInstructionCollections.Create()).Compile(program).LoadExecutable())
+        using (var executable = new CpuVmCompiler(SharpInference.Runtime.Cpu.CpuInstructionCollections.Create()).Compile(program).LoadExecutable())
         {
             var buffers = new[] { new byte[8], new byte[8] };
             executable.Invoke("run", executable.Prepare(buffers));
             Assert.Equal(new float[] { 9, 9 }, Values(buffers[1], VmElementType.Float32));
         }
         var gather = Example("gather-row", VmElementType.Float32);
-        var artifact = new CpuVmCompiler(SharpInference.Runtime.DefaultInstructionCollections.Create()).Compile(ProgramFor("gather-row", gather.Parameters, gather.Attributes),
+        var artifact = new CpuVmCompiler(SharpInference.Runtime.Cpu.CpuInstructionCollections.Create()).Compile(ProgramFor("gather-row", gather.Parameters, gather.Attributes),
             new CpuVmCompilerOptions(Optimize: false));
         using var failing = artifact.LoadExecutable();
         var invalidBuffers = new[] { gather.Inputs[0], Bytes([-1], VmElementType.Int32), new byte[8] };
@@ -210,7 +210,7 @@ public sealed class CpuVmExecutionTests
     [Fact]
     public void RejectsMalformedPortableShapesAndAttributesBeforeCompilation()
     {
-        var compiler = new CpuVmCompiler(SharpInference.Runtime.DefaultInstructionCollections.Create());
+        var compiler = new CpuVmCompiler(SharpInference.Runtime.Cpu.CpuInstructionCollections.Create());
         var broadcast = Example("tensor.broadcast", VmElementType.Float32);
         var invalidShape = broadcast.Parameters.Select(p => p.Name == "input"
             ? p with { Tensor = new VmTensor(VmElementType.Float32, [4]) } : p).ToArray();

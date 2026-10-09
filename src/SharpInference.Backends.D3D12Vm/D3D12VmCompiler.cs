@@ -161,6 +161,7 @@ public sealed class D3D12VmCompiler
                         op.Precision, op.ExecutionConfiguration);
                     var parameters = d.Parameters.ToDictionary(p => p.Name, StringComparer.Ordinal);
                     var priorReadCount = reads.Count;
+                    var priorWriteCount = written.Count;
                     foreach (var writePort in signature.Ports.Where(port => port.Access != SharpInference.Graphs.GraphResourceAccess.Read))
                     {
                     var output = op.Arguments.Single(a => a.Parameter == writePort.Name);
@@ -177,7 +178,7 @@ public sealed class D3D12VmCompiler
                         var tensor = parameters[a.Source].Tensor;
                         if (a.Parameter != writePort.Name && Overlap(source, tensor, destination, outputTensor))
                             throw new NotSupportedException($"Kernel '{kernel.Id}' aliases operator inputs and output through helper bindings.");
-                        foreach (var previous in written.Where(w => Overlap(source, tensor, (w.Resource, w.Offset), w.Tensor)))
+                        foreach (var previous in written.Take(priorWriteCount).Where(w => Overlap(source, tensor, (w.Resource, w.Offset), w.Tensor)))
                             if (nonPointwise || source.Offset != previous.Offset ||
                                 tensor.ElementType != previous.Tensor.ElementType)
                                 throw new NotSupportedException($"Kernel '{kernel.Id}' has a cross-thread producer/consumer. Use separate kernels and an explicit VmBarrier.");

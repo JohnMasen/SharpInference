@@ -8,7 +8,7 @@ namespace SharpInference.Tests;
 
 public sealed class TierOneOptimizerTests
 {
-    private static readonly InstructionRegistry Registry = new(DefaultInstructionCollections.Create());
+    private static readonly InstructionRegistry Registry = new(SharpInference.Runtime.Cpu.CpuInstructionCollections.Create().Concat(SharpInference.Runtime.D3D12.D3D12InstructionCollections.Create()));
     private static readonly IReadOnlyList<InstructionOptimizationCapability> Capabilities = Registry.QueryOptimizationCapabilities();
 
     [Theory]
@@ -45,7 +45,7 @@ public sealed class TierOneOptimizerTests
         var graph = TierOneReferencePrograms.CreateGraph("multiply-add", [64]);
         var options = Options(target, [Measurement(target, "multiply-add", 20, 10)]);
         var generator = new VmExecutionGraphGenerator(target == VmTarget.Cpu ? InstructionTarget.Cpu : InstructionTarget.Direct3D12,
-            DefaultInstructionCollections.Create());
+            SharpInference.Runtime.Cpu.CpuInstructionCollections.Create().Concat(SharpInference.Runtime.D3D12.D3D12InstructionCollections.Create()));
         var program = generator.Generate(graph, options);
         Assert.Equal(TierOneSelectionStatus.ModelOptimal, generator.LastOptimizationReport!.Status);
         Assert.Equal(1, generator.LastOptimizationReport.SelectedCandidates);

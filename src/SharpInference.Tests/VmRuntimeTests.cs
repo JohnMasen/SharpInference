@@ -16,12 +16,13 @@ public sealed class VmRuntimeTests
     {
         using var catalog = TestModelLoader.OpenCatalog(TestModel.Rwkv7Fp16);
         var logical = RwkvRuntimeFactory.CreateGraphProvider("rwkv-7").Build(catalog);
-        using var backend = VmBackendFactory.CreateCpu(new() { PrefillInstances = 1, InferenceInstances = 1 });
+        using var backend = SharpInference.Runtime.Cpu.CpuVmBackendFactory.Create(new() { PrefillInstances = 1, InferenceInstances = 1 });
         var architecture = new PortableGraphArchitecture(backend, backend.Prepare(logical));
         var model = architecture.Bind(catalog);
         var state = Assert.IsType<PortableGraphState>(architecture.CreateState(model));
-        var actual = new float[model.Metadata.VocabularySize];
-        using var processor = Processor.Load(TestModelLoader.GetPath(TestModel.Rwkv7Fp16));
+        var actual = new float[logical.Resources.Single(resource => resource.Id == logical.Outputs.Single())
+            .Tensor.Dimensions.Single()];
+        using var processor = RwkvRuntimeFactory.Load(TestModelLoader.GetPath(TestModel.Rwkv7Fp16), SharpInference.Runtime.Cpu.CpuVmBackendFactory.Create());
         using var reference = processor.CreateSession();
         foreach (var token in new[] { 1, 2, 3 })
         {
@@ -59,10 +60,10 @@ public sealed class VmRuntimeTests
             var prefillArtifacts = Path.Combine(directory, "prefill");
             if (useArtifacts)
             {
-                new CpuVmCompiler(SharpInference.Runtime.DefaultInstructionCollections.Create()).Compile(inference).Export(inferenceArtifacts);
-                new CpuVmCompiler(SharpInference.Runtime.DefaultInstructionCollections.Create()).Compile(prefill).Export(prefillArtifacts);
+                new CpuVmCompiler(SharpInference.Runtime.Cpu.CpuInstructionCollections.Create()).Compile(inference).Export(inferenceArtifacts);
+                new CpuVmCompiler(SharpInference.Runtime.Cpu.CpuInstructionCollections.Create()).Compile(prefill).Export(prefillArtifacts);
             }
-            using var processor = Processor.LoadGraph(path, provider, VmBackendFactory.CreateCpu(new()
+            using var processor = Processor.LoadGraph(path, provider, SharpInference.Runtime.Cpu.CpuVmBackendFactory.Create(new()
             {
                 PrefillInstances = 1,
                 InferenceInstances = 1,
@@ -77,7 +78,7 @@ public sealed class VmRuntimeTests
             var exportedPrefill = Path.Combine(directory, "exported-prefill");
             processor.ExportCompiledArtifact(exportedInference);
             processor.ExportCompiledArtifact(exportedPrefill, ProcessorExecutionGraphKind.Prefill);
-            using var reloaded = Processor.LoadGraph(path, provider, VmBackendFactory.CreateCpu(new()
+            using var reloaded = Processor.LoadGraph(path, provider, SharpInference.Runtime.Cpu.CpuVmBackendFactory.Create(new()
             {
                 PrefillInstances = 1,
                 InferenceInstances = 1,
@@ -130,7 +131,7 @@ public sealed class VmRuntimeTests
         var local = parsed.Slots.Where(slot => slot.Scope == VmSlotScope.Local).Sum(slot => (long)slot.Tensor.ByteLength);
         Assert.True(globals > 10_000_000_000);
         Assert.True(local < globals / 100, $"Local workspace {local} must be below 1% of weight storage {globals}.");
-        var artifact = new CpuVmCompiler(SharpInference.Runtime.DefaultInstructionCollections.Create()).GenerateSource(parsed);
+        var artifact = new CpuVmCompiler(SharpInference.Runtime.Cpu.CpuInstructionCollections.Create()).GenerateSource(parsed);
         Assert.False(artifact.HasBinary);
         Assert.Contains("CpuProgram", artifact.Source);
     }
@@ -164,8 +165,8 @@ public sealed class VmRuntimeTests
                 new float[tensor.Dimensions.Aggregate(1, (count, size) => count * size)]);
         }).ToArray();
         using var processor = gpu
-            ? Processor.LoadGraph(path, RwkvRuntimeFactory.CreateGraphProvider(rwkv7 ? "rwkv-7" : "rwkv-6"), VmBackendFactory.CreateD3D12())
-            : Processor.Load(path);
+            ? Processor.LoadGraph(path, RwkvRuntimeFactory.CreateGraphProvider(rwkv7 ? "rwkv-7" : "rwkv-6"), SharpInference.Runtime.D3D12.D3D12VmBackendFactory.Create())
+            : RwkvRuntimeFactory.Load(path, SharpInference.Runtime.Cpu.CpuVmBackendFactory.Create());
         var plan = Assert.IsType<VmCompiledPlan>(processor.PreparedPlan);
         if (half)
         {

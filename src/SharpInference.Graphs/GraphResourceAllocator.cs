@@ -11,6 +11,15 @@ public sealed record GraphResourceSlot(int Id, GraphResourceLifetime Lifetime, T
 /// </summary>
 public static class GraphResourceAllocator
 {
+    private static bool Overlaps(NodeResourceBinding left, NodeResourceBinding right, TensorDescriptor parent)
+    {
+        var leftStart = left.View?.ByteOffset ?? 0;
+        var rightStart = right.View?.ByteOffset ?? 0;
+        var leftLength = left.View?.ByteLength ?? GraphTensorView.ByteLengthOf(parent);
+        var rightLength = right.View?.ByteLength ?? GraphTensorView.ByteLengthOf(parent);
+        return leftStart < checked(rightStart + rightLength) && rightStart < checked(leftStart + leftLength);
+    }
+
     /// <remarks>
     /// Private ReadWrite bindings require a durable first-write proof from the graph optimizer,
     /// or an explicit backend guarantee supplied via <paramref name="initializedBeforeRead"/>.
@@ -106,10 +115,10 @@ public static class GraphResourceAllocator
             foreach (var (writer, binding) in accesses)
             {
                 if (binding.Access == GraphResourceAccess.Read) continue;
-                foreach (var (other, _) in accesses)
+                foreach (var (other, otherBinding) in accesses)
                 {
                     if (writer != other && !predecessors[writer].Contains(other) &&
-                        !predecessors[other].Contains(writer))
+                        !predecessors[other].Contains(writer) && Overlaps(binding, otherBinding, resource.Tensor))
                         throw new InvalidDataException(
                             $"Local resource '{resource.Id}' has unordered accesses at '{writer}' and '{other}'.");
                 }

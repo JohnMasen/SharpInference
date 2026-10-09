@@ -91,9 +91,9 @@ public static class VmProgramValidator
                             var tensorArgument = operation.Arguments.SingleOrDefault(argument => argument.Parameter == bound.TensorPort);
                             if (indexArgument is null || tensorArgument is null ||
                                 !parameters.TryGetValue(indexArgument.Source, out var indexParameter) ||
-                                indexParameter.Tensor.ElementType != VmElementType.Int32 || indexParameter.Tensor.ElementCount != 1 ||
+                                indexParameter.Tensor.ElementType != VmElementType.Int32 || indexArgument.ByteOffset != 0 ||
                                 !parameters.TryGetValue(tensorArgument.Source, out var tensorParameter) ||
-                                bound.Axis < 0 || bound.Axis >= tensorParameter.Tensor.Dimensions.Count)
+                                bound.Axis < 0 || bound.Axis >= tensorParameter.Tensor.Dimensions.Count || bound.MinimumIndex > 0)
                                 Fail($"Node '{node.Id}' has invalid index bounds.");
                         }
                         foreach (var argument in operation.Arguments)

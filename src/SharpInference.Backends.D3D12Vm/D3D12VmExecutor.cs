@@ -173,10 +173,13 @@ public sealed class D3D12VmExecutor : IVmTaskExecutable
         Span<byte> bytes = stackalloc byte[sizeof(int)];
         foreach (var index in indices)
         {
-            lease.Read(Program.Slots[index.Slot].Id, index.ByteOffset, bytes);
-            var row = BitConverter.ToInt32(bytes);
-            if ((uint)row >= (uint)index.Rows)
-                throw new ArgumentOutOfRangeException(nameof(lease), "The task contains an out-of-range gather index.");
+            for (var element = 0; element < index.Count; element++)
+            {
+                lease.Read(Program.Slots[index.Slot].Id, checked(index.ByteOffset + (ulong)element * sizeof(int)), bytes);
+                var row = BitConverter.ToInt32(bytes);
+                if (row < index.MinimumIndex || row >= index.Rows)
+                    throw new ArgumentOutOfRangeException(nameof(lease), "The task contains an out-of-range gather index.");
+            }
         }
     }
 
@@ -851,9 +854,14 @@ public sealed class D3D12VmExecutor : IVmTaskExecutable
         ValidateBuffer(slot, bytes);
         foreach (var index in (indices ?? gatherIndices).Where(i => i.Slot == slot))
         {
-            var row = BitConverter.ToInt32(bytes.AsSpan(checked((int)index.ByteOffset), sizeof(int)));
-            if ((uint)row >= (uint)index.Rows)
-                throw new ArgumentOutOfRangeException(nameof(bytes), $"Gather index in slot '{Artifact.Program.Slots[slot].Id}' must be in [0, {index.Rows}).");
+            for (var element = 0; element < index.Count; element++)
+            {
+                var offset = checked((int)index.ByteOffset + element * sizeof(int));
+                var row = BitConverter.ToInt32(bytes.AsSpan(offset, sizeof(int)));
+                if (row < index.MinimumIndex || row >= index.Rows)
+                    throw new ArgumentOutOfRangeException(nameof(bytes),
+                        $"Gather index in slot '{Artifact.Program.Slots[slot].Id}' must be in [{index.MinimumIndex}, {index.Rows}).");
+            }
         }
     }
     private void ValidateSlot(int slot)

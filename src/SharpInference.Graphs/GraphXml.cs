@@ -16,6 +16,8 @@ public static class GraphXml
         ArgumentNullException.ThrowIfNull(graph);
         var root = CreateGraph("LogicalGraph", graph.Identity, graph.Model, graph.Resources, graph.Regions,
             graph.Inputs, graph.Outputs, graph.GraphState);
+        if (graph.Nodes.Any(node => node.Resources.Any(binding => binding.View is not null)))
+            root.SetAttributeValue("version", 2);
         root.Add(new XElement("Nodes", graph.Nodes.Select(node =>
             CreateNode(node.Id.Value, node.Operation, node.Region, node.Resources, node.Dependencies.Select(id => id.Value),
                 node.Attributes, node.Requirements))));
@@ -27,6 +29,8 @@ public static class GraphXml
         ArgumentNullException.ThrowIfNull(graph);
         var root = CreateGraph("ExecutionGraph", graph.Identity, graph.Model, graph.Resources, graph.Regions,
             graph.Inputs, graph.Outputs, graph.GraphState);
+        if (graph.Nodes.Any(node => node.Resources.Any(binding => binding.View is not null)))
+            root.SetAttributeValue("version", 2);
         root.Add(new XElement("Nodes", graph.Nodes.Select(node =>
         {
             var result = CreateNode(node.Id.Value, node.Operation, node.Region, node.Resources,
@@ -53,12 +57,14 @@ public static class GraphXml
         return Write(root);
     }
 
-    public static LogicalGraph DeserializeLogical(string xml)
+    public static LogicalGraph DeserializeLogical(string xml) => DeserializeLogical(xml, null);
+
+    public static LogicalGraph DeserializeLogical(string xml, IGraphModelSignatureReader? legacyReader)
     {
         var root = Read(xml, "LogicalGraph");
         try
         {
-            var parts = ReadParts(root);
+            var parts = ReadParts(root, legacyReader);
             var nodes = Children(parts.Nodes, "Node").Select(node =>
             {
                 var fields = ReadNode(node, execution: false);
@@ -75,12 +81,14 @@ public static class GraphXml
         }
     }
 
-    public static ExecutionGraph DeserializeExecution(string xml)
+    public static ExecutionGraph DeserializeExecution(string xml) => DeserializeExecution(xml, null);
+
+    public static ExecutionGraph DeserializeExecution(string xml, IGraphModelSignatureReader? legacyReader)
     {
         var root = Read(xml, "ExecutionGraph");
         try
         {
-            var parts = ReadParts(root);
+            var parts = ReadParts(root, legacyReader);
             var nodes = Children(parts.Nodes, "Node").Select(node =>
             {
                 var fields = ReadNode(node, execution: true);
@@ -145,16 +153,6 @@ public static class GraphXml
 
     private static XElement CreateModel(GraphModelSignature model)
     {
-        if (string.Equals(model.ModelType, "rwkv", StringComparison.Ordinal) &&
-            model.IsRwkvCompatible && model.Attributes.Count == 0 &&
-            model.Dimensions.Count == 5)
-        {
-            return new XElement("Model", new XAttribute("vocabularySize", model.VocabularySize),
-                new XAttribute("embeddingSize", model.EmbeddingSize), new XAttribute("layerCount", model.LayerCount),
-                new XAttribute("headCount", model.HeadCount), new XAttribute("headSize", model.HeadSize),
-                new XAttribute("stateAbiId", model.StateAbiId));
-        }
-
         return new XElement("Model",
             new XAttribute("modelType", model.ModelType),
             new XAttribute("stateAbiId", model.StateAbiId),
@@ -190,7 +188,11 @@ public static class GraphXml
                 new XAttribute("resource", binding.Resource.Value), new XAttribute("access", binding.Access),
                 isPrivate && binding.InitializedBeforeRead
                     ? new XAttribute("initializedBeforeRead", "true")
-                    : null);
+                    : null,
+                binding.View is { } view ? new XElement("View", new XAttribute("byteOffset", view.ByteOffset),
+                    new XElement("Tensor", new XAttribute("elementType", view.Tensor.ElementType),
+                        new XAttribute("layout", view.Tensor.Layout), view.Tensor.Dimensions.Select(size =>
+                            new XElement("Dimension", new XAttribute("size", size))))) : null);
         }));
 
     private static XElement CreateAttributes(IReadOnlyDictionary<string, string> attributes) =>
@@ -243,10 +245,15 @@ public static class GraphXml
             }
 
             Check(root, "Graph", "kind", "version");
-            if (Required(root, "kind") != kind || Required(root, "version") != SchemaVersion.ToString(CultureInfo.InvariantCulture))
+            var version = Required(root, "version");
+            if (Required(root, "kind") != kind || version is not ("1" or "2"))
             {
-                throw new InvalidDataException($"Expected {kind} XML schema version {SchemaVersion}.");
+                throw new InvalidDataException($"Expected {kind} XML schema version 1 or 2.");
             }
+            if (version == "1" && root.Descendants("View").Any())
+                throw new InvalidDataException("Legacy graph XML cannot contain tensor views.");
+            if (version == "2" && (root.Element("Identity") is not { } identity || Number(identity, "irVersion") < 2))
+                throw new InvalidDataException("Graph XML version 2 requires graph IR version 2 or newer.");
 
             return root;
         }
@@ -256,7 +263,7 @@ public static class GraphXml
         }
     }
 
-    private static GraphParts ReadParts(XElement root)
+    private static GraphParts ReadParts(XElement root, IGraphModelSignatureReader? legacyReader)
     {
         var hasState = root.Element("GraphState") is not null;
         var sections = Ordered(root, hasState
@@ -271,10 +278,6 @@ public static class GraphXml
         var identity = sections[0];
         Check(identity, "Identity", "architectureId", "irVersion", "name");
         var model = sections[1];
-        var genericModel = model.Attribute("modelType") is not null;
-        Check(model, "Model", genericModel
-            ? ["modelType", "stateAbiId"]
-            : ["vocabularySize", "embeddingSize", "layerCount", "headCount", "headSize", "stateAbiId"]);
         var resources = Children(sections[2], "Resource").Select(item =>
         {
             Check(item, "Resource", "id", "name", "kind", "lifetime", "scope", "bindingKey", "deviceId");
@@ -304,20 +307,20 @@ public static class GraphXml
         }).ToArray();
         return new GraphParts(
             new GraphIdentity(Required(identity, "architectureId"), Number(identity, "irVersion"), Required(identity, "name")),
-            ReadModel(model, genericModel),
+            ReadModel(model, legacyReader),
             resources, regions, ReadRefs(sections[4]), ReadRefs(sections[5]),
             hasState ? ReadGraphState(sections[6]) : null, sections[hasState ? 7 : 6]);
     }
 
-    private static GraphModelSignature ReadModel(XElement model, bool generic)
+    private static GraphModelSignature ReadModel(XElement model, IGraphModelSignatureReader? legacyReader)
     {
-        if (!generic)
+        if (model.Attribute("modelType") is null)
         {
-            return new GraphModelSignature(Number(model, "vocabularySize"), Number(model, "embeddingSize"),
-                Number(model, "layerCount"), Number(model, "headCount"), Number(model, "headSize"),
-                Required(model, "stateAbiId"));
+            return legacyReader?.ReadXml(model) ??
+                throw new InvalidDataException("A legacy model signature requires an explicitly supplied model reader.");
         }
 
+        Check(model, "Model", "modelType", "stateAbiId");
         var sections = Ordered(model, "Dimensions", "Attributes");
         Check(sections[0], "Dimensions");
         Check(sections[1], "Attributes");
@@ -398,9 +401,28 @@ public static class GraphXml
             {
                 throw new InvalidDataException("Invalid private binding initialization metadata.");
             }
+            var views = Children(item, "View").ToArray();
+            if (views.Length > 1) throw new InvalidDataException("A binding may declare only one tensor view.");
+            GraphTensorView? view = null;
+            if (views.Length == 1)
+            {
+                var element = views[0];
+                Check(element, "View", "byteOffset");
+                if (!ulong.TryParse(Required(element, "byteOffset"), NumberStyles.None, CultureInfo.InvariantCulture, out var offset))
+                    throw new InvalidDataException("Invalid tensor-view byte offset.");
+                var tensor = Ordered(element, "Tensor")[0];
+                Check(tensor, "Tensor", "elementType", "layout");
+                var dimensions = Children(tensor, "Dimension").Select(dimension =>
+                {
+                    Check(dimension, "Dimension", "size");
+                    return Number(dimension, "size");
+                });
+                view = new(offset, new TensorDescriptor(EnumValue<GraphElementType>(tensor, "elementType"), dimensions,
+                    Required(tensor, "layout")));
+            }
 
             return new NodeResourceBinding(Required(item, "port"), new ResourceId(Required(item, "resource")),
-                EnumValue<GraphResourceAccess>(item, "access"), initialization == "true");
+                EnumValue<GraphResourceAccess>(item, "access"), initialization == "true", view);
         }).ToArray();
 
     private static IReadOnlyDictionary<string, string> ReadAttributes(XElement attributes)

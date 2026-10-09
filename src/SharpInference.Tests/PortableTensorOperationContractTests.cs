@@ -107,7 +107,7 @@ public sealed class PortableTensorOperationContractTests
     {
         var builder = new LogicalGraphBuilder(
             new GraphIdentity("test", 1, "tensor-contract-test"),
-            new GraphModelSignature(32, 4, 1, 1, 4, "state"));
+            TestGraphSignatures.Create(32, 4, 1, 1, 4, "state"));
         builder.AddRegion("graph", GraphRegionTypes.Graph, "Graph");
         builder.AddResource("filled", "Filled", GraphResourceKind.Temporary,
             GraphResourceLifetime.Invocation, new TensorDescriptor(F32, [4]));
@@ -138,7 +138,7 @@ public sealed class PortableTensorOperationContractTests
     public void WkvMatrixShapeOperationsComposeWithoutAnOpaqueUpdateNode()
     {
         var builder = new LogicalGraphBuilder(new GraphIdentity("rwkv-7", 1, "tensor-shapes"),
-            new GraphModelSignature(32, 8, 1, 2, 4, "rwkv-7.state.fp32@1"));
+            TestGraphSignatures.Create(32, 8, 1, 2, 4, "rwkv-7.state.fp32@1"));
         builder.AddRegion("graph", GraphRegionTypes.Graph, "WKV tensor shapes");
         void Resource(string name, GraphResourceKind kind, params int[] dimensions) =>
             builder.AddResource(name, name, kind,

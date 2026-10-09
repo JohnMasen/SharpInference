@@ -231,8 +231,8 @@ public interface IProcessorPrefillBackend : IExecutionGraphBackend
     bool CanPreparePrefill(ExecutionGraph inferenceGraph) => true;
 
     IProcessorSessionExecutor CreateSessionExecutor(
-        IRwkvModel model,
-        IRwkvState state,
+        IModel model,
+        IModelState state,
         IBackendExecutablePlan inferencePlan,
         IBackendExecutablePlan prefillPlan);
 }

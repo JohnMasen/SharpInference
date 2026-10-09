@@ -15,6 +15,21 @@ public sealed class VmResourceManager : IDisposable
         this.allocate = allocate ?? (slot => new VmMemoryStorage(checked((int)slot.Tensor.ByteLength)));
     }
 
+    public void PrepareGlobals(VmProgram program)
+    {
+        ArgumentNullException.ThrowIfNull(program);
+        lock (gate)
+        {
+            ObjectDisposedException.ThrowIf(disposed, this);
+            foreach (var slot in program.Slots.Where(slot => slot.Scope == VmSlotScope.Global))
+            {
+                var key = slot.BindingKey ?? slot.Id;
+                if (!globals.ContainsKey(key))
+                    globals.Add(key, CreateResource(slot, slot.Access, initialize: true));
+            }
+        }
+    }
+
     public VmBindings CreateBindings(VmProgram program)
     {
         lock (gate)

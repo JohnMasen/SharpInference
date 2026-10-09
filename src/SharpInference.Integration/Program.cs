@@ -2,6 +2,7 @@ using SharpInference;
 using SharpInference.Backends.D3D12Vm;
 using SharpInference.Graphs;
 using SharpInference.Runtime;
+using SharpInference.Applications;
 using Microsoft.Extensions.Configuration;
 using System.Text.Json;
 using SharpInference.Gguf;
@@ -124,7 +125,7 @@ if (graphDumpDirectory is not null)
     DumpGraphs(catalog, graphDumpDirectory);
 }
 
-var runtime = new RwkvRuntimeFactory().CreateRuntime(configuration.GetSection("Rwkv:Runtime"), catalog);
+var runtime = new RwkvApplicationComposition(RwkvApplicationComposition.CreateModelModules()).CreateRuntime(configuration.GetSection("Rwkv:Runtime"), catalog);
 Console.WriteLine($"backend={configuration["Rwkv:Runtime:Kind"] ?? "cpu"}");
 
 VmGraphBackend? backend = null;
@@ -234,7 +235,7 @@ if (prompt is not null)
     using var generationSession = model.CreateSession();
     var generationTokenizer = Environment.GetEnvironmentVariable("SHARPINFERENCE_STREAM_BYTE_VOCAB") is null
         ? runtime.Tokenizer
-        : CreateIntegrationTokenizer(model.Metadata.VocabularySize);
+        : CreateIntegrationTokenizer(RwkvModelMetadata.FromModelMetadata(model.Metadata).VocabularySize);
     var stop = Environment.GetEnvironmentVariable("SHARPINFERENCE_STREAM_STOP");
     Console.WriteLine("stream-begin");
     await foreach (var text in RwkvTextGenerator.GenerateAsync(
@@ -258,10 +259,9 @@ if (prompt is not null)
 
 static void DumpGraphs(IModelTensorCatalog catalog, string outputDirectory)
 {
-    var architecture = RwkvModelArchitectureDetector.Detect(catalog);
     outputDirectory = Path.GetFullPath(outputDirectory);
     Directory.CreateDirectory(outputDirectory);
-    var logical = RwkvRuntimeFactory.CreateGraphProvider(architecture).Build(catalog);
+    var logical = RwkvApplicationComposition.CreateModelModules().Build(catalog).Graph;
     var cpu = VmGraphOptimizer.Optimize(logical, VmTarget.Cpu);
     var gpu = VmGraphOptimizer.Optimize(logical, VmTarget.Direct3D12);
     File.WriteAllText(Path.Combine(outputDirectory, "logical.json"), GraphJson.Serialize(logical));

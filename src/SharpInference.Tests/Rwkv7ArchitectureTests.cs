@@ -18,10 +18,10 @@ public sealed class Rwkv7ArchitectureTests
         }
 
         using var model = Processor.LoadGraph(modelPath, new PortableRwkv7GraphProvider(),
-            VmBackendFactory.CreateCpu());
+            SharpInference.Runtime.Cpu.CpuVmBackendFactory.Create());
         using var session = model.CreateSession();
         var logits = session.ForwardToken(0).Span;
-        Assert.Equal(model.Metadata.VocabularySize, logits.Length);
+        Assert.Equal(RwkvModelMetadata.FromModelMetadata(model.Metadata).VocabularySize, logits.Length);
         Assert.True(logits.ToArray().All(float.IsFinite));
     }
 
@@ -39,7 +39,7 @@ public sealed class Rwkv7ArchitectureTests
         var expectedPath = TestModelLoader.GetPath(TestModel.Rwkv7ExpectedLogits);
 
         using var model = Processor.LoadGraph(modelPath, new PortableRwkv7GraphProvider(),
-            VmBackendFactory.CreateCpu());
+            SharpInference.Runtime.Cpu.CpuVmBackendFactory.Create());
         using var session = model.CreateSession();
 
         var logits = session.Prefill(['"', 'i', 'n']).Span;
@@ -61,7 +61,7 @@ public sealed class Rwkv7ArchitectureTests
         var modelPath = TestModelLoader.GetPath(TestModel.Rwkv7Fp32);
 
         using var model = Processor.LoadGraph(modelPath, new PortableRwkv7GraphProvider(),
-            VmBackendFactory.CreateCpu());
+            SharpInference.Runtime.Cpu.CpuVmBackendFactory.Create());
         using var original = model.CreateSession();
         _ = original.Prefill(['"', 'i']);
         using var snapshot = new MemoryStream();
@@ -90,7 +90,8 @@ public sealed class Rwkv7ArchitectureTests
         Assert.Equal(expected, actual);
         var state = StateSnapshotAssertions.Capture(original);
         StateSnapshotAssertions.Equal(state, StateSnapshotAssertions.Capture(restored));
-        Assert.Equal(model.Metadata.LayerCount * model.Metadata.EmbeddingSize * (2 + model.Metadata.HeadSize),
+        var metadata = RwkvModelMetadata.FromModelMetadata(model.Metadata);
+        Assert.Equal(metadata.LayerCount * metadata.EmbeddingSize * (2 + metadata.HeadSize),
             StateSnapshotAssertions.Values(state).Length);
     }
 
@@ -100,9 +101,10 @@ public sealed class Rwkv7ArchitectureTests
         using var catalog = TestModelLoader.OpenCatalog(TestModel.Rwkv7Fp32);
 
         Assert.Equal("rwkv-7", RwkvModelArchitectureDetector.Detect(catalog));
-        var runtime = new RwkvRuntimeFactory().CreateRuntime(null, catalog);
+        var runtime = new SharpInference.Applications.RwkvApplicationComposition(
+            SharpInference.Applications.RwkvApplicationComposition.CreateModelModules()).CreateRuntime(null, catalog);
         Assert.Equal("rwkv-7", runtime.ArchitectureId);
-        Assert.IsType<PortableRwkv7GraphProvider>(runtime.Provider);
+        Assert.IsType<Rwkv7ModelModule>(runtime.Module);
         using var backend = Assert.IsType<VmGraphBackend>(runtime.CreateBackend());
     }
 

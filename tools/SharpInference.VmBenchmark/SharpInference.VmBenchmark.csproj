@@ -9,8 +9,10 @@
     <DefineConstants Condition="'$(TierOneApi)' == 'true'">$(DefineConstants);TIER_ONE</DefineConstants>
   </PropertyGroup>
   <ItemGroup>
-    <ProjectReference Include="$(SharpInferenceSourceRoot)\src\SharpInference.Architectures.Phi4\SharpInference.Architectures.Phi4.csproj" />
-    <ProjectReference Include="$(SharpInferenceSourceRoot)\src\SharpInference.Architectures.Phi4.D3D12\SharpInference.Architectures.Phi4.D3D12.csproj" />
+    <ProjectReference Include="$(SharpInferenceSourceRoot)\src\SharpInference.Models.Phi4\SharpInference.Models.Phi4.csproj" />
     <ProjectReference Include="$(SharpInferenceSourceRoot)\src\SharpInference.Runtime\SharpInference.Runtime.csproj" />
+    <ProjectReference Include="$(SharpInferenceSourceRoot)\src\SharpInference.Applications\SharpInference.Applications.csproj" />
+    <ProjectReference Include="$(SharpInferenceSourceRoot)\src\SharpInference.Runtime.Cpu\SharpInference.Runtime.Cpu.csproj" />
+    <ProjectReference Include="$(SharpInferenceSourceRoot)\src\SharpInference.Runtime.D3D12\SharpInference.Runtime.D3D12.csproj" />
   </ItemGroup>
 </Project>

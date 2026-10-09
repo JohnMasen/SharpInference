@@ -3,24 +3,21 @@
   <ItemGroup>
     <ProjectReference Include="..\SharpInference.Abstractions\SharpInference.Abstractions.csproj" />
     <ProjectReference Include="..\SharpInference.Core\SharpInference.Core.csproj" />
-    <ProjectReference Include="..\SharpInference.Architectures.Rwkv6\SharpInference.Architectures.Rwkv6.csproj" />
-    <ProjectReference Include="..\SharpInference.Architectures.Rwkv7\SharpInference.Architectures.Rwkv7.csproj" />
+    <ProjectReference Include="..\SharpInference.Generation\SharpInference.Generation.csproj" />
+    <ProjectReference Include="..\SharpInference.Graphs\SharpInference.Graphs.csproj" />
+    <ProjectReference Include="..\SharpInference.Models.Ggml\SharpInference.Models.Ggml.csproj" />
     <ProjectReference Include="..\SharpInference.Gguf\SharpInference.Gguf.csproj" />
     <ProjectReference Include="..\SharpInference.Vm\SharpInference.Vm.csproj" />
     <ProjectReference Include="..\SharpInference.Vm.Optimization\SharpInference.Vm.Optimization.csproj" />
-    <ProjectReference Include="..\SharpInference.Backends.CpuVm\SharpInference.Backends.CpuVm.csproj" />
-    <ProjectReference Include="..\SharpInference.Backends.D3D12Vm\SharpInference.Backends.D3D12Vm.csproj" />
-    <ProjectReference Include="..\SharpInference.Instructions.Cpu\SharpInference.Instructions.Cpu.csproj" />
-    <ProjectReference Include="..\SharpInference.Instructions.D3D12\SharpInference.Instructions.D3D12.csproj" />
+    <ProjectReference Include="..\SharpInference.Instructions\SharpInference.Instructions.csproj" />
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.Extensions.Configuration.Binder" Version="10.0.0" />
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.0" />
   </ItemGroup>
 
   <PropertyGroup>
-    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
+    <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
   </PropertyGroup>

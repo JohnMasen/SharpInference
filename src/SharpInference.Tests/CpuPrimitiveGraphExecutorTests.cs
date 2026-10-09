@@ -5,7 +5,7 @@ namespace SharpInference.Tests;
 
 public sealed class CpuPrimitiveGraphExecutorTests
 {
-    private static readonly GraphModelSignature Model = new(3, 2, 1, 1, 2, "test.state");
+    private static readonly GraphModelSignature Model = TestGraphSignatures.Create(3, 2, 1, 1, 2, "test.state");
 
     [Fact]
     public void LogicalGraph_GathersProjectsAddsStateAndReturnsIndependentSnapshots()
@@ -194,18 +194,18 @@ public sealed class CpuPrimitiveGraphExecutorTests
                 ["add"])
             .Build();
         var graph = new GraphOptimizer().Optimize(logical);
-        IRwkvModel runtimeModel = new PortableGraphModel(
+        IModel runtimeModel = new PortableGraphModel(
             new RwkvModelMetadata(3, 2, 1, 1, 2, "portable-test"), new Catalog(), graph);
         var model = Assert.IsType<PortableGraphModel>(runtimeModel);
         var executor = new CpuPrimitiveGraphExecutor(model);
         Assert.Same(graph, executor.Graph);
-        IRwkvState runtimeState = new PortableGraphState(graph);
+        IModelState runtimeState = new PortableGraphState(graph);
         var state = Assert.IsType<PortableGraphState>(runtimeState);
         IReadOnlyList<GraphStateValue> Read(PortableGraphState current) =>
             GraphSessionStateAccess.Read(graph.GraphState, graph.Resources, current);
         Assert.Equal("portable-test", state.ArchitectureId);
         Assert.Equal(2, state.ElementCount);
-        Assert.Equal("memory", Assert.Single(((INamedRwkvState)state).Views).Name);
+        Assert.Equal("memory", Assert.Single(((INamedFloat32ModelState)state).Views).Name);
         state.Restore([4, 5]);
         Assert.Equal([4f, 5f], Assert.Single(Read(state)).Values);
         var inputs = new Dictionary<ResourceId, Array> { [new("input")] = new float[] { 2, 3 } };
@@ -290,7 +290,7 @@ public sealed class CpuPrimitiveGraphExecutorTests
     [Fact]
     public void Backend_UsesPortableModelAndStateForProcessorTokenSession()
     {
-        var signature = new GraphModelSignature(2, 2, 1, 1, 2, "portable.state");
+        var signature = TestGraphSignatures.Create(2, 2, 1, 1, 2, "portable.state");
         var logical = new LogicalGraphBuilder(new GraphIdentity("portable", 1, "token"), signature)
             .AddRegion("root", GraphRegionTypes.Graph, "root")
             .AddResource("token", "token", GraphResourceKind.Input, GraphResourceLifetime.External,
@@ -350,7 +350,7 @@ public sealed class CpuPrimitiveGraphExecutorTests
             Dimensions = dimensions;
             floats = values;
             halves = [];
-            DataType = RwkvTensorDataType.Float32;
+            DataType = TensorDataType.Float32;
         }
         public Tensor(string name, int[] dimensions, Half[] values)
         {
@@ -358,11 +358,11 @@ public sealed class CpuPrimitiveGraphExecutorTests
             Dimensions = dimensions;
             halves = values;
             floats = [];
-            DataType = RwkvTensorDataType.Float16;
+            DataType = TensorDataType.Float16;
         }
         public string Name { get; }
         public IReadOnlyList<int> Dimensions { get; }
-        public RwkvTensorDataType DataType { get; }
+        public TensorDataType DataType { get; }
         public ReadOnlySpan<float> FloatValues => floats;
         public ReadOnlySpan<Half> HalfValues => halves;
     }

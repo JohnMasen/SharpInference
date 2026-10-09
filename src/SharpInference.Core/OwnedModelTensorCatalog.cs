@@ -11,9 +11,6 @@ internal sealed class OwnedModelTensorCatalog : IModelTensorCatalog
     public OwnedModelTensorCatalog(IModelTensorCatalog source, bool copyWeights)
     {
         ArgumentNullException.ThrowIfNull(source);
-        VocabularySize = source.VocabularySize;
-        EmbeddingSize = source.EmbeddingSize;
-        LayerCount = source.LayerCount;
         tensors = new Dictionary<string, OwnedTensor>(StringComparer.Ordinal);
         foreach (var name in source.Names)
         {
@@ -22,15 +19,6 @@ internal sealed class OwnedModelTensorCatalog : IModelTensorCatalog
 
         Names = tensors.Keys.ToArray();
     }
-
-    /// <summary>Gets the vocabulary size reported by the source catalog.</summary>
-    public int VocabularySize { get; }
-
-    /// <summary>Gets the embedding size reported by the source catalog.</summary>
-    public int EmbeddingSize { get; }
-
-    /// <summary>Gets the layer count reported by the source catalog.</summary>
-    public int LayerCount { get; }
 
     /// <summary>Gets the names of the tensors held by this catalog.</summary>
     public IReadOnlyCollection<string> Names { get; }
@@ -85,11 +73,11 @@ internal sealed class OwnedModelTensorCatalog : IModelTensorCatalog
             {
                 this.source = source;
             }
-            else if (DataType == RwkvTensorDataType.Float32)
+            else if (DataType == TensorDataType.Float32)
             {
                 floats = source.FloatValues.ToArray();
             }
-            else if (DataType == RwkvTensorDataType.Float16)
+            else if (DataType == TensorDataType.Float16)
             {
                 halves = source.HalfValues.ToArray();
             }
@@ -103,7 +91,7 @@ internal sealed class OwnedModelTensorCatalog : IModelTensorCatalog
         public string Name { get; }
 
         /// <summary>Gets the tensor data type.</summary>
-        public RwkvTensorDataType DataType { get; }
+        public TensorDataType DataType { get; }
 
         /// <summary>Gets the tensor dimensions copied from the source tensor.</summary>
         public IReadOnlyList<int> Dimensions { get; }
@@ -151,7 +139,7 @@ internal sealed class OwnedModelTensorCatalog : IModelTensorCatalog
         {
             get
             {
-                if (DataType != RwkvTensorDataType.Float16)
+                if (DataType != TensorDataType.Float16)
                 {
                     return ReadOnlySpan<Half>.Empty;
                 }

@@ -294,7 +294,7 @@ public sealed class GraphResourceAllocatorTests
     [Fact]
     public void OptimizerPublicFirstWriteProofSurvivesFusionAndExecutionXml()
     {
-        var builder = new LogicalGraphBuilder(new("test", 1, "public proof"), new(1, 1, 1, 1, 1, "test.state"));
+        var builder = new LogicalGraphBuilder(new("test", 1, "public proof"), TestGraphSignatures.Create(1, 1, 1, 1, 1, "test.state"));
         builder.AddRegion("root", GraphRegionTypes.Graph, "Root")
             .AddResource("value", "Value", GraphResourceKind.Temporary,
                 GraphResourceLifetime.Invocation, new TensorDescriptor(GraphElementType.Float32, [2, 4]))
@@ -487,7 +487,7 @@ public sealed class GraphResourceAllocatorTests
     {
         var builder = new LogicalGraphBuilder(
             new GraphIdentity("test", 1, "nested scratch"),
-            new GraphModelSignature(1, 1, 1, 1, 1, "test.state"));
+            TestGraphSignatures.Create(1, 1, 1, 1, 1, "test.state"));
         builder.AddRegion("root", GraphRegionTypes.Graph, "Root")
             .AddResource("a", "A", GraphResourceKind.Temporary,
                 GraphResourceLifetime.Invocation, new TensorDescriptor(GraphElementType.Float32, [2, 4]))
@@ -699,7 +699,7 @@ public sealed class GraphResourceAllocatorTests
 
     private static ExecutionGraph CreateGraph(GraphResource[] resources, ExecutionNode[] nodes) =>
         new(new GraphIdentity("test", 1, "scratch"),
-            new GraphModelSignature(1, 1, 1, 1, 1, "test.state"),
+            TestGraphSignatures.Create(1, 1, 1, 1, 1, "test.state"),
             resources,
             [new GraphRegion(new("root"), null, GraphRegionTypes.Graph, null, "Root",
                 new Dictionary<string, string>())],

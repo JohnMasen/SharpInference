@@ -24,20 +24,21 @@ public sealed class TierOneRuntimeTests
         var logical = provider.Build(catalog);
         var expanded = new GraphOptimizer().Optimize(logical,
             new GraphOptimizationOptions(OptimizationBoundary.Off, DefinitionPolicy: GraphDefinitionPolicy.PreserveExpanded));
-        var capabilities = new InstructionRegistry(DefaultInstructionCollections.Create()).QueryOptimizationCapabilities();
+        var capabilities = new InstructionRegistry(gpu ? SharpInference.Runtime.D3D12.D3D12InstructionCollections.Create() :
+            SharpInference.Runtime.Cpu.CpuInstructionCollections.Create()).QueryOptimizationCapabilities();
         var measurements = TierOnePatternMatcher.Find(expanded, capabilities, target).Select(candidate =>
             new TierOneCostMeasurement(candidate.Capability.Name, candidate.Capability.ImplementationFingerprint,
                 string.Join("x", expanded.Resources.Single(resource => resource.Id == candidate.Output).Tensor.Dimensions),
                 candidate.InputAliases, 64, true, Enumerable.Repeat(20d, 7).ToArray(), Enumerable.Repeat(10d, 7).ToArray()))
             .DistinctBy(measurement => measurement.Key).ToArray();
         Assert.NotEmpty(measurements);
-        var profile = new TierOneCostProfile(VmTierOneEnvironment.Fingerprint(target), DateTimeOffset.UtcNow, measurements);
+        var profile = new TierOneCostProfile((target == VmTarget.Cpu ? SharpInference.Runtime.Cpu.CpuVmEnvironment.Fingerprint() : SharpInference.Runtime.D3D12.D3D12VmEnvironment.Fingerprint()), DateTimeOffset.UtcNow, measurements);
         var configuration = new VmRuntimeConfig { InferenceInstances = 1, PrefillInstances = 1, TierOneCostProfile = profile };
-        using var optimizedBackend = gpu ? VmBackendFactory.CreateD3D12(configuration) : VmBackendFactory.CreateCpu(configuration);
+        using var optimizedBackend = gpu ? SharpInference.Runtime.D3D12.D3D12VmBackendFactory.Create(configuration) : SharpInference.Runtime.Cpu.CpuVmBackendFactory.Create(configuration);
         using var optimized = Processor.LoadGraph(TestModelLoader.GetPath(model), provider, optimizedBackend);
         using var baseline = Processor.LoadGraph(TestModelLoader.GetPath(model), provider, gpu
-            ? VmBackendFactory.CreateD3D12(new() { InferenceInstances = 1, PrefillInstances = 1 })
-            : VmBackendFactory.CreateCpu(new() { InferenceInstances = 1, PrefillInstances = 1 }));
+            ? SharpInference.Runtime.D3D12.D3D12VmBackendFactory.Create(new() { InferenceInstances = 1, PrefillInstances = 1 })
+            : SharpInference.Runtime.Cpu.CpuVmBackendFactory.Create(new() { InferenceInstances = 1, PrefillInstances = 1 }));
         Assert.True(optimizedBackend.OptimizationReport!.SelectedCandidates > 0);
         Assert.True(optimizedBackend.OptimizationReport.OptimizedNodeCount < optimizedBackend.OptimizationReport.OriginalNodeCount);
         using var actual = optimized.CreateSession();

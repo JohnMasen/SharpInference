@@ -76,7 +76,7 @@ public sealed class CpuPrimitiveGraphBackend : IGraphModelWeightBackend
     }
 
     public IProcessorSessionExecutor CreateSessionExecutor(
-        IRwkvModel model, IRwkvState state, IBackendExecutablePlan plan)
+        IModel model, IModelState state, IBackendExecutablePlan plan)
     {
         if (model is not PortableGraphModel portable ||
             state is not PortableGraphState portableState ||
@@ -93,13 +93,13 @@ public sealed class CpuPrimitiveGraphBackend : IGraphModelWeightBackend
         if (input.Tensor.ElementType != GraphElementType.Int32 ||
             !input.Tensor.Dimensions.SequenceEqual([1]) ||
             output.Tensor.ElementType != GraphElementType.Float32 ||
-            !output.Tensor.Dimensions.SequenceEqual([portable.Metadata.VocabularySize]))
+            output.Tensor.Dimensions.Count != 1)
             throw new NotSupportedException("Processor token sessions require int32[1] input and float32[vocabulary] output.");
         GraphSessionStateAccess.Read(graph.GraphState, graph.Resources, portableState);
         var executor = models.GetValue(portable, bound =>
             new CpuPrimitiveGraphExecutor(bound, PrimitiveOperators));
         return new Session(executor, portableState, graph, graph.Inputs[0], graph.Outputs[0],
-            portable.Metadata.VocabularySize);
+            output.Tensor.Dimensions[0]);
     }
 
     private sealed class Session(CpuPrimitiveGraphExecutor executor, PortableGraphState state,

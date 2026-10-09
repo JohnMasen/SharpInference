@@ -16,8 +16,8 @@ public sealed class InstructionCollectionTests
     [Fact]
     public void CollectionsExposePrecisionAndExtensibleArchitecture()
     {
-        var registry = new InstructionRegistry(DefaultInstructionCollections.Create());
-        Assert.Equal(6, registry.QueryInstructionCollection().Count);
+        var registry = new InstructionRegistry(SharpInference.Runtime.Cpu.CpuInstructionCollections.Create().Concat(SharpInference.Runtime.D3D12.D3D12InstructionCollections.Create()));
+        Assert.Equal(7, registry.QueryInstructionCollection().Count);
         Assert.Equal(2, registry.QueryInstruction(Guid.Empty, "core.add").Count);
         Assert.Equal(GraphElementType.Float16, registry.Resolve(InstructionCollectionIds.TierZeroFloat16,
             "core.add", InstructionTarget.Cpu).Signatures[0].Ports[0].ElementType);
@@ -50,9 +50,9 @@ public sealed class InstructionCollectionTests
         var generator = new VmExecutionGraphGenerator(InstructionTarget.Cpu, [new CpuFloat32InstructionCollection()]);
         var program = generator.Generate(graph);
         var remote = VmProgramXml.Deserialize(VmProgramXml.Serialize(program));
-        var backend = new CpuVmCompiler(DefaultInstructionCollections.Create());
+        var backend = new CpuVmCompiler(SharpInference.Runtime.Cpu.CpuInstructionCollections.Create());
         Assert.Single(generator.InstructionCollections.QueryInstructionCollection());
-        Assert.Equal(6, backend.InstructionCollections.QueryInstructionCollection().Count);
+        Assert.Equal(3, backend.InstructionCollections.QueryInstructionCollection().Count);
         Assert.True(backend.Compile(remote).HasBinary);
         Assert.Throws<NotSupportedException>(() => new VmExecutionGraphGenerator(InstructionTarget.Cpu, []).Generate(graph));
         Assert.All(remote.Definitions.SelectMany(definition => definition.Nodes).Select(node => node.Instruction)
@@ -65,14 +65,14 @@ public sealed class InstructionCollectionTests
     public void ModelMetadataSelectsGeneratorWithItsOwnCatalog(bool version7, string architecture)
     {
         using var catalog = TestModelLoader.OpenCatalog(version7 ? TestModel.Rwkv7Fp16 : TestModel.Rwkv6);
-        var generator = RwkvRuntimeFactory.CreateGraphGenerator(catalog, InstructionTarget.Cpu);
+        var generator = RwkvRuntimeFactory.CreateGraphGenerator(catalog, InstructionTarget.Cpu, SharpInference.Runtime.Cpu.CpuInstructionCollections.Create());
         Assert.Equal(architecture, generator.ModelArchitecture);
         Assert.Equal(InstructionTarget.Cpu, generator.Architecture);
         Assert.Equal(3, generator.InstructionCollections.QueryInstructionCollection().Count);
         Assert.All(generator.InstructionCollections.QueryInstructionCollection(),
             collection => Assert.Equal(InstructionTarget.Cpu, collection.Architecture));
         Assert.Equal(VmTarget.Cpu, generator.Generate(catalog).Target);
-        Assert.Throws<NotSupportedException>(() => RwkvRuntimeFactory.CreateGraphGenerator(catalog, new("vulkan")));
+        Assert.Throws<NotSupportedException>(() => RwkvRuntimeFactory.CreateGraphGenerator(catalog, new("vulkan"), []));
     }
 
     [Fact]
@@ -218,14 +218,14 @@ public sealed class InstructionCollectionTests
             byte[] result;
             if (target == VmTarget.Cpu)
             {
-                using var executor = new CpuVmCompiler(DefaultInstructionCollections.Create()).Compile(program).LoadExecutable();
+                using var executor = new CpuVmCompiler(SharpInference.Runtime.Cpu.CpuInstructionCollections.Create()).Compile(program).LoadExecutable();
                 var buffers = inputs.Append(new byte[(int)parameters[^1].Tensor.ByteLength]).ToArray();
                 executor.Execute("run", buffers);
                 result = buffers[^1];
             }
             else
             {
-                using var executor = new D3D12VmCompiler(DefaultInstructionCollections.Create()).Compile(program).CreateExecutor();
+                using var executor = new D3D12VmCompiler(SharpInference.Runtime.D3D12.D3D12InstructionCollections.Create()).Compile(program).CreateExecutor();
                 for (var i = 0; i < inputs.Length; i++) executor.Upload(parameters[i].Name, inputs[i]);
                 for (var i = 0; i < 3; i++) executor.Execute("run");
                 result = executor.Readback("output");

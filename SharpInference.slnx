@@ -1,10 +1,9 @@
 <Solution>
   <Folder Name="/src/">
     <Project Path="src/SharpInference.Abstractions/SharpInference.Abstractions.csproj" />
-    <Project Path="src/SharpInference.Architectures.Phi4/SharpInference.Architectures.Phi4.csproj" />
-    <Project Path="src/SharpInference.Architectures.Phi4.D3D12/SharpInference.Architectures.Phi4.D3D12.csproj" />
-    <Project Path="src/SharpInference.Architectures.Rwkv6/SharpInference.Architectures.Rwkv6.csproj" />
-    <Project Path="src/SharpInference.Architectures.Rwkv7/SharpInference.Architectures.Rwkv7.csproj" />
+    <Project Path="src/SharpInference.Applications/SharpInference.Applications.csproj" />
+    <Project Path="src/SharpInference.Models.Phi4/SharpInference.Models.Phi4.csproj" />
+    <Project Path="src/SharpInference.Models.Rwkv/SharpInference.Models.Rwkv.csproj" />
     <Project Path="src/SharpInference.Backends.CpuVm/SharpInference.Backends.CpuVm.csproj" />
     <Project Path="src/SharpInference.Backends.D3D12Vm/SharpInference.Backends.D3D12Vm.csproj" />
     <Project Path="src/SharpInference.Backends.Vortice/SharpInference.Backends.Vortice.csproj" />
@@ -16,12 +15,13 @@
     <Project Path="src/SharpInference.Instructions.TierZero/SharpInference.Instructions.TierZero.csproj" />
     <Project Path="src/SharpInference.Instructions.Cpu/SharpInference.Instructions.Cpu.csproj" />
     <Project Path="src/SharpInference.Instructions.D3D12/SharpInference.Instructions.D3D12.csproj" />
-    <Project Path="src/SharpInference.Instructions.Phi4/SharpInference.Instructions.Phi4.csproj" />
-    <Project Path="src/SharpInference.Instructions.Phi4.Cpu/SharpInference.Instructions.Phi4.Cpu.csproj" />
-    <Project Path="src/SharpInference.Instructions.Phi4.D3D12/SharpInference.Instructions.Phi4.D3D12.csproj" />
     <Project Path="src/SharpInference.Gguf/SharpInference.Gguf.csproj" />
+    <Project Path="src/SharpInference.Generation/SharpInference.Generation.csproj" />
     <Project Path="src/SharpInference.Gguf.Tests/SharpInference.Gguf.Tests.csproj" />
     <Project Path="src/SharpInference.Integration/SharpInference.Integration.csproj" />
+    <Project Path="src/SharpInference.Models.Ggml/SharpInference.Models.Ggml.csproj" />
+    <Project Path="src/SharpInference.Runtime.Cpu/SharpInference.Runtime.Cpu.csproj" />
+    <Project Path="src/SharpInference.Runtime.D3D12/SharpInference.Runtime.D3D12.csproj" />
     <Project Path="src/SharpInference.Runtime/SharpInference.Runtime.csproj" />
     <Project Path="src/SharpInference.ShaderCompiler/SharpInference.ShaderCompiler.csproj" />
     <Project Path="src/SharpInference.Tests/SharpInference.Tests.csproj" />

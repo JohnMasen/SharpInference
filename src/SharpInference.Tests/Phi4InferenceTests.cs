@@ -536,7 +536,7 @@ public sealed class Phi4InferenceTests
             Assert.Equal("token-major", handle.Descriptor.Layout);
 
             var program = CreateResidentCopyProgram(component.TokenBucket);
-            var artifact = new D3D12VmCompiler(DefaultInstructionCollections.Create())
+            var artifact = new D3D12VmCompiler(SharpInference.Runtime.D3D12.D3D12InstructionCollections.Create())
                 .Compile(program);
             using var executor = component.CreateExecutor(artifact);
             using var resources = new VmResourceManager(

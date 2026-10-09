@@ -79,7 +79,7 @@ public sealed unsafe class GgmlModelFile : IModelFile
         _ = CheckedInt(ReadHeaderUInt32(header, ref offset), "vocabulary size");
         _ = CheckedInt(ReadHeaderUInt32(header, ref offset), "embedding size");
         _ = CheckedInt(ReadHeaderUInt32(header, ref offset), "layer count");
-        var defaultType = (RwkvTensorDataType)ReadHeaderUInt32(header, ref offset);
+        var defaultType = (TensorDataType)ReadHeaderUInt32(header, ref offset);
         ValidateHeaderFields(magic, version, defaultType);
     }
 
@@ -108,7 +108,7 @@ public sealed unsafe class GgmlModelFile : IModelFile
             var vocabularySize = CheckedInt(ReadUInt32(data, ref offset, length), "vocabulary size");
             var embeddingSize = CheckedInt(ReadUInt32(data, ref offset, length), "embedding size");
             var layerCount = CheckedInt(ReadUInt32(data, ref offset, length), "layer count");
-            var defaultType = (RwkvTensorDataType)ReadUInt32(data, ref offset, length);
+            var defaultType = (TensorDataType)ReadUInt32(data, ref offset, length);
 
             ValidateHeaderFields(magic, version, defaultType);
 
@@ -117,8 +117,8 @@ public sealed unsafe class GgmlModelFile : IModelFile
             {
                 var dimensionCount = CheckedInt(ReadUInt32(data, ref offset, length), "tensor dimension count");
                 var nameLength = CheckedInt(ReadUInt32(data, ref offset, length), "tensor name length");
-                var type = (RwkvTensorDataType)ReadUInt32(data, ref offset, length);
-                if (dimensionCount is < 1 or > 3 || nameLength <= 0 || type is not RwkvTensorDataType.Float32 and not RwkvTensorDataType.Float16)
+                var type = (TensorDataType)ReadUInt32(data, ref offset, length);
+                if (dimensionCount is < 1 or > 3 || nameLength <= 0 || type is not TensorDataType.Float32 and not TensorDataType.Float16)
                 {
                     throw new InvalidDataException($"Unsupported GGML tensor metadata at byte {offset}.");
                 }
@@ -134,7 +134,7 @@ public sealed unsafe class GgmlModelFile : IModelFile
                 EnsureRange(offset, nameLength, length);
                 var name = System.Text.Encoding.UTF8.GetString(new ReadOnlySpan<byte>(data + offset, nameLength));
                 offset += nameLength;
-                var bytes = checked(elementCount * (type == RwkvTensorDataType.Float32 ? sizeof(float) : sizeof(Half)));
+                var bytes = checked(elementCount * (type == TensorDataType.Float32 ? sizeof(float) : sizeof(Half)));
                 EnsureRange(offset, bytes, length);
                 if (!tensors.TryAdd(name, new MappedTensor(name, type, dimensions, data + offset, elementCount)))
                 {
@@ -206,14 +206,14 @@ public sealed unsafe class GgmlModelFile : IModelFile
         return value;
     }
 
-    private static void ValidateHeaderFields(uint magic, uint version, RwkvTensorDataType defaultType)
+    private static void ValidateHeaderFields(uint magic, uint version, TensorDataType defaultType)
     {
         if (magic != Magic || version != Version)
         {
             throw new InvalidDataException($"Unsupported GGML header: magic=0x{magic:X8}, version={version}.");
         }
 
-        if (defaultType is not RwkvTensorDataType.Float32 and not RwkvTensorDataType.Float16)
+        if (defaultType is not TensorDataType.Float32 and not TensorDataType.Float16)
         {
             throw new InvalidDataException($"Unsupported default tensor type {(uint)defaultType}.");
         }
@@ -235,7 +235,7 @@ public sealed unsafe class GgmlModelFile : IModelFile
 
         /// <summary>Creates a tensor view over bytes in the mapped GGML file.</summary>
         /// <exception cref="InvalidDataException">The tensor contains more elements than the managed runtime can index.</exception>
-        public MappedTensor(string name, RwkvTensorDataType dataType, int[] dimensions, byte* values, long elementCount)
+        public MappedTensor(string name, TensorDataType dataType, int[] dimensions, byte* values, long elementCount)
         {
             if (elementCount > int.MaxValue)
             {
@@ -253,7 +253,7 @@ public sealed unsafe class GgmlModelFile : IModelFile
         public string Name { get; }
 
         /// <summary>Gets the tensor data type.</summary>
-        public RwkvTensorDataType DataType { get; }
+        public TensorDataType DataType { get; }
 
         /// <summary>Gets the tensor dimensions from the file metadata.</summary>
         public IReadOnlyList<int> Dimensions { get; }
@@ -263,7 +263,7 @@ public sealed unsafe class GgmlModelFile : IModelFile
         {
             get
             {
-                if (DataType == RwkvTensorDataType.Float32)
+                if (DataType == TensorDataType.Float32)
                 {
                     return new ReadOnlySpan<float>((float*)values, elementCount);
                 }
@@ -274,7 +274,7 @@ public sealed unsafe class GgmlModelFile : IModelFile
 
         /// <summary>Gets the mapped float16 values, or an empty span for other data types.</summary>
         public ReadOnlySpan<Half> HalfValues =>
-            DataType == RwkvTensorDataType.Float16
+            DataType == TensorDataType.Float16
                 ? new ReadOnlySpan<Half>((Half*)values, elementCount)
                 : ReadOnlySpan<Half>.Empty;
 

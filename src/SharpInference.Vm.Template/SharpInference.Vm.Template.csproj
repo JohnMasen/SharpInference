@@ -13,6 +13,7 @@
     <ProjectReference Include="..\SharpInference.Instructions.Cpu\SharpInference.Instructions.Cpu.csproj" />
     <Compile Include="$(VmArtifactDirectory)\*.cs" Link="Generated\%(Filename)%(Extension)" Condition="'$(VmArtifactDirectory)' != ''" />
     <EmbeddedResource Include="$(VmArtifactDirectory)\*" LogicalName="VmPackage.%(Filename)%(Extension)" Condition="'$(VmArtifactDirectory)' != ''" />
+    <ProjectReference Include="..\SharpInference.Models.Rwkv\SharpInference.Models.Rwkv.csproj" />
   </ItemGroup>
   <Target Name="ValidateVmArtifact" BeforeTargets="PrepareForBuild">
     <Error Condition="'$(VmArtifactDirectory)' == ''" Text="Set VmArtifactDirectory to a source-only CPU VM artifact package." />

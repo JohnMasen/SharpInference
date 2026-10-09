@@ -3,9 +3,9 @@ namespace SharpInference.Tests;
 public sealed class OwnedModelTensorCatalogTests
 {
     [Theory]
-    [InlineData(RwkvTensorDataType.Float32)]
-    [InlineData(RwkvTensorDataType.Float16)]
-    public void CpuWeightsRemainReadableAfterSourceIsReleased(RwkvTensorDataType type)
+    [InlineData(TensorDataType.Float32)]
+    [InlineData(TensorDataType.Float16)]
+    public void CpuWeightsRemainReadableAfterSourceIsReleased(TensorDataType type)
     {
         var source = new SourceTensor(type);
         var catalog = new OwnedModelTensorCatalog(new SourceCatalog(source), copyWeights: true);
@@ -14,7 +14,7 @@ public sealed class OwnedModelTensorCatalogTests
 
         var tensor = catalog.GetRequired("weight");
         Assert.Equal([1f, 2f], tensor.FloatValues.ToArray());
-        if (type == RwkvTensorDataType.Float16)
+        if (type == TensorDataType.Float16)
         {
             Assert.Equal([(Half)1, (Half)2], tensor.HalfValues.ToArray());
         }
@@ -23,7 +23,7 @@ public sealed class OwnedModelTensorCatalogTests
     [Fact]
     public void GpuMetadataCannotReadReleasedSource()
     {
-        var source = new SourceTensor(RwkvTensorDataType.Float16);
+        var source = new SourceTensor(TensorDataType.Float16);
         var catalog = new OwnedModelTensorCatalog(new SourceCatalog(source), copyWeights: false);
         Assert.Equal([1f, 2f], catalog.GetRequired("weight").FloatValues.ToArray());
         catalog.ReleaseSource();
@@ -42,7 +42,7 @@ public sealed class OwnedModelTensorCatalogTests
         try
         {
             File.Copy(TestModelLoader.GetPath(TestModel.Rwkv7Fp32), path);
-            using var model = SharpInference.Runtime.Processor.Load(path);
+            using var model = SharpInference.Runtime.RwkvRuntimeFactory.Load(path, SharpInference.Runtime.Cpu.CpuVmBackendFactory.Create());
             File.Delete(path);
             Assert.False(File.Exists(path));
             using var session = model.CreateSession();
@@ -59,9 +59,6 @@ public sealed class OwnedModelTensorCatalogTests
 
     private sealed class SourceCatalog(SourceTensor tensor) : IModelTensorCatalog
     {
-        public int VocabularySize => 2;
-        public int EmbeddingSize => 2;
-        public int LayerCount => 1;
         public IReadOnlyCollection<string> Names => ["weight"];
         public bool TryGet(string name, out IModelTensor result)
         {
@@ -72,11 +69,11 @@ public sealed class OwnedModelTensorCatalogTests
             name == "weight" ? tensor : throw new InvalidDataException(name);
     }
 
-    private sealed class SourceTensor(RwkvTensorDataType type) : IModelTensor, IDisposable
+    private sealed class SourceTensor(TensorDataType type) : IModelTensor, IDisposable
     {
         private bool disposed;
         public string Name => "weight";
-        public RwkvTensorDataType DataType => type;
+        public TensorDataType DataType => type;
         public IReadOnlyList<int> Dimensions => [2];
         public ReadOnlySpan<float> FloatValues
         {

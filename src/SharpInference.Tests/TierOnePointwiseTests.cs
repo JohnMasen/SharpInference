@@ -173,9 +173,9 @@ public sealed class TierOnePointwiseTests
     }
 
     internal static IInstructionCollectionProvider[] CpuProviders() =>
-        [.. DefaultInstructionCollections.Create()];
+        [.. SharpInference.Runtime.Cpu.CpuInstructionCollections.Create()];
     internal static IInstructionCollectionProvider[] GpuProviders() =>
-        [.. DefaultInstructionCollections.Create()];
+        [.. SharpInference.Runtime.D3D12.D3D12InstructionCollections.Create()];
 
     internal static Dictionary<string, byte[]> Inputs(string operation, int count, bool special = false) =>
         TierOnePointwiseCatalog.Get(operation).Inputs.Select((port, index) => (port, index)).ToDictionary(pair => pair.port,

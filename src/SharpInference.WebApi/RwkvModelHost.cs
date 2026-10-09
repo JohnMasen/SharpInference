@@ -5,6 +5,7 @@ using System.Text.Json;
 using Microsoft.Extensions.Options;
 using SharpInference;
 using SharpInference.Runtime;
+using SharpInference.Applications;
 
 namespace SharpInference.WebApi;
 
@@ -120,8 +121,8 @@ public sealed class RwkvModelHost : IDisposable
     public RwkvModelHost(
         RwkvModelDescriptor descriptor,
         IConfiguration configuration,
-        RwkvRuntimeFactory runtimeFactory,
-        GpuBatchScheduler gpuBatchScheduler,
+        RwkvApplicationComposition runtimeFactory,
+        GpuBatchServiceOptions gpuBatchOptions,
         ModelTextTransferResolver textTransferResolver,
         PromptStateManager stateManager,
         ILogger<RwkvModelHost> logger)
@@ -135,20 +136,26 @@ public sealed class RwkvModelHost : IDisposable
             .UseBackend(_ => runtime.CreateBackend())
             .UsePortableGraphArchitecture()
             .Build();
-        tokenizer = runtime.Tokenizer;
-        if (tokenizer.TokenIds[^1] >= model.Metadata.VocabularySize)
+        try
+        {
+            tokenizer = runtime.Tokenizer;
+            var metadata = RwkvModelMetadata.FromModelMetadata(model.Metadata);
+            if (tokenizer.TokenIds[^1] >= metadata.VocabularySize)
+                throw new InvalidOperationException("The configured tokenizer contains token IDs outside the configured model vocabulary.");
+
+            ModelId = descriptor.ModelId;
+            DefaultMaxTokens = descriptor.DefaultMaxTokens;
+            ContextWindowTokens = descriptor.ContextWindowTokens;
+            textTransfer = textTransferResolver.Resolve(metadata);
+            generationScheduler = new GpuBatchScheduler(gpuBatchOptions, model.Capabilities.Execution, useVmQueues: true);
+            this.stateManager = stateManager;
+            this.logger = logger;
+        }
+        catch
         {
             model.Dispose();
-            throw new InvalidOperationException("The configured tokenizer contains token IDs outside the configured model vocabulary.");
+            throw;
         }
-
-        ModelId = descriptor.ModelId;
-        DefaultMaxTokens = descriptor.DefaultMaxTokens;
-        ContextWindowTokens = descriptor.ContextWindowTokens;
-        textTransfer = textTransferResolver.Resolve(model.Metadata);
-        generationScheduler = gpuBatchScheduler;
-        this.stateManager = stateManager;
-        this.logger = logger;
     }
 
     public string ModelId { get; }

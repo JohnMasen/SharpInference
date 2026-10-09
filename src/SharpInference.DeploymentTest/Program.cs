@@ -3,6 +3,7 @@ using System.Text;
 using SharpInference;
 using SharpInference.Architectures.Rwkv6;
 using SharpInference.Runtime;
+using SharpInference.Applications;
 
 try
 {
@@ -35,28 +36,30 @@ internal sealed class DeploymentTest(DeploymentTestOptions options)
         Console.WriteLine($"max-tokens={options.MaxTokens}");
 
         var loadTimer = Stopwatch.StartNew();
+        var modules = RwkvApplicationComposition.CreateModelModules();
         VmGraphBackend? backend = null;
         using (var model = new ProcessorPipelineBuilder(options.ModelPath)
-            .UseReader(new GgmlModelReader())
-            .UseProvider(new PortableRwkv6GraphProvider())
+            .UseReader(new GgmlModelReader(), new SharpInference.Runtime.CatalogArchitectureMetadataReader(modules))
+            .UseProvider(context => modules.GetRequired(context.Metadata!.ArchitectureId))
             .UseBackend(_ => backend = options.Backend == "gpu"
-                ? VmBackendFactory.CreateD3D12(adapterIndex: options.AdapterIndex)
-                : VmBackendFactory.CreateCpu())
+                ? SharpInference.Runtime.D3D12.D3D12VmBackendFactory.Create(adapterIndex: options.AdapterIndex)
+                : SharpInference.Runtime.Cpu.CpuVmBackendFactory.Create())
             .UsePortableGraphArchitecture()
             .Build())
         {
             loadTimer.Stop();
 
-            var (tokenizer, tokenizerKind) = CreateCompatibleTokenizer(model.Metadata.VocabularySize);
+            var metadata = RwkvModelMetadata.FromModelMetadata(model.Metadata);
+            var (tokenizer, tokenizerKind) = CreateCompatibleTokenizer(metadata.VocabularySize);
 
             Console.WriteLine($"device={backend!.DeviceName}");
-            Console.WriteLine($"model-vocabulary={model.Metadata.VocabularySize}");
-            Console.WriteLine($"model-layers={model.Metadata.LayerCount}");
-            Console.WriteLine($"model-embedding={model.Metadata.EmbeddingSize}");
+            Console.WriteLine($"model-vocabulary={metadata.VocabularySize}");
+            Console.WriteLine($"model-layers={metadata.LayerCount}");
+            Console.WriteLine($"model-embedding={metadata.EmbeddingSize}");
             Console.WriteLine($"tokenizer={tokenizerKind}");
             Console.WriteLine($"model-load-ms={loadTimer.Elapsed.TotalMilliseconds:F0}");
 
-            if (options.Backend == "gpu" && model.Metadata.VocabularySize <= 256)
+            if (options.Backend == "gpu" && metadata.VocabularySize <= 256)
             {
                 VerifyAgainstCpu(options.ModelPath, model);
             }
@@ -79,7 +82,7 @@ internal sealed class DeploymentTest(DeploymentTestOptions options)
             }
 
             generationTimer.Stop();
-            if (options.Backend == "gpu" && model.Metadata.VocabularySize <= 256)
+            if (options.Backend == "gpu" && metadata.VocabularySize <= 256)
             {
                 await VerifyTinyGenerationAgainstCpuAsync(options.ModelPath, tokenizer, options, generated.ToString(), session);
             }
@@ -112,7 +115,7 @@ internal sealed class DeploymentTest(DeploymentTestOptions options)
     }
 
     private static Processor CreateProcessor(string modelPath, VmGraphBackend backend) =>
-        Processor.LoadGraph(modelPath, new PortableRwkv6GraphProvider(), backend);
+        Processor.Load(modelPath, new GgmlModelReader(), RwkvApplicationComposition.CreateModelModules(), backend);
 
     private static void VerifyStateRoundTrip(Processor model, ProcessorSession session)
     {
@@ -136,7 +139,7 @@ internal sealed class DeploymentTest(DeploymentTestOptions options)
         string gpuOutput,
         ProcessorSession gpuSession)
     {
-        using var cpuModel = CreateProcessor(modelPath, VmBackendFactory.CreateCpu());
+        using var cpuModel = CreateProcessor(modelPath, SharpInference.Runtime.Cpu.CpuVmBackendFactory.Create());
         using var cpuSession = cpuModel.CreateSession();
         var cpuOutput = new StringBuilder();
         await foreach (var text in RwkvTextGenerator.GenerateAsync(
@@ -170,14 +173,14 @@ internal sealed class DeploymentTest(DeploymentTestOptions options)
 
     private static void VerifyAgainstCpu(string modelPath, Processor gpuModel)
     {
-        using var cpuModel = CreateProcessor(modelPath, VmBackendFactory.CreateCpu());
+        using var cpuModel = CreateProcessor(modelPath, SharpInference.Runtime.Cpu.CpuVmBackendFactory.Create());
         using var cpu = cpuModel.CreateSession();
         using var gpu = gpuModel.CreateSession();
         var maximumLogitDifference = 0f;
         var maximumStateDifference = 0f;
         foreach (var token in new[] { 0, 10, 13, 42 })
         {
-            if (token >= gpuModel.Metadata.VocabularySize)
+            if (token >= RwkvModelMetadata.FromModelMetadata(gpuModel.Metadata).VocabularySize)
             {
                 break;
             }

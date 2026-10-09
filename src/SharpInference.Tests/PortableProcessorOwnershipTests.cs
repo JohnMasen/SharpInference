@@ -44,12 +44,12 @@ public sealed class PortableProcessorOwnershipTests
         float[] firstRow;
         using (var catalog = GgmlModelFile.Open(path))
         {
-            var metadata = new CatalogArchitectureMetadataReader().Read(catalog);
+            var metadata = RwkvModelMetadata.FromModelMetadata(new Rwkv7ModelModule().ReadMetadata(catalog));
             var weight = catalog.GetRequired("head.weight");
             firstRow = weight.FloatValues[..metadata.VocabularySize].ToArray();
             graph = new LogicalGraphBuilder(
                     new GraphIdentity("experimental-graph", 1, "test.forward"),
-                    new GraphModelSignature(metadata.VocabularySize, metadata.EmbeddingSize,
+                    TestGraphSignatures.Create(metadata.VocabularySize, metadata.EmbeddingSize,
                         metadata.LayerCount, metadata.HeadCount, metadata.HeadSize,
                         "experimental-graph.state.fp32@1"))
                 .AddRegion("graph", GraphRegionTypes.Graph, "Graph")
@@ -70,7 +70,7 @@ public sealed class PortableProcessorOwnershipTests
         }
 
         using var processor = Processor.LoadGraph(path, new SuppliedLogicalGraphProvider(graph),
-            VmBackendFactory.CreateCpu());
+            SharpInference.Runtime.Cpu.CpuVmBackendFactory.Create());
         Assert.Equal("experimental-graph", processor.Metadata.ArchitectureId);
         using var session = processor.CreateSession();
         Assert.Equal(firstRow, session.ForwardToken(0).ToArray());
@@ -85,10 +85,10 @@ public sealed class PortableProcessorOwnershipTests
         ILogicalGraphProvider provider = rwkv7
             ? new PortableRwkv7GraphProvider()
             : new PortableRwkv6GraphProvider();
-        using var processor = Processor.LoadGraph(path, provider, VmBackendFactory.CreateCpu());
+        using var processor = Processor.LoadGraph(path, provider, SharpInference.Runtime.Cpu.CpuVmBackendFactory.Create());
         using var session = processor.CreateSession();
         var logits = session.ForwardToken(0).ToArray();
-        Assert.Equal(processor.Metadata.VocabularySize, logits.Length);
+        Assert.Equal(processor.Metadata.Dimensions["vocabulary"], logits.Length);
         Assert.All(logits, value => Assert.True(float.IsFinite(value)));
     }
 
@@ -101,7 +101,7 @@ public sealed class PortableProcessorOwnershipTests
         if (gpu && device is null) return;
         var graph = new LogicalGraphBuilder(
                 new GraphIdentity("test-graph", 1, "test.forward"),
-                new GraphModelSignature(2, 2, 1, 1, 2, "test-graph.state.fp32@1"))
+                TestGraphSignatures.Create(2, 2, 1, 1, 2, "test-graph.state.fp32@1"))
             .AddRegion("graph", GraphRegionTypes.Graph, "Graph")
             .AddResource("token", "Token", GraphResourceKind.Input,
                 GraphResourceLifetime.External, new TensorDescriptor(GraphElementType.Int32, [1]),
@@ -117,7 +117,7 @@ public sealed class PortableProcessorOwnershipTests
                  GraphBindings.Write("output", "logits")])
             .Build();
         var reader = new TrackedModelFile();
-        var backend = gpu ? VmBackendFactory.CreateD3D12() : VmBackendFactory.CreateCpu();
+        var backend = gpu ? SharpInference.Runtime.D3D12.D3D12VmBackendFactory.Create() : SharpInference.Runtime.Cpu.CpuVmBackendFactory.Create();
         using var processor = new ProcessorPipelineBuilder("virtual-model")
             .UseReader(new TrackedReader(reader), new GraphArchitectureMetadataReader(graph))
             .UseProvider(new SuppliedLogicalGraphProvider(graph))
@@ -153,7 +153,7 @@ public sealed class PortableProcessorOwnershipTests
 
     private sealed class FailingMetadataReader(Exception error) : IArchitectureMetadataReader
     {
-        public RwkvModelMetadata Read(IModelTensorCatalog catalog) => throw error;
+        public ModelMetadata Read(IModelTensorCatalog catalog) => throw error;
     }
 
     private sealed class TrackedModelFile(Exception? cleanupError = null) : IModelFile
@@ -188,7 +188,7 @@ public sealed class PortableProcessorOwnershipTests
     private sealed class TrackedTensor(TrackedModelFile owner) : IModelTensor
     {
         public string Name => "table";
-        public RwkvTensorDataType DataType => RwkvTensorDataType.Float32;
+        public TensorDataType DataType => TensorDataType.Float32;
         public IReadOnlyList<int> Dimensions => [2, 2];
         public ReadOnlySpan<float> FloatValues =>
             owner.Disposed ? throw new ObjectDisposedException(nameof(TrackedModelFile)) : [1f, 2f, 3f, 4f];

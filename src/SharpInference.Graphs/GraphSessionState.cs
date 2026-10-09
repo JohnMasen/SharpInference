@@ -11,7 +11,7 @@ public interface IProcessorStateExecutor
 public static class GraphSessionStateAccess
 {
     public static IReadOnlyList<GraphStateValue> Read(
-        GraphState graph, IReadOnlyList<GraphResource> resources, INamedRwkvState state)
+        GraphState graph, IReadOnlyList<GraphResource> resources, INamedFloat32ModelState state)
     {
         var views = Match(graph, resources, state);
         return views.Select(view =>
@@ -19,7 +19,7 @@ public static class GraphSessionStateAccess
     }
 
     public static void Write(
-        GraphState graph, IReadOnlyList<GraphResource> resources, INamedRwkvState state,
+        GraphState graph, IReadOnlyList<GraphResource> resources, INamedFloat32ModelState state,
         IReadOnlyList<GraphStateValue> values)
     {
         ArgumentNullException.ThrowIfNull(values);
@@ -40,8 +40,8 @@ public static class GraphSessionStateAccess
         state.CommitViews();
     }
 
-    private static RwkvStateView[] Match(
-        GraphState graph, IReadOnlyList<GraphResource> resources, INamedRwkvState state)
+    private static Float32StateView[] Match(
+        GraphState graph, IReadOnlyList<GraphResource> resources, INamedFloat32ModelState state)
     {
         ArgumentNullException.ThrowIfNull(graph);
         ArgumentNullException.ThrowIfNull(resources);
@@ -51,7 +51,7 @@ public static class GraphSessionStateAccess
         if (graph.Slots.Count != views.Count ||
             resources.Count(resource => resource.Kind == GraphResourceKind.SessionState) != graph.Slots.Count)
             throw new InvalidDataException("GraphState must cover all session-state tensors.");
-        var matched = new RwkvStateView[graph.Slots.Count];
+        var matched = new Float32StateView[graph.Slots.Count];
         for (var index = 0; index < matched.Length; index++)
         {
             var slot = graph.Slots[index];

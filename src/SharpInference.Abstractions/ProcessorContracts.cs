@@ -7,6 +7,7 @@ public enum ProcessorInputModality
     Text = 1,
     Image = 2,
     Audio = 4,
+    Tensor = 8,
 }
 
 [Flags]
@@ -109,7 +110,8 @@ public sealed record ProcessorExecutionCapabilities
     public ProcessorExecutionCapabilities(
         int maximumConcurrentSessions,
         int maximumParallelComponents,
-        IReadOnlySet<string> storageDomains)
+        IReadOnlySet<string> storageDomains,
+        bool requiresResidentSessionAdmission = false)
     {
         if (maximumConcurrentSessions <= 0)
             throw new ArgumentOutOfRangeException(nameof(maximumConcurrentSessions));
@@ -121,11 +123,14 @@ public sealed record ProcessorExecutionCapabilities
         MaximumConcurrentSessions = maximumConcurrentSessions;
         MaximumParallelComponents = maximumParallelComponents;
         StorageDomains = new HashSet<string>(storageDomains, StringComparer.Ordinal);
+        RequiresResidentSessionAdmission = requiresResidentSessionAdmission;
     }
 
     public int MaximumConcurrentSessions { get; }
     public int MaximumParallelComponents { get; }
     public IReadOnlySet<string> StorageDomains { get; }
+    /// <summary>Requires bounded admission before constructing sessions that retain execution resources.</summary>
+    public bool RequiresResidentSessionAdmission { get; }
 }
 
 public sealed class ProcessorCapabilities
@@ -170,7 +175,7 @@ public sealed class ProcessorCapabilities
     }
 
     private const ProcessorInputModality AllInputs =
-        ProcessorInputModality.Text | ProcessorInputModality.Image | ProcessorInputModality.Audio;
+        ProcessorInputModality.Text | ProcessorInputModality.Image | ProcessorInputModality.Audio | ProcessorInputModality.Tensor;
     private const ProcessorOutputModality AllOutputs =
         ProcessorOutputModality.Text | ProcessorOutputModality.Tensor;
 
@@ -184,6 +189,20 @@ public sealed class ProcessorCapabilities
 }
 
 public abstract record ProcessorInputPart;
+
+public sealed record TensorInputPart : ProcessorInputPart
+{
+    public TensorInputPart(string resource, ReadOnlyMemory<byte> data)
+    {
+        Resource = string.IsNullOrWhiteSpace(resource)
+            ? throw new ArgumentException("A tensor resource name is required.", nameof(resource))
+            : resource;
+        Data = data;
+    }
+
+    public string Resource { get; }
+    public ReadOnlyMemory<byte> Data { get; }
+}
 
 public sealed record TextInputPart : ProcessorInputPart
 {
@@ -280,6 +299,7 @@ public sealed class ProcessorInput
             TextInputPart => ProcessorInputModality.Text,
             ImageInputPart => ProcessorInputModality.Image,
             AudioInputPart => ProcessorInputModality.Audio,
+            TensorInputPart => ProcessorInputModality.Tensor,
             _ => throw new ArgumentException($"Unknown processor input part '{part.GetType().Name}'."),
         }));
     }
@@ -298,4 +318,10 @@ public interface IProcessorSession : IDisposable
 {
     IProcessor Processor { get; }
     void Reset();
+}
+
+public interface ITensorProcessorSession : IProcessorSession
+{
+    IReadOnlyDictionary<string, byte[]> Execute(
+        IReadOnlyDictionary<string, ReadOnlyMemory<byte>> inputs, CancellationToken cancellationToken = default);
 }

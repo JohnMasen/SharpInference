@@ -2,7 +2,9 @@ namespace SharpInference.Graphs;
 
 public static class GraphValidator
 {
-    public static void Validate(LogicalGraph graph)
+    public static void Validate(LogicalGraph graph) => Validate(graph, null);
+
+    public static void Validate(LogicalGraph graph, IGraphOperationValidator? operations)
     {
         ArgumentNullException.ThrowIfNull(graph);
         ValidateCommon(graph.Identity, graph.Model, graph.Resources, graph.Regions, graph.Inputs, graph.Outputs, graph.GraphState);
@@ -11,6 +13,8 @@ public static class GraphValidator
         var resourceMap = graph.Resources.ToDictionary(resource => resource.Id);
         foreach (var node in graph.Nodes)
         {
+            if (graph.Identity.IrVersion < 2 && node.Resources.Any(binding => binding.View is not null))
+                throw new InvalidDataException("Tensor views require graph IR version 2 or newer.");
             ValidateNode(node.Id.Value, node.Operation, node.Region, node.Resources, node.Requirements, regionIds, resourceMap);
             foreach (var dependency in node.Dependencies)
             {
@@ -25,9 +29,18 @@ public static class GraphValidator
             graph.Nodes.Select(node => node.Id),
             id => graph.Nodes.First(node => node.Id == id).Dependencies,
             id => id.Value);
+        GraphViewAccessValidation.Validate(graph.Resources, graph.Inputs, graph.Outputs,
+            graph.Nodes.Select(node => new GraphViewAccessNode(node.Id.Value, node.Resources,
+                node.Dependencies.Select(id => id.Value).ToArray(), [])));
+        if (operations is not null)
+            foreach (var node in graph.Nodes)
+                operations.Validate(new GraphOperationValidationContext(node.Id.Value, node.Operation,
+                    node.Resources, resourceMap, node.Attributes, node.Requirements));
     }
 
-    public static void Validate(ExecutionGraph graph)
+    public static void Validate(ExecutionGraph graph) => Validate(graph, null);
+
+    public static void Validate(ExecutionGraph graph, IGraphOperationValidator? operations)
     {
         ArgumentNullException.ThrowIfNull(graph);
         ValidateCommon(graph.Identity, graph.Model, graph.Resources, graph.Regions, graph.Inputs, graph.Outputs, graph.GraphState);
@@ -37,6 +50,8 @@ public static class GraphValidator
         var internalOwners = new Dictionary<ResourceId, ExecutionNodeId>();
         foreach (var node in graph.Nodes)
         {
+            if (graph.Identity.IrVersion < 2 && node.Resources.Any(binding => binding.View is not null))
+                throw new InvalidDataException("Tensor views require graph IR version 2 or newer.");
             ValidateNode(node.Id.Value, node.Operation, node.Region, node.Resources, node.Requirements, regionIds, resourceMap);
             if (node.Source is null || node.Source.LogicalNodes is null)
             {
@@ -54,6 +69,8 @@ public static class GraphValidator
             var internalPorts = new HashSet<string>(StringComparer.Ordinal);
             foreach (var binding in node.InternalResources)
             {
+                if (binding.View is not null)
+                    throw new NotSupportedException("Private fused scratch does not declare tensor-view support.");
                 if (string.IsNullOrWhiteSpace(binding.Port) ||
                     !internalPorts.Add(binding.Port) || externalPorts.Contains(binding.Port))
                 {
@@ -99,6 +116,13 @@ public static class GraphValidator
             graph.Nodes.Select(node => node.Id),
             id => graph.Nodes.First(node => node.Id == id).Dependencies,
             id => id.Value);
+        GraphViewAccessValidation.Validate(graph.Resources, graph.Inputs, graph.Outputs,
+            graph.Nodes.Select(node => new GraphViewAccessNode(node.Id.Value, node.Resources,
+                node.Dependencies.Select(id => id.Value).ToArray(), node.FirstWriteResources)));
+        if (operations is not null)
+            foreach (var node in graph.Nodes)
+                operations.Validate(new GraphOperationValidationContext(node.Id.Value, node.Operation,
+                    node.Resources, resourceMap, node.Attributes, node.Requirements));
     }
 
     private static void ValidateCommon(
@@ -119,8 +143,7 @@ public static class GraphValidator
 
         if (string.IsNullOrWhiteSpace(model.ModelType) ||
             string.IsNullOrWhiteSpace(model.StateAbiId) ||
-            model.Dimensions.Any(value => string.IsNullOrWhiteSpace(value.Key) || value.Value <= 0) ||
-            string.Equals(model.ModelType, "rwkv", StringComparison.Ordinal) && !model.IsRwkvCompatible)
+            model.Dimensions.Any(value => string.IsNullOrWhiteSpace(value.Key) || value.Value <= 0))
         {
             throw new InvalidDataException("The graph model signature is invalid.");
         }
@@ -268,6 +291,7 @@ public static class GraphValidator
             {
                 throw new InvalidDataException($"Node '{nodeId}' references unknown resource '{binding.Resource}'.");
             }
+            binding.View?.Validate(resource.Tensor);
 
             if (resource.Kind is GraphResourceKind.Weight or GraphResourceKind.Constant &&
                 binding.Access != GraphResourceAccess.Read)

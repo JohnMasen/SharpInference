@@ -48,7 +48,8 @@ internal sealed class PrimitiveGraphReference : IDisposable
 
     internal PrimitiveGraphReferenceSession CreateSession(PortableGraphState state) =>
         new(this, state, backend.CreateSessionExecutor(model, state, plan), model.Graph,
-            model.Metadata.VocabularySize);
+            model.Graph.Resources.Single(resource => resource.Id == model.Graph.Outputs.Single())
+                .Tensor.Dimensions.Single());
 
     public void Dispose() => catalog.Dispose();
 }

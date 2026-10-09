@@ -3,13 +3,12 @@ using SharpInference.Graphs;
 using SharpInference.Instructions;
 using SharpInference.Vm;
 using SharpInference.Vm.Optimization;
-using SharpInference.Backends.D3D12Vm;
 
 namespace SharpInference.Runtime;
 
 public interface IVmGenerationScopeExecutor
 {
-    ValueTask<IRwkvGenerationScope> BeginGenerationAsync(CancellationToken cancellationToken);
+    ValueTask<ITokenGenerationScope> BeginGenerationAsync(CancellationToken cancellationToken);
 }
 
 public interface IVmPrefillExecutor
@@ -60,11 +59,15 @@ public sealed class VmGraphBackend : IDisposable
     private readonly Func<VmProgram, Func<IVmExecutable>>? compilePrefill;
     private readonly Action<string>? exportPrefillArtifact;
     private readonly Func<VmSlot, IVmStorage>? allocate;
-    private readonly Func<D3D12VmTaskStatistics>? taskStatistics;
     private VmCompiledPlan? plan;
     private VmInferenceEngine? engine;
+    private VmResourceManager? tensorResources;
+    private IModelTensorCatalog? boundTensors;
+    private bool modelBound;
     private bool disposed;
     private readonly VmExecutionGraphGenerator? generator;
+    private readonly IGraphOperationLowerer? operationLowerer;
+    private readonly HashSet<VmTensorGraphSession> graphSessions = [];
 
     public VmGraphBackend(VmTarget target, Func<VmProgram, Func<IVmExecutable>> compile,
         VmEngineOptions? options = null, VmOptimizationOptions? optimization = null, Action? disposeCompiler = null,
@@ -72,7 +75,8 @@ public sealed class VmGraphBackend : IDisposable
         VmProgram? suppliedPrefillProgram = null, Func<VmProgram, Func<IVmExecutable>>? compilePrefill = null,
         Action<string>? exportPrefillArtifact = null, Func<VmSlot, IVmStorage>? allocate = null,
         string? deviceName = null, IEnumerable<IInstructionCollectionProvider>? generatorCollections = null,
-        Func<D3D12VmTaskStatistics>? taskStatistics = null)
+        IVmBackendDiagnostics? diagnostics = null, IGraphOperationLowerer? operationLowerer = null,
+        ProcessorExecutionCapabilities? executionCapabilities = null)
     {
         this.target = target;
         this.compile = compile;
@@ -85,13 +89,21 @@ public sealed class VmGraphBackend : IDisposable
         this.compilePrefill = compilePrefill;
         this.exportPrefillArtifact = exportPrefillArtifact;
         this.allocate = allocate;
-        this.taskStatistics = taskStatistics;
+        Diagnostics = diagnostics;
+        ExecutionCapabilities = executionCapabilities ?? new(1, 1, new HashSet<string>());
+        this.operationLowerer = operationLowerer;
         DeviceName = deviceName ?? target.ToString();
-        var architecture = target == VmTarget.Cpu ? InstructionTarget.Cpu : InstructionTarget.Direct3D12;
+        var architecture = target switch
+        {
+            VmTarget.Cpu => InstructionTarget.Cpu,
+            VmTarget.Direct3D12 => InstructionTarget.Direct3D12,
+            _ => throw new NotSupportedException($"No VM backend target adapter is installed for '{target}'."),
+        };
         generator = generatorCollections is null ? null : new VmExecutionGraphGenerator(architecture, generatorCollections);
         KernelCatalog = new ExecutionKernelCatalog($"vm.{target.ToString().ToLowerInvariant()}",
-            PrimitiveGraphOperations.CreateStandardDescriptions(false).Select(description => description.Operation)
-                .Concat(PortableTensorOperationContracts.Contracts.Select(contract => contract.Operation)));
+            TierZeroOperationContracts.Contracts.Select(contract => contract.Operation)
+                .Concat((generator?.InstructionCollections as IGraphInstructionProvider)?.QueryGraphInstructionBindings()
+                    .Where(binding => binding.Target == architecture).Select(binding => binding.Operation) ?? []));
     }
 
     private IExecutionKernelCatalog KernelCatalog { get; }
@@ -99,68 +111,99 @@ public sealed class VmGraphBackend : IDisposable
     public string DeviceName { get; }
     public TierOneOptimizationReport? OptimizationReport => generator?.LastOptimizationReport;
     public GpuMatVecOptimizationReport? MatVecOptimizationReport => generator?.LastMatVecOptimizationReport;
-    public D3D12VmTaskStatistics? TaskStatistics => taskStatistics?.Invoke();
+    public IVmBackendDiagnostics? Diagnostics { get; }
+    public ProcessorExecutionCapabilities ExecutionCapabilities { get; }
     public VmProgram? Program => plan?.Program;
     public VmProgram? PrefillProgram => plan?.PrefillPlan?.Program ?? plan?.Program;
+    public bool SupportsTokenSessions => plan is { } prepared &&
+        prepared.BindingGraph.Model.Attributes.GetValueOrDefault("execution.token-prefill") == "true" &&
+        prepared.BindingGraph.Inputs.Count == 1 && prepared.BindingGraph.Outputs.Count == 1 &&
+        prepared.BindingGraph.Resources.Single(resource => resource.Id == prepared.BindingGraph.Inputs[0])
+            .Tensor is { ElementType: GraphElementType.Int32, Layout: "dense" } input &&
+        input.Dimensions.Aggregate(1L, (count, size) => checked(count * size)) == 1 &&
+        prepared.BindingGraph.Resources.Single(resource => resource.Id == prepared.BindingGraph.Outputs[0])
+            .Tensor is { ElementType: GraphElementType.Float32, Layout: "dense" } &&
+        prepared.BindingGraph.Resources.Where(resource => resource.Kind == GraphResourceKind.SessionState)
+            .All(resource => resource.Tensor.ElementType == GraphElementType.Float32 && resource.Tensor.Layout == "dense") &&
+        (prepared.PrefillPlan ?? prepared).Program.Entries.Any(entry => entry.Name == "prefill.1");
 
-    public VmCompiledPlan Prepare(LogicalGraph logical, GraphOptimizationOptions? options = null)
+    public VmCompiledPlan Prepare(LogicalGraph logical, GraphOptimizationOptions? options = null,
+        IModelGraphModule? modelModule = null)
     {
         ArgumentNullException.ThrowIfNull(logical);
-        ObjectDisposedException.ThrowIf(disposed, this);
-        if (engine is not null) throw new InvalidOperationException("An initialized backend cannot change programs.");
-        var graph = new GraphOptimizer().Optimize(logical,
-            options ?? new GraphOptimizationOptions(OptimizationBoundary.Unrestricted), KernelCatalog);
-        var program = suppliedProgram ?? (generator ??
-            throw new InvalidOperationException("Supply a graph generator IC catalog or a pre-generated execution program."))
-            .Generate(logical, optimization);
-        ValidateProgram(program, graph, prefill: false);
-        var factory = compile(program);
-        VmCompiledPlan? prefillPlan = null;
-        if (suppliedPrefillProgram is { } prefillProgram)
+        lock (graphSessions)
         {
-            ValidateProgram(prefillProgram, graph, prefill: true);
-            prefillPlan = new VmCompiledPlan(graph, prefillProgram,
-                (compilePrefill ?? compile)(prefillProgram), exportPrefillArtifact);
+            ObjectDisposedException.ThrowIf(disposed, this);
+            if (modelBound) throw new InvalidOperationException("An initialized backend cannot change programs.");
+            if (graphSessions.Count != 0)
+                throw new InvalidOperationException("A backend with active graph sessions cannot change programs.");
+            GraphValidator.Validate(logical, modelModule?.OperationValidator);
+            logical = GraphOperationLowering.Apply(logical, modelModule?.OperationLowerer);
+            logical = GraphOperationLowering.Apply(logical, operationLowerer);
+            var defaultOptions = logical.Nodes.Any(node => node.Resources.Any(binding => binding.View is not null))
+                ? new GraphOptimizationOptions(OptimizationBoundary.Off, DefinitionPolicy: GraphDefinitionPolicy.PreserveExpanded)
+                : new GraphOptimizationOptions(OptimizationBoundary.Unrestricted);
+            var graph = new GraphOptimizer().Optimize(logical,
+                options ?? defaultOptions, KernelCatalog);
+            var program = suppliedProgram ?? (generator ??
+                throw new InvalidOperationException("Supply a graph generator IC catalog or a pre-generated execution program."))
+                .Generate(logical, optimization);
+            ValidateProgram(program, graph, prefill: false);
+            var factory = compile(program);
+            VmCompiledPlan? prefillPlan = null;
+            if (suppliedPrefillProgram is { } prefillProgram)
+            {
+                ValidateProgram(prefillProgram, graph, prefill: true);
+                prefillPlan = new VmCompiledPlan(graph, prefillProgram,
+                    (compilePrefill ?? compile)(prefillProgram), exportPrefillArtifact);
+            }
+            else ValidateProgram(program, graph, prefill: true);
+            plan = new VmCompiledPlan(graph, program, factory, exportArtifact, prefillPlan);
+            return plan;
         }
-        else ValidateProgram(program, graph, prefill: true);
-        plan = new VmCompiledPlan(graph, program, factory, exportArtifact, prefillPlan);
-        return plan;
     }
 
     private void ValidateProgram(VmProgram program, ExecutionGraph graph, bool prefill)
     {
         VmProgramValidator.Validate(program);
+        VmGraphBindingValidator.Validate(program, graph, allowTokenPrefill: true);
         if (program.Target != target || program.Abi != $"vm:{graph.Model.StateAbiId}" ||
             program.State.Schema != graph.GraphState.Schema.Name ||
             program.State.Version != 1 ||
             program.State.Entries.Count != graph.GraphState.Entries.Count)
             throw new InvalidDataException("The supplied VM program does not match this model's target/State ABI.");
-        foreach (var entry in graph.GraphState.Entries)
-        {
-            var expected = graph.Resources.Single(resource => resource.Id == entry.Resource);
-            var actualEntry = program.State.Entries.SingleOrDefault(candidate => candidate.Name == entry.Name)
-                ?? throw new InvalidDataException($"The VM program omitted State entry '{entry.Name}'.");
-            var actual = program.Slots.Single(slot => slot.Id == actualEntry.Slot);
-            if (actual.Tensor.ElementType != VmElementType.Float32 ||
-                !actual.Tensor.Dimensions.SequenceEqual(expected.Tensor.Dimensions))
-                throw new InvalidDataException($"The supplied State entry '{entry.Name}' has incompatible storage.");
-        }
-        var input = program.Slots.SingleOrDefault(slot => slot.Id == graph.Inputs.Single().Value);
-        var output = program.Slots.SingleOrDefault(slot => slot.Id == graph.Outputs.Single().Value);
-        if (input is null || output is null || input.Tensor.ElementType != VmElementType.Int32 ||
-            output.Tensor.ElementType != VmElementType.Float32 ||
-            output.Tensor.ElementCount != (ulong)graph.Model.VocabularySize ||
-            !program.Entries.Any(entry => entry.Name == (prefill ? "prefill.1" : "forward")))
-            throw new InvalidDataException("The supplied VM program has an incompatible token/logits/entry contract.");
+        if (!program.Entries.Any(entry => entry.Name == "forward"))
+            throw new InvalidDataException("The supplied VM program has no graph forward entry.");
     }
 
     public void PrepareModelWeights(PortableGraphModel model)
     {
+        ArgumentNullException.ThrowIfNull(model);
+        lock (graphSessions) PrepareModelWeightsCore(model);
+    }
+
+    private void PrepareModelWeightsCore(PortableGraphModel model)
+    {
         ObjectDisposedException.ThrowIf(disposed, this);
-        if (engine is not null) throw new InvalidOperationException("This backend already has a bound model.");
+        if (modelBound) throw new InvalidOperationException("This backend already has a bound model.");
         var prepared = plan ?? throw new InvalidOperationException("Prepare the VM program before binding weights.");
         if (!ReferenceEquals(model.Graph, prepared.BindingGraph))
             throw new ArgumentException("The model does not match the prepared graph.", nameof(model));
+        if (!SupportsTokenSessions)
+        {
+            var resources = new VmResourceManager((slot, storage) => VmModelBindings.InitializeGlobal(model.Tensors, slot, storage), allocate);
+            try { resources.PrepareGlobals(prepared.Program); }
+            catch (Exception error)
+            {
+                try { resources.Dispose(); }
+                catch (Exception cleanup) { throw new AggregateException("Graph weight preparation and cleanup failed.", error, cleanup); }
+                throw;
+            }
+            tensorResources = resources;
+            boundTensors = model.Tensors;
+            modelBound = true;
+            return;
+        }
         var input = prepared.BindingGraph.Inputs.Single().Value;
         var output = prepared.BindingGraph.Outputs.Single().Value;
         var prefill = prepared.PrefillPlan ?? prepared;
@@ -168,9 +211,11 @@ public sealed class VmGraphBackend : IDisposable
             new(prepared.Program, input, output, prepared.CreateExecutable),
             (slot, storage) => VmModelBindings.InitializeGlobal(model.Tensors, slot, storage),
             options, allocate).AsTask().GetAwaiter().GetResult();
+        boundTensors = model.Tensors;
+        modelBound = true;
     }
 
-    public IVmSessionExecutor CreateSessionExecutor(IRwkvModel model, IRwkvState state, VmCompiledPlan prepared)
+    public IVmSessionExecutor CreateSessionExecutor(IModel model, IModelState state, VmCompiledPlan prepared)
     {
         ObjectDisposedException.ThrowIf(disposed, this);
         if (model is not PortableGraphModel portable || state is not PortableGraphState graphState ||
@@ -179,6 +224,24 @@ public sealed class VmGraphBackend : IDisposable
             throw new ArgumentException("The model, state and VM program do not match.");
         var initialized = engine ?? throw new InvalidOperationException("Bind weights before creating sessions.");
         return new Session(initialized.CreateSession(), graphState, prepared.BindingGraph);
+    }
+
+    public VmTensorGraphSession CreateGraphSession(IModelTensorCatalog tensors, GraphTensorState? state = null)
+    {
+        ArgumentNullException.ThrowIfNull(tensors);
+        lock (graphSessions)
+        {
+            ObjectDisposedException.ThrowIf(disposed, this);
+            var prepared = plan ?? throw new InvalidOperationException("Prepare the graph before creating a session.");
+            if (boundTensors is not null && !ReferenceEquals(boundTensors, tensors))
+                throw new ArgumentException("The tensor catalog does not belong to the bound model.", nameof(tensors));
+            if (engine is not null)
+                throw new NotSupportedException("This backend owns a token-session engine; use its token-session adapter.");
+            var session = new VmTensorGraphSession(prepared, tensors, state ?? new GraphTensorState(prepared.BindingGraph),
+                allocate, released => { lock (graphSessions) graphSessions.Remove(released); }, tensorResources);
+            graphSessions.Add(session);
+            return session;
+        }
     }
 
     private sealed class Session : IVmSessionExecutor
@@ -274,7 +337,7 @@ public sealed class VmGraphBackend : IDisposable
             PublishViews();
         }
 
-        public async ValueTask<IRwkvGenerationScope> BeginGenerationAsync(CancellationToken cancellationToken)
+        public async ValueTask<ITokenGenerationScope> BeginGenerationAsync(CancellationToken cancellationToken)
         {
             PrepareState();
             var lease = await session.BeginGenerationAsync(cancellationToken).ConfigureAwait(false);
@@ -282,9 +345,9 @@ public sealed class VmGraphBackend : IDisposable
         }
 
         private sealed class Scope(VmGenerationLease lease, PortableGraphState state) :
-            IRwkvGenerationScope, IRwkvAsyncGenerationSession
+            ITokenGenerationScope, IAsyncTokenGenerationSession
         {
-            public IRwkvGenerationSession Session => this;
+            public ITokenGenerationSession Session => this;
             public ReadOnlyMemory<float> ForwardToken(int token) =>
                 ForwardTokenAsync(token).AsTask().GetAwaiter().GetResult();
 
@@ -311,10 +374,21 @@ public sealed class VmGraphBackend : IDisposable
 
     public void Dispose()
     {
-        if (disposed) return;
-        disposed = true;
+        VmTensorGraphSession[] sessions;
+        lock (graphSessions)
+        {
+            if (disposed) return;
+            disposed = true;
+            sessions = graphSessions.ToArray();
+            graphSessions.Clear();
+        }
         List<Exception>? errors = null;
+        foreach (var session in sessions)
+            try { session.Dispose(); }
+            catch (Exception error) { (errors ??= []).Add(error); }
         try { engine?.DisposeAsync().AsTask().GetAwaiter().GetResult(); }
+        catch (Exception error) { (errors ??= []).Add(error); }
+        try { tensorResources?.Dispose(); }
         catch (Exception error) { (errors ??= []).Add(error); }
         try { disposeCompiler?.Invoke(); }
         catch (Exception error) { (errors ??= []).Add(error); }

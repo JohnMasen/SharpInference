@@ -9,9 +9,9 @@ namespace SharpInference.Tests;
 public sealed class PortableRwkv6GraphProviderTests(ITestOutputHelper output)
 {
     [Theory]
-    [InlineData(RwkvTensorDataType.Float32, 1)]
-    [InlineData(RwkvTensorDataType.Float16, 2)]
-    public void BuildsCompletePrimitiveGraph(RwkvTensorDataType type, int layers)
+    [InlineData(TensorDataType.Float32, 1)]
+    [InlineData(TensorDataType.Float16, 2)]
+    public void BuildsCompletePrimitiveGraph(TensorDataType type, int layers)
     {
         var catalog = new Catalog(type, layers);
         var graph = new PortableRwkv6GraphProvider().Build(catalog);
@@ -29,7 +29,7 @@ public sealed class PortableRwkv6GraphProviderTests(ITestOutputHelper output)
             .Concat(PortableTensorOperationContracts.Contracts.Select(item => item.Operation))
             .ToHashSet();
         Assert.All(graph.Nodes, node => Assert.Contains(node.Operation, operations));
-        Assert.Equal(type == RwkvTensorDataType.Float16 ? catalog.Names.Count : 0,
+        Assert.Equal(type == TensorDataType.Float16 ? catalog.Names.Count : 0,
             graph.Nodes.Count(node => node.Operation == PortableTensorOperationContracts.CastFp16ToFp32));
         Assert.Equal(layers, graph.Nodes.Count(node => node.Operation == PrimitiveGraphOperations.Copy &&
             node.Resources.Any(binding => binding.Port == "output" &&
@@ -47,11 +47,11 @@ public sealed class PortableRwkv6GraphProviderTests(ITestOutputHelper output)
     }
 
     [Theory]
-    [InlineData(RwkvTensorDataType.Float32, 1)]
-    [InlineData(RwkvTensorDataType.Float32, 2)]
-    [InlineData(RwkvTensorDataType.Float16, 1)]
-    [InlineData(RwkvTensorDataType.Float16, 2)]
-    public void MatchesScalarReferenceForTwoTokens(RwkvTensorDataType type, int layers)
+    [InlineData(TensorDataType.Float32, 1)]
+    [InlineData(TensorDataType.Float32, 2)]
+    [InlineData(TensorDataType.Float16, 1)]
+    [InlineData(TensorDataType.Float16, 2)]
+    public void MatchesScalarReferenceForTwoTokens(TensorDataType type, int layers)
     {
         var catalog = new Catalog(type, layers);
         var graph = new PortableRwkv6GraphProvider().Build(catalog);
@@ -79,12 +79,12 @@ public sealed class PortableRwkv6GraphProviderTests(ITestOutputHelper output)
     }
 
     [Theory]
-    [InlineData(RwkvTensorDataType.Float32, OptimizationBoundary.Off)]
-    [InlineData(RwkvTensorDataType.Float32, OptimizationBoundary.Unrestricted)]
-    [InlineData(RwkvTensorDataType.Float16, OptimizationBoundary.Off)]
-    [InlineData(RwkvTensorDataType.Float16, OptimizationBoundary.Unrestricted)]
+    [InlineData(TensorDataType.Float32, OptimizationBoundary.Off)]
+    [InlineData(TensorDataType.Float32, OptimizationBoundary.Unrestricted)]
+    [InlineData(TensorDataType.Float16, OptimizationBoundary.Off)]
+    [InlineData(TensorDataType.Float16, OptimizationBoundary.Unrestricted)]
     public void EightTokensMatchScalarReferenceAndReportWarmThroughput(
-        RwkvTensorDataType type, OptimizationBoundary optimization)
+        TensorDataType type, OptimizationBoundary optimization)
     {
         const int layers = 2;
         const float tolerance = 3e-4f;
@@ -151,7 +151,7 @@ public sealed class PortableRwkv6GraphProviderTests(ITestOutputHelper output)
     [Fact]
     public void RejectsInvalidGroupedProjectionInsteadOfEmittingAMisleadingGraph()
     {
-        var catalog = new Catalog(RwkvTensorDataType.Float32, 1, invalidMaa: true);
+        var catalog = new Catalog(TensorDataType.Float32, 1, invalidMaa: true);
         Assert.Throws<InvalidDataException>(() => new PortableRwkv6GraphProvider().Build(catalog));
     }
 
@@ -168,7 +168,7 @@ public sealed class PortableRwkv6GraphProviderTests(ITestOutputHelper output)
         {
             if (cache.TryGetValue(name, out var values)) return values;
             var tensor = catalog.GetRequired(name);
-            values = tensor.DataType == RwkvTensorDataType.Float16
+            values = tensor.DataType == TensorDataType.Float16
                 ? tensor.HalfValues.ToArray().Select(value => (float)value).ToArray()
                 : tensor.FloatValues.ToArray();
             cache.Add(name, values);
@@ -326,7 +326,7 @@ public sealed class PortableRwkv6GraphProviderTests(ITestOutputHelper output)
     {
         private readonly Dictionary<string, IModelTensor> tensors = new(StringComparer.Ordinal);
 
-        public Catalog(RwkvTensorDataType type, int layers, bool invalidMaa = false)
+        public Catalog(TensorDataType type, int layers, bool invalidMaa = false)
         {
             LayerCount = layers;
             void Add(string name, params int[] dimensions)
@@ -381,14 +381,14 @@ public sealed class PortableRwkv6GraphProviderTests(ITestOutputHelper output)
     }
 
     private sealed class Tensor(
-        string name, int[] dimensions, RwkvTensorDataType type, float[] values) : IModelTensor
+        string name, int[] dimensions, TensorDataType type, float[] values) : IModelTensor
     {
-        private readonly float[] floats = type == RwkvTensorDataType.Float32 ? values : [];
-        private readonly Half[] halves = type == RwkvTensorDataType.Float16
+        private readonly float[] floats = type == TensorDataType.Float32 ? values : [];
+        private readonly Half[] halves = type == TensorDataType.Float16
             ? values.Select(value => (Half)value).ToArray() : [];
         public string Name => name;
         public IReadOnlyList<int> Dimensions => dimensions;
-        public RwkvTensorDataType DataType => type;
+        public TensorDataType DataType => type;
         public ReadOnlySpan<float> FloatValues => floats;
         public ReadOnlySpan<Half> HalfValues => halves;
     }

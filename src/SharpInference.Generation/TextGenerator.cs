@@ -4,38 +4,38 @@ using System.Text;
 namespace SharpInference;
 
 /// <summary>Provides synchronous prefill and single-token forward operations for generation.</summary>
-public interface IRwkvGenerationSession
+public interface ITokenGenerationSession
 {
     ReadOnlyMemory<float> Prefill(ReadOnlySpan<int> tokens);
     ReadOnlyMemory<float> ForwardToken(int token);
 }
 
 /// <summary>Owns a scoped generation session until asynchronously disposed.</summary>
-public interface IRwkvGenerationScope : IAsyncDisposable
+public interface ITokenGenerationScope : IAsyncDisposable
 {
-    IRwkvGenerationSession Session { get; }
+    ITokenGenerationSession Session { get; }
 }
 
 /// <summary>Provides generation sessions that can be isolated for a generation operation.</summary>
-public interface IRwkvScopedGenerationSession : IRwkvGenerationSession
+public interface IScopedTokenGenerationSession : ITokenGenerationSession
 {
-    ValueTask<IRwkvGenerationScope> BeginGenerationAsync(CancellationToken cancellationToken = default);
+    ValueTask<ITokenGenerationScope> BeginGenerationAsync(CancellationToken cancellationToken = default);
 }
 
 /// <summary>Adds asynchronous prompt prefill to a generation session.</summary>
-public interface IRwkvAsyncPrefillSession : IRwkvGenerationSession
+public interface IAsyncTokenPrefillSession : ITokenGenerationSession
 {
     ValueTask<ReadOnlyMemory<float>> PrefillAsync(ReadOnlyMemory<int> tokens, CancellationToken cancellationToken = default);
 }
 
 /// <summary>Adds asynchronous single-token forwarding to a generation session.</summary>
-public interface IRwkvAsyncGenerationSession : IRwkvGenerationSession
+public interface IAsyncTokenGenerationSession : ITokenGenerationSession
 {
     ValueTask<ReadOnlyMemory<float>> ForwardTokenAsync(int token, CancellationToken cancellationToken = default);
 }
 
-/// <summary>Generates text from RWKV logits and a World tokenizer.</summary>
-public static class RwkvTextGenerator
+/// <summary>Generates UTF-8 text from logits and a byte-oriented tokenizer.</summary>
+public static class TextGenerator
 {
     /// <summary>Generates output one UTF-16 character at a time.</summary>
     /// <param name="session">The model generation session.</param>
@@ -45,10 +45,10 @@ public static class RwkvTextGenerator
     /// <param name="cancellationToken">Token used to cancel generation.</param>
     /// <returns>An asynchronous sequence of generated characters.</returns>
     public static async IAsyncEnumerable<char> GenerateCharactersAsync(
-        IRwkvGenerationSession session,
-        RwkvWorldTokenizer tokenizer,
+        ITokenGenerationSession session,
+        IByteTextTokenizer tokenizer,
         string prompt,
-        RwkvGenerationOptions? options = null,
+        TextGenerationOptions? options = null,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         await foreach (var text in GenerateAsync(session, tokenizer, prompt, options, cancellationToken))
@@ -68,10 +68,10 @@ public static class RwkvTextGenerator
     /// <param name="cancellationToken">Token used to cancel generation.</param>
     /// <returns>An asynchronous sequence of generated text chunks.</returns>
     public static async IAsyncEnumerable<string> GenerateAsync(
-        IRwkvGenerationSession session,
-        RwkvWorldTokenizer tokenizer,
+        ITokenGenerationSession session,
+        IByteTextTokenizer tokenizer,
         string prompt,
-        RwkvGenerationOptions? options = null,
+        TextGenerationOptions? options = null,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(session);
@@ -98,16 +98,16 @@ public static class RwkvTextGenerator
     /// <returns>An asynchronous sequence of generated text chunks.</returns>
     /// <exception cref="ArgumentException">The prompt contains no tokens.</exception>
     public static async IAsyncEnumerable<string> GenerateAsync(
-        IRwkvGenerationSession session,
-        RwkvWorldTokenizer tokenizer,
+        ITokenGenerationSession session,
+        IByteTextTokenizer tokenizer,
         IReadOnlyList<int> promptTokens,
-        RwkvGenerationOptions? options = null,
+        TextGenerationOptions? options = null,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(session);
         ArgumentNullException.ThrowIfNull(tokenizer);
         ArgumentNullException.ThrowIfNull(promptTokens);
-        options ??= new RwkvGenerationOptions();
+        options ??= new TextGenerationOptions();
         options.Validate();
 
         if (promptTokens.Count == 0)
@@ -115,7 +115,7 @@ public static class RwkvTextGenerator
             throw new ArgumentException("The prompt must contain at least one token.", nameof(promptTokens));
         }
 
-        var logits = session is IRwkvAsyncPrefillSession asynchronous
+        var logits = session is IAsyncTokenPrefillSession asynchronous
             ? await asynchronous.PrefillAsync(promptTokens.ToArray(), cancellationToken).ConfigureAwait(false)
             : session.Prefill(promptTokens.ToArray());
         await foreach (var text in GenerateFromPrefilledAsync(
@@ -138,10 +138,10 @@ public static class RwkvTextGenerator
     /// <returns>An asynchronous sequence of generated text chunks.</returns>
     /// <exception cref="ArgumentException">The initial logits are empty.</exception>
     public static async IAsyncEnumerable<string> GenerateFromPrefilledAsync(
-        IRwkvGenerationSession session,
-        RwkvWorldTokenizer tokenizer,
+        ITokenGenerationSession session,
+        IByteTextTokenizer tokenizer,
         ReadOnlyMemory<float> initialLogits,
-        RwkvGenerationOptions? options = null,
+        TextGenerationOptions? options = null,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(session);
@@ -151,12 +151,12 @@ public static class RwkvTextGenerator
             throw new ArgumentException("The initial logits cannot be empty.", nameof(initialLogits));
         }
 
-        options ??= new RwkvGenerationOptions();
+        options ??= new TextGenerationOptions();
         options.Validate();
-        await using var generation = session is IRwkvScopedGenerationSession scoped
+        await using var generation = session is IScopedTokenGenerationSession scoped
             ? await scoped.BeginGenerationAsync(cancellationToken).ConfigureAwait(false) : null;
         var executingSession = generation?.Session ?? session;
-        var sampler = new RwkvSampler(options, tokenizer.TokenIds);
+        var sampler = new TokenSampler(options, tokenizer.TokenIds);
         var decoder = new IncrementalUtf8Decoder();
         var logits = initialLogits;
         var stopMatcher = options.StopStrings.Count == 0 ? null : new Utf8StopMatcher(options.StopStrings);
@@ -207,8 +207,8 @@ public static class RwkvTextGenerator
         }
     }
 
-    private static ValueTask<ReadOnlyMemory<float>> ForwardAsync(IRwkvGenerationSession session, int token,
-        CancellationToken cancellation) => session is IRwkvAsyncGenerationSession asynchronous
+    private static ValueTask<ReadOnlyMemory<float>> ForwardAsync(ITokenGenerationSession session, int token,
+        CancellationToken cancellation) => session is IAsyncTokenGenerationSession asynchronous
         ? asynchronous.ForwardTokenAsync(token, cancellation)
         : ValueTask.FromResult(session.ForwardToken(token));
 
@@ -339,18 +339,20 @@ public static class RwkvTextGenerator
             }
     }
 
-    private sealed class RwkvSampler
+    private sealed class TokenSampler
     {
-        private readonly RwkvGenerationOptions options;
+        private readonly TextGenerationOptions options;
         private readonly Random random;
         private readonly LogitEntry[] ranking;
         private readonly int[] tokenIds;
 
-        public RwkvSampler(RwkvGenerationOptions options, IReadOnlyList<int> tokenIds)
+        public TokenSampler(TextGenerationOptions options, IReadOnlyList<int> tokenIds)
         {
             this.options = options;
             random = options.Seed is { } seed ? new Random(seed) : Random.Shared;
-            this.tokenIds = tokenIds.ToArray();
+            this.tokenIds = tokenIds.Distinct().Order().ToArray();
+            if (this.tokenIds.Length == 0 || this.tokenIds[0] < 0)
+                throw new ArgumentException("A tokenizer must provide non-negative token identifiers.", nameof(tokenIds));
             ranking = new LogitEntry[this.tokenIds.Length];
         }
 

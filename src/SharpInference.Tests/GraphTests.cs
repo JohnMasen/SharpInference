@@ -371,7 +371,7 @@ public sealed class GraphTests
     public void Optimizer_DeadNodeEliminationPreservesExecutedOutputs()
     {
         var logical = new LogicalGraphBuilder(new GraphIdentity("test", 1, "dead-path"),
-                new GraphModelSignature(1, 2, 1, 1, 2, "test.state"))
+                TestGraphSignatures.Create(1, 2, 1, 1, 2, "test.state"))
             .AddRegion("root", GraphRegionTypes.Graph, "Root")
             .AddResource("input", "Input", GraphResourceKind.Input, GraphResourceLifetime.External,
                 new TensorDescriptor(GraphElementType.Float32, [2]), graphInput: true)
@@ -683,7 +683,7 @@ public sealed class GraphTests
     public void Optimizer_DoesNotCollapseShapeCompatibleButValueChangingReshapeBroadcast()
     {
         var graph = new LogicalGraphBuilder(new GraphIdentity("test", 1, "broadcast"),
-                new GraphModelSignature(1, 4, 1, 1, 4, "test.state"))
+                TestGraphSignatures.Create(1, 4, 1, 1, 4, "test.state"))
             .AddRegion("graph", GraphRegionTypes.Graph, "Graph")
             .AddResource("input", "Input", GraphResourceKind.Input, GraphResourceLifetime.External,
                 new TensorDescriptor(GraphElementType.Float32, [2, 2]), graphInput: true)
@@ -1085,7 +1085,7 @@ public sealed class GraphTests
 
     private static LogicalGraph CreateElementwiseChain() =>
         new LogicalGraphBuilder(new GraphIdentity("test", 1, "elementwise"),
-                new GraphModelSignature(1, 2, 1, 1, 2, "test.state"))
+                TestGraphSignatures.Create(1, 2, 1, 1, 2, "test.state"))
             .AddRegion("graph", GraphRegionTypes.Graph, "Graph")
             .AddRegion("stage", GraphRegionTypes.Stage, "Stage", "graph")
             .AddResource("x", "X", GraphResourceKind.Input, GraphResourceLifetime.External,
@@ -1186,7 +1186,7 @@ public sealed class GraphTests
     {
         var builder = new LogicalGraphBuilder(
             new GraphIdentity("test", 1, "boundary"),
-            new GraphModelSignature(1, 1, 1, 1, 1, "test.state@1"));
+            TestGraphSignatures.Create(1, 1, 1, 1, 1, "test.state@1"));
         builder
             .AddRegion("graph", GraphRegionTypes.Graph, "Graph")
             .AddRegion("layer.0", GraphRegionTypes.Layer, "Layer", "graph")
@@ -1276,7 +1276,7 @@ public sealed class GraphTests
         {
             public string Name => name;
             public IReadOnlyList<int> Dimensions => shape;
-            public RwkvTensorDataType DataType => RwkvTensorDataType.Float32;
+            public TensorDataType DataType => TensorDataType.Float32;
             public ReadOnlySpan<float> FloatValues => [];
             public ReadOnlySpan<Half> HalfValues => [];
         }

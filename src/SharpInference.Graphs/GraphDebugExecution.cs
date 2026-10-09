@@ -24,13 +24,13 @@ public interface IProcessorLayerTraceExecutor
 public interface IProcessorSessionBackend
 {
     IProcessorSessionExecutor CreateSessionExecutor(
-        IRwkvModel model, IRwkvState state, IBackendExecutablePlan plan);
+        IModel model, IModelState state, IBackendExecutablePlan plan);
 }
 
 /// <summary>Combines execution-graph and debug backend capabilities for processor sessions.</summary>
 public interface IProcessorDebugBackend : IExecutionGraphBackend, IDebuggableBackend
 {
     IProcessorSessionExecutor CreateDebugSession(
-        IRwkvModel model, IRwkvState state, IDebugBackendExecutablePlan plan,
+        IModel model, IModelState state, IDebugBackendExecutablePlan plan,
         GraphDebugSession debugSession);
 }

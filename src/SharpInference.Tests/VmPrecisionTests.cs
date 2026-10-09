@@ -25,7 +25,7 @@ public sealed class VmPrecisionTests
     [InlineData(VmTarget.Direct3D12)]
     public void HalfStorageAndMixedWeightsAdvertiseIndependentFp32InternalPrecision(VmTarget target)
     {
-        var registry = new InstructionRegistry(DefaultInstructionCollections.Create());
+        var registry = new InstructionRegistry(SharpInference.Runtime.Cpu.CpuInstructionCollections.Create().Concat(SharpInference.Runtime.D3D12.D3D12InstructionCollections.Create()));
         foreach (var mixed in new[] { false, true })
         {
             var program = Program(target, F32, mixed);
@@ -146,7 +146,7 @@ public sealed class VmPrecisionTests
     [Fact]
     public void BoundPrecisionConflictsAndInsufficientSerializedCapabilitiesAreRejected()
     {
-        var registry = new InstructionRegistry(DefaultInstructionCollections.Create());
+        var registry = new InstructionRegistry(SharpInference.Runtime.Cpu.CpuInstructionCollections.Create().Concat(SharpInference.Runtime.D3D12.D3D12InstructionCollections.Create()));
         var bound = VmInstructionContracts.Bind(Program(VmTarget.Cpu, F16), registry);
         Assert.Same(bound, VmInstructionContracts.Bind(bound, registry));
         var xml = XElement.Parse(VmProgramXml.Serialize(bound));
@@ -181,7 +181,7 @@ public sealed class VmPrecisionTests
             original.Outputs.Append(new("second-output")));
         var program = new VmExecutionGraphGenerator(
             target == VmTarget.Cpu ? InstructionTarget.Cpu : InstructionTarget.Direct3D12,
-            DefaultInstructionCollections.Create()).Generate(logical, new(PrefillCapacity: 1, WeightViews: false));
+            SharpInference.Runtime.Cpu.CpuInstructionCollections.Create().Concat(SharpInference.Runtime.D3D12.D3D12InstructionCollections.Create())).Generate(logical, new(PrefillCapacity: 1, WeightViews: false));
         var operations = program.Definitions.SelectMany(definition => definition.Nodes)
             .Select(node => node.Instruction).OfType<VmOperator>().ToArray();
         Assert.Equal(2, operations.Length);
@@ -193,7 +193,7 @@ public sealed class VmPrecisionTests
     [Fact]
     public void PrecisionChangesProgramHashAndBoundCapabilityChangesContractXml()
     {
-        var compiler = new CpuVmCompiler(DefaultInstructionCollections.Create());
+        var compiler = new CpuVmCompiler(SharpInference.Runtime.Cpu.CpuInstructionCollections.Create());
         Assert.NotEqual(compiler.GenerateSource(Program(VmTarget.Cpu, F32)).ProgramHash,
             compiler.GenerateSource(Program(VmTarget.Cpu, F16)).ProgramHash);
         var program = Program(VmTarget.Cpu, F16, collection: PrecisionProvider.Id);
@@ -221,7 +221,7 @@ public sealed class VmPrecisionTests
             var directory = Path.Combine(Path.GetTempPath(), "vm-precision-" + Guid.NewGuid().ToString("N"));
             try
             {
-                new CpuVmCompiler(DefaultInstructionCollections.Create()).Compile(program).Export(directory);
+                new CpuVmCompiler(SharpInference.Runtime.Cpu.CpuInstructionCollections.Create()).Compile(program).Export(directory);
                 var artifact = CpuVmCompiledArtifact.Load(directory);
                 Assert.Equal(F32, Operator(artifact.Program).Precision);
                 var contract = VmProgramXml.Deserialize(File.ReadAllText(Path.Combine(directory, "contracts.xml")));
@@ -233,7 +233,7 @@ public sealed class VmPrecisionTests
         }
         else
         {
-            var artifact = new D3D12VmCompiler(DefaultInstructionCollections.Create()).Compile(program);
+            var artifact = new D3D12VmCompiler(SharpInference.Runtime.D3D12.D3D12InstructionCollections.Create()).Compile(program);
             using var stream = new MemoryStream();
             artifact.Export(stream);
             using (var archive = new ZipArchive(stream, ZipArchiveMode.Read, leaveOpen: true))
@@ -257,7 +257,7 @@ public sealed class VmPrecisionTests
         var directory = Path.Combine(Path.GetTempPath(), "vm-precision-missing-" + Guid.NewGuid().ToString("N"));
         try
         {
-            new CpuVmCompiler(DefaultInstructionCollections.Create()).GenerateSource(Program(VmTarget.Cpu, F32))
+            new CpuVmCompiler(SharpInference.Runtime.Cpu.CpuInstructionCollections.Create()).GenerateSource(Program(VmTarget.Cpu, F32))
                 .Export(directory, includeBinary: false);
             var files = Directory.GetFiles(directory).ToDictionary(path =>
                 Path.GetFileName(path) ?? throw new InvalidDataException("Missing package filename."),
@@ -278,7 +278,7 @@ public sealed class VmPrecisionTests
     [InlineData(true)]
     public void GpuPackageRejectsMissingOrInsufficientResolvedPrecisionWithRecomputedHashes(bool insufficient)
     {
-        var artifact = new D3D12VmCompiler(DefaultInstructionCollections.Create())
+        var artifact = new D3D12VmCompiler(SharpInference.Runtime.D3D12.D3D12InstructionCollections.Create())
             .Compile(Program(VmTarget.Direct3D12, F32));
         using var stream = new MemoryStream();
         artifact.Export(stream);

@@ -4,11 +4,6 @@
     <ProjectReference Include="..\SharpInference.Abstractions\SharpInference.Abstractions.csproj" />
   </ItemGroup>
 
-  <ItemGroup>
-    <EmbeddedResource Include="Resources\rwkv_vocab_v20230424.txt"
-                      LogicalName="SharpInference.Resources.rwkv_vocab_v20230424.txt" />
-  </ItemGroup>
-
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>

@@ -3,6 +3,7 @@ using SharpInference.Architectures.Rwkv6;
 using SharpInference.Architectures.Rwkv7;
 using SharpInference.Backends.Cpu;
 using SharpInference.Runtime;
+using SharpInference.Applications;
 
 namespace SharpInference.Tests;
 
@@ -22,7 +23,7 @@ public sealed class RwkvRuntimeFactoryTests
         using var catalog = TestModelLoader.OpenCatalog(TestModel.Rwkv6);
         var configuration = CreateConfiguration(($"Rwkv:Runtime:Vm:{option}", value));
         Assert.ThrowsAny<Exception>(() =>
-            new RwkvRuntimeFactory().CreateRuntime(configuration.GetSection("Rwkv:Runtime"), catalog));
+            new RwkvApplicationComposition(RwkvApplicationComposition.CreateModelModules()).CreateRuntime(configuration.GetSection("Rwkv:Runtime"), catalog));
     }
 
     [Theory]
@@ -35,13 +36,13 @@ public sealed class RwkvRuntimeFactoryTests
     {
         using var catalog = TestModelLoader.OpenCatalog(rwkv7 ? TestModel.Rwkv7Fp32 : TestModel.Rwkv6);
         var configuration = CreateConfiguration(("Rwkv:Runtime:Kind", "cpu"));
-        var runtime = new RwkvRuntimeFactory().CreateRuntime(
+        var runtime = new RwkvApplicationComposition(RwkvApplicationComposition.CreateModelModules()).CreateRuntime(
             explicitCpu ? configuration.GetSection("Rwkv:Runtime") : null, catalog);
 
         Assert.Equal(rwkv7 ? "rwkv-7" : "rwkv-6", runtime.ArchitectureId);
         Assert.NotNull(runtime.Tokenizer);
-        if (rwkv7) Assert.IsType<PortableRwkv7GraphProvider>(runtime.Provider);
-        else Assert.IsType<PortableRwkv6GraphProvider>(runtime.Provider);
+        if (rwkv7) Assert.IsType<Rwkv7ModelModule>(runtime.Module);
+        else Assert.IsType<Rwkv6ModelModule>(runtime.Module);
         using var backend = Assert.IsType<VmGraphBackend>(runtime.CreateBackend());
         Assert.Null(backend.Program);
     }
@@ -55,7 +56,7 @@ public sealed class RwkvRuntimeFactoryTests
         var configuration = CreateConfiguration(("Rwkv:Runtime:Kind", "unknown"));
 
         var exception = Assert.Throws<InvalidOperationException>(() =>
-            new RwkvRuntimeFactory().CreateRuntime(configuration.GetSection("Rwkv:Runtime"), catalog));
+            new RwkvApplicationComposition(RwkvApplicationComposition.CreateModelModules()).CreateRuntime(configuration.GetSection("Rwkv:Runtime"), catalog));
 
         Assert.Contains("unknown", exception.Message, StringComparison.Ordinal);
     }
@@ -69,7 +70,7 @@ public sealed class RwkvRuntimeFactoryTests
             ("Rwkv:Runtime:Vortice:EnableCommandReplay", "true"));
 
         var exception = Assert.Throws<InvalidOperationException>(() =>
-            new RwkvRuntimeFactory().CreateRuntime(configuration.GetSection("Rwkv:Runtime"), catalog));
+            new RwkvApplicationComposition(RwkvApplicationComposition.CreateModelModules()).CreateRuntime(configuration.GetSection("Rwkv:Runtime"), catalog));
 
         Assert.Contains("vortice", exception.Message, StringComparison.OrdinalIgnoreCase);
     }
@@ -85,7 +86,7 @@ public sealed class RwkvRuntimeFactoryTests
             ($"Rwkv:Runtime:Vortice:{option}", value));
 
         var exception = Assert.Throws<InvalidOperationException>(() =>
-            new RwkvRuntimeFactory().CreateRuntime(configuration.GetSection("Rwkv:Runtime"), catalog));
+            new RwkvApplicationComposition(RwkvApplicationComposition.CreateModelModules()).CreateRuntime(configuration.GetSection("Rwkv:Runtime"), catalog));
 
         Assert.Contains(option, exception.Message, StringComparison.OrdinalIgnoreCase);
     }

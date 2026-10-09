@@ -1,5 +1,6 @@
 using SharpInference.Graphs;
 using SharpInference.Runtime;
+using SharpInference.Architectures.Rwkv7;
 using Vortice.Direct3D;
 using Vortice.Direct3D12;
 using Vortice.DXGI;
@@ -22,14 +23,14 @@ public sealed class PortableGraphProcessorTests
         float[] firstRow;
         using (var catalog = TestModelLoader.OpenCatalog(TestModel.Rwkv7Fp32))
         {
-            var metadata = new CatalogArchitectureMetadataReader().Read(catalog);
+            var metadata = RwkvModelMetadata.FromModelMetadata(new Rwkv7ModelModule().ReadMetadata(catalog));
             var weight = catalog.GetRequired("head.weight");
             Assert.Equal(metadata.VocabularySize, weight.Dimensions[1]);
             firstRow = weight.FloatValues[..metadata.VocabularySize].ToArray();
             var vector = new TensorDescriptor(GraphElementType.Float32, [metadata.VocabularySize]);
             graph = new LogicalGraphBuilder(
                     new GraphIdentity(metadata.ArchitectureId, 1, "test.primitive"),
-                    new GraphModelSignature(metadata.VocabularySize, metadata.EmbeddingSize,
+                    TestGraphSignatures.Create(metadata.VocabularySize, metadata.EmbeddingSize,
                         metadata.LayerCount, metadata.HeadCount, metadata.HeadSize,
                         $"{metadata.ArchitectureId}.state.fp32@1"))
                 .SetStateSchema(new StateSchema("Primitive_State"))
@@ -58,7 +59,7 @@ public sealed class PortableGraphProcessorTests
                 .Build();
         }
 
-        var backend = gpu ? VmBackendFactory.CreateD3D12() : VmBackendFactory.CreateCpu();
+        var backend = gpu ? SharpInference.Runtime.D3D12.D3D12VmBackendFactory.Create() : SharpInference.Runtime.Cpu.CpuVmBackendFactory.Create();
         using var model = Processor.LoadGraph(path, graph, backend);
         using var original = model.CreateSession();
         var first = original.ForwardToken(0).ToArray();

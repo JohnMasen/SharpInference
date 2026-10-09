@@ -7,18 +7,18 @@ public sealed class GpuBatchSchedulerTests
     [Fact]
     public async Task CompiledQueuesDoNotAddAnotherGenerationWaitingRoom()
     {
-        var cpu = new GpuBatchScheduler(new GpuBatchServiceOptions(), "cpu", 1, useVmQueues: true);
+        var cpu = new GpuBatchScheduler(new GpuBatchServiceOptions(), Host(1), useVmQueues: true);
         await using var first = await cpu.AcquireAsync(CancellationToken.None);
         await using var second = await cpu.AcquireAsync(CancellationToken.None);
         Assert.Throws<InvalidOperationException>(() => new GpuBatchScheduler(
-            new GpuBatchServiceOptions { MaxInFlightGenerationBatches = 1 }, "cpu", useVmQueues: true));
+            new GpuBatchServiceOptions { MaxInFlightGenerationBatches = 1 }, Host(1), useVmQueues: true));
     }
 
     [Fact]
     public async Task CompiledGpuResidentCapacityRejectsImmediatelyAndReleasesAfterUse()
     {
         var scheduler = new GpuBatchScheduler(
-            new GpuBatchServiceOptions { MaxResidentGpuSessions = 1 }, "vortice", useVmQueues: true);
+            new GpuBatchServiceOptions { MaxResidentGpuSessions = 1 }, Device(4), useVmQueues: true);
         var first = await scheduler.AcquireAsync(CancellationToken.None);
         await Assert.ThrowsAsync<ResidentSessionLimitException>(() => scheduler.AcquireAsync(CancellationToken.None).AsTask());
         await first.DisposeAsync();
@@ -26,9 +26,9 @@ public sealed class GpuBatchSchedulerTests
     }
 
     [Fact]
-    public async Task AutoGpuLimitAdmitsFourConcurrentGenerations()
+    public async Task AutoLimitUsesAdvertisedDeviceConcurrency()
     {
-        var scheduler = new GpuBatchScheduler(new GpuBatchServiceOptions(), "vortice");
+        var scheduler = new GpuBatchScheduler(new GpuBatchServiceOptions(), Device(4));
         var leases = new List<IAsyncDisposable>();
         for (var index = 0; index < 4; index++)
             leases.Add(await scheduler.AcquireAsync(CancellationToken.None));
@@ -41,12 +41,12 @@ public sealed class GpuBatchSchedulerTests
     }
 
     [Theory]
-    [InlineData(1, 1)]
-    [InlineData(3, 1)]
-    [InlineData(8, 4)]
-    public async Task AutoCpuLimitUsesHalfAvailableCores(int cores, int expected)
+    [InlineData(1)]
+    [InlineData(3)]
+    [InlineData(8)]
+    public async Task AutoHostLimitUsesAdvertisedConcurrency(int expected)
     {
-        var scheduler = new GpuBatchScheduler(new GpuBatchServiceOptions(), "cpu", cores);
+        var scheduler = new GpuBatchScheduler(new GpuBatchServiceOptions(), Host(expected));
         var leases = new List<IAsyncDisposable>();
         for (var index = 0; index < expected; index++)
             leases.Add(await scheduler.AcquireAsync(CancellationToken.None));
@@ -59,12 +59,12 @@ public sealed class GpuBatchSchedulerTests
     }
 
     [Fact]
-    public async Task ExplicitLimitOverridesBackendDefaults()
+    public async Task ExplicitLimitCanReduceAdvertisedConcurrency()
     {
         var options = new GpuBatchServiceOptions { MaxInFlightGenerationBatches = 2 };
-        foreach (var kind in new[] { "cpu", "vortice" })
+        foreach (var execution in new[] { Host(12), Device(12) })
         {
-            var scheduler = new GpuBatchScheduler(options, kind, 12);
+            var scheduler = new GpuBatchScheduler(options, execution);
             await using var first = await scheduler.AcquireAsync(CancellationToken.None);
             await using var second = await scheduler.AcquireAsync(CancellationToken.None);
             var third = scheduler.AcquireAsync(CancellationToken.None).AsTask();
@@ -78,22 +78,42 @@ public sealed class GpuBatchSchedulerTests
     public async Task CpuLimitIsNotClampedByGpuResidentSessions()
     {
         var scheduler = new GpuBatchScheduler(
-            new GpuBatchServiceOptions { MaxResidentGpuSessions = 1 }, "cpu", 4);
+            new GpuBatchServiceOptions { MaxResidentGpuSessions = 1 }, Host(4));
         await using var first = await scheduler.AcquireAsync(CancellationToken.None);
         await using var second = await scheduler.AcquireAsync(CancellationToken.None);
     }
 
     [Fact]
-    public void RejectsNegativeLimitAndUnknownBackend()
+    public void RejectsNegativeLimitAndMissingCapabilities()
     {
         Assert.Throws<InvalidOperationException>(() => new GpuBatchScheduler(
-            new GpuBatchServiceOptions { MaxInFlightGenerationBatches = -1 }, "cpu"));
-        Assert.Throws<InvalidOperationException>(() =>
-            new GpuBatchScheduler(new GpuBatchServiceOptions(), "unknown"));
-        Assert.Throws<InvalidOperationException>(() =>
-            new GpuBatchScheduler(new GpuBatchServiceOptions(), "portable-vortice"));
-        Assert.Throws<ArgumentOutOfRangeException>(() =>
-            new GpuBatchScheduler(new GpuBatchServiceOptions(), "cpu", 0));
+            new GpuBatchServiceOptions { MaxInFlightGenerationBatches = -1 }, Host(1)));
+        Assert.Throws<ArgumentNullException>(() => new GpuBatchScheduler(new GpuBatchServiceOptions(), null!));
+    }
+
+    [Fact]
+    public async Task ExplicitLimitCannotExceedSingleSessionCapability()
+    {
+        var scheduler = new GpuBatchScheduler(
+            new GpuBatchServiceOptions { MaxInFlightGenerationBatches = 8 }, Host(1));
+        await using var first = await scheduler.AcquireAsync(CancellationToken.None);
+        using var cancellation = new CancellationTokenSource();
+        var second = scheduler.AcquireAsync(cancellation.Token).AsTask();
+        Assert.False(second.IsCompleted);
+        cancellation.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => second);
+        await first.DisposeAsync();
+        await using var next = await scheduler.AcquireAsync(CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task CompiledDeviceAdmissionCannotExceedSingleSessionCapability()
+    {
+        var scheduler = new GpuBatchScheduler(new GpuBatchServiceOptions(), Device(1), useVmQueues: true);
+        await using var first = await scheduler.AcquireAsync(CancellationToken.None);
+        await Assert.ThrowsAsync<ResidentSessionLimitException>(() => scheduler.AcquireAsync(CancellationToken.None).AsTask());
+        await first.DisposeAsync();
+        await using var next = await scheduler.AcquireAsync(CancellationToken.None);
     }
 
     [Fact]
@@ -122,7 +142,7 @@ public sealed class GpuBatchSchedulerTests
         {
             MaxResidentGpuSessions = 1,
             MaxInFlightGenerationBatches = 2,
-        }, "vortice");
+        }, Device(4));
 
         await using var firstLease = await scheduler.AcquireAsync(CancellationToken.None);
         var secondWaiter = scheduler.AcquireAsync(CancellationToken.None).AsTask();
@@ -132,4 +152,8 @@ public sealed class GpuBatchSchedulerTests
         await firstLease.DisposeAsync();
         await using var secondLease = await secondWaiter;
     }
+
+    private static ProcessorExecutionCapabilities Host(int concurrency) => new(concurrency, 1, new HashSet<string> { "opaque.storage" });
+    private static ProcessorExecutionCapabilities Device(int concurrency) => new(concurrency, 1, new HashSet<string> { "opaque.storage" },
+        requiresResidentSessionAdmission: true);
 }

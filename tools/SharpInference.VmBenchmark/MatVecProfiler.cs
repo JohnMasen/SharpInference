@@ -6,6 +6,7 @@ using SharpInference.Backends.D3D12Vm;
 using SharpInference.Gguf;
 using SharpInference.Instructions;
 using SharpInference.Runtime;
+using SharpInference.Applications;
 using SharpInference.Vm;
 using SharpInference.Vm.Optimization;
 
@@ -19,8 +20,7 @@ internal static class MatVecProfiler
         foreach (var path in arguments.Required("models").Split('|'))
         {
             using var catalog = GgmlModelFile.Open(path);
-            var graph = RwkvRuntimeFactory.CreateGraphProvider(Path.GetFileName(path).Contains("060", StringComparison.OrdinalIgnoreCase) ||
-                Path.GetFileName(path).Contains("rwkv-6", StringComparison.OrdinalIgnoreCase) ? "rwkv-6" : "rwkv-7").Build(catalog);
+            var graph = RwkvApplicationComposition.CreateModelModules().Build(catalog).Graph;
             var program = VmGraphOptimizer.Optimize(graph, VmTarget.Direct3D12);
             foreach (var definition in program.Definitions.Where(definition =>
                          definition.Nodes.Any(node => node.Instruction is VmOperator { Operation: "core.mat-vec" })))
@@ -39,7 +39,7 @@ internal static class MatVecProfiler
                 matrix.Tensor.ElementType, input.Tensor.ElementType, output.Tensor.ElementType);
             var cooperative = GpuMatVecReferencePrograms.Create(rows, columns, true,
                 matrix.Tensor.ElementType, input.Tensor.ElementType, output.Tensor.ElementType);
-            var compiler = new D3D12VmCompiler(DefaultInstructionCollections.Create());
+            var compiler = new D3D12VmCompiler(SharpInference.Runtime.D3D12.D3D12InstructionCollections.Create());
             using var oldCode = compiler.Compile(serial).CreateExecutor();
             using var newCode = compiler.Compile(cooperative).CreateExecutor();
             var weights = Enumerable.Range(0, checked(rows * columns)).Select(index => (index % 31 - 15) * 0.001f).ToArray();
@@ -91,14 +91,14 @@ internal static class MatVecProfiler
             Console.WriteLine($"{shape}: serial {baseline.Order().ElementAt(4):F3} us; cooperative {candidate.Order().ElementAt(4):F3} us; " +
                 $"conservative saving {measurement.ConservativeSavingMicroseconds:F3} us.");
         }
-        var profile = new TierOneCostProfile(VmTierOneEnvironment.Fingerprint(VmTarget.Direct3D12),
+        var profile = new TierOneCostProfile(SharpInference.Runtime.D3D12.D3D12VmEnvironment.Fingerprint(),
             DateTimeOffset.UtcNow, measurements);
         var pathOutput = Path.GetFullPath(arguments.Required("output"));
         Directory.CreateDirectory(Path.GetDirectoryName(pathOutput)!);
         File.WriteAllText(pathOutput, profile.Serialize());
         File.WriteAllText(pathOutput + ".measurements.json", JsonSerializer.Serialize(new
         {
-            Hardware = VmTierOneEnvironment.HardwareIdentity(VmTarget.Direct3D12),
+            Hardware = SharpInference.Runtime.D3D12.D3D12VmEnvironment.HardwareIdentity(),
             Timing = "Compute-queue GPU timestamps; resident weights/input; scheduled output barrier included; no upload/readback.",
             Repetitions = repetitions, WarmupBatches = 4, Samples = 9, Validations = validations, Profile = profile,
         }, new JsonSerializerOptions { WriteIndented = true }));

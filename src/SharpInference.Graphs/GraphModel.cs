@@ -140,30 +140,6 @@ public sealed record GraphIdentity(string ArchitectureId, int IrVersion, string 
 
 public sealed class GraphModelSignature : IEquatable<GraphModelSignature>
 {
-    public const string VocabularyDimension = "vocabulary";
-    public const string EmbeddingDimension = "embedding";
-    public const string LayerDimension = "layers";
-    public const string HeadCountDimension = "attentionHeads";
-    public const string HeadSizeDimension = "attentionHeadSize";
-
-    public GraphModelSignature(
-        int vocabularySize,
-        int embeddingSize,
-        int layerCount,
-        int headCount,
-        int headSize,
-        string stateAbiId)
-        : this("rwkv", stateAbiId, new Dictionary<string, int>(StringComparer.Ordinal)
-        {
-            [VocabularyDimension] = vocabularySize,
-            [EmbeddingDimension] = embeddingSize,
-            [LayerDimension] = layerCount,
-            [HeadCountDimension] = headCount,
-            [HeadSizeDimension] = headSize,
-        })
-    {
-    }
-
     public GraphModelSignature(
         string modelType,
         string stateAbiId,
@@ -191,15 +167,6 @@ public sealed class GraphModelSignature : IEquatable<GraphModelSignature>
     public string StateAbiId { get; }
     public IReadOnlyDictionary<string, int> Dimensions { get; }
     public IReadOnlyDictionary<string, string> Attributes { get; }
-    public int VocabularySize => DimensionOrZero(VocabularyDimension);
-    public int EmbeddingSize => DimensionOrZero(EmbeddingDimension);
-    public int LayerCount => DimensionOrZero(LayerDimension);
-    public int HeadCount => DimensionOrZero(HeadCountDimension);
-    public int HeadSize => DimensionOrZero(HeadSizeDimension);
-    public bool IsRwkvCompatible =>
-        VocabularySize > 0 && EmbeddingSize > 0 && LayerCount > 0 &&
-        HeadCount > 0 && HeadSize > 0 &&
-        HeadCount * (long)HeadSize == EmbeddingSize;
 
     public bool Equals(GraphModelSignature? other) =>
         other is not null &&
@@ -230,7 +197,6 @@ public sealed class GraphModelSignature : IEquatable<GraphModelSignature>
         return hash.ToHashCode();
     }
 
-    private int DimensionOrZero(string name) => Dimensions.TryGetValue(name, out var value) ? value : 0;
 }
 
 public sealed record GraphResource(
@@ -266,7 +232,8 @@ public sealed record NodeResourceBinding(
     string Port,
     ResourceId Resource,
     GraphResourceAccess Access,
-    bool InitializedBeforeRead = false);
+    bool InitializedBeforeRead = false,
+    GraphTensorView? View = null);
 
 public sealed record LogicalNode(
     LogicalNodeId Id,

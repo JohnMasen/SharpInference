@@ -13,6 +13,7 @@
     <ProjectReference Include="..\SharpInference.Core\SharpInference.Core.csproj" />
     <ProjectReference Include="..\SharpInference.Backends.D3D12Vm\SharpInference.Backends.D3D12Vm.csproj" />
     <ProjectReference Include="..\SharpInference.Vm.Optimization\SharpInference.Vm.Optimization.csproj" />
+    <ProjectReference Include="..\SharpInference.Models.Rwkv\SharpInference.Models.Rwkv.csproj" />
     <Compile Include="..\SharpInference.Vm.Template\Program.cs" Link="Program.cs" />
     <EmbeddedResource Include="$(VmArtifactDirectory)\program.vm.zip" LogicalName="VmPackage.program.vm.zip" Condition="'$(VmArtifactDirectory)' != ''" />
   </ItemGroup>

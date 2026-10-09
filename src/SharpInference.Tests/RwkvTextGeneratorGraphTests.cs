@@ -77,7 +77,7 @@ public sealed class RwkvTextGeneratorGraphTests
         Assert.Equal(3, session.Steps);
     }
 
-    private sealed class AsyncOnlySession(float[] logits) : IRwkvAsyncGenerationSession
+    private sealed class AsyncOnlySession(float[] logits) : IAsyncTokenGenerationSession
     {
         public int Steps { get; private set; }
         public ReadOnlyMemory<float> Prefill(ReadOnlySpan<int> tokens) => throw new InvalidOperationException();
@@ -92,7 +92,7 @@ public sealed class RwkvTextGeneratorGraphTests
         }
     }
 
-    private sealed class ScopedSession(float[] logits) : IRwkvScopedGenerationSession, IRwkvAsyncPrefillSession
+    private sealed class ScopedSession(float[] logits) : IScopedTokenGenerationSession, IAsyncTokenPrefillSession
     {
         public int Prefills, Scopes, Steps, Releases;
         public ReadOnlyMemory<float> Prefill(ReadOnlySpan<int> tokens) => throw new InvalidOperationException("Use asynchronous prefill.");
@@ -103,22 +103,22 @@ public sealed class RwkvTextGeneratorGraphTests
             Prefills++;
             return ValueTask.FromResult<ReadOnlyMemory<float>>(logits);
         }
-        public ValueTask<IRwkvGenerationScope> BeginGenerationAsync(CancellationToken cancellationToken = default)
+        public ValueTask<ITokenGenerationScope> BeginGenerationAsync(CancellationToken cancellationToken = default)
         {
             cancellationToken.ThrowIfCancellationRequested();
             Scopes++;
-            return ValueTask.FromResult<IRwkvGenerationScope>(new Scope(this, logits));
+            return ValueTask.FromResult<ITokenGenerationScope>(new Scope(this, logits));
         }
-        private sealed class Scope(ScopedSession owner, float[] logits) : IRwkvGenerationScope, IRwkvGenerationSession
+        private sealed class Scope(ScopedSession owner, float[] logits) : ITokenGenerationScope, ITokenGenerationSession
         {
-            public IRwkvGenerationSession Session => this;
+            public ITokenGenerationSession Session => this;
             public ReadOnlyMemory<float> Prefill(ReadOnlySpan<int> tokens) => throw new InvalidOperationException();
             public ReadOnlyMemory<float> ForwardToken(int token) { owner.Steps++; return logits; }
             public ValueTask DisposeAsync() { owner.Releases++; return ValueTask.CompletedTask; }
         }
     }
 
-    private sealed class CountingSession(float[] logits) : IRwkvGenerationSession
+    private sealed class CountingSession(float[] logits) : ITokenGenerationSession
     {
         public int PrefillCount { get; private set; }
         public List<int> ForwardedTokens { get; } = [];

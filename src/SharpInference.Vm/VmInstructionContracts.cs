@@ -19,7 +19,12 @@ public static class VmInstructionContracts
     /// <returns>The original program when contracts already match, otherwise a program containing resolved contracts.</returns>
     public static VmProgram Bind(VmProgram program, InstructionRegistry registry)
     {
-        var target = program.Target == VmTarget.Cpu ? InstructionTarget.Cpu : InstructionTarget.Direct3D12;
+        var target = program.Target switch
+        {
+            VmTarget.Cpu => InstructionTarget.Cpu,
+            VmTarget.Direct3D12 => InstructionTarget.Direct3D12,
+            _ => throw new NotSupportedException($"No instruction target adapter is installed for '{program.Target}'."),
+        };
         var changed = false;
         var definitions = program.Definitions.Select(definition => new VmDefinition(definition.Id, definition.Kind,
             definition.Parameters, definition.Nodes.Select(node =>

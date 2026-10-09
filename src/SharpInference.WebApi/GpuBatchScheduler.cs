@@ -31,32 +31,24 @@ public sealed class GpuBatchScheduler
     private readonly FairAsyncGate? generationBatches;
     private readonly bool useVmQueues;
 
-    public GpuBatchScheduler(GpuBatchServiceOptions options, string? backendKind, int? processorCount = null,
+    public GpuBatchScheduler(GpuBatchServiceOptions options, ProcessorExecutionCapabilities execution,
         bool useVmQueues = false)
     {
         ArgumentNullException.ThrowIfNull(options);
+        ArgumentNullException.ThrowIfNull(execution);
         options.Validate();
-        if (processorCount is <= 0)
-            throw new ArgumentOutOfRangeException(nameof(processorCount));
         this.useVmQueues = useVmQueues;
         if (useVmQueues && options.MaxInFlightGenerationBatches != 0)
             throw new InvalidOperationException(
                 "Compiled VMs use Rwkv:Runtime:Vm:InferenceInstances; remove GpuBatchService:MaxInFlightGenerationBatches.");
 
-        var cores = processorCount ?? Environment.ProcessorCount;
-        var automaticLimit = backendKind?.ToLowerInvariant() switch
-        {
-            null or "" or "cpu" => Math.Max(1, cores / 2),
-            "vortice" or "d3d12" => 4,
-            _ => throw new InvalidOperationException($"Unsupported RWKV runtime kind '{backendKind}'."),
-        };
-        // Temporary backend-based heuristic; replace with measured admission control later.
-        generationBatches = useVmQueues ? null : new FairAsyncGate(options.MaxInFlightGenerationBatches == 0
-            ? automaticLimit
-            : options.MaxInFlightGenerationBatches);
-        if (string.Equals(backendKind, "vortice", StringComparison.OrdinalIgnoreCase) ||
-            string.Equals(backendKind, "d3d12", StringComparison.OrdinalIgnoreCase))
-            residentSessions = new FairAsyncGate(options.MaxResidentGpuSessions);
+        var generationLimit = options.MaxInFlightGenerationBatches == 0
+            ? execution.MaximumConcurrentSessions
+            : Math.Min(options.MaxInFlightGenerationBatches, execution.MaximumConcurrentSessions);
+        generationBatches = useVmQueues ? null : new FairAsyncGate(generationLimit);
+        if (execution.RequiresResidentSessionAdmission)
+            residentSessions = new FairAsyncGate(Math.Min(options.MaxResidentGpuSessions,
+                execution.MaximumConcurrentSessions));
     }
 
     public async ValueTask<IAsyncDisposable> AcquireAsync(CancellationToken cancellationToken)

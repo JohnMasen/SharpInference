@@ -13,7 +13,7 @@ public sealed class CpuWeightCastResidencyTests
         var tensor = new CountingTensor(source, [width, width]);
         var graph = new GraphOptimizer().Optimize(
             new LogicalGraphBuilder(new GraphIdentity("synthetic", 1, "weight-cache"),
-                new GraphModelSignature(2, width, 1, 1, width, "synthetic.state"))
+                TestGraphSignatures.Create(2, width, 1, 1, width, "synthetic.state"))
                 .AddRegion("root", GraphRegionTypes.Graph, "root")
                 .AddResource("weight", "weight", GraphResourceKind.Weight, GraphResourceLifetime.Model,
                     new TensorDescriptor(GraphElementType.Float16, [width, width]), bindingKey: "weight")
@@ -76,7 +76,7 @@ public sealed class CpuWeightCastResidencyTests
     {
         var graph = new LogicalGraphBuilder(
                 new GraphIdentity("synthetic", 1, "dynamic-cast"),
-                new GraphModelSignature(2, 2, 1, 1, 2, "synthetic.state"))
+                TestGraphSignatures.Create(2, 2, 1, 1, 2, "synthetic.state"))
             .AddRegion("root", GraphRegionTypes.Graph, "root")
             .AddResource("input", "input", GraphResourceKind.Input, GraphResourceLifetime.External,
                 new TensorDescriptor(GraphElementType.Float16, [2]), graphInput: true)
@@ -103,7 +103,7 @@ public sealed class CpuWeightCastResidencyTests
             Enumerable.Repeat((Half)2, width * width).ToArray(), [width, width]);
         var graph = new LogicalGraphBuilder(
                 new GraphIdentity("synthetic", 1, "half-gather"),
-                new GraphModelSignature(width, width, 1, 1, width, "synthetic.state"))
+                TestGraphSignatures.Create(width, width, 1, 1, width, "synthetic.state"))
             .AddRegion("root", GraphRegionTypes.Graph, "root")
             .AddResource("weight", "weight", GraphResourceKind.Weight, GraphResourceLifetime.Model,
                 new TensorDescriptor(GraphElementType.Float16, [width, width]), bindingKey: "weight")
@@ -149,7 +149,7 @@ public sealed class CpuWeightCastResidencyTests
             .Select(index => (index % 23 - 11) / 10f).ToArray();
         var graph = new GraphOptimizer().Optimize(new LogicalGraphBuilder(
                 new GraphIdentity("synthetic", 1, "vectorized-half"),
-                new GraphModelSignature(2, 2, 1, 1, 2, "synthetic.state"))
+                TestGraphSignatures.Create(2, 2, 1, 1, 2, "synthetic.state"))
             .AddRegion("root", GraphRegionTypes.Graph, "root")
             .AddResource("weight", "weight", GraphResourceKind.Weight, GraphResourceLifetime.Model,
                 new TensorDescriptor(GraphElementType.Float16, [rows, columns]), bindingKey: "weight")
@@ -191,7 +191,7 @@ public sealed class CpuWeightCastResidencyTests
         var tensor = new CountingTensor([(Half)1, (Half)2], [2]);
         var graph = new LogicalGraphBuilder(
                 new GraphIdentity("synthetic", 1, "elementwise-cast"),
-                new GraphModelSignature(2, 2, 1, 1, 2, "synthetic.state"))
+                TestGraphSignatures.Create(2, 2, 1, 1, 2, "synthetic.state"))
             .AddRegion("root", GraphRegionTypes.Graph, "root")
             .AddResource("weight", "weight", GraphResourceKind.Weight, GraphResourceLifetime.Model,
                 new TensorDescriptor(GraphElementType.Float16, [2]), bindingKey: "weight")
@@ -223,7 +223,7 @@ public sealed class CpuWeightCastResidencyTests
     {
         var graph = new GraphOptimizer().Optimize(
             new LogicalGraphBuilder(new GraphIdentity("synthetic", 1, "sessions"),
-                new GraphModelSignature(2, 2, 1, 1, 2, "synthetic.state"))
+                TestGraphSignatures.Create(2, 2, 1, 1, 2, "synthetic.state"))
                 .AddRegion("root", GraphRegionTypes.Graph, "root")
                 .AddResource("token", "token", GraphResourceKind.Input, GraphResourceLifetime.External,
                     new TensorDescriptor(GraphElementType.Int32, [1]), graphInput: true)
@@ -272,7 +272,7 @@ public sealed class CpuWeightCastResidencyTests
         const int stateLength = 8192;
         var graph = new GraphOptimizer().Optimize(
             new LogicalGraphBuilder(new GraphIdentity("synthetic", 1, "large-state"),
-                new GraphModelSignature(2, 2, 1, 1, 2, "synthetic.state"))
+                TestGraphSignatures.Create(2, 2, 1, 1, 2, "synthetic.state"))
                 .AddRegion("root", GraphRegionTypes.Graph, "root")
                 .AddResource("token", "token", GraphResourceKind.Input, GraphResourceLifetime.External,
                     new TensorDescriptor(GraphElementType.Int32, [1]), graphInput: true)
@@ -312,7 +312,7 @@ public sealed class CpuWeightCastResidencyTests
         const int width = 65536;
         var graph = new GraphOptimizer().Optimize(
             new LogicalGraphBuilder(new GraphIdentity("synthetic", 1, "lazy-scratch"),
-                new GraphModelSignature(2, 2, 1, 1, 2, "synthetic.state"))
+                TestGraphSignatures.Create(2, 2, 1, 1, 2, "synthetic.state"))
                 .AddRegion("root", GraphRegionTypes.Graph, "root")
                 .AddResource("logits", "logits", GraphResourceKind.Output, GraphResourceLifetime.External,
                     new TensorDescriptor(GraphElementType.Float32, [width]), graphOutput: true)
@@ -337,7 +337,7 @@ public sealed class CpuWeightCastResidencyTests
         public int HalfReadCount { get; private set; }
         public int FloatReadCount { get; private set; }
         public string Name => "weight";
-        public RwkvTensorDataType DataType => RwkvTensorDataType.Float16;
+        public TensorDataType DataType => TensorDataType.Float16;
         public IReadOnlyList<int> Dimensions => dimensions;
         public ReadOnlySpan<float> FloatValues
         {

@@ -1,33 +1,10 @@
 namespace SharpInference;
 
 /// <summary>Identifies the floating-point storage format used by a model tensor.</summary>
-public enum RwkvTensorDataType : uint
+public enum TensorDataType : uint
 {
     Float32 = 0,
     Float16 = 1,
-}
-
-/// <summary>Describes the dimensions and architecture identifier of an RWKV model.</summary>
-public sealed record RwkvModelMetadata(
-    int VocabularySize,
-    int EmbeddingSize,
-    int LayerCount,
-    int HeadCount,
-    int HeadSize,
-    string ArchitectureId)
-{
-    /// <summary>Converts the RWKV-specific dimensions to the general model metadata contract.</summary>
-    /// <returns>A model metadata instance containing the architecture and positive dimensions.</returns>
-    public ModelMetadata ToModelMetadata() => new(
-        ArchitectureId,
-        new Dictionary<string, long>(StringComparer.Ordinal)
-        {
-            ["vocabulary"] = VocabularySize,
-            ["embedding"] = EmbeddingSize,
-            ["layers"] = LayerCount,
-            ["attentionHeads"] = HeadCount,
-            ["attentionHeadSize"] = HeadSize,
-        });
 }
 
 /// <summary>Stores an architecture identifier and named model dimensions and attributes.</summary>
@@ -64,7 +41,7 @@ public sealed class ModelMetadata
 public interface IModelTensor
 {
     string Name { get; }
-    RwkvTensorDataType DataType { get; }
+    TensorDataType DataType { get; }
     IReadOnlyList<int> Dimensions { get; }
     ReadOnlySpan<float> FloatValues { get; }
     ReadOnlySpan<Half> HalfValues { get; }
@@ -73,9 +50,6 @@ public interface IModelTensor
 /// <summary>Provides model-wide metadata and named tensor lookup.</summary>
 public interface IModelTensorCatalog
 {
-    int VocabularySize { get; }
-    int EmbeddingSize { get; }
-    int LayerCount { get; }
     IReadOnlyCollection<string> Names { get; }
     bool TryGet(string name, out IModelTensor tensor);
     IModelTensor GetRequired(string name);
@@ -111,69 +85,19 @@ public interface IModel
     ModelMetadata ModelMetadata { get; }
 }
 
-/// <summary>Exposes RWKV-specific metadata for a bound model.</summary>
-public interface IRwkvModel : IModel
+/// <summary>Defines model binding and architecture-owned state creation.</summary>
+public interface IModelArchitecture
 {
-    RwkvModelMetadata Metadata { get; }
-    ModelMetadata IModel.ModelMetadata => Metadata.ToModelMetadata();
+    string Id { get; }
+    bool CanLoad(IModelTensorCatalog tensors);
+    IModel Bind(IModelTensorCatalog tensors);
+    IModelState CreateState(IModel model);
 }
 
-/// <summary>Represents mutable recurrent state used by an RWKV model.</summary>
-public interface IRwkvState
+/// <summary>Represents mutable model state without assuming a tensor layout or element type.</summary>
+public interface IModelState
 {
     string ArchitectureId { get; }
-    int ElementCount { get; }
-    IRwkvState Clone();
+    IModelState Clone();
     void Reset();
-    void CopyTo(Span<float> destination);
-    void Restore(ReadOnlySpan<float> source);
-}
-
-/// <summary>A named, mutable float32 state buffer; dimensions use the model's head and embedding sizes.</summary>
-public sealed record RwkvStateView(string Name, IReadOnlyList<int> Dimensions, float[] Values);
-
-/// <summary>Optional named access to the buffers underlying a state snapshot.</summary>
-public interface INamedRwkvState : IRwkvState
-{
-    IReadOnlyList<RwkvStateView> Views { get; }
-
-    /// <summary>Publish edits to view arrays to an attached backend before the next forward pass.</summary>
-    void CommitViews();
-}
-
-/// <summary>Defines model binding, state creation, and token-forward operations for an RWKV architecture.</summary>
-public interface IRwkvArchitecture
-{
-    /// <summary>Gets the architecture identifier.</summary>
-    string Id { get; }
-
-    /// <summary>Determines whether the tensor catalog matches this architecture.</summary>
-    /// <param name="tensors">The tensor catalog to inspect.</param>
-    /// <returns><see langword="true"/> when the architecture can bind the catalog.</returns>
-    bool CanLoad(IModelTensorCatalog tensors);
-
-    /// <summary>Binds model tensors to an architecture-specific model.</summary>
-    /// <param name="tensors">The tensor catalog to bind.</param>
-    /// <returns>The bound architecture-specific model.</returns>
-    IRwkvModel Bind(IModelTensorCatalog tensors);
-
-    /// <summary>Creates recurrent state for a bound model.</summary>
-    /// <param name="model">The model whose dimensions define the state.</param>
-    /// <returns>New mutable recurrent state.</returns>
-    IRwkvState CreateState(IRwkvModel model);
-
-    /// <summary>Processes one token and writes the resulting logits.</summary>
-    /// <param name="model">The bound model to execute.</param>
-    /// <param name="token">The input token identifier.</param>
-    /// <param name="state">The recurrent state to update.</param>
-    /// <param name="logits">The destination for output logits.</param>
-    void ForwardToken(IRwkvModel model, int token, IRwkvState state, Span<float> logits);
-
-    void ForwardTokens(IRwkvModel model, ReadOnlySpan<int> tokens, IRwkvState state, Span<float> logits)
-    {
-        foreach (var token in tokens)
-        {
-            ForwardToken(model, token, state, logits);
-        }
-    }
 }

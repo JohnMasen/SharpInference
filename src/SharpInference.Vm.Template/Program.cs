@@ -1,6 +1,9 @@
 using System.Reflection;
 using System.Runtime.InteropServices;
 using SharpInference;
+using SharpInference.Architectures.Rwkv6;
+using SharpInference.Architectures.Rwkv7;
+using SharpInference.Graphs;
 #if GPU_VM
 using SharpInference.Backends.D3D12Vm;
 #else
@@ -48,7 +51,10 @@ try
     Func<IVmExecutable> factory = () => artifact.CreateExecutor(new SharpInference.Generated.CpuProgram());
 #endif
     using var catalog = GgmlModelFile.Open(args[0]);
-    var architecture = RwkvModelArchitectureDetector.Detect(catalog);
+    var modules = new ModelGraphModuleRegistry();
+    modules.Register(new Rwkv6ModelModule());
+    modules.Register(new Rwkv7ModelModule());
+    var architecture = modules.Resolve(catalog).ArchitectureId;
     if (artifact.Program.Abi != $"vm:{architecture}.state.fp32@1")
         throw new InvalidDataException("The embedded VM and weight model have incompatible State ABIs.");
     await using var engine = await VmInferenceEngine.CreateAsync(artifact.Program, "token", "logits",
@@ -92,7 +98,7 @@ catch (Exception error) when (error is IOException or ArgumentException or Inval
     Environment.ExitCode = 1;
 }
 
-internal sealed class GenerationSession(VmInferenceSession session) : IRwkvAsyncPrefillSession, IRwkvScopedGenerationSession
+internal sealed class GenerationSession(VmInferenceSession session) : IAsyncTokenPrefillSession, IScopedTokenGenerationSession
 {
     public ReadOnlyMemory<float> ForwardToken(int token) =>
         throw new InvalidOperationException("Use the whole-generation VM lease.");
@@ -100,11 +106,11 @@ internal sealed class GenerationSession(VmInferenceSession session) : IRwkvAsync
         throw new InvalidOperationException("Use asynchronous prefill.");
     public async ValueTask<ReadOnlyMemory<float>> PrefillAsync(ReadOnlyMemory<int> tokens, CancellationToken cancellationToken = default) =>
         await session.PrefillAsync(tokens, cancellationToken).ConfigureAwait(false);
-    public async ValueTask<IRwkvGenerationScope> BeginGenerationAsync(CancellationToken cancellationToken = default) =>
+    public async ValueTask<ITokenGenerationScope> BeginGenerationAsync(CancellationToken cancellationToken = default) =>
         new GenerationScope(await session.BeginGenerationAsync(cancellationToken).ConfigureAwait(false));
-    private sealed class GenerationScope(VmGenerationLease lease) : IRwkvGenerationScope, IRwkvAsyncGenerationSession
+    private sealed class GenerationScope(VmGenerationLease lease) : ITokenGenerationScope, IAsyncTokenGenerationSession
     {
-        public IRwkvGenerationSession Session => this;
+        public ITokenGenerationSession Session => this;
         public ReadOnlyMemory<float> ForwardToken(int token) => lease.ForwardToken(token);
         public async ValueTask<ReadOnlyMemory<float>> ForwardTokenAsync(int token,
             CancellationToken cancellationToken = default) =>

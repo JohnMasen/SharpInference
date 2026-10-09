@@ -281,8 +281,8 @@ public sealed class VorticePrimitiveGraphExecutorTests(ITestOutputHelper output)
         var matrix = new[] { 1f, 1f, 1f, 2f, -1f, 0.5f };
         var signature = graph.Model;
         var model = new PortableGraphModel(new RwkvModelMetadata(
-            signature.VocabularySize, signature.EmbeddingSize, signature.LayerCount,
-            signature.HeadCount, signature.HeadSize, graph.Identity.ArchitectureId), new Catalog(
+            signature.Dimensions["vocabulary"], signature.Dimensions["embedding"], signature.Dimensions["layers"],
+            signature.Dimensions["attentionHeads"], signature.Dimensions["attentionHeadSize"], graph.Identity.ArchitectureId), new Catalog(
             new Tensor("embedding", [2, 3], table),
             new Tensor("projection", [2, 3], matrix)), graph);
         backend.PrepareModelWeights(model);
@@ -498,7 +498,7 @@ public sealed class VorticePrimitiveGraphExecutorTests(ITestOutputHelper output)
         {
             using var session = processor.CreateSession();
             var logits = session.ForwardToken(1).ToArray();
-            Assert.Equal(graph.Model.VocabularySize, logits.Length);
+            Assert.Equal(graph.Model.Dimensions["vocabulary"], logits.Length);
             Assert.All(logits, value => Assert.True(float.IsFinite(value)));
             Assert.Equal((ulong)1, backend.Metrics.TokenCommandSubmissions);
             Assert.True(backend.Memory.PeakBufferBytes >= backend.Memory.ModelBufferBytes);
@@ -532,7 +532,7 @@ public sealed class VorticePrimitiveGraphExecutorTests(ITestOutputHelper output)
         {
             using var session = processor.CreateSession();
             var logits = session.ForwardToken(1).ToArray();
-            Assert.Equal(graph.Model.VocabularySize, logits.Length);
+            Assert.Equal(graph.Model.Dimensions["vocabulary"], logits.Length);
             Assert.All(logits, value => Assert.True(float.IsFinite(value)));
             Assert.Equal((ulong)1, backend.Metrics.TokenCommandSubmissions);
             output.WriteLine($"RWKV7 7.2B peak committed model+session buffers: " +
@@ -852,7 +852,7 @@ public sealed class VorticePrimitiveGraphExecutorTests(ITestOutputHelper output)
                 [new ElementwiseOperand(StepIndex: 1), new ElementwiseOperand(StepIndex: 0)]),
         ]);
         var graph = new LogicalGraphBuilder(new GraphIdentity("synthetic", 1, "branched-gpu"),
-                new GraphModelSignature(2, 2, 1, 1, 2, "synthetic.state"))
+                TestGraphSignatures.Create(2, 2, 1, 1, 2, "synthetic.state"))
             .AddRegion("root", GraphRegionTypes.Graph, "root")
             .AddResource("a", "a", GraphResourceKind.Input, GraphResourceLifetime.External,
                 new TensorDescriptor(GraphElementType.Float32, [2]), graphInput: true)
@@ -888,7 +888,7 @@ public sealed class VorticePrimitiveGraphExecutorTests(ITestOutputHelper output)
         using var device = TryCreateDevice();
         if (device is null) return;
         var builder = new LogicalGraphBuilder(new GraphIdentity("synthetic", 1, "reshape-view"),
-                new GraphModelSignature(2, 2, 1, 1, 2, "synthetic.state"))
+                TestGraphSignatures.Create(2, 2, 1, 1, 2, "synthetic.state"))
             .AddRegion("root", GraphRegionTypes.Graph, "root")
             .AddResource("input", "input", GraphResourceKind.Input, GraphResourceLifetime.External,
                 new TensorDescriptor(GraphElementType.Float32, [2, 3]), graphInput: true)
@@ -931,7 +931,7 @@ public sealed class VorticePrimitiveGraphExecutorTests(ITestOutputHelper output)
     {
         var binary = FusedElementwiseExpressionContract.Arity(operation) == 2;
         return new LogicalGraphBuilder(new GraphIdentity("synthetic", 1, "gpu-step"),
-                new GraphModelSignature(2, 2, 1, 1, 2, "synthetic.state"))
+                TestGraphSignatures.Create(2, 2, 1, 1, 2, "synthetic.state"))
             .AddRegion("root", GraphRegionTypes.Graph, "root")
             .AddResource("a", "a", GraphResourceKind.Input, GraphResourceLifetime.External,
                 new TensorDescriptor(GraphElementType.Float32, [5]), graphInput: true)
@@ -1318,7 +1318,7 @@ public sealed class VorticePrimitiveGraphExecutorTests(ITestOutputHelper output)
     private static LogicalGraph FusedExpressionGraph()
     {
         var builder = new LogicalGraphBuilder(new GraphIdentity("synthetic", 1, "gpu-expression"),
-                new GraphModelSignature(2, 2, 1, 1, 2, "synthetic.state"))
+                TestGraphSignatures.Create(2, 2, 1, 1, 2, "synthetic.state"))
             .AddRegion("root", GraphRegionTypes.Graph, "root");
         foreach (var name in new[] { "a", "b", "c" })
             builder.AddResource(name, name, GraphResourceKind.Input, GraphResourceLifetime.External,
@@ -1430,7 +1430,7 @@ public sealed class VorticePrimitiveGraphExecutorTests(ITestOutputHelper output)
         var bindings = ports.Select((port, index) => GraphBindings.Read(port, $"input{index}"))
             .Append(GraphBindings.Write("output", "output")).ToArray();
         return new ExecutionGraph(new GraphIdentity("tensor-test", 1, "tensor"),
-            new GraphModelSignature(2, 2, 1, 1, 2, "state"),
+            TestGraphSignatures.Create(2, 2, 1, 1, 2, "state"),
             resources, [new GraphRegion(new RegionId("root"), null, GraphRegionTypes.Graph, null,
                 "root", new Dictionary<string, string>())],
             [new ExecutionNode(new ExecutionNodeId("tensor"), operation, new RegionId("root"),
@@ -1476,7 +1476,7 @@ public sealed class VorticePrimitiveGraphExecutorTests(ITestOutputHelper output)
                 [GraphBindings.Read("input", "sum"), GraphBindings.Write("output", "state")], "matvec"),
         };
         return new ExecutionGraph(new GraphIdentity("test-primitive", 1, "resident"),
-            new GraphModelSignature(2, 3, 1, 1, 3, "test-state"),
+            TestGraphSignatures.Create(2, 3, 1, 1, 3, "test-state"),
             resources, [new GraphRegion(new RegionId("root"), null, GraphRegionTypes.Graph, null, "root", new Dictionary<string, string>())],
             nodes, [new ResourceId("token")], [new ResourceId("result")],
             [new GraphStateEntry("state", new ResourceId("state"))]);
@@ -1509,8 +1509,8 @@ public sealed class VorticePrimitiveGraphExecutorTests(ITestOutputHelper output)
         public Tensor(string name, int[] dimensions, Half[] halfValues)
             : this(name, dimensions, Array.Empty<float>()) => halves = halfValues;
         public string Name => name;
-        public RwkvTensorDataType DataType => halves.Length == 0
-            ? RwkvTensorDataType.Float32 : RwkvTensorDataType.Float16;
+        public TensorDataType DataType => halves.Length == 0
+            ? TensorDataType.Float32 : TensorDataType.Float16;
         public IReadOnlyList<int> Dimensions => dimensions;
         public ReadOnlySpan<float> FloatValues => values;
         public ReadOnlySpan<Half> HalfValues => halves;

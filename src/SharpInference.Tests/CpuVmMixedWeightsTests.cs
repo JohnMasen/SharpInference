@@ -16,7 +16,7 @@ public sealed class CpuVmMixedWeightsTests
     {
         var (program, slots, expected) = Example(operation, weightPort);
         var originalWeights = slots[0].ToArray();
-        var artifact = new CpuVmCompiler(SharpInference.Runtime.DefaultInstructionCollections.Create()).Compile(program);
+        var artifact = new CpuVmCompiler(SharpInference.Runtime.Cpu.CpuInstructionCollections.Create()).Compile(program);
         Assert.Equal(VmElementType.Float16, artifact.Program.Definitions[0].Parameters[0].Tensor.ElementType);
         Assert.Contains(operation == "core.gather-row" ? "CpuInstructionNumerics.GatherRow" : "CpuInstructionNumerics.MatVec", artifact.Source);
         Assert.DoesNotContain("new float[", artifact.Source);
@@ -30,7 +30,7 @@ public sealed class CpuVmMixedWeightsTests
     public void ReloadsMixedWeightBinaryWithoutCastingEntireMatrix()
     {
         var (program, slots, expected) = Example("core.mat-vec", "weight");
-        var artifact = new CpuVmCompiler(SharpInference.Runtime.DefaultInstructionCollections.Create()).Compile(program);
+        var artifact = new CpuVmCompiler(SharpInference.Runtime.Cpu.CpuInstructionCollections.Create()).Compile(program);
         var directory = Path.Combine(Path.GetTempPath(), "cpuvm-mixed-" + Guid.NewGuid().ToString("N"));
         try
         {
@@ -56,7 +56,7 @@ public sealed class CpuVmMixedWeightsTests
         var invalid = new VmProgram(program.Name, program.Abi, program.Target,
             program.Slots.Select((s, i) => s with { Tensor = parameters[i].Tensor }), [definition], program.Entries, program.State);
         Assert.Throws<SharpInference.Instructions.InstructionAdaptationException>(() =>
-            new CpuVmCompiler(SharpInference.Runtime.DefaultInstructionCollections.Create()).GenerateSource(invalid));
+            new CpuVmCompiler(SharpInference.Runtime.Cpu.CpuInstructionCollections.Create()).GenerateSource(invalid));
     }
 
     [Theory]

@@ -16,9 +16,9 @@ public static class VmModelBindings
             throw new InvalidDataException($"Global slot '{slot.Id}' has no model binding."));
         if (!tensor.Dimensions.SequenceEqual(slot.Tensor.Dimensions))
             throw new InvalidDataException($"Weight '{tensor.Name}' has an incompatible shape.");
-        if (slot.Tensor.ElementType == VmElementType.Float32 && tensor.DataType == RwkvTensorDataType.Float32)
+        if (slot.Tensor.ElementType == VmElementType.Float32 && tensor.DataType == TensorDataType.Float32)
             storage.Write(0, MemoryMarshal.AsBytes(tensor.FloatValues));
-        else if (slot.Tensor.ElementType == VmElementType.Float16 && tensor.DataType == RwkvTensorDataType.Float16)
+        else if (slot.Tensor.ElementType == VmElementType.Float16 && tensor.DataType == TensorDataType.Float16)
             storage.Write(0, MemoryMarshal.AsBytes(tensor.HalfValues));
         else throw new InvalidDataException($"Weight '{tensor.Name}' has an incompatible storage type.");
     }

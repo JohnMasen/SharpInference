@@ -10,7 +10,7 @@ public sealed class PortableRwkv7ElementwiseTests
     {
         var builder = new LogicalGraphBuilder(
             new GraphIdentity("rwkv-7", 1, "elementwise-test"),
-            new GraphModelSignature(32, 4, 1, 1, 4, "rwkv-7.state.fp32@1"));
+            TestGraphSignatures.Create(32, 4, 1, 1, 4, "rwkv-7.state.fp32@1"));
         builder.AddRegion("graph", GraphRegionTypes.Graph, "Elementwise test");
         var inputs = new Dictionary<string, float[]>
         {
@@ -79,7 +79,7 @@ public sealed class PortableRwkv7ElementwiseTests
     public void RejectsNonPositiveVectorWidth()
     {
         var builder = new LogicalGraphBuilder(new GraphIdentity("rwkv-7", 1, "test"),
-            new GraphModelSignature(32, 4, 1, 1, 4, "state"));
+            TestGraphSignatures.Create(32, 4, 1, 1, 4, "state"));
         Assert.Throws<ArgumentOutOfRangeException>(() =>
             new Rwkv7PortableElementwiseBuilder(builder, "graph", 0));
     }

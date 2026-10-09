@@ -39,7 +39,7 @@ public sealed class NamedStateTests
             offset += views[index].Values.Length;
         }
 
-        var cloned = Assert.IsAssignableFrom<INamedRwkvState>(state.Clone());
+        var cloned = Assert.IsAssignableFrom<INamedFloat32ModelState>(state.Clone());
         Assert.Equal(views.Select(view => view.Name), cloned.Views.Select(view => view.Name));
         Assert.NotSame(views[0].Values, cloned.Views[0].Values);
         (cloned as IDisposable)?.Dispose();

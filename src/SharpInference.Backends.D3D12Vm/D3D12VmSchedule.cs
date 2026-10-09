@@ -7,7 +7,7 @@ internal abstract record D3D12VmCommand;
 internal sealed record D3D12VmDispatch(string Kernel, VmThreadGroup Groups,
     D3D12VmBinding[] Bindings) : D3D12VmCommand;
 internal sealed record D3D12VmBarrier(int[] Slots) : D3D12VmCommand;
-internal sealed record D3D12VmGatherIndex(int Slot, ulong ByteOffset, int Rows);
+internal sealed record D3D12VmGatherIndex(int Slot, ulong ByteOffset, int Rows, int Count, int MinimumIndex);
 
 internal static class D3D12VmSchedule
 {
@@ -32,7 +32,9 @@ internal static class D3D12VmSchedule
                     var index = bindings[indexArgument.Source];
                     var table = definition.Parameters.Single(p => p.Name ==
                         op.Arguments.Single(a => a.Parameter == bound.TensorPort).Source);
-                    result.Add(new(index.Slot, checked(index.Offset + indexArgument.ByteOffset), table.Tensor.Dimensions[bound.Axis]));
+                    var indices = definition.Parameters.Single(p => p.Name == indexArgument.Source);
+                    result.Add(new(index.Slot, checked(index.Offset + indexArgument.ByteOffset), table.Tensor.Dimensions[bound.Axis],
+                        checked((int)indices.Tensor.ElementCount), bound.MinimumIndex));
                 }
         }
         var commands = entry is null ? schedules.Values.SelectMany(v => v) : schedules[entry];

@@ -1,7 +1,5 @@
 using System.Runtime.InteropServices;
 using System.Text;
-using SharpInference.Architectures.Rwkv6;
-using SharpInference.Architectures.Rwkv7;
 using SharpInference.Gguf;
 using SharpInference.Graphs;
 using SharpInference.Vm;
@@ -15,7 +13,7 @@ public sealed class GgmlModelReader : IModelReader
 
 public interface IArchitectureMetadataReader
 {
-    RwkvModelMetadata Read(IModelTensorCatalog catalog);
+    ModelMetadata Read(IModelTensorCatalog catalog);
 }
 
 public sealed class XmlArchitectureMetadataReader : IArchitectureMetadataReader
@@ -28,7 +26,7 @@ public sealed class XmlArchitectureMetadataReader : IArchitectureMetadataReader
         this.path = path;
     }
 
-    public RwkvModelMetadata Read(IModelTensorCatalog catalog)
+    public ModelMetadata Read(IModelTensorCatalog catalog)
     {
         ArgumentNullException.ThrowIfNull(catalog);
         var graph = GraphXml.DeserializeLogical(System.IO.File.ReadAllText(path));
@@ -36,35 +34,17 @@ public sealed class XmlArchitectureMetadataReader : IArchitectureMetadataReader
     }
 }
 
-public sealed class CatalogArchitectureMetadataReader : IArchitectureMetadataReader
+public sealed class CatalogArchitectureMetadataReader(ModelGraphModuleRegistry modules) : IArchitectureMetadataReader
 {
-    public RwkvModelMetadata Read(IModelTensorCatalog catalog)
+    public ModelMetadata Read(IModelTensorCatalog catalog)
     {
         ArgumentNullException.ThrowIfNull(catalog);
-        var architectureId = RwkvModelArchitectureDetector.Detect(catalog);
-        var tensor = catalog.GetRequired(architectureId == "rwkv-6"
-            ? "blocks.0.att.time_faaaa"
-            : "blocks.0.att.r_k");
-        var dimensions = tensor.Dimensions;
-        var headCount = architectureId == "rwkv-6" && dimensions.Count == 3
-            ? dimensions[2]
-            : architectureId == "rwkv-7" && dimensions.Count == 2
-                ? dimensions[1]
-                : throw new InvalidDataException($"Invalid head tensor shape for '{architectureId}'.");
-        if (headCount <= 0)
-        {
-            throw new InvalidDataException($"Invalid head count for '{architectureId}'.");
-        }
-        var headSize = architectureId == "rwkv-6" ? dimensions[1] : catalog.EmbeddingSize / headCount;
-        if (headCount <= 0 || headSize <= 0 ||
-            checked(headCount * headSize) != catalog.EmbeddingSize)
-        {
-            throw new InvalidDataException($"Invalid head tensor dimensions for '{architectureId}'.");
-        }
-
-        return new RwkvModelMetadata(
-            catalog.VocabularySize, catalog.EmbeddingSize, catalog.LayerCount,
-            headCount, headSize, architectureId);
+        ArgumentNullException.ThrowIfNull(modules);
+        var module = modules.Resolve(catalog);
+        var metadata = module.ReadMetadata(catalog);
+        if (metadata.ArchitectureId != module.ArchitectureId)
+            throw new InvalidDataException("The model module returned a different architecture identifier.");
+        return metadata;
     }
 }
 
@@ -82,15 +62,9 @@ public sealed class GraphArchitectureMetadataReader : IArchitectureMetadataReade
         resources = graph.Resources;
     }
 
-    public RwkvModelMetadata Read(IModelTensorCatalog catalog)
+    public ModelMetadata Read(IModelTensorCatalog catalog)
     {
         ArgumentNullException.ThrowIfNull(catalog);
-        if (signature.VocabularySize != catalog.VocabularySize ||
-            signature.EmbeddingSize != catalog.EmbeddingSize ||
-            signature.LayerCount != catalog.LayerCount ||
-            signature.HeadCount * (long)signature.HeadSize != signature.EmbeddingSize)
-            throw new InvalidDataException("The logical graph signature does not match the loaded model.");
-
         foreach (var resource in resources.Where(resource => resource.Kind == GraphResourceKind.Weight))
         {
             var tensor = catalog.GetRequired(resource.BindingKey
@@ -98,15 +72,16 @@ public sealed class GraphArchitectureMetadataReader : IArchitectureMetadataReade
             if (!resource.Tensor.Dimensions.SequenceEqual(tensor.Dimensions) ||
                 resource.Tensor.ElementType != (tensor.DataType switch
                 {
-                    RwkvTensorDataType.Float16 => GraphElementType.Float16,
-                    RwkvTensorDataType.Float32 => GraphElementType.Float32,
+                    TensorDataType.Float16 => GraphElementType.Float16,
+                    TensorDataType.Float32 => GraphElementType.Float32,
                     _ => throw new InvalidDataException($"Unsupported tensor type for '{tensor.Name}'."),
                 }))
                 throw new InvalidDataException($"Weight resource '{resource.Id}' does not match '{tensor.Name}'.");
         }
 
-        return new RwkvModelMetadata(signature.VocabularySize, signature.EmbeddingSize,
-            signature.LayerCount, signature.HeadCount, signature.HeadSize, identity.ArchitectureId);
+        return new ModelMetadata(identity.ArchitectureId,
+            signature.Dimensions.ToDictionary(value => value.Key, value => (long)value.Value, StringComparer.Ordinal),
+            signature.Attributes);
     }
 }
 
@@ -138,12 +113,13 @@ public sealed class ProcessorBuildContext
     public IModelFile? File { get; set; }
     internal OwnedModelTensorCatalog? OwnedCatalog { get; set; }
     public IModelTensorCatalog? Catalog => (IModelTensorCatalog?)OwnedCatalog ?? File;
-    public RwkvModelMetadata? Metadata { get; set; }
+    public ModelMetadata? Metadata { get; set; }
+    public IModelGraphModule? ModelModule { get; set; }
     public LogicalGraph? LogicalGraph { get; set; }
     public VmCompiledPlan? PreparedPlan { get; set; }
     public VmGraphBackend? Backend { get; set; }
-    public IRwkvArchitecture? Architecture { get; set; }
-    public IRwkvModel? Model { get; set; }
+    public IModelArchitecture? Architecture { get; set; }
+    public IModel? Model { get; set; }
 
     public void DisposeOnce(object? resource)
     {
@@ -217,7 +193,7 @@ public sealed class ProcessorPipelineBuilder
             }
 
 
-            if (context.Model.Metadata != context.Metadata)
+            if (!ProcessorPipelineExtensions.MatchesMetadata(context.Metadata, context.Model.ModelMetadata))
             {
                 throw new InvalidDataException("The bound model metadata differs from the catalog metadata.");
             }
@@ -281,14 +257,13 @@ public static class ProcessorPipelineExtensions
         IArchitectureMetadataReader? metadataReader = null)
     {
         ArgumentNullException.ThrowIfNull(reader);
-        metadataReader ??= new CatalogArchitectureMetadataReader();
         return builder.AddStep(
             "reader",
             context =>
             {
                 context.File = reader.Open(context.Path)
                     ?? throw new InvalidOperationException("The reader returned no model file.");
-                context.Metadata = metadataReader.Read(context.File);
+                context.Metadata = metadataReader?.Read(context.File);
             },
             context => context.DisposeOnce(context.File));
     }
@@ -308,12 +283,16 @@ public static class ProcessorPipelineExtensions
             ArgumentNullException.ThrowIfNull(factory);
             var provider = factory(context) ?? throw new InvalidOperationException("The provider factory returned no provider.");
             var catalog = context.Catalog ?? throw new InvalidOperationException("The reader must run before the provider.");
-            if (provider.ArchitectureId != context.Metadata?.ArchitectureId)
+            context.ModelModule = provider as IModelGraphModule;
+            if (context.Metadata is { } metadata && provider.ArchitectureId != metadata.ArchitectureId)
             {
                 throw new InvalidOperationException("The graph provider does not match the model architecture.");
             }
 
             context.LogicalGraph = provider.Build(catalog);
+            if (context.LogicalGraph.Identity.ArchitectureId != provider.ArchitectureId)
+                throw new InvalidDataException("The graph provider returned a different architecture identifier.");
+            context.Metadata ??= new GraphArchitectureMetadataReader(context.LogicalGraph).Read(catalog);
         });
 
     public static ProcessorPipelineBuilder UseXmlLogicalGraph(
@@ -323,6 +302,8 @@ public static class ProcessorPipelineExtensions
         return builder.AddStep("xml-logical", context =>
         {
             context.LogicalGraph = GraphXml.DeserializeLogical(System.IO.File.ReadAllText(path));
+            context.Metadata ??= new GraphArchitectureMetadataReader(context.LogicalGraph).Read(context.Catalog ??
+                throw new InvalidOperationException("The reader must run before the graph."));
         });
     }
 
@@ -346,7 +327,7 @@ public static class ProcessorPipelineExtensions
             }
 
             context.PreparedPlan = backend.Prepare(context.LogicalGraph ??
-                throw new InvalidOperationException("A logical graph is required to bind the model."), options);
+                throw new InvalidOperationException("A logical graph is required to bind the model."), options, context.ModelModule);
         }, context => context.DisposeOnce(context.Backend));
 
     private static void ValidateGraph(
@@ -355,13 +336,10 @@ public static class ProcessorPipelineExtensions
     {
         var metadata = context.Metadata ?? throw new InvalidOperationException("The reader must run before the graph.");
         var catalog = context.Catalog ?? throw new InvalidOperationException("The reader must run before the graph.");
-        if (identity.ArchitectureId != metadata.ArchitectureId ||
-            signature.VocabularySize != metadata.VocabularySize ||
-            signature.EmbeddingSize != metadata.EmbeddingSize ||
-            signature.LayerCount != metadata.LayerCount ||
-            signature.HeadCount != metadata.HeadCount ||
-            signature.HeadSize != metadata.HeadSize ||
-            signature.StateAbiId != $"{metadata.ArchitectureId}.state.fp32@1")
+        var graphMetadata = new ModelMetadata(identity.ArchitectureId,
+            signature.Dimensions.ToDictionary(value => value.Key, value => (long)value.Value, StringComparer.Ordinal),
+            signature.Attributes);
+        if (!MatchesMetadata(metadata, graphMetadata))
         {
             throw new InvalidDataException("The graph model signature does not match the loaded model.");
         }
@@ -372,8 +350,8 @@ public static class ProcessorPipelineExtensions
                 ?? throw new InvalidDataException($"Weight resource '{resource.Id}' requires a binding key."));
             var elementType = tensor.DataType switch
             {
-                RwkvTensorDataType.Float32 => GraphElementType.Float32,
-                RwkvTensorDataType.Float16 => GraphElementType.Float16,
+                TensorDataType.Float32 => GraphElementType.Float32,
+                TensorDataType.Float16 => GraphElementType.Float16,
                 _ => throw new InvalidDataException($"Unsupported tensor type for weight '{tensor.Name}'."),
             };
             if (resource.Tensor.ElementType != elementType ||
@@ -385,8 +363,13 @@ public static class ProcessorPipelineExtensions
         }
     }
 
+    internal static bool MatchesMetadata(ModelMetadata expected, ModelMetadata actual) =>
+        expected.ArchitectureId == actual.ArchitectureId &&
+        expected.Dimensions.All(value => actual.Dimensions.TryGetValue(value.Key, out var dimension) && dimension == value.Value) &&
+        expected.Attributes.All(value => actual.Attributes.TryGetValue(value.Key, out var attribute) && attribute == value.Value);
+
     private static ProcessorPipelineBuilder UseArchitecture(
-        this ProcessorPipelineBuilder builder, Func<ProcessorBuildContext, IRwkvArchitecture> factory) =>
+        this ProcessorPipelineBuilder builder, Func<ProcessorBuildContext, IModelArchitecture> factory) =>
         builder.AddStep("architecture", context =>
         {
             ArgumentNullException.ThrowIfNull(factory);
@@ -431,8 +414,8 @@ public sealed class Processor : IProcessor
 {
     private readonly ProcessorBuildContext context;
     private readonly IReadOnlyList<IProcessorBuildStep> steps;
-    private readonly IRwkvArchitecture architecture;
-    private readonly IRwkvModel model;
+    private readonly IModelArchitecture architecture;
+    private readonly IModel model;
     private readonly VmGraphBackend backend;
     private bool disposed;
 
@@ -447,17 +430,13 @@ public sealed class Processor : IProcessor
         LogicalGraph = context.LogicalGraph;
         PreparedPlan = context.PreparedPlan!;
         Capabilities = new ProcessorCapabilities(
-            [ProcessorInputModality.Text],
+            [backend.SupportsTokenSessions ? ProcessorInputModality.Text : ProcessorInputModality.Tensor],
             ProcessorOutputModality.Tensor,
-            text: new ProcessorTextCapabilities(int.MaxValue),
-            execution: new ProcessorExecutionCapabilities(1, 1,
-                new HashSet<string>(StringComparer.Ordinal)
-                {
-                    backend.GetType().FullName ?? backend.GetType().Name,
-                }));
+            text: backend.SupportsTokenSessions ? new ProcessorTextCapabilities(int.MaxValue) : null,
+            execution: backend.ExecutionCapabilities);
     }
 
-    public RwkvModelMetadata Metadata { get; }
+    public ModelMetadata Metadata { get; }
     public ProcessorCapabilities Capabilities { get; }
     public LogicalGraph? LogicalGraph { get; }
     public VmCompiledPlan PreparedPlan { get; }
@@ -504,13 +483,14 @@ public sealed class Processor : IProcessor
         writer.Write(text);
     }
 
-    public static Processor Load(string path) =>
+    public static Processor Load(string path, IModelReader reader, ModelGraphModuleRegistry modules,
+        VmGraphBackend backend, GraphOptimizationOptions? options = null) =>
         new ProcessorPipelineBuilder(path)
-            .UseReader(new GgmlModelReader())
-            .UseProvider(context => RwkvRuntimeFactory.CreateGraphProvider(
+            .UseReader(reader, new CatalogArchitectureMetadataReader(modules))
+            .UseProvider(context => modules.GetRequired(
                 context.Metadata?.ArchitectureId ??
                 throw new InvalidOperationException("The reader must run before selecting a graph provider.")))
-            .UseBackend(_ => VmBackendFactory.CreateCpu())
+            .UseBackend(backend, options)
             .UsePortableGraphArchitecture()
             .Build();
 
@@ -550,7 +530,7 @@ public sealed class Processor : IProcessor
         public LogicalGraph Graph => graph ??
             throw new InvalidOperationException("The graph provider must run after the reader.");
 
-        public RwkvModelMetadata Read(IModelTensorCatalog catalog)
+        public ModelMetadata Read(IModelTensorCatalog catalog)
         {
             var supplied = provider.Build(catalog) ??
                 throw new InvalidOperationException("The graph provider returned no graph.");
@@ -563,15 +543,27 @@ public sealed class Processor : IProcessor
     }
 
     internal void ThrowIfDisposed() => ObjectDisposedException.ThrowIf(disposed, this);
+    public ProcessorGraphSession CreateGraphSession(GraphTensorState? state = null)
+    {
+        ThrowIfDisposed();
+        if (backend.SupportsTokenSessions)
+            throw new NotSupportedException("This processor owns a token-session engine; use CreateSession.");
+        var portable = model as PortableGraphModel ??
+            throw new NotSupportedException("The bound model does not expose a portable tensor graph.");
+        return new ProcessorGraphSession(this, backend.CreateGraphSession(portable.Tensors, state));
+    }
+
     public ProcessorSession CreateSession()
     {
         ThrowIfDisposed();
+        if (!backend.SupportsTokenSessions)
+            throw new NotSupportedException("The graph does not declare the token-session contract; use CreateGraphSession.");
         return CreateSession(architecture.CreateState(model));
     }
 
-    IProcessorSession IProcessor.CreateSession() => CreateSession();
+    IProcessorSession IProcessor.CreateSession() => backend.SupportsTokenSessions ? CreateSession() : CreateGraphSession();
 
-    internal ProcessorSession CreateSession(IRwkvState state)
+    internal ProcessorSession CreateSession(IModelState state)
     {
         ThrowIfDisposed();
         IVmSessionExecutor? executor = null;
@@ -618,11 +610,11 @@ public sealed class Processor : IProcessor
 }
 
 public sealed class ProcessorSession :
-    IRwkvScopedGenerationSession, IRwkvAsyncPrefillSession,
-    IRwkvAsyncGenerationSession, IProcessorSession
+    IScopedTokenGenerationSession, IAsyncTokenPrefillSession,
+    IAsyncTokenGenerationSession, IProcessorSession
 {
     private readonly Processor owner;
-    private readonly IRwkvState state;
+    private readonly IModelState state;
     private readonly IVmSessionExecutor executor;
     private readonly float[] logits;
     private readonly object gate = new();
@@ -632,13 +624,15 @@ public sealed class ProcessorSession :
     IProcessor IProcessorSession.Processor => owner;
 
     internal ProcessorSession(
-        Processor owner, IRwkvModel model, IRwkvState state,
+        Processor owner, IModel model, IModelState state,
         IVmSessionExecutor executor)
     {
         this.owner = owner;
         this.state = state;
         this.executor = executor;
-        logits = new float[model.Metadata.VocabularySize];
+        var graph = owner.LogicalGraph ?? throw new InvalidOperationException("A session requires a logical graph.");
+        var output = graph.Resources.Single(resource => resource.Id == graph.Outputs.Single());
+        logits = new float[checked(output.Tensor.Dimensions.Aggregate(1, (count, size) => checked(count * size)))];
     }
 
     private void ThrowIfDisposed()
@@ -659,7 +653,7 @@ public sealed class ProcessorSession :
         }
     }
 
-    public async ValueTask<IRwkvGenerationScope> BeginGenerationAsync(CancellationToken cancellationToken = default)
+    public async ValueTask<ITokenGenerationScope> BeginGenerationAsync(CancellationToken cancellationToken = default)
     {
         lock (gate)
         {
@@ -702,12 +696,12 @@ public sealed class ProcessorSession :
 
     private void EndExclusiveOperation() { lock (gate) operationActive = false; }
 
-    private sealed class ExclusiveGeneration(ProcessorSession owner, IRwkvGenerationScope inner) :
-        IRwkvGenerationScope, IRwkvAsyncGenerationSession
+    private sealed class ExclusiveGeneration(ProcessorSession owner, ITokenGenerationScope inner) :
+        ITokenGenerationScope, IAsyncTokenGenerationSession
     {
         private readonly object gate = new();
         private Task? shutdown;
-        public IRwkvGenerationSession Session => this;
+        public ITokenGenerationSession Session => this;
         public ReadOnlyMemory<float> ForwardToken(int token)
         {
             lock (owner.gate)
@@ -726,7 +720,7 @@ public sealed class ProcessorSession :
                 ObjectDisposedException.ThrowIf(owner.disposed, owner);
                 owner.owner.ThrowIfDisposed();
             }
-            if (inner.Session is not IRwkvAsyncGenerationSession asynchronous)
+            if (inner.Session is not IAsyncTokenGenerationSession asynchronous)
                 throw new NotSupportedException("Queued generation requires asynchronous inference support.");
             var result = await asynchronous.ForwardTokenAsync(token, cancellationToken).ConfigureAwait(false);
             lock (owner.gate)

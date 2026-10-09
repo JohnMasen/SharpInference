@@ -6,10 +6,13 @@ namespace SharpInference.Vm.Optimization;
 public sealed class VmExecutionGraphGenerator
 {
     private readonly InstructionRegistry instructions;
-    public VmExecutionGraphGenerator(InstructionTarget architecture, IEnumerable<IInstructionCollectionProvider> collections)
+    private readonly IGraphOperationLowerer? operationLowerer;
+    public VmExecutionGraphGenerator(InstructionTarget architecture, IEnumerable<IInstructionCollectionProvider> collections,
+        IGraphOperationLowerer? operationLowerer = null)
     {
         Architecture = architecture;
         instructions = new(collections);
+        this.operationLowerer = operationLowerer;
     }
     public InstructionTarget Architecture { get; }
     public IInstructionCollectionProvider InstructionCollections => instructions;
@@ -18,10 +21,12 @@ public sealed class VmExecutionGraphGenerator
 
     public VmProgram Generate(LogicalGraph graph, VmOptimizationOptions? options = null)
     {
+        graph = GraphOperationLowering.Apply(graph, operationLowerer);
         var target = Architecture == InstructionTarget.Cpu ? VmTarget.Cpu :
             Architecture == InstructionTarget.Direct3D12 ? VmTarget.Direct3D12 :
             throw new NotSupportedException($"No VM lowering is installed for '{Architecture}'.");
-        var result = VmGraphOptimizer.OptimizeWithReport(graph, target, options, instructions.QueryOptimizationCapabilities());
+        var result = VmGraphOptimizer.OptimizeWithReport(graph, target, options, instructions.QueryOptimizationCapabilities(),
+            instructions.QueryGraphInstructionBindings());
         var program = result.Program;
         foreach (var definition in program.Definitions)
             foreach (var operation in definition.Nodes.Select(node => node.Instruction).OfType<VmOperator>())

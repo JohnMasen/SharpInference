@@ -96,7 +96,7 @@ public sealed class ProcessorPipelineTests
     public void ProcessorLoad_AndSuppliedPortableGraphAgreeAcrossPrefillForkAndReset(bool rwkv7)
     {
         var model = rwkv7 ? TestModel.Rwkv7Fp32 : TestModel.Rwkv6;
-        using var automatic = Processor.Load(TestModelLoader.GetPath(model));
+        using var automatic = RwkvRuntimeFactory.Load(TestModelLoader.GetPath(model), SharpInference.Runtime.Cpu.CpuVmBackendFactory.Create());
         using var supplied = LoadPortable(rwkv7);
         using var first = automatic.CreateSession();
         using var second = supplied.CreateSession();
@@ -141,7 +141,7 @@ public sealed class ProcessorPipelineTests
             var configuration = prefill
                 ? new VmRuntimeConfig { PrefillProgramPath = path }
                 : new VmRuntimeConfig { ProgramPath = path };
-            Assert.Throws<InvalidDataException>(() => VmBackendFactory.CreateCpu(configuration));
+            Assert.Throws<InvalidDataException>(() => SharpInference.Runtime.Cpu.CpuVmBackendFactory.Create(configuration));
             using var catalog = TestModelLoader.OpenCatalog(TestModel.Rwkv6);
             Assert.Throws<InvalidDataException>(() => new XmlArchitectureMetadataReader(path).Read(catalog));
         }
@@ -182,5 +182,5 @@ public sealed class ProcessorPipelineTests
     private static Processor LoadPortable(bool rwkv7) =>
         Processor.LoadGraph(TestModelLoader.GetPath(rwkv7 ? TestModel.Rwkv7Fp32 : TestModel.Rwkv6),
             rwkv7 ? new PortableRwkv7GraphProvider() : new PortableRwkv6GraphProvider(),
-            VmBackendFactory.CreateCpu());
+            SharpInference.Runtime.Cpu.CpuVmBackendFactory.Create());
 }

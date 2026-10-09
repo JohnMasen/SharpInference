@@ -31,7 +31,7 @@ public static class TierOneReferencePrograms
                 new(GraphElementType.Float32, GraphElementType.Float32)));
         }
         return new(new("t1-reference", 1, $"t1-{operation}"),
-            new(count, 1, 1, 1, 1, "t1-reference"), resources,
+            new("pointwise", "t1-reference", new Dictionary<string, int> { ["elementCount"] = count }), resources,
             [new(new("root"), null, GraphRegionTypes.Graph, null, "root", new Dictionary<string, string>()),
                 new(new("pointwise"), new("root"), GraphRegionTypes.Stage, null, "pointwise", new Dictionary<string, string>())],
             nodes, definition.Inputs.Select(port => new ResourceId(port)).ToArray(), [new("output")],

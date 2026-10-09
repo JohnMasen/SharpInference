@@ -7,6 +7,7 @@ using Microsoft.Extensions.Configuration.EnvironmentVariables;
 using SharpInference;
 using SharpInference.Architectures.Rwkv6;
 using SharpInference.Runtime;
+using SharpInference.Applications;
 using SharpInference.Vm;
 using SharpInference.WebApi;
 
@@ -48,10 +49,9 @@ var serverOptions = builder.Configuration.GetSection("Server").Get<ServerOptions
 builder.WebHost.UseUrls(serverOptions.Urls);
 builder.Services.Configure<RwkvWebOptions>(builder.Configuration.GetSection("Rwkv"));
 builder.Services.AddSingleton(serviceProvider =>
-    new GpuBatchScheduler(
-        serviceProvider.GetRequiredService<Microsoft.Extensions.Options.IOptions<RwkvWebOptions>>().Value.GpuBatchService,
-        builder.Configuration["Rwkv:Runtime:Kind"], useVmQueues: true));
-builder.Services.AddSingleton<RwkvRuntimeFactory>();
+    serviceProvider.GetRequiredService<Microsoft.Extensions.Options.IOptions<RwkvWebOptions>>().Value.GpuBatchService);
+builder.Services.AddSingleton(RwkvApplicationComposition.CreateModelModules());
+builder.Services.AddSingleton<RwkvApplicationComposition>();
 builder.Services.AddSingleton<IModelTextTransfer, Rwkv6WorldTextTransfer>();
 builder.Services.AddSingleton<IModelTextTransfer, Rwkv7G1TextTransfer>();
 builder.Services.AddSingleton<ModelTextTransferResolver>();

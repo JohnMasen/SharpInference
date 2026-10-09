@@ -126,7 +126,7 @@ internal static class CpuCustomTensorBenchmark
         params (string Port, int[] Shape, Array Data)[] sources)
     {
         var builder = new LogicalGraphBuilder(new GraphIdentity("synthetic", 1, "cpu-tensor-benchmark"),
-                new GraphModelSignature(2, 2, 1, 1, 2, "synthetic.state"))
+                new GraphModelSignature("benchmark", "synthetic.state", new Dictionary<string, int>()))
             .AddRegion("root", GraphRegionTypes.Graph, "root")
             .AddResource("output", "output", GraphResourceKind.Output, GraphResourceLifetime.External,
                 new TensorDescriptor(GraphElementType.Float32, shape), graphOutput: true);

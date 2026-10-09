@@ -10,13 +10,13 @@ public sealed class TierZeroOperationContract
         Operation = operation;
         InputPorts = Array.AsReadOnly(inputPorts.ToArray());
         Signatures = Array.AsReadOnly(signatures.ToArray());
-        RequiredByRwkv = required;
+        RequiredByBaseProfile = required;
     }
 
     public GraphOperationId Operation { get; }
     public IReadOnlyList<string> InputPorts { get; }
     public IReadOnlyList<OperatorSignature> Signatures { get; }
-    public bool RequiredByRwkv { get; }
+    public bool RequiredByBaseProfile { get; }
     public KernelPrecisionProfile Precision { get; } =
         new(GraphElementType.Float32, GraphElementType.Float32);
 
@@ -35,7 +35,7 @@ public static class TierZeroOperationContracts
 
     public static IReadOnlyList<TierZeroOperationContract> Contracts { get; } = CreateContracts();
     public static IReadOnlyList<TierZeroOperationContract> RequiredContracts { get; } =
-        Array.AsReadOnly(Contracts.Where(contract => contract.RequiredByRwkv).ToArray());
+        Array.AsReadOnly(Contracts.Where(contract => contract.RequiredByBaseProfile).ToArray());
 
     private static readonly FrozenDictionary<GraphOperationId, TierZeroOperationContract> ByOperation =
         Contracts.ToFrozenDictionary(contract => contract.Operation);
@@ -87,6 +87,11 @@ public static class TierZeroOperationContracts
             var binding = node.Resources.Single(binding => binding.Port == port);
             if (!resources.TryGetValue(binding.Resource, out var resource))
                 throw Error($"unknown resource '{binding.Resource}'.");
+            if (binding.View is { } view)
+            {
+                view.Validate(resource.Tensor);
+                resource = resource with { Tensor = view.Tensor };
+            }
             if (resource.Tensor.Layout != "dense" || resource.Tensor.Dimensions.Count == 0)
                 throw Error("requires dense, non-scalar tensors.");
             return resource;

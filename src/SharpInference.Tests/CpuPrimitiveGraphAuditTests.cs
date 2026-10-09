@@ -5,7 +5,7 @@ namespace SharpInference.Tests;
 
 public sealed class CpuPrimitiveGraphAuditTests
 {
-    private static readonly GraphModelSignature Model = new(2, 2, 1, 1, 2, "audit.state");
+    private static readonly GraphModelSignature Model = TestGraphSignatures.Create(2, 2, 1, 1, 2, "audit.state");
 
     [Theory]
     [InlineData("core.copy", 2f, 4f)]
@@ -259,7 +259,7 @@ public sealed class CpuPrimitiveGraphAuditTests
         private sealed class HalfTensor(string name, Half[] values) : IModelTensor
         {
             public string Name => name;
-            public RwkvTensorDataType DataType => RwkvTensorDataType.Float16;
+            public TensorDataType DataType => TensorDataType.Float16;
             public IReadOnlyList<int> Dimensions => [2, 2];
             public ReadOnlySpan<float> FloatValues => [];
             public ReadOnlySpan<Half> HalfValues => values;

@@ -423,13 +423,16 @@ failure.
 
 ### Independent graph generation and backend assembly
 
-`VmExecutionGraphGenerator` owns its own injected IC catalog. Runtime's
+`VmExecutionGraphGenerator` owns its own injected IC catalog. The model-owned
 `RwkvRuntimeFactory.CreateGraphGenerator` selects RWKV-6/7 from model/GGUF
-metadata and the requested architecture; custom catalogs may be supplied.
+metadata and the requested target; its instruction catalog must be supplied explicitly.
 Backend compilers independently receive their provider instance collections
-in their constructors. Runtime factories are host composition conveniences,
+in their constructors. `Runtime.Cpu` and `Runtime.D3D12` own backend factories,
 with separate `instructionCollections` and `generatorCollections` parameters.
-`VmGraphBackend` itself never installs defaults.
+`SharpInference.Applications` owns explicit model registration and configuration
+aliases; shared Runtime never references this composition layer or concrete modules.
+`VmGraphBackend` itself never installs defaults. The transitional
+`Runtime.Compatibility` module has been removed.
 
 The host may load trusted provider assemblies and then inject instances.
 Backends do not scan directories, reflectively discover providers or load

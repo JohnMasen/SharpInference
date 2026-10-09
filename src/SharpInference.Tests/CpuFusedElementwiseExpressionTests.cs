@@ -105,7 +105,7 @@ public sealed class CpuFusedElementwiseExpressionTests(ITestOutputHelper output)
                 [new ElementwiseOperand(StepIndex: 1), new ElementwiseOperand(StepIndex: 0)]),
         ]);
         var logical = new LogicalGraphBuilder(new GraphIdentity("synthetic", 1, "branched"),
-                new GraphModelSignature(2, 2, 1, 1, 2, "synthetic.state"))
+                TestGraphSignatures.Create(2, 2, 1, 1, 2, "synthetic.state"))
             .AddRegion("root", GraphRegionTypes.Graph, "root")
             .AddResource("a", "a", GraphResourceKind.Input, GraphResourceLifetime.External,
                 new TensorDescriptor(GraphElementType.Float32, [width]), graphInput: true)
@@ -149,7 +149,7 @@ public sealed class CpuFusedElementwiseExpressionTests(ITestOutputHelper output)
             new(PrimitiveGraphOperations.Add, [new(StepIndex: 3), new(StepIndex: 0)]),
         ]);
         var logical = new LogicalGraphBuilder(new GraphIdentity("synthetic", 1, "branched-tanh"),
-                new GraphModelSignature(2, 2, 1, 1, 2, "synthetic.state"))
+                TestGraphSignatures.Create(2, 2, 1, 1, 2, "synthetic.state"))
             .AddRegion("root", GraphRegionTypes.Graph, "root")
             .AddResource("a", "a", GraphResourceKind.Input, GraphResourceLifetime.External,
                 new TensorDescriptor(GraphElementType.Float32, [width]), graphInput: true)
@@ -221,7 +221,7 @@ public sealed class CpuFusedElementwiseExpressionTests(ITestOutputHelper output)
             .Single(description => description.Operation.Name == name).Operation;
         var binary = FusedElementwiseExpressionContract.Arity(operation) == 2;
         var builder = new LogicalGraphBuilder(new GraphIdentity("synthetic", 1, name),
-                new GraphModelSignature(2, 2, 1, 1, 2, "synthetic.state"))
+                TestGraphSignatures.Create(2, 2, 1, 1, 2, "synthetic.state"))
             .AddRegion("root", GraphRegionTypes.Graph, "root")
             .AddResource("a", "a", GraphResourceKind.Input, GraphResourceLifetime.External,
                 new TensorDescriptor(GraphElementType.Float32, [2]), graphInput: true)
@@ -265,7 +265,7 @@ public sealed class CpuFusedElementwiseExpressionTests(ITestOutputHelper output)
     public void CompiledProcessorPipelineAcceptsElementwiseChainWithOptimizationOnAndOff()
     {
         var graph = new LogicalGraphBuilder(new GraphIdentity("synthetic", 1, "processor-expression"),
-                new GraphModelSignature(2, 2, 1, 1, 2, "synthetic.state.fp32@1"))
+                TestGraphSignatures.Create(2, 2, 1, 1, 2, "synthetic.state.fp32@1"))
             .AddRegion("root", GraphRegionTypes.Graph, "root")
             .AddResource("token", "token", GraphResourceKind.Input, GraphResourceLifetime.External,
                 new TensorDescriptor(GraphElementType.Int32, [1]), graphInput: true)
@@ -301,7 +301,7 @@ public sealed class CpuFusedElementwiseExpressionTests(ITestOutputHelper output)
             using var processor = new ProcessorPipelineBuilder("virtual-model")
                 .UseReader(new VirtualReader(), new GraphArchitectureMetadataReader(graph))
                 .UseProvider(new SuppliedLogicalGraphProvider(graph))
-                .UseBackend(VmBackendFactory.CreateCpu(), options)
+                .UseBackend(SharpInference.Runtime.Cpu.CpuVmBackendFactory.Create(), options)
                 .UsePortableGraphArchitecture()
                 .Build();
             using var session = processor.CreateSession();
@@ -334,8 +334,8 @@ public sealed class CpuFusedElementwiseExpressionTests(ITestOutputHelper output)
                 node.Operation == FusedElementwiseExpressionContract.Operation);
         }
 
-        using var off = Processor.LoadGraph(path, provider, VmBackendFactory.CreateCpu(), disabled);
-        using var onProcessor = Processor.LoadGraph(path, provider, VmBackendFactory.CreateCpu(), enabled);
+        using var off = Processor.LoadGraph(path, provider, SharpInference.Runtime.Cpu.CpuVmBackendFactory.Create(), disabled);
+        using var onProcessor = Processor.LoadGraph(path, provider, SharpInference.Runtime.Cpu.CpuVmBackendFactory.Create(), enabled);
         using var offSession = off.CreateSession();
         using var onSession = onProcessor.CreateSession();
         foreach (var token in new[] { 2, 4, 1 })
@@ -363,7 +363,7 @@ public sealed class CpuFusedElementwiseExpressionTests(ITestOutputHelper output)
 
     private static LogicalGraph BuildChain(int width) =>
         new LogicalGraphBuilder(new GraphIdentity("synthetic", 1, "fused-expression"),
-                new GraphModelSignature(2, 2, 1, 1, 2, "synthetic.state"))
+                TestGraphSignatures.Create(2, 2, 1, 1, 2, "synthetic.state"))
             .AddRegion("root", GraphRegionTypes.Graph, "root")
             .AddResource("a", "a", GraphResourceKind.Input, GraphResourceLifetime.External,
                 new TensorDescriptor(GraphElementType.Float32, [width]), graphInput: true)
@@ -432,7 +432,7 @@ public sealed class CpuFusedElementwiseExpressionTests(ITestOutputHelper output)
     private sealed class VirtualTensor(string name) : IModelTensor
     {
         public string Name => name;
-        public RwkvTensorDataType DataType => RwkvTensorDataType.Float32;
+        public TensorDataType DataType => TensorDataType.Float32;
         public IReadOnlyList<int> Dimensions => name == "table" ? [2, 2] : [2];
         public ReadOnlySpan<float> FloatValues => name == "table"
             ? [1f, 2f, 3f, 4f] : [10f, 20f];

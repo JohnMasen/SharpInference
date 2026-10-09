@@ -42,7 +42,7 @@ public sealed record InstructionSignature
     public IReadOnlyList<string> Attributes { get; }
     public KernelPrecisionProfile Precision { get; }
 }
-public sealed record InstructionIndexBound(string IndexPort, string TensorPort, int Axis);
+public sealed record InstructionIndexBound(string IndexPort, string TensorPort, int Axis, int MinimumIndex = 0);
 
 public abstract record InstructionParameter(string Name);
 public sealed record InstructionTensorParameter(
@@ -155,7 +155,7 @@ public sealed class InstructionAdaptationException : InvalidOperationException
         : base($"Instruction '{collectionId:D}/{name}' cannot adapt parameters: {reason}", inner) { }
 }
 
-public sealed class InstructionRegistry : IInstructionCollectionProvider, IInstructionOptimizationProvider
+public sealed class InstructionRegistry : IInstructionCollectionProvider, IInstructionOptimizationProvider, IGraphInstructionProvider
 {
     private readonly IReadOnlyList<IInstructionCollectionProvider> providers;
     private readonly IReadOnlyList<InstructionCollectionDescription> collections;
@@ -178,6 +178,27 @@ public sealed class InstructionRegistry : IInstructionCollectionProvider, IInstr
     }
 
     public IReadOnlyList<InstructionCollectionDescription> QueryInstructionCollection() => collections;
+
+    public IReadOnlyList<GraphInstructionBinding> QueryGraphInstructionBindings()
+    {
+        var bindings = providers.OfType<IGraphInstructionProvider>()
+            .SelectMany(provider => provider.QueryGraphInstructionBindings()).ToArray();
+        if (bindings.Any(binding => binding is null || string.IsNullOrWhiteSpace(binding.Operation.Name) ||
+            binding.Operation.Version <= 0 || string.IsNullOrWhiteSpace(binding.InstructionName)))
+            throw new InvalidDataException("Graph instruction bindings require a versioned operation and instruction name.");
+        if (bindings.GroupBy(binding => (binding.Operation, binding.Target)).Any(group => group.Count() != 1))
+            throw new InvalidDataException("Ambiguous graph instruction bindings for the same operation and target.");
+        foreach (var binding in bindings)
+        {
+            var instruction = Resolve(binding.CollectionId, binding.InstructionName, binding.Target);
+            var ports = binding.ReadWritePorts ?? [];
+            if (ports.Any(string.IsNullOrWhiteSpace) || ports.Distinct(StringComparer.Ordinal).Count() != ports.Count ||
+                !instruction.Signatures.Any(signature => ports.ToHashSet(StringComparer.Ordinal).SetEquals(
+                    signature.Ports.Where(port => port.Access == GraphResourceAccess.ReadWrite).Select(port => port.Name))))
+                throw new InvalidDataException($"Graph mapping '{binding.Operation}' has incompatible read/write ports.");
+        }
+        return Array.AsReadOnly(bindings);
+    }
 
     public IReadOnlyList<InstructionOptimizationCapability> QueryOptimizationCapabilities()
     {

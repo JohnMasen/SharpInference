@@ -110,9 +110,15 @@ public static class PortableTensorOperationContracts
 
         TensorDescriptor Get(string port)
         {
-            var id = node.Resources.Single(binding => binding.Port == port).Resource;
+            var binding = node.Resources.Single(binding => binding.Port == port);
+            var id = binding.Resource;
             if (!resources.TryGetValue(id, out var resource))
                 throw new InvalidDataException($"Tensor operation '{node.Id}' references unknown resource '{id}'.");
+            if (binding.View is { } view)
+            {
+                view.Validate(resource.Tensor);
+                resource = resource with { Tensor = view.Tensor };
+            }
             if (resource.Tensor.Layout != "dense" || resource.Tensor.Dimensions.Count == 0)
                 throw new InvalidDataException($"Tensor operation '{node.Id}' requires dense, non-scalar tensors.");
             return resource.Tensor;

@@ -65,7 +65,7 @@ public sealed class GpuTransformerInstructionTests
         var expectedOutput = expectedHidden.Zip(
             weight, (value, multiplier) => value * scale * multiplier).ToArray();
 
-        using var executor = new D3D12VmCompiler(DefaultInstructionCollections.Create())
+        using var executor = new D3D12VmCompiler(SharpInference.Runtime.D3D12.D3D12InstructionCollections.Create())
             .Compile(program)
             .CreateExecutor();
         executor.Upload("hidden", Bytes(hidden));
@@ -127,7 +127,7 @@ public sealed class GpuTransformerInstructionTests
             return gate / (1 + MathF.Exp(-gate)) * gateUp[count + index];
         }).ToArray();
 
-        using var executor = new D3D12VmCompiler(DefaultInstructionCollections.Create())
+        using var executor = new D3D12VmCompiler(SharpInference.Runtime.D3D12.D3D12InstructionCollections.Create())
             .Compile(program)
             .CreateExecutor();
         executor.Upload("gate_up", Bytes(gateUp));
@@ -174,7 +174,7 @@ public sealed class GpuTransformerInstructionTests
         float[] input = [1, -2, 3, -4];
         float[] update = [0.5f, 1, -1.5f, 2];
 
-        using var executor = new D3D12VmCompiler(DefaultInstructionCollections.Create())
+        using var executor = new D3D12VmCompiler(SharpInference.Runtime.D3D12.D3D12InstructionCollections.Create())
             .Compile(program)
             .CreateExecutor();
         executor.Upload("input", Bytes(input));
@@ -222,7 +222,7 @@ public sealed class GpuTransformerInstructionTests
                 expected[row * width + column] = rowValues[column] * scale * weight[column];
         }
 
-        using var executor = new D3D12VmCompiler(DefaultInstructionCollections.Create())
+        using var executor = new D3D12VmCompiler(SharpInference.Runtime.D3D12.D3D12InstructionCollections.Create())
             .Compile(program)
             .CreateExecutor();
         executor.Upload("input", Bytes(input));
@@ -263,7 +263,7 @@ public sealed class GpuTransformerInstructionTests
             40, 41, 42,
         ];
 
-        using var executor = new D3D12VmCompiler(DefaultInstructionCollections.Create())
+        using var executor = new D3D12VmCompiler(SharpInference.Runtime.D3D12.D3D12InstructionCollections.Create())
             .Compile(program)
             .CreateExecutor();
         executor.Upload("table", Bytes(table));
@@ -310,7 +310,7 @@ public sealed class GpuTransformerInstructionTests
             9, 9, 9, 9,
         ];
 
-        using var executor = new D3D12VmCompiler(DefaultInstructionCollections.Create())
+        using var executor = new D3D12VmCompiler(SharpInference.Runtime.D3D12.D3D12InstructionCollections.Create())
             .Compile(program)
             .CreateExecutor();
         executor.Upload("weight", HalfBytes(weight));
@@ -425,7 +425,7 @@ public sealed class GpuTransformerInstructionTests
             qkv, expectedKeyCache, expectedValueCache,
             batch, queryHeads, keyValueHeads, headSize, context, 1);
 
-        using var executor = new D3D12VmCompiler(DefaultInstructionCollections.Create())
+        using var executor = new D3D12VmCompiler(SharpInference.Runtime.D3D12.D3D12InstructionCollections.Create())
             .Compile(program)
             .CreateExecutor();
         executor.Upload("qkv", Bytes(qkv));

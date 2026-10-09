@@ -11,7 +11,7 @@ public sealed class CpuVmPrefillTests
     public void ExecutesForwardAndPowerOfTwoPrefillWithOffsetsAndFourIndependentStates()
     {
         var program = Program();
-        var artifact = new CpuVmCompiler(SharpInference.Runtime.DefaultInstructionCollections.Create()).Compile(program);
+        var artifact = new CpuVmCompiler(SharpInference.Runtime.Cpu.CpuInstructionCollections.Create()).Compile(program);
         var weights = MemoryMarshal.AsBytes(Enumerable.Range(1, 64).Select(i => (float)i).ToArray().AsSpan()).ToArray();
         var instances = Enumerable.Range(0, 4).Select(_ => artifact.CreateExecutor()).ToArray();
         try
@@ -43,7 +43,7 @@ public sealed class CpuVmPrefillTests
     public void ExecutesDirectlyThroughManagedExecutionLease()
     {
         var program = Program();
-        using var executor = new CpuVmCompiler(SharpInference.Runtime.DefaultInstructionCollections.Create()).Compile(program).CreateExecutor();
+        using var executor = new CpuVmCompiler(SharpInference.Runtime.Cpu.CpuInstructionCollections.Create()).Compile(program).CreateExecutor();
         using var bindings = new VmBindings(program);
         var owners = new List<VmResource>();
         var handles = new List<VmResourceLease>();

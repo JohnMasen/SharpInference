@@ -24,7 +24,7 @@ public sealed class CpuVmPublicationTests
         var directory = Path.Combine(Path.GetTempPath(), "cpuvm-source-" + Guid.NewGuid().ToString("N"));
         try
         {
-            new CpuVmCompiler(SharpInference.Runtime.DefaultInstructionCollections.Create()).GenerateSource(program).Export(directory, includeBinary: false);
+            new CpuVmCompiler(SharpInference.Runtime.Cpu.CpuInstructionCollections.Create()).GenerateSource(program).Export(directory, includeBinary: false);
             var paths = ((string)AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES")!).Split(Path.PathSeparator)
                 .Where(path => Path.GetFileNameWithoutExtension(path) is "SharpInference.Backends.CpuVm" or
                     "SharpInference.Backends.Cpu" or "SharpInference.Vm" or "SharpInference.Graphs" or

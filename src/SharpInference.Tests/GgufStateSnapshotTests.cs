@@ -161,5 +161,5 @@ public sealed class GgufStateSnapshotTests
 
     private static Processor LoadPortableModel() =>
         Processor.LoadGraph(TestModelLoader.GetPath(TestModel.Rwkv6),
-            new PortableRwkv6GraphProvider(), VmBackendFactory.CreateCpu());
+            new PortableRwkv6GraphProvider(), SharpInference.Runtime.Cpu.CpuVmBackendFactory.Create());
 }

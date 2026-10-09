@@ -2,6 +2,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using SharpInference.Runtime;
+using SharpInference.Applications;
 using SharpInference.WebApi;
 using Vortice.Direct3D;
 using Vortice.Direct3D12;
@@ -52,8 +53,8 @@ public sealed class GraphWebRuntimeTests
                 ["Rwkv:Runtime:Vortice:EnableCommandReplay"] = "true",
             }).Build();
         var error = Assert.Throws<InvalidOperationException>(() => new RwkvModelHost(
-            descriptor, config, new RwkvRuntimeFactory(),
-            new GpuBatchScheduler(new GpuBatchServiceOptions(), "cpu"),
+            descriptor, config, new RwkvApplicationComposition(RwkvApplicationComposition.CreateModelModules()),
+            new GpuBatchServiceOptions(),
             new ModelTextTransferResolver([new Rwkv6WorldTextTransfer(), new Rwkv7G1TextTransfer()]),
             new PromptStateManager(new PromptStateManagerOptions()),
             NullLogger<RwkvModelHost>.Instance));
@@ -73,8 +74,8 @@ public sealed class GraphWebRuntimeTests
                 ["Rwkv:Runtime:Vortice:EnableCommandReplay"] = "true",
             }).Build();
         var error = Assert.Throws<InvalidOperationException>(() => new RwkvModelHost(
-            descriptor, config, new RwkvRuntimeFactory(),
-            new GpuBatchScheduler(new GpuBatchServiceOptions(), "vortice"),
+            descriptor, config, new RwkvApplicationComposition(RwkvApplicationComposition.CreateModelModules()),
+            new GpuBatchServiceOptions(),
             new ModelTextTransferResolver([new Rwkv6WorldTextTransfer(), new Rwkv7G1TextTransfer()]),
             new PromptStateManager(new PromptStateManagerOptions()),
             NullLogger<RwkvModelHost>.Instance));
@@ -94,8 +95,8 @@ public sealed class GraphWebRuntimeTests
         var config = new ConfigurationBuilder().AddInMemoryCollection(
             new Dictionary<string, string?> { ["Rwkv:Runtime:Kind"] = kind }).Build();
         var error = Assert.Throws<InvalidOperationException>(() => new RwkvModelHost(
-            descriptor, config, new RwkvRuntimeFactory(),
-            new GpuBatchScheduler(new GpuBatchServiceOptions(), kind),
+            descriptor, config, new RwkvApplicationComposition(RwkvApplicationComposition.CreateModelModules()),
+            new GpuBatchServiceOptions(),
             new ModelTextTransferResolver([new Rwkv6WorldTextTransfer(), new Rwkv7G1TextTransfer()]),
             new PromptStateManager(new PromptStateManagerOptions()),
             NullLogger<RwkvModelHost>.Instance));

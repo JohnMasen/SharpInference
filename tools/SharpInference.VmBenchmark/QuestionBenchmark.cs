@@ -6,6 +6,8 @@ using System.Text.Json;
 using SharpInference;
 using SharpInference.Gguf;
 using SharpInference.Runtime;
+using SharpInference.Applications;
+using SharpInference.Runtime.D3D12;
 using SharpInference.Vm;
 using SharpInference.Vm.Optimization;
 using SharpInference.Backends.D3D12Vm;
@@ -50,16 +52,17 @@ internal static class QuestionBenchmark
         var initialization = Stopwatch.StartNew();
         string architecture;
         using (var catalog = GgmlModelFile.Open(path))
-            architecture = RwkvModelArchitectureDetector.Detect(catalog);
-        using var backend = arguments.Target == VmTarget.Cpu ? VmBackendFactory.CreateCpu(configuration) :
-            VmBackendFactory.CreateD3D12(configuration);
-        using var processor = Processor.LoadGraph(path, RwkvRuntimeFactory.CreateGraphProvider(architecture), backend);
+            architecture = RwkvApplicationComposition.CreateModelModules().Resolve(catalog).ArchitectureId;
+        using var backend = arguments.Target == VmTarget.Cpu ? SharpInference.Runtime.Cpu.CpuVmBackendFactory.Create(configuration) :
+            SharpInference.Runtime.D3D12.D3D12VmBackendFactory.Create(configuration);
+        using var processor = Processor.Load(path, new GgmlModelReader(), RwkvApplicationComposition.CreateModelModules(), backend);
+        var metadata = RwkvModelMetadata.FromModelMetadata(processor.Metadata);
         var tokenizer = RwkvTokenizerResolver.LoadForArchitecture(architecture);
-        if (tokenizer.TokenIds.Any(token => token >= processor.Metadata.VocabularySize))
+        if (tokenizer.TokenIds.Any(token => token >= metadata.VocabularySize))
             throw new InvalidDataException("The model does not cover the historical World tokenizer.");
         var prompts = Questions.Select(question => tokenizer.Encode($"User: {question}\n\nAssistant:").ToArray()).ToArray();
         if (prompts.Sum(prompt => prompt.Length) != 167 ||
-            prompts.Any(prompt => prompt.Any(token => token < 0 || token >= processor.Metadata.VocabularySize)))
+            prompts.Any(prompt => prompt.Any(token => token < 0 || token >= metadata.VocabularySize)))
             throw new InvalidDataException("Historical prompt-token contract changed.");
         initialization.Stop();
         var report = new Report(arguments.Required("variant"), arguments.Target.ToString(), path,
@@ -98,7 +101,7 @@ internal static class QuestionBenchmark
 
         void Save()
         {
-            report.TaskStatistics = backend.TaskStatistics;
+            report.TaskStatistics = (backend.Diagnostics as D3D12VmDiagnostics)?.TaskStatistics;
             File.WriteAllText(output + ".json", JsonSerializer.Serialize(report,
                 new JsonSerializerOptions { WriteIndented = true }));
         }
@@ -168,7 +171,7 @@ internal static class QuestionBenchmark
             if (!float.IsFinite(value)) throw new InvalidDataException("Nonfinite logits.");
     }
 
-    private sealed class TrackingSession(ProcessorSession session) : IRwkvGenerationSession, IRwkvScopedGenerationSession
+    private sealed class TrackingSession(ProcessorSession session) : ITokenGenerationSession, IScopedTokenGenerationSession
     {
         public List<int> Tokens { get; } = [];
         public ReadOnlyMemory<float> LastLogits { get; private set; }
@@ -178,11 +181,11 @@ internal static class QuestionBenchmark
             Tokens.Add(token);
             return LastLogits = session.ForwardToken(token);
         }
-        public async ValueTask<IRwkvGenerationScope> BeginGenerationAsync(CancellationToken cancellationToken = default) =>
+        public async ValueTask<ITokenGenerationScope> BeginGenerationAsync(CancellationToken cancellationToken = default) =>
             new Scope(this, await session.BeginGenerationAsync(cancellationToken));
-        private sealed class Scope(TrackingSession tracking, IRwkvGenerationScope inner) : IRwkvGenerationScope, IRwkvAsyncGenerationSession
+        private sealed class Scope(TrackingSession tracking, ITokenGenerationScope inner) : ITokenGenerationScope, IAsyncTokenGenerationSession
         {
-            public IRwkvGenerationSession Session => this;
+            public ITokenGenerationSession Session => this;
             public ReadOnlyMemory<float> Prefill(ReadOnlySpan<int> tokens) => throw new InvalidOperationException("Already prefilled.");
             public ReadOnlyMemory<float> ForwardToken(int token)
             {
@@ -193,7 +196,7 @@ internal static class QuestionBenchmark
                 CancellationToken cancellationToken = default)
             {
                 tracking.Tokens.Add(token);
-                tracking.LastLogits = inner.Session is IRwkvAsyncGenerationSession asynchronous
+                tracking.LastLogits = inner.Session is IAsyncTokenGenerationSession asynchronous
                     ? await asynchronous.ForwardTokenAsync(token, cancellationToken).ConfigureAwait(false)
                     : inner.Session.ForwardToken(token);
                 return tracking.LastLogits;

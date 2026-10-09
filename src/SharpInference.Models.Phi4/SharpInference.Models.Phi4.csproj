@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFrameworks>net10.0;net10.0-windows10.0.19041.0</TargetFrameworks>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\SharpInference.Abstractions\SharpInference.Abstractions.csproj" />
+    <ProjectReference Include="..\SharpInference.Graphs\SharpInference.Graphs.csproj" />
+    <ProjectReference Include="..\SharpInference.Instructions\SharpInference.Instructions.csproj" />
+    <ProjectReference Include="..\SharpInference.Gguf\SharpInference.Gguf.csproj" />
+    <PackageReference Include="System.Numerics.Tensors" Version="10.0.0" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(TargetFramework)' == 'net10.0-windows10.0.19041.0'">
+    <ProjectReference Include="..\SharpInference.Backends.D3D12Vm\SharpInference.Backends.D3D12Vm.csproj" />
+    <ProjectReference Include="..\SharpInference.Backends.CpuVm\SharpInference.Backends.CpuVm.csproj" />
+    <ProjectReference Include="..\SharpInference.Runtime\SharpInference.Runtime.csproj" />
+    <ProjectReference Include="..\SharpInference.Runtime.Cpu\SharpInference.Runtime.Cpu.csproj" />
+    <ProjectReference Include="..\SharpInference.Runtime.D3D12\SharpInference.Runtime.D3D12.csproj" />
+    <ProjectReference Include="..\SharpInference.Vm.Optimization\SharpInference.Vm.Optimization.csproj" />
+    <ProjectReference Include="..\SharpInference.Instructions.D3D12\SharpInference.Instructions.D3D12.csproj" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(TargetFramework)' == 'net10.0'">
+    <Compile Remove="Runtime\D3D12\**\*.cs" />
+    <Compile Remove="Instructions\D3D12\**\*.cs" />
+  </ItemGroup>
+</Project>

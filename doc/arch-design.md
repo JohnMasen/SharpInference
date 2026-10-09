@@ -86,13 +86,21 @@ src/
     SharpInference.Gguf.csproj
   SharpInference.Runtime/
     SharpInference.Runtime.csproj
-  SharpInference.Architectures.Rwkv6/
-    SharpInference.Architectures.Rwkv6.csproj
-    Loading/
+  SharpInference.Models.Rwkv/
+    SharpInference.Models.Rwkv.csproj
+    Architecture/
+      Rwkv6/
+      Rwkv7/
+    Resources/
     Runtime/
-  SharpInference.Architectures.Rwkv7/
-    SharpInference.Architectures.Rwkv7.csproj
-    PortableRwkv7GraphProvider.cs
+  SharpInference.Models.Phi4/
+    SharpInference.Models.Phi4.csproj
+    Architecture/
+    Instructions/
+      Cpu/
+      D3D12/
+    Runtime/
+      D3D12/
   SharpInference.Tests/
     SharpInference.Tests.csproj
     Architecture/
@@ -103,7 +111,13 @@ src/
     SharpInference.Gguf.Tests.csproj
 ```
 
-`SharpInference.Architectures.Rwkv7` 的逻辑图表达 rwkv.cpp GGML x070 FP32/FP16 权重的
+每个模型族仅有一个项目：`Models.Rwkv` 合并公共契约、词表、RWKV-6/7 图与运行时助手；
+`Models.Phi4` 合并模型架构、算子契约、CPU/D3D12 指令和直接组件。
+现有公开命名空间不变，目录区分内部职责。Phi4 同一项目同时提供 `net10.0` 与
+`net10.0-windows10.0.19041.0`，普通目标不编译 D3D12 指令/组件，也不引用 Windows 后端。
+通用指令、图、格式读取和后端适配器仍是独立的模型无关项目。
+
+`Models.Rwkv/Architecture/Rwkv7` 的逻辑图表达 rwkv.cpp GGML x070 FP32/FP16 权重的
 推理语义，由通用 CPU 或 GPU 图后端执行。x070 每层状态仍按 `ffn_xx`、
 `att_xx`、`att_heads` 排列，
 因此会话分叉、重置和状态快照 API 无需区分架构。快照中的架构 ID、模型哈希和
@@ -173,9 +187,9 @@ Application
     +--> SharpInference.Core ----------> SharpInference.Abstractions
     |          ^
     |          |
-    +--> SharpInference.Architectures.Rwkv6
+    +--> SharpInference.Models.Rwkv
     |
-    +--> SharpInference.Architectures.Rwkv7
+    +--> SharpInference.Models.Phi4
 ```
 
 `Abstractions` 不引用任何实现项目。`Core` 不引用某个特定版本插件；应用在启动
@@ -1028,7 +1042,7 @@ public interface IRuntime<TConfig>
 ```
 
 `IRuntimeConfig` 可位于 `SharpInference.Abstractions`，但这个返回 RWKV-6 算子后端的
-`IRuntime<TConfig>` 必须位于 `SharpInference.Architectures.Rwkv6` 或一个引用该项目的
+`IRuntime<TConfig>` 必须位于 `SharpInference.Models.Rwkv` 或一个引用该项目的
 composition 项目；`Abstractions` 不能反向引用架构项目。将来为 RWKV-7 增加 runtime
 时，使用它自己的 architecture-specific execution contract，而不把 x060 算子泄漏到
 公共模型/session API。
@@ -1047,11 +1061,12 @@ VorticeRuntime         <-> VorticeRuntimeConfig
 不接受 `IConfiguration`、`string`、字典或未检查的 `object`。任何未知 runtime Id、
 无法绑定的配置值、负 adapter index 或不支持的 capability 都必须在启动时抛出明确错误。
 
-配置根节固定为 `Rwkv:Runtime`。`Kind` 只用于选择已注册 runtime，其余配置放入同名的
-专属子节；没有读取到子节时 registry 使用 config 的无参默认构造函数。Web API 和
-Integration 都调用相同的 `RwkvRuntimeFactory.Create(configuration.GetSection("Rwkv:Runtime"))`，
-再把返回的 backend 注入 `new Rwkv6Architecture(backend)`。这使两种宿主的运行时选择、
-默认值、验证和日志一致。
+当前模型中立入口的配置根节仍为 `Rwkv:Runtime`。应用层
+`SharpInference.Applications.RwkvApplicationComposition` 显式注册 RWKV-6/7 模块，
+并在应用边界把 `Kind` 的 `cpu`、`d3d12`、`vortice` 别名映射到独立后端适配器。
+Web API 和 Integration 调用相同的 `CreateRuntime(runtimeSection, catalog)`，再向
+`ProcessorPipelineBuilder` 注入选定模型模块及后端工厂。配置校验、默认值和别名不属于
+共享 Runtime，也不属于模型模块；未注册或不支持的选择必须明确拒绝。
 
 ```json
 {
@@ -1114,11 +1129,12 @@ GGML file header 的 `version` 表示文件格式版本，不能用来识别 RWK
   -> 后端接管权重，释放 reader
 ```
 
-`RwkvRuntimeFactory.CreateRuntime` 根据 catalog 选择图 provider、tokenizer 与
-后端工厂；CPU 和 Vortice 均可运行 RWKV-6/7 的受支持基础算子图。
+`RwkvApplicationComposition.CreateRuntime` 从显式 `ModelGraphModuleRegistry` 中
+按 catalog 契约选择模块和 tokenizer，并提供应用选定的 CPU/D3D12 后端工厂。
+模型识别不依赖文件名；共享 Runtime 不安装模型或后端默认值。
 GPU 设备只在管线后端步骤构造，避免前置读图失败时泄漏设备。
-其他 tensor contract 在内置自动检测阶段直接拒绝；调用方仍可通过
-`Processor.LoadGraph` 注入自定义的完整逻辑图和通用后端。
+没有匹配模块或多个模块同时匹配时明确拒绝；其他模型可显式注册自己的模块，
+也可通过 `Processor.LoadGraph` 注入完整逻辑图和通用后端。
 
 ## 12. OpenAI 兼容 Web API
 
@@ -1450,30 +1466,32 @@ token prefill 仍使用共享队列，保持原有批量预填充行为。关闭
 观察到串行与并发总吞吐接近，而排队请求的首 token 可以更早完成，该数据不能外推为
 8-token 并发批次的性能结论。
 
-Web API 的 `Rwkv:GpuBatchService:MaxInFlightGenerationBatches` 是跨所有生成请求的
-全局并发上限。暂时使用 `0` 作为自动值：CPU 为逻辑核数的一半（至少 1），
-Vortice GPU 为 4；正整数直接指定上限。此临时启发式方案未来将由实际测量和
-资源调度策略替代。GPU 的 `MaxResidentGpuSessions` 仍为 64，CPU 不受 GPU
-驻留上限约束。请求结束时释放 session GPU state；
-其他直接使用 `RwkvModel.CreateSession()` 的调用方也应 `Dispose` 会话。
-在需要限制资源占用或恢复单请求执行时将并发上限设为 1。并发提交不代表 GPU
-kernel 必然在硬件上重叠，应结合 GPU timeline 判断。
+当前 Web API 根据 `ProcessorCapabilities.Execution` 调度，不根据 backend 名称或
+逻辑核数猜测并发能力。通用调度的 `MaxInFlightGenerationBatches = 0` 使用
+`MaximumConcurrentSessions`；正数只能降低该能力上限，不能提高它。
+Compiled VM 使用既有 VM 队列和 `Rwkv:Runtime:Vm:InferenceInstances`，不增加第二个
+等待队列，且必须保留 `MaxInFlightGenerationBatches = 0`。
+仅当后端声明 `RequiresResidentSessionAdmission` 时启用驻留准入，其容量为
+`min(MaxResidentGpuSessions, MaximumConcurrentSessions)`；VM 驻留满额立即拒绝。
+CPU 不声明此能力，因此不受 GPU 驻留配置约束。请求结束时释放 session state，
+直接使用 `Processor.CreateSession()` 的调用方也应 `Dispose` 会话。
+并发提交不代表 GPU kernel 必然在硬件上重叠，应结合 GPU timeline 判断。
 
 对 32 layers、embedding 4096、64 heads、head size 64 的 7B 模型，一份 FP32 WKV6 state
 为 32 MiB，两个 previous-x 向量合计约 1 MiB。加入 scratch、logits、control buffers 和
 资源对齐后，按 40 MiB/GPU session 规划。
 
 远端 7900 XTX 的当前 Vortice budget 为约 20.10 GiB；7B FP16 weights 为约 14.23 GiB，
-余量约 5.88 GiB。因此初始生产限制为：
+余量约 5.88 GiB。以下为旧 Vortice 实现的历史限制，不适用于当前 VM 组装入口：
 
 ```text
 GenerationBatchTokens        = 8
 MaxResidentGpuSessions       = 64
-MaxInFlightGenerationBatches = 0  # 自动：CPU max(1, cores/2)；GPU 4
+MaxInFlightGenerationBatches = 0  # 历史启发式：CPU max(1, cores/2)；GPU 4
 ```
 
-64 是可申请的 GPU session 上限，不表示 64 个 7B 请求同时运行；自动模式的 GPU
-默认最多 4 个生成请求并发，空闲 session 由请求结束时显式释放。
+历史配置中的 64 不表示 64 个 7B 请求同时运行。当前 VM 的并发与驻留限制由执行能力
+及 `InferenceInstances` 共同约束，空闲 session 由请求结束时显式释放。
 跨 session 同 stage batching 是独立的后续优化。
 稳定压力测试后才考虑提高 resident limit；不应按物理 24 GiB 而应按 runtime local-memory
 budget 分配。

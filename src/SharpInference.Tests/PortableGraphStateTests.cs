@@ -58,7 +58,7 @@ public sealed class PortableGraphStateTests
             [], graph.Inputs, graph.Outputs, graph.GraphState);
         var metadata = new GraphArchitectureMetadataReader(logical).Read(new EmptyCatalog());
         Assert.Equal("test-model", metadata.ArchitectureId);
-        Assert.Equal(4, metadata.VocabularySize);
+        Assert.Equal(4L, metadata.Dimensions["vocabulary"]);
     }
 
     [Fact]
@@ -74,7 +74,7 @@ public sealed class PortableGraphStateTests
     {
         var graph = new LogicalGraphBuilder(
                 new GraphIdentity("test-model", 1, "test.forward"),
-                new GraphModelSignature(4, 2, 1, 1, 2, "test-model.state.fp32@1"))
+                TestGraphSignatures.Create(4, 2, 1, 1, 2, "test-model.state.fp32@1"))
             .SetStateSchema(new StateSchema("Test_State"))
             .AddRegion("graph", GraphRegionTypes.Graph, "Graph")
             .AddResource("token", "Token", GraphResourceKind.Input,

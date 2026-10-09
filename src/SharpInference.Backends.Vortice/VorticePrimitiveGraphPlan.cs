@@ -33,6 +33,8 @@ public sealed class VorticePrimitiveGraphPlan : IBackendExecutablePlan
     public static VorticePrimitiveGraphPlan Compile(ExecutionGraph graph)
     {
         ArgumentNullException.ThrowIfNull(graph);
+        if (graph.Nodes.Any(node => node.Resources.Any(binding => binding.View is not null)))
+            throw new NotSupportedException("The primitive reference backend does not support tensor-view bindings; use a VM adapter.");
         var resources = graph.Resources.ToDictionary(resource => resource.Id);
         var completed = new HashSet<ExecutionNodeId>();
         var initialized = graph.Resources

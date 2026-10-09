@@ -278,7 +278,7 @@ public sealed class GpuMatVecTests
         Assert.NotEmpty(result.MatVecReport.Diagnostics);
     }
 
-    private static D3D12VmCompiler Compiler() => new(DefaultInstructionCollections.Create());
+    private static D3D12VmCompiler Compiler() => new(SharpInference.Runtime.D3D12.D3D12InstructionCollections.Create());
     private static VmDispatch Dispatch(VmProgram program) => program.Definitions.SelectMany(definition => definition.Nodes)
         .Select(node => node.Instruction).OfType<VmDispatch>().Single();
     private static VmProgram Clone(VmProgram program, VmDefinition? kernel = null, VmDefinition? root = null) =>

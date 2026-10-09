@@ -37,7 +37,7 @@ public sealed class D3D12VmTests(ITestOutputHelper output)
     [Fact]
     public void LeaseBuffersExecuteMappedForwardAndPrefillWithEntryScopedTokenValidation()
     {
-        var graph = new LogicalGraph(new("test", 1, "tokens"), new(4, 4, 1, 1, 4, "test.state"),
+        var graph = new LogicalGraph(new("test", 1, "tokens"), TestGraphSignatures.Create(4, 4, 1, 1, 4, "test.state"),
             [
                 new(new("table"), "table", GraphResourceKind.Weight, GraphResourceLifetime.Model,
                         new(GraphElementType.Float16, [4, 4]), "table"),
@@ -475,10 +475,10 @@ public sealed class D3D12VmTests(ITestOutputHelper output)
 
     private static object Compile(VmProgram program) =>
         Invoke(Type("D3D12VmCompiler").GetMethod("Compile")!,
-            Activator.CreateInstance(Type("D3D12VmCompiler"), [SharpInference.Runtime.DefaultInstructionCollections.Create()]), program, null);
+            Activator.CreateInstance(Type("D3D12VmCompiler"), [SharpInference.Runtime.D3D12.D3D12InstructionCollections.Create()]), program, null);
     private static IReadOnlyDictionary<string, string> Sources(VmProgram program) =>
         (IReadOnlyDictionary<string, string>)Invoke(Type("D3D12VmCompiler").GetMethod("GenerateSources")!,
-            Activator.CreateInstance(Type("D3D12VmCompiler"), [SharpInference.Runtime.DefaultInstructionCollections.Create()]), program);
+            Activator.CreateInstance(Type("D3D12VmCompiler"), [SharpInference.Runtime.D3D12.D3D12InstructionCollections.Create()]), program);
     private static object Import(Stream stream) => Invoke(Type("D3D12VmArtifact").GetMethod("Import")!, null, stream);
     private static void Export(object artifact, Stream stream) => Invoke(artifact.GetType().GetMethod("Export")!, artifact, stream);
     private (ID3D12Device Device, string Name) Device()
@@ -1004,7 +1004,7 @@ public sealed class D3D12VmTests(ITestOutputHelper output)
                 Resource("output", SharpInference.Graphs.GraphResourceKind.Output),
             };
         var graph = new SharpInference.Graphs.LogicalGraph(new("test", 1, "mapped"),
-            new(4, 4, 1, 1, 4, "test.state"), resources,
+            TestGraphSignatures.Create(4, 4, 1, 1, 4, "test.state"), resources,
             [new(new("root"), null, "graph", null, "root", new Dictionary<string, string>())],
             [Node("copy1", "core.copy", "input", "a"),
                     Node("square", "core.square", "a", "b", "copy1"),

@@ -165,7 +165,8 @@ public static class VmProgramXml
                         new XAttribute("name", pair.Key), new XAttribute("value", pair.Value)))),
                 new XElement("IndexBounds", operation.IndexBounds.Select(bound => new XElement("Bound",
                     new XAttribute("index", bound.IndexPort), new XAttribute("tensor", bound.TensorPort),
-                    new XAttribute("axis", bound.Axis)))),
+                    new XAttribute("axis", bound.Axis),
+                    bound.MinimumIndex == 0 ? null : new XAttribute("minimumIndex", bound.MinimumIndex)))),
                 new XElement("ParameterAccesses", operation.ParameterAccesses.OrderBy(pair => pair.Key, StringComparer.Ordinal)
                     .Select(pair => new XElement("Port", new XAttribute("name", pair.Key), new XAttribute("access", pair.Value))))),
             VmCall call => new XElement("Call", new XAttribute("definition", call.Definition),
@@ -236,8 +237,9 @@ public static class VmProgramXml
                     ReadArguments(instruction), attributes,
                     OptionalOne(instruction, "IndexBounds")?.Elements().Select(bound =>
                     {
-                        Check(bound, "Bound", ["index", "tensor", "axis"], []);
-                        return new InstructionIndexBound(Required(bound, "index"), Required(bound, "tensor"), Int(bound, "axis"));
+                        Check(bound, "Bound", ["index", "tensor", "axis", "minimumIndex"], []);
+                        return new InstructionIndexBound(Required(bound, "index"), Required(bound, "tensor"), Int(bound, "axis"),
+                            bound.Attribute("minimumIndex") is null ? 0 : Int(bound, "minimumIndex"));
                     }), OptionalOne(instruction, "ParameterAccesses")?.Elements().ToDictionary(port =>
                     {
                         Check(port, "Port", ["name", "access"], []);

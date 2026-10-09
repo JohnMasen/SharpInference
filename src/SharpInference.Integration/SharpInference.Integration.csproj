@@ -1,12 +1,14 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
     <ProjectReference Include="..\SharpInference.Abstractions\SharpInference.Abstractions.csproj" />
     <ProjectReference Include="..\SharpInference.Core\SharpInference.Core.csproj" />
-    <ProjectReference Include="..\SharpInference.Architectures.Rwkv6\SharpInference.Architectures.Rwkv6.csproj" />
-    <ProjectReference Include="..\SharpInference.Architectures.Rwkv7\SharpInference.Architectures.Rwkv7.csproj" />
+    <ProjectReference Include="..\SharpInference.Models.Rwkv\SharpInference.Models.Rwkv.csproj" />
     <ProjectReference Include="..\SharpInference.Backends.D3D12Vm\SharpInference.Backends.D3D12Vm.csproj" />
     <ProjectReference Include="..\SharpInference.Runtime\SharpInference.Runtime.csproj" />
+    <ProjectReference Include="..\SharpInference.Runtime.Cpu\SharpInference.Runtime.Cpu.csproj" />
+    <ProjectReference Include="..\SharpInference.Runtime.D3D12\SharpInference.Runtime.D3D12.csproj" />
+    <ProjectReference Include="..\SharpInference.Applications\SharpInference.Applications.csproj" />
     <ProjectReference Include="..\SharpInference.Graphs\SharpInference.Graphs.csproj" />
     <ProjectReference Include="..\SharpInference.Gguf\SharpInference.Gguf.csproj" />
   </ItemGroup>

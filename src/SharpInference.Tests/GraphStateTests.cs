@@ -6,7 +6,7 @@ public sealed class GraphStateTests
 {
     private static LogicalGraph CreateGraph() =>
         new LogicalGraphBuilder(new GraphIdentity("rwkv6", 1, "state"),
-            new GraphModelSignature(16, 8, 1, 2, 4, "rwkv6.state.v1"))
+            TestGraphSignatures.Create(16, 8, 1, 2, 4, "rwkv6.state.v1"))
             .AddRegion("root", GraphRegionTypes.Graph, "root")
             .AddResource("token", "token", GraphResourceKind.Input, GraphResourceLifetime.External,
                 new TensorDescriptor(GraphElementType.Int32, [1]), graphInput: true)

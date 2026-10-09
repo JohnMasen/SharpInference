@@ -253,7 +253,7 @@ public sealed class GraphXmlTests
     }
 
     [Theory]
-    [InlineData("version=\"1\"", "version=\"2\"")]
+    [InlineData("version=\"1\"", "version=\"99\"")]
     [InlineData("kind=\"LogicalGraph\"", "kind=\"logicalgraph\"")]
     [InlineData("access=\"Read\"", "access=\"Invalid\"")]
     [InlineData("resource=\"input\"", "resource=\"missing\"")]
@@ -301,7 +301,7 @@ public sealed class GraphXmlTests
                 new PrecisionRequirement(GraphElementType.Float16, GraphElementType.Float32)),
         };
         return new LogicalGraph(new GraphIdentity("test", 2, "special < & \" graph"),
-            new GraphModelSignature(16, 8, 1, 2, 4, "state.abi"), resources, regions, nodes,
+            TestGraphSignatures.Create(16, 8, 1, 2, 4, "state.abi"), resources, regions, nodes,
             [new ResourceId("input")], [new ResourceId("output")]);
     }
 }

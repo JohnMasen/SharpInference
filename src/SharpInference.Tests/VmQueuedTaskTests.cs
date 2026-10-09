@@ -123,7 +123,7 @@ public sealed class VmQueuedTaskTests
     public void GpuTaskSwitchesSessionsWithoutRerecordingAndRejectsInvalidInputsBeforeExecution()
     {
         var program = D3D12VmTests.AccumulatingProgram();
-        var artifact = new D3D12VmCompiler(DefaultInstructionCollections.Create()).Compile(program);
+        var artifact = new D3D12VmCompiler(SharpInference.Runtime.D3D12.D3D12InstructionCollections.Create()).Compile(program);
         var (device, _) = D3D12VmDeviceFactory.Create();
         using (device)
         using (var pool = new D3D12VmResourcePool(device))
@@ -179,7 +179,7 @@ public sealed class VmQueuedTaskTests
     public async Task GpuQueuedWorkersPreserveStateAcrossSnapshotsResetAndMultipleSessions()
     {
         var program = VmGraphOptimizer.Optimize(VmInferenceTests.Graph(), VmTarget.Direct3D12, new(PrefillCapacity: 8));
-        var artifact = new D3D12VmCompiler(DefaultInstructionCollections.Create()).Compile(program);
+        var artifact = new D3D12VmCompiler(SharpInference.Runtime.D3D12.D3D12InstructionCollections.Create()).Compile(program);
         var (device, _) = D3D12VmDeviceFactory.Create();
         using (device)
         using (var pool = new D3D12VmResourcePool(device))

@@ -140,8 +140,8 @@ public sealed class VorticePrimitiveGraphExecutor : IModelWeightOwnershipPolicy,
                     var tensor = model.Tensors.GetRequired(resource.BindingKey!);
                     if (resource.Tensor.ElementType != (tensor.DataType switch
                         {
-                            RwkvTensorDataType.Float16 => GraphElementType.Float16,
-                            RwkvTensorDataType.Float32 => GraphElementType.Float32,
+                            TensorDataType.Float16 => GraphElementType.Float16,
+                            TensorDataType.Float32 => GraphElementType.Float32,
                             _ => throw new InvalidDataException($"Unsupported tensor type for '{resource.Id}'."),
                         }) ||
                         !resource.Tensor.Dimensions.SequenceEqual(tensor.Dimensions))
@@ -151,7 +151,7 @@ public sealed class VorticePrimitiveGraphExecutor : IModelWeightOwnershipPolicy,
                 }).ToArray();
             foreach (var (id, tensor) in weights)
             {
-                if (tensor.DataType == RwkvTensorDataType.Float16)
+                if (tensor.DataType == TensorDataType.Float16)
                     UploadWeight(id, tensor.HalfValues);
                 else
                     UploadWeight(id, tensor.FloatValues);

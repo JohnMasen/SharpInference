@@ -27,14 +27,10 @@ try
         throw new ArgumentException("Select a supported target ('cpu'/'d3d12') and supply the required arguments.");
     var target = args[1] == "cpu" ? VmTarget.Cpu : VmTarget.Direct3D12;
     using var catalog = GgmlModelFile.Open(args[2]);
-    var architecture = RwkvModelArchitectureDetector.Detect(catalog);
-    ILogicalGraphProvider provider = architecture switch
-    {
-        "rwkv-6" => new PortableRwkv6GraphProvider(),
-        "rwkv-7" => new PortableRwkv7GraphProvider(),
-        _ => throw new NotSupportedException($"Unsupported model architecture '{architecture}'."),
-    };
-    var logical = provider.Build(catalog);
+    var modules = new ModelGraphModuleRegistry();
+    modules.Register(new Rwkv6ModelModule());
+    modules.Register(new Rwkv7ModelModule());
+    var logical = modules.Build(catalog).Graph;
     if (args[0] == "build")
     {
         var sourceOnly = args[^1] == "--source-only";
@@ -43,14 +39,14 @@ try
         var program = count == 5 ? ReadProgram(args[4]) : VmGraphOptimizer.Optimize(logical, target);
         if (target == VmTarget.Cpu)
         {
-            var compiler = new CpuVmCompiler(SharpInference.Runtime.DefaultInstructionCollections.Create());
+            var compiler = new CpuVmCompiler(SharpInference.Runtime.Cpu.CpuInstructionCollections.Create());
             var artifact = sourceOnly ? compiler.GenerateSource(program) : compiler.Compile(program);
             artifact.Export(args[3], includeBinary: !sourceOnly);
         }
         else
         {
             if (sourceOnly) throw new ArgumentException("DXIL publication requires a compiled package; --source-only is CPU-only.");
-            var artifact = new D3D12VmCompiler(SharpInference.Runtime.DefaultInstructionCollections.Create()).Compile(program);
+            var artifact = new D3D12VmCompiler(SharpInference.Runtime.D3D12.D3D12InstructionCollections.Create()).Compile(program);
             Directory.CreateDirectory(args[3]);
             using var destination = File.Create(Path.Combine(args[3], "program.vm.zip"));
             artifact.Export(destination);
@@ -96,10 +92,10 @@ try
                 cancellation.ThrowIfCancellationRequested();
                 if (target == VmTarget.Cpu)
                 {
-                    var artifact = new CpuVmCompiler(SharpInference.Runtime.DefaultInstructionCollections.Create()).Compile(program);
+                    var artifact = new CpuVmCompiler(SharpInference.Runtime.Cpu.CpuInstructionCollections.Create()).Compile(program);
                     return ValueTask.FromResult<Func<IVmExecutable>>(() => artifact.CreateExecutor());
                 }
-                var gpuArtifact = new D3D12VmCompiler(SharpInference.Runtime.DefaultInstructionCollections.Create()).Compile(program);
+                var gpuArtifact = new D3D12VmCompiler(SharpInference.Runtime.D3D12.D3D12InstructionCollections.Create()).Compile(program);
                 return ValueTask.FromResult<Func<IVmExecutable>>(() => gpuArtifact.CreateExecutor(
                     pool ?? throw new InvalidOperationException("The tuning GPU pool is not initialized.")));
             }, Initialize, new(args[4], args[5], args[1], args[6]),

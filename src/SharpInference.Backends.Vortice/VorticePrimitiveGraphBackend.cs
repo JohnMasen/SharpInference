@@ -197,7 +197,7 @@ public sealed class VorticePrimitiveGraphBackend : IGraphModelWeightBackend, IDi
     }
 
     public IProcessorSessionExecutor CreateSessionExecutor(
-        IRwkvModel model, IRwkvState state, IBackendExecutablePlan plan)
+        IModel model, IModelState state, IBackendExecutablePlan plan)
     {
         ObjectDisposedException.ThrowIf(disposed, this);
         if (executor is null)
@@ -216,7 +216,7 @@ public sealed class VorticePrimitiveGraphBackend : IGraphModelWeightBackend, IDi
             graph.Resources.Single(resource => resource.Id == graph.Inputs[0]).Tensor.ElementType != GraphElementType.Int32 ||
             !graph.Resources.Single(resource => resource.Id == graph.Inputs[0]).Tensor.Dimensions.SequenceEqual([1]) ||
             outputResource?.Tensor.ElementType != GraphElementType.Float32 ||
-            !outputResource.Tensor.Dimensions.SequenceEqual([portable.Metadata.VocabularySize]))
+            outputResource.Tensor.Dimensions.Count != 1)
             throw new NotSupportedException(
                 "The token session adapter requires an Int32[1] input and FP32[vocabulary] output; use CreateSession/ExecuteToken for other graphs.");
         var session = executor.CreateSession();
@@ -224,7 +224,7 @@ public sealed class VorticePrimitiveGraphBackend : IGraphModelWeightBackend, IDi
         {
             var bridge = new VorticePrimitiveGraphStateBridge(session, portableState, graph);
             return new TokenSession(session, bridge, graph.Inputs[0], graph.Outputs[0],
-                portable.Metadata.VocabularySize);
+                outputResource.Tensor.Dimensions[0]);
         }
         catch
         {

@@ -8,6 +8,7 @@ using SharpInference.Architectures.Phi4.D3D12;
 using SharpInference.Gguf;
 using SharpInference.Graphs;
 using SharpInference.Runtime;
+using SharpInference.Applications;
 using SharpInference.Vm;
 #if TIER_ONE
 using SharpInference.Backends.CpuVm;
@@ -65,11 +66,9 @@ var configuration = new VmRuntimeConfig
 if (arguments.Optional("profile") is not null) throw new ArgumentException("The main baseline does not expose the T1 API.");
 #endif
 var setup = Stopwatch.StartNew();
-using var backend = target == VmTarget.Cpu ? VmBackendFactory.CreateCpu(configuration) :
-    VmBackendFactory.CreateD3D12(configuration);
-using var processor = Processor.LoadGraph(path, RwkvRuntimeFactory.CreateGraphProvider(
-    Path.GetFileName(path).Contains("060", StringComparison.OrdinalIgnoreCase) ||
-    Path.GetFileName(path).Contains("rwkv-6", StringComparison.OrdinalIgnoreCase) ? "rwkv-6" : "rwkv-7"), backend);
+using var backend = target == VmTarget.Cpu ? SharpInference.Runtime.Cpu.CpuVmBackendFactory.Create(configuration) :
+    SharpInference.Runtime.D3D12.D3D12VmBackendFactory.Create(configuration);
+using var processor = Processor.Load(path, new GgmlModelReader(), RwkvApplicationComposition.CreateModelModules(), backend);
 using var session = processor.CreateSession();
 setup.Stop();
 var warmup = Stopwatch.StartNew();
@@ -137,7 +136,7 @@ if (configuration.TierOneCostProfile is not null && tierOneCount == 0)
     Console.WriteLine("WARNING: profile supplied but no T1 selected; this is a baseline-retained measurement, not evidence of T1 speedup.");
 object? decision = backend.OptimizationReport;
 object? matVecDecision = backend.MatVecOptimizationReport;
-var hardware = VmTierOneEnvironment.HardwareIdentity(target);
+var hardware = (target == VmTarget.Cpu ? SharpInference.Runtime.Cpu.CpuVmEnvironment.HardwareIdentity() : SharpInference.Runtime.D3D12.D3D12VmEnvironment.HardwareIdentity());
 #else
 var tierOneCount = 0;
 object? decision = null;
@@ -442,14 +441,13 @@ internal static class OfflineProfiler
     public static void Run(Arguments arguments)
     {
         var target = arguments.Target;
-        var registry = new InstructionRegistry(DefaultInstructionCollections.Create());
+        var registry = new InstructionRegistry(target == VmTarget.Cpu ? SharpInference.Runtime.Cpu.CpuInstructionCollections.Create() : SharpInference.Runtime.D3D12.D3D12InstructionCollections.Create());
         var capabilities = registry.QueryOptimizationCapabilities();
         var cases = new Dictionary<string, (InstructionOptimizationCapability Capability, int[] Shape)>(StringComparer.Ordinal);
         foreach (var path in arguments.Required("models").Split('|'))
         {
             using var catalog = GgmlModelFile.Open(path);
-            var graph = RwkvRuntimeFactory.CreateGraphProvider(Path.GetFileName(path).Contains("060", StringComparison.OrdinalIgnoreCase) ||
-                Path.GetFileName(path).Contains("rwkv-6", StringComparison.OrdinalIgnoreCase) ? "rwkv-6" : "rwkv-7").Build(catalog);
+            var graph = RwkvApplicationComposition.CreateModelModules().Build(catalog).Graph;
             var execution = new GraphOptimizer().Optimize(graph,
                 new GraphOptimizationOptions(OptimizationBoundary.Off, DefinitionPolicy: GraphDefinitionPolicy.PreserveExpanded));
             foreach (var candidate in TierOnePatternMatcher.Find(execution, capabilities, target))
@@ -475,7 +473,7 @@ internal static class OfflineProfiler
             double[] optimized;
             if (target == VmTarget.Cpu)
             {
-                var compiler = new CpuVmCompiler(DefaultInstructionCollections.Create());
+                var compiler = new CpuVmCompiler(SharpInference.Runtime.Cpu.CpuInstructionCollections.Create());
                 using var oldCode = compiler.Compile(reference).LoadExecutable();
                 using var newCode = compiler.Compile(fused).LoadExecutable();
                 var oldBuffers = Buffers(reference, inputs);
@@ -487,7 +485,7 @@ internal static class OfflineProfiler
             }
             else
             {
-                var compiler = new D3D12VmCompiler(DefaultInstructionCollections.Create());
+                var compiler = new D3D12VmCompiler(SharpInference.Runtime.D3D12.D3D12InstructionCollections.Create());
                 using var oldCode = compiler.Compile(reference).CreateExecutor();
                 using var newCode = compiler.Compile(fused).CreateExecutor();
                 foreach (var (port, input) in inputs) { oldCode.Upload(port, input); newCode.Upload(port, input); }
@@ -503,11 +501,11 @@ internal static class OfflineProfiler
             Console.WriteLine($"{target} {item.Key}: conservative delta {measurement.ConservativeSavingMicroseconds:F3} us; " +
                 (measurement.ConservativeSavingMicroseconds > 0 ? "eligible" : "T0 retained"));
         }
-        var profile = new TierOneCostProfile(VmTierOneEnvironment.Fingerprint(target), DateTimeOffset.UtcNow, measurements);
+        var profile = new TierOneCostProfile((target == VmTarget.Cpu ? SharpInference.Runtime.Cpu.CpuVmEnvironment.Fingerprint() : SharpInference.Runtime.D3D12.D3D12VmEnvironment.Fingerprint()), DateTimeOffset.UtcNow, measurements);
         var output = Path.GetFullPath(arguments.Required("output"));
         Directory.CreateDirectory(Path.GetDirectoryName(output)!);
         File.WriteAllText(output, profile.Serialize());
-        Console.WriteLine($"Saved {measurements.Count} measurements; hardware: {VmTierOneEnvironment.HardwareIdentity(target)}.");
+        Console.WriteLine($"Saved {measurements.Count} measurements; hardware: {(target == VmTarget.Cpu ? SharpInference.Runtime.Cpu.CpuVmEnvironment.HardwareIdentity() : SharpInference.Runtime.D3D12.D3D12VmEnvironment.HardwareIdentity())}.");
     }
 
     private static VmProgram Repeat(VmProgram program, int repetitions)

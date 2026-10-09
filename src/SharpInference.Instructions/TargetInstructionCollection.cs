@@ -1,7 +1,7 @@
 namespace SharpInference.Instructions;
 
 public sealed class TargetInstructionCollection(IInstructionCollectionProvider provider, InstructionTarget target)
-    : IInstructionCollectionProvider, IInstructionOptimizationProvider
+    : IInstructionCollectionProvider, IInstructionOptimizationProvider, IGraphInstructionProvider
 {
     public IReadOnlyList<InstructionCollectionDescription> QueryInstructionCollection() =>
         Array.AsReadOnly(provider.QueryInstructionCollection()
@@ -13,5 +13,10 @@ public sealed class TargetInstructionCollection(IInstructionCollectionProvider p
         provider is IInstructionOptimizationProvider optimization
             ? Array.AsReadOnly(optimization.QueryOptimizationCapabilities()
                 .Where(capability => capability.Target == target).ToArray())
+            : [];
+    public IReadOnlyList<GraphInstructionBinding> QueryGraphInstructionBindings() =>
+        provider is IGraphInstructionProvider graph
+            ? Array.AsReadOnly(graph.QueryGraphInstructionBindings()
+                .Where(binding => binding.Target == target).ToArray())
             : [];
 }

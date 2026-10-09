@@ -5,6 +5,7 @@ using SharpInference.Backends.Cpu;
 using SharpInference.Backends.Vortice;
 using SharpInference.PrefillExperiment;
 using SharpInference.Runtime;
+using SharpInference.Applications;
 
 var gpu = false;
 var layerMajor = false;
@@ -212,12 +213,8 @@ if (modelPath is not null)
         throw new FileNotFoundException("The GGML model is required for the full-model baseline.", modelPath);
     if (gpu)
     {
-        using var processor = new ProcessorPipelineBuilder(modelPath)
-            .UseReader(new GgmlModelReader())
-            .UseProvider(new PortableRwkv6GraphProvider())
-            .UseBackend(_ => VmBackendFactory.CreateD3D12())
-            .UsePortableGraphArchitecture()
-            .Build();
+        using var processor = Processor.Load(modelPath, new GgmlModelReader(), RwkvApplicationComposition.CreateModelModules(), SharpInference.Runtime.D3D12.D3D12VmBackendFactory.Create());
+        var metadata = RwkvModelMetadata.FromModelMetadata(processor.Metadata);
         var measured = MeasureModel(processor, modelTokens, modelRepeats, "DirectX portable graph");
         if (fullGpuExperiment || fullGpuResident)
         {
@@ -229,31 +226,31 @@ if (modelPath is not null)
                 _ = initial.Prefill([0, 1, 2]);
                 var snapshot = ExperimentStateSnapshots.Capture(initial);
                 gpuInitialState = ExperimentStateSnapshots.LayerMajor(snapshot,
-                    processor.Metadata.LayerCount, processor.Metadata.EmbeddingSize, processor.Metadata.HeadSize);
+                    metadata.LayerCount, metadata.EmbeddingSize, metadata.HeadSize);
                 using var reference = processor.CreateSession();
                 ExperimentStateSnapshots.Restore(reference, snapshot);
                 var tokens = Enumerable.Range(0, modelTokens)
-                    .Select(i => i % processor.Metadata.VocabularySize).ToArray();
+                    .Select(i => i % metadata.VocabularySize).ToArray();
                 var watch = Stopwatch.StartNew();
                 var last = reference.Prefill(tokens);
                 gpuPrefill = watch.Elapsed;
                 gpuReference = (last.ToArray(), ExperimentStateSnapshots.LayerMajor(reference,
-                    processor.Metadata.LayerCount, processor.Metadata.EmbeddingSize, processor.Metadata.HeadSize));
+                    metadata.LayerCount, metadata.EmbeddingSize, metadata.HeadSize));
             }
             else
                 gpuInitialState = ExperimentStateSnapshots.LayerMajor(initial,
-                    processor.Metadata.LayerCount, processor.Metadata.EmbeddingSize, processor.Metadata.HeadSize);
+                    metadata.LayerCount, metadata.EmbeddingSize, metadata.HeadSize);
         }
         using var modelCatalog = GgmlModelFile.Open(modelPath);
         var keyProjection = modelCatalog.GetRequired("blocks.0.att.key.weight");
-        if (keyProjection.DataType != RwkvTensorDataType.Float16)
+        if (keyProjection.DataType != TensorDataType.Float16)
             throw new InvalidDataException("The real-weight GPU projection experiment requires a FP16 key tensor.");
         var realProjectionTokens = Math.Min(16, modelTokens);
         var realProjection = GpuFp16ProjectionBenchmark.Run(
-            realProjectionTokens, processor.Metadata.EmbeddingSize, repeats,
+            realProjectionTokens, metadata.EmbeddingSize, repeats,
             keyProjection.HalfValues.ToArray());
         Console.WriteLine($"DirectX real-model FP16 key projection: tokens={realProjectionTokens} " +
-            $"width={processor.Metadata.EmbeddingSize} " +
+            $"width={metadata.EmbeddingSize} " +
             $"token-wise={realProjection.Sequential.TotalMilliseconds:F3}ms " +
             $"tiled={realProjection.Batched.TotalMilliseconds:F3}ms " +
             $"speedup={realProjection.Sequential.TotalMilliseconds / realProjection.Batched.TotalMilliseconds:F2}x " +
@@ -278,8 +275,7 @@ if (modelPath is not null)
     }
     else
     {
-        using var processor = Processor.LoadGraph(modelPath,
-            new PortableRwkv6GraphProvider(), VmBackendFactory.CreateCpu());
+        using var processor = Processor.Load(modelPath, new GgmlModelReader(), RwkvApplicationComposition.CreateModelModules(), SharpInference.Runtime.Cpu.CpuVmBackendFactory.Create());
         MeasureModel(processor, modelTokens, modelRepeats, "CPU");
         if (layerMajor)
             MeasureLayerMajor(processor, modelPath, modelTokens, chunkSize, modelRepeats);
@@ -287,14 +283,15 @@ if (modelPath is not null)
 
     static void MeasureLayerMajor(Processor processor, string modelPath, int count, int chunkSize, int repeats)
     {
+        var metadata = RwkvModelMetadata.FromModelMetadata(processor.Metadata);
         using var catalog = GgmlModelFile.Open(modelPath);
         using var prefix = processor.CreateSession();
         _ = prefix.Prefill([0, 1, 2]);
         var initialSnapshot = ExperimentStateSnapshots.Capture(prefix);
         var initialState = ExperimentStateSnapshots.LayerMajor(initialSnapshot,
-            processor.Metadata.LayerCount, processor.Metadata.EmbeddingSize, processor.Metadata.HeadSize);
+            metadata.LayerCount, metadata.EmbeddingSize, metadata.HeadSize);
         var tokens = Enumerable.Range(0, count)
-            .Select(i => i % processor.Metadata.VocabularySize).ToArray();
+            .Select(i => i % metadata.VocabularySize).ToArray();
         _ = CpuLayerMajorRwkv6Experiment.Run(catalog, tokens[..Math.Min(count, 3)], initialState, chunkSize);
         _ = CpuLayerMajorRwkv6Experiment.Run(
             catalog, tokens[..Math.Min(count, 3)], initialState, chunkSize, batchedProjections: true);
@@ -359,15 +356,15 @@ if (modelPath is not null)
                 CheckDifference(expectedLogits!, trial.Logits, "layer-major logits"));
             maximumState = MathF.Max(maximumState,
                 CheckDifference(ExperimentStateSnapshots.LayerMajor(reference,
-                    processor.Metadata.LayerCount, processor.Metadata.EmbeddingSize, processor.Metadata.HeadSize),
+                    metadata.LayerCount, metadata.EmbeddingSize, metadata.HeadSize),
                     trial.State, "layer-major state"));
             _ = CheckDifference(expectedLogits, serial.Logits, "layer-major serial-WKV logits");
             _ = CheckDifference(ExperimentStateSnapshots.LayerMajor(reference,
-                processor.Metadata.LayerCount, processor.Metadata.EmbeddingSize, processor.Metadata.HeadSize),
+                metadata.LayerCount, metadata.EmbeddingSize, metadata.HeadSize),
                 serial.State, "layer-major serial-WKV state");
             _ = CheckDifference(expectedLogits, batched.Logits, "layer-major batched-projection logits");
             _ = CheckDifference(ExperimentStateSnapshots.LayerMajor(reference,
-                processor.Metadata.LayerCount, processor.Metadata.EmbeddingSize, processor.Metadata.HeadSize),
+                metadata.LayerCount, metadata.EmbeddingSize, metadata.HeadSize),
                 batched.State, "layer-major batched-projection state");
         }
         ordinary /= repeats;
@@ -527,9 +524,10 @@ static (float Maximum, int Mismatches, float WorstRatio) Compare(
 static (TimeSpan Prefill, float[] Logits, float[] State) MeasureModel(
     Processor processor, int count, int repeats, string name)
 {
-    Console.WriteLine($"{name} model: layers={processor.Metadata.LayerCount} embedding={processor.Metadata.EmbeddingSize} " +
-        $"heads={processor.Metadata.HeadCount} head-size={processor.Metadata.HeadSize}");
-    var vocabulary = processor.Metadata.VocabularySize;
+    var metadata = RwkvModelMetadata.FromModelMetadata(processor.Metadata);
+    Console.WriteLine($"{name} model: layers={metadata.LayerCount} embedding={metadata.EmbeddingSize} " +
+        $"heads={metadata.HeadCount} head-size={metadata.HeadSize}");
+    var vocabulary = metadata.VocabularySize;
     var tokens = Enumerable.Range(0, count).Select(i => i % vocabulary).ToArray();
     using (var warmup = processor.CreateSession())
         _ = warmup.ForwardToken(tokens[0]);
@@ -574,7 +572,7 @@ static (TimeSpan Prefill, float[] Logits, float[] State) MeasureModel(
         }
         CpuWkv6Benchmark.AssertClose(expectedLogits!, actualLogits!, $"{name} prefill logits");
         var state = ExperimentStateSnapshots.LayerMajor(prefill,
-            processor.Metadata.LayerCount, processor.Metadata.EmbeddingSize, processor.Metadata.HeadSize);
+            metadata.LayerCount, metadata.EmbeddingSize, metadata.HeadSize);
         _ = ExperimentStateSnapshots.Compare(ExperimentStateSnapshots.Capture(baseline),
             ExperimentStateSnapshots.Capture(prefill),
             (expected, actual, tensor) =>

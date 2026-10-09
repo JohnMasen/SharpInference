@@ -316,7 +316,7 @@ public sealed class GraphDebuggingTests
 
     private static ExecutionGraph CreateGraph() =>
         new(new GraphIdentity("test", 1, "debug-test"),
-            new GraphModelSignature(1, 1, 1, 1, 1, "test"),
+            TestGraphSignatures.Create(1, 1, 1, 1, 1, "test"),
             [],
             [new GraphRegion(new RegionId("root"), null, GraphRegionTypes.Graph, null, "root",
                 new Dictionary<string, string>())],
@@ -335,7 +335,7 @@ public sealed class GraphDebuggingTests
         }
 
         public IProcessorSessionExecutor CreateSessionExecutor(
-            IRwkvModel model, IRwkvState state, IBackendExecutablePlan plan) =>
+            IModel model, IModelState state, IBackendExecutablePlan plan) =>
             throw new NotSupportedException("This backend only tests graph preparation.");
     }
 

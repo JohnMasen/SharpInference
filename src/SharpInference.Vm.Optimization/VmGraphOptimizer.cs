@@ -15,7 +15,8 @@ public static class VmGraphOptimizer
         => OptimizeWithReport(logical, target, options).Program;
 
     public static VmOptimizationResult OptimizeWithReport(LogicalGraph logical, VmTarget target,
-        VmOptimizationOptions? options = null, IReadOnlyList<InstructionOptimizationCapability>? capabilities = null)
+        VmOptimizationOptions? options = null, IReadOnlyList<InstructionOptimizationCapability>? capabilities = null,
+        IReadOnlyList<GraphInstructionBinding>? operationBindings = null)
     {
         ArgumentNullException.ThrowIfNull(logical);
         options ??= new VmOptimizationOptions();
@@ -26,14 +27,29 @@ public static class VmGraphOptimizer
         if (target != VmTarget.Direct3D12 && options.GpuMatVec is not null)
             throw new NotSupportedException("GPU MatVec settings require a Direct3D12 target.");
         GraphValidator.Validate(logical);
-        TierZeroOperationContracts.ValidateGraph(logical);
+        var hasViews = logical.Nodes.Any(node => node.Resources.Any(binding => binding.View is not null));
+        if (hasViews && options.TierOne is not null)
+            throw new NotSupportedException("Tier-one instruction selection does not declare tensor-view support.");
+        var architecture = target switch
+        {
+            VmTarget.Cpu => InstructionTarget.Cpu,
+            VmTarget.Direct3D12 => InstructionTarget.Direct3D12,
+            _ => throw new NotSupportedException($"No VM lowering is installed for '{target}'."),
+        };
+        var bindings = (operationBindings ?? []).Where(binding => binding.Target == architecture)
+            .ToDictionary(binding => binding.Operation);
+        if (bindings.Keys.Any(operation => TierZeroOperationContracts.Contracts.Any(contract => contract.Operation == operation)))
+            throw new InvalidDataException("Model instruction bindings cannot override standard tensor operation contracts.");
+        var resourceDescriptions = logical.Resources.ToDictionary(resource => resource.Id);
+        foreach (var node in logical.Nodes)
+            if (!bindings.ContainsKey(node.Operation)) TierZeroOperationContracts.ValidateNode(node, resourceDescriptions);
         var execution = new GraphOptimizer().Optimize(logical,
             new GraphOptimizationOptions(OptimizationBoundary.Off,
                 DefinitionPolicy: GraphDefinitionPolicy.PreserveExpanded));
         var descriptors = logical.Resources.ToDictionary(resource => resource.Id);
         var aliases = new Dictionary<ResourceId, ResourceId>();
         IReadOnlyList<ExecutionNode> nodes = execution.Nodes;
-        if (options.WeightViews)
+        if (options.WeightViews && !hasViews)
             (nodes, aliases) = LowerWeightViews(execution, descriptors, options.NativeHalfWeights);
         execution = new ExecutionGraph(execution.Identity, execution.Model, descriptors.Values, execution.Regions,
             nodes, execution.Inputs, execution.Outputs, execution.GraphState);
@@ -84,14 +100,28 @@ public static class VmGraphOptimizer
         var matVecDiagnostics = new HashSet<string>(StringComparer.Ordinal);
         foreach (var node in nodes)
         {
+            bindings.TryGetValue(node.Operation, out var instructionBinding);
             selection.Implementations.TryGetValue(node.Id, out var implementation);
-            if (node.Resources.Any(binding => binding.Access == GraphResourceAccess.ReadWrite))
+            if (!node.Resources.Where(binding => binding.Access == GraphResourceAccess.ReadWrite).Select(binding => binding.Port)
+                    .ToHashSet(StringComparer.Ordinal).SetEquals(instructionBinding?.ReadWritePorts ?? []))
                 throw new NotSupportedException($"Node '{node.Id}' requires an explicit read/write operator contract.");
             var parameters = node.Resources.Select(binding => new VmParameter(binding.Port,
                 binding.Access == GraphResourceAccess.Read ? VmAccess.ReadOnly : VmAccess.ReadWrite,
-                Tensor(descriptors[binding.Resource].Tensor))).ToArray();
+                Tensor(binding.View?.Tensor ?? descriptors[binding.Resource].Tensor))).ToArray();
             InstructionExecutionConfiguration? configuration = implementation?.Configuration;
             var threads = options.ThreadsPerGroup;
+            var dispatch = target == VmTarget.Direct3D12 ? instructionBinding?.Dispatch?.Invoke(
+                new(node.Resources.ToDictionary(binding => binding.Port,
+                    binding => binding.View?.Tensor ?? descriptors[binding.Resource].Tensor, StringComparer.Ordinal), node.Attributes)) : null;
+            if (dispatch is not null)
+            {
+                if (dispatch.ThreadsX == 0 || dispatch.ThreadsY == 0 || dispatch.ThreadsZ == 0 ||
+                    dispatch.ThreadsX > 1024 || dispatch.ThreadsY > 1024 || dispatch.ThreadsZ > 1024 ||
+                    (ulong)dispatch.ThreadsX * dispatch.ThreadsY * dispatch.ThreadsZ > 1024 ||
+                    dispatch.GroupsX is 0 or > 65535 || dispatch.GroupsY is 0 or > 65535 || dispatch.GroupsZ is 0 or > 65535)
+                    throw new InvalidDataException($"Node '{node.Id}' has an invalid registered dispatch configuration.");
+                threads = dispatch.ThreadsX;
+            }
             var cooperative = false;
             if (target == VmTarget.Direct3D12 && node.Operation.Name == "core.mat-vec")
             {
@@ -106,6 +136,8 @@ public static class VmGraphOptimizer
             var key = new XElement("Operator",
                 new XAttribute("name", node.Operation.Name), new XAttribute("version", node.Operation.Version),
                 new XAttribute("target", target), new XAttribute("threads", threads),
+                dispatch is null ? null : new XAttribute("threadsY", dispatch.ThreadsY),
+                dispatch is null ? null : new XAttribute("threadsZ", dispatch.ThreadsZ),
                 configuration is null ? null : new XAttribute("implementation", configuration.Implementation.Value),
                 new XAttribute("minimumArithmeticType", node.Requirements.MinimumArithmeticType),
                 new XAttribute("minimumAccumulatorType", node.Requirements.MinimumAccumulatorType),
@@ -121,20 +153,22 @@ public static class VmGraphOptimizer
                 definition = new VmDefinition($"op.{definitions.Count:D4}",
                     target == VmTarget.Cpu ? VmDefinitionKind.Function : VmDefinitionKind.Kernel,
                     parameters, [new VmNode("body", new VmOperator(node.Requirements,
-                        implementation?.CollectionId ?? (parameters.Single(parameter => parameter.Name == "output").Tensor.ElementType == VmElementType.Float16
+                        instructionBinding?.CollectionId ?? implementation?.CollectionId ?? (parameters.Single(parameter => parameter.Name == "output").Tensor.ElementType == VmElementType.Float16
                             ? InstructionCollectionIds.TierZeroFloat16 : InstructionCollectionIds.TierZeroFloat32),
-                        implementation?.Name ?? node.Operation.Name,
+                        instructionBinding?.InstructionName ?? implementation?.Name ?? node.Operation.Name,
                         parameters.Select(parameter => new VmArgument(parameter.Name, parameter.Name)),
                         node.Attributes, executionConfiguration: configuration))],
-                    target == VmTarget.Direct3D12 ? new VmThreadGroup(threads) : null);
+                    target == VmTarget.Direct3D12 ? new VmThreadGroup(threads, dispatch?.ThreadsY ?? 1, dispatch?.ThreadsZ ?? 1) : null);
                 definitions.Add(definition);
                 keys.Add(key, definition);
             }
             var arguments = node.Resources.Select(binding =>
-                new VmArgument(binding.Port, physical[binding.Resource])).ToArray();
+                new VmArgument(binding.Port, physical[binding.Resource], binding.View?.ByteOffset ?? 0)).ToArray();
             VmInstruction instruction;
             if (target == VmTarget.Cpu)
                 instruction = new VmCall(definition.Id, arguments);
+            else if (dispatch is not null)
+                instruction = new VmDispatch(definition.Id, arguments, new(dispatch.GroupsX, dispatch.GroupsY, dispatch.GroupsZ));
             else
             {
                 var output = parameters.Single(parameter => parameter.Access == VmAccess.ReadWrite);
@@ -168,7 +202,8 @@ public static class VmGraphOptimizer
         {
             new("forward", "forward", slots.Select(slot => new VmArgument(slot.Id, slot.Id))),
         };
-        if (logical.Inputs.Count == 1 && descriptors[logical.Inputs[0]].Tensor.ElementType == GraphElementType.Int32 &&
+        if (logical.Model.Attributes.GetValueOrDefault("execution.token-prefill") == "true" &&
+            logical.Inputs.Count == 1 && descriptors[logical.Inputs[0]].Tensor.ElementType == GraphElementType.Int32 &&
             descriptors[logical.Inputs[0]].Tensor.Dimensions.SequenceEqual([1]))
         {
             var tokenSlot = physical[logical.Inputs[0]];

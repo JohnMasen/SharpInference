@@ -164,7 +164,7 @@ internal sealed class ReusableGpuProjector : IDisposable
         if (tensor.Dimensions.Count != 2 || tensor.Dimensions[0] != inputWidth ||
             tensor.Dimensions[1] <= 0)
             throw new ArgumentException("Projection tensor dimensions must be [inputWidth, outputWidth].", nameof(tensor));
-        if (tensor.DataType is not (RwkvTensorDataType.Float16 or RwkvTensorDataType.Float32))
+        if (tensor.DataType is not (TensorDataType.Float16 or TensorDataType.Float32))
             throw new NotSupportedException($"Projection tensor type {tensor.DataType} is not supported.");
 
         int outputWidth = tensor.Dimensions[1];
@@ -177,7 +177,7 @@ internal sealed class ReusableGpuProjector : IDisposable
         if (((long)outputWidth + Tile - 1) / Tile > 65535 ||
             ((long)tokenCount + Tile - 1) / Tile > 65535)
             throw new ArgumentOutOfRangeException(nameof(tokenCount), "The projection dispatch exceeds the D3D12 group limit.");
-        bool half = tensor.DataType == RwkvTensorDataType.Float16;
+        bool half = tensor.DataType == TensorDataType.Float16;
         if (half ? tensor.HalfValues.Length != weightCount : tensor.FloatValues.Length != weightCount)
             throw new ArgumentException("Tensor value count does not match its rectangular dimensions.", nameof(tensor));
 

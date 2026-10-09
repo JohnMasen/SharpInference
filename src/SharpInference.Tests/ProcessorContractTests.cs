@@ -5,6 +5,20 @@ namespace SharpInference.Tests;
 public sealed class ProcessorContractTests
 {
     [Fact]
+    public void TensorInputDoesNotRequireTextCapabilities()
+    {
+        var part = new TensorInputPart("input", new byte[4]);
+        var input = new ProcessorInput([part]);
+        var capabilities = new ProcessorCapabilities([ProcessorInputModality.Tensor], ProcessorOutputModality.Tensor);
+        Assert.Equal(ProcessorInputModality.Tensor, input.Modalities);
+        Assert.True(capabilities.Supports(input.Modalities));
+        Assert.Null(capabilities.Text);
+        Assert.Equal("input", part.Resource);
+        Assert.Equal(4, part.Data.Length);
+        Assert.Throws<ArgumentException>(() => new TensorInputPart("", ReadOnlyMemory<byte>.Empty));
+    }
+
+    [Fact]
     public void OrderedInput_PreservesPartsAndReportsCombinedModalities()
     {
         var text = new TextInputPart("describe ");

@@ -95,7 +95,7 @@ public sealed class VorticePrimitiveGraphStateBridge : IProcessorStateExecutor, 
         state.Restore(flattened);
     }
 
-    private void SynchronizeFromDevice(IReadOnlyList<RwkvStateView> views)
+    private void SynchronizeFromDevice(IReadOnlyList<Float32StateView> views)
     {
         foreach (var view in views)
             session.ReadState(slots[view.Name].Resource).CopyTo(view.Values, 0);

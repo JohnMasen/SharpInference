@@ -11,7 +11,7 @@ public sealed class D3D12VmResourcePoolTests(ITestOutputHelper output)
     {
         var program = D3D12VmTests.AccumulatingProgram();
         using var archive = new MemoryStream();
-        new D3D12VmCompiler(SharpInference.Runtime.DefaultInstructionCollections.Create()).Compile(program).Export(archive);
+        new D3D12VmCompiler(SharpInference.Runtime.D3D12.D3D12InstructionCollections.Create()).Compile(program).Export(archive);
         archive.Position = 0;
         var artifact = D3D12VmArtifact.Import(archive);
         var (device, name) = D3D12VmDeviceFactory.Create();
@@ -75,7 +75,7 @@ public sealed class D3D12VmResourcePoolTests(ITestOutputHelper output)
     public async Task ConcurrentWorkersUploadSharedGlobalsOnceAndKeepSessionsIndependent()
     {
         var program = D3D12VmTests.AccumulatingProgram();
-        var artifact = new D3D12VmCompiler(SharpInference.Runtime.DefaultInstructionCollections.Create()).Compile(program);
+        var artifact = new D3D12VmCompiler(SharpInference.Runtime.D3D12.D3D12InstructionCollections.Create()).Compile(program);
         var (device, _) = D3D12VmDeviceFactory.Create();
         using (device)
         using (var pool = new D3D12VmResourcePool(device))
@@ -117,7 +117,7 @@ public sealed class D3D12VmResourcePoolTests(ITestOutputHelper output)
     public void StateEditsImportsAndSessionRebindingRemainCoherentAcrossWorkers()
     {
         var program = D3D12VmTests.AccumulatingProgram();
-        var artifact = new D3D12VmCompiler(SharpInference.Runtime.DefaultInstructionCollections.Create()).Compile(program);
+        var artifact = new D3D12VmCompiler(SharpInference.Runtime.D3D12.D3D12InstructionCollections.Create()).Compile(program);
         var (device, _) = D3D12VmDeviceFactory.Create();
         using (device)
         using (var pool = new D3D12VmResourcePool(device))
@@ -164,7 +164,7 @@ public sealed class D3D12VmResourcePoolTests(ITestOutputHelper output)
     public void GlobalWriteAndExplicitDirtyNotificationUploadOnceAcrossWorkers()
     {
         var program = D3D12VmTests.AccumulatingProgram();
-        var artifact = new D3D12VmCompiler(SharpInference.Runtime.DefaultInstructionCollections.Create()).Compile(program);
+        var artifact = new D3D12VmCompiler(SharpInference.Runtime.D3D12.D3D12InstructionCollections.Create()).Compile(program);
         var (device, _) = D3D12VmDeviceFactory.Create();
         IVmStorage? global = null;
         using (device)
@@ -203,7 +203,7 @@ public sealed class D3D12VmResourcePoolTests(ITestOutputHelper output)
     public void StorageDisposalUnregistersImmediatelyAndRejectsStaleOrForeignBindings()
     {
         var program = D3D12VmTests.AccumulatingProgram();
-        var artifact = new D3D12VmCompiler(SharpInference.Runtime.DefaultInstructionCollections.Create()).Compile(program);
+        var artifact = new D3D12VmCompiler(SharpInference.Runtime.D3D12.D3D12InstructionCollections.Create()).Compile(program);
         var (device, _) = D3D12VmDeviceFactory.Create();
         using (device)
         using (var pool = new D3D12VmResourcePool(device))
@@ -249,7 +249,7 @@ public sealed class D3D12VmResourcePoolTests(ITestOutputHelper output)
     public void IdleCommandCacheBorrowsNoStorageAndRejectsClosedSessionBeforeSubmission()
     {
         var program = D3D12VmTests.AccumulatingProgram();
-        var artifact = new D3D12VmCompiler(SharpInference.Runtime.DefaultInstructionCollections.Create()).Compile(program);
+        var artifact = new D3D12VmCompiler(SharpInference.Runtime.D3D12.D3D12InstructionCollections.Create()).Compile(program);
         var (device, _) = D3D12VmDeviceFactory.Create();
         using (device)
         using (var pool = new D3D12VmResourcePool(device))
@@ -320,7 +320,7 @@ public sealed class D3D12VmResourcePoolTests(ITestOutputHelper output)
     public void ExplicitTransfersRefreshOwnerShadowAndPoolDisposalReleasesRemainingStorage()
     {
         var program = D3D12VmTests.AccumulatingProgram();
-        var artifact = new D3D12VmCompiler(SharpInference.Runtime.DefaultInstructionCollections.Create()).Compile(program);
+        var artifact = new D3D12VmCompiler(SharpInference.Runtime.D3D12.D3D12InstructionCollections.Create()).Compile(program);
         var (device, _) = D3D12VmDeviceFactory.Create();
         using (device)
         using (var pool = new D3D12VmResourcePool(device))

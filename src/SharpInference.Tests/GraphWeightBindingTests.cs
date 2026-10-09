@@ -26,11 +26,11 @@ public sealed class GraphWeightBindingTests
         });
         GraphValidator.Validate(renamed);
 
-        using var baseline = Processor.LoadGraph(path, logical, VmBackendFactory.CreateCpu());
+        using var baseline = Processor.LoadGraph(path, logical, SharpInference.Runtime.Cpu.CpuVmBackendFactory.Create());
         using var imported = new ProcessorPipelineBuilder(path)
             .UseReader(new GgmlModelReader(), new GraphArchitectureMetadataReader(renamed))
             .UseProvider(new SuppliedLogicalGraphProvider(renamed))
-            .UseBackend(VmBackendFactory.CreateCpu())
+            .UseBackend(SharpInference.Runtime.Cpu.CpuVmBackendFactory.Create())
             .UsePortableGraphArchitecture()
             .Build();
         using var expected = baseline.CreateSession();
@@ -60,7 +60,7 @@ public sealed class GraphWeightBindingTests
             logical.Regions, logical.Nodes, logical.Inputs, logical.Outputs, logical.GraphState);
 
         Assert.Throws<InvalidDataException>(() =>
-            Processor.LoadGraph(TestModelLoader.GetPath(model), invalid, VmBackendFactory.CreateCpu()));
+            Processor.LoadGraph(TestModelLoader.GetPath(model), invalid, SharpInference.Runtime.Cpu.CpuVmBackendFactory.Create()));
     }
 
     [Theory]

@@ -21,12 +21,13 @@ public sealed class TierZeroOperationTests
         Assert.Equal(28, TierZeroOperationContracts.Contracts.Count);
         Assert.Equal(23, TierZeroOperationContracts.RequiredContracts.Count);
         Assert.Equal(35, Signatures().Count());
-        var providers = SharpInference.Runtime.DefaultInstructionCollections.Create();
-        Assert.Equal(new CpuVmCompiler(providers).InstructionCollections.QueryInstructionCollection(),
-            new D3D12VmCompiler(providers).InstructionCollections.QueryInstructionCollection());
+        Assert.Equal(3, new CpuVmCompiler(SharpInference.Runtime.Cpu.CpuInstructionCollections.Create())
+            .InstructionCollections.QueryInstructionCollection().Count);
+        Assert.Equal(4, new D3D12VmCompiler(SharpInference.Runtime.D3D12.D3D12InstructionCollections.Create())
+            .InstructionCollections.QueryInstructionCollection().Count);
         Assert.Equal(
             ["core.divide", "core.reduce-sum", "core.matrix-multiply", "core.bias-add", "core.affine"],
-            TierZeroOperationContracts.Contracts.Where(contract => !contract.RequiredByRwkv)
+            TierZeroOperationContracts.Contracts.Where(contract => !contract.RequiredByBaseProfile)
                 .Select(contract => contract.Operation.Name));
         Assert.All(TierZeroOperationContracts.Contracts, contract =>
         {
@@ -141,8 +142,8 @@ public sealed class TierZeroOperationTests
                     new("none", 1, []));
                 var compilerError = Record.Exception(() =>
                 {
-                    if (target == VmTarget.Cpu) new CpuVmCompiler(SharpInference.Runtime.DefaultInstructionCollections.Create()).GenerateSource(program);
-                    else new D3D12VmCompiler(SharpInference.Runtime.DefaultInstructionCollections.Create()).GenerateSources(program);
+                    if (target == VmTarget.Cpu) new CpuVmCompiler(SharpInference.Runtime.Cpu.CpuInstructionCollections.Create()).GenerateSource(program);
+                    else new D3D12VmCompiler(SharpInference.Runtime.D3D12.D3D12InstructionCollections.Create()).GenerateSources(program);
                 });
                 if (compilerError is SharpInference.Instructions.InstructionAdaptationException adaptation)
                     Assert.True(adaptation.InnerException is null or InvalidDataException or NotSupportedException);
@@ -233,7 +234,7 @@ public sealed class TierZeroOperationTests
         var output = program.Slots.Select((slot, index) => (slot, index)).Single(pair => pair.slot.Id == "output").index;
         if (target == VmTarget.Cpu)
         {
-            using var executable = new CpuVmCompiler(SharpInference.Runtime.DefaultInstructionCollections.Create()).Compile(program).LoadExecutable();
+            using var executable = new CpuVmCompiler(SharpInference.Runtime.Cpu.CpuInstructionCollections.Create()).Compile(program).LoadExecutable();
             var context = executable.Prepare(buffers, program.Slots
                 .Where(slot => slot.Scope == VmSlotScope.Local && slot.Access == VmAccess.ReadOnly)
                 .Select(slot => slot.Id));
@@ -245,7 +246,7 @@ public sealed class TierZeroOperationTests
         }
         else
         {
-            using var executable = new D3D12VmCompiler(SharpInference.Runtime.DefaultInstructionCollections.Create()).Compile(program).CreateExecutor();
+            using var executable = new D3D12VmCompiler(SharpInference.Runtime.D3D12.D3D12InstructionCollections.Create()).Compile(program).CreateExecutor();
             for (var repeat = 0; repeat < 2; repeat++)
             {
                 executable.Execute("forward", buffers);
@@ -274,7 +275,7 @@ public sealed class TierZeroOperationTests
     internal sealed record OperationExample(string Operation, InputExample[] Inputs, TensorDescriptor Output,
         float[] Expected, IReadOnlyDictionary<string, string> Attributes)
     {
-        internal LogicalGraph Graph() => new(new("t0-test", 1, Operation), new(7, 5, 1, 1, 5, "none"),
+        internal LogicalGraph Graph() => new(new("t0-test", 1, Operation), TestGraphSignatures.Create(7, 5, 1, 1, 5, "none"),
             Inputs.Select(input => new GraphResource(new(input.Port), input.Port,
                 input.Port is "matrix" or "table" ? GraphResourceKind.Weight : GraphResourceKind.Input,
                 input.Port is "matrix" or "table" ? GraphResourceLifetime.Model : GraphResourceLifetime.External,

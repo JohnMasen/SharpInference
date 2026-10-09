@@ -1,8 +1,14 @@
 # Phi-4 multimodal inference
 
 SharpInference supports `microsoft/Phi-4-multimodal-instruct` through the
-`SharpInference.Architectures.Phi4` project. The initial backend is native CPU
+`SharpInference.Models.Phi4` project. The initial backend is native CPU
 execution over converted F16 GGUF components.
+
+The single model project contains `Architecture`, `Instructions/Cpu`,
+`Instructions/D3D12` and `Runtime/D3D12` directories. Existing public namespaces
+remain unchanged. It targets both `net10.0` (model and CPU instructions) and
+`net10.0-windows10.0.19041.0` (also D3D12 instructions and device components).
+The portable target has no Windows backend references.
 
 ## Model package
 
@@ -184,8 +190,9 @@ audio tensor is published in a host `StorageDomain`; the logical resource
 manager stages it exactly once into the Fusion D3D12 domain. The default
 remains `Phi4AudioExecutionBackend.D3D12`.
 
-Phi-4 model operations use dedicated instruction collections in
-`SharpInference.Instructions.Phi4`. The Audio VM builder emits the same
+Phi-4 model operations use dedicated instruction collections in the
+`Instructions` directory of `SharpInference.Models.Phi4`, retaining the
+`SharpInference.Instructions.Phi4` namespace. The Audio VM builder emits the same
 `phi4.audio.*` semantics for both targets: CPU programs use functions and
 calls supplied by `SharpInference.Instructions.Phi4.Cpu`, while D3D12 programs
 use kernels and dispatches supplied by `SharpInference.Instructions.Phi4.D3D12`.

@@ -510,6 +510,37 @@ public sealed class VmExecutionLease : IDisposable
         lock (gate) Bindings.SetStateValidity(false);
     }
 
+    public void RestoreState(IReadOnlyDictionary<string, ReadOnlyMemory<byte>> values)
+    {
+        ArgumentNullException.ThrowIfNull(values);
+        lock (gate)
+        {
+            if (!IsStateAccess)
+                throw new InvalidOperationException("State restoration requires a state-access lease.");
+            var program = Bindings.Program;
+            if (values.Count != program.State.Entries.Count)
+                throw new InvalidDataException("State buffers must exactly cover the program state entries.");
+            var staged = program.State.Entries.Select(entry =>
+            {
+                var slot = program.Slots.Single(candidate => candidate.Id == entry.Slot);
+                if (!values.TryGetValue(entry.Name, out var bytes) || (ulong)bytes.Length != slot.Tensor.ByteLength ||
+                    !Bindings.CanRestoreState(entry.Slot))
+                    throw new InvalidDataException($"State entry '{entry.Name}' has incompatible storage.");
+                return (entry.Slot, Bytes: bytes.ToArray());
+            }).ToArray();
+            try
+            {
+                foreach (var item in staged) Bindings.WriteState(item.Slot, item.Bytes);
+                Bindings.SetStateValidity(true);
+            }
+            catch
+            {
+                Bindings.SetStateValidity(false);
+                throw;
+            }
+        }
+    }
+
     internal void ValidateState()
     {
         lock (gate) Bindings.SetStateValidity(true);

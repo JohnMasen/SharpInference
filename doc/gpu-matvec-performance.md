@@ -153,7 +153,7 @@ var config = new VmRuntimeConfig
     GpuMatVecCostProfile =
         TierOneCostProfile.Deserialize(File.ReadAllText(profilePath)),
 };
-using var backend = VmBackendFactory.CreateD3D12(config);
+using var backend = SharpInference.Runtime.D3D12.D3D12VmBackendFactory.Create(config);
 ```
 
 `GpuMatVecMode.Cooperative` explicitly selects the same implementation as
