@@ -60,9 +60,14 @@ public sealed class Phi4TextGraphModule : IModelGraphModule, IGraphOperationVali
         }
         return new(ArchitectureId, new Dictionary<string, long>
         {
-            ["embedding_width"] = width, ["vocabulary"] = vocabulary, ["intermediate"] = intermediate,
-            ["context"] = context, ["layers"] = p.Layers, ["query_heads"] = p.QueryHeads,
-            ["kv_heads"] = p.KeyValueHeads, ["head_size"] = width / p.QueryHeads,
+            ["embedding_width"] = width,
+            ["vocabulary"] = vocabulary,
+            ["intermediate"] = intermediate,
+            ["context"] = context,
+            ["layers"] = p.Layers,
+            ["query_heads"] = p.QueryHeads,
+            ["kv_heads"] = p.KeyValueHeads,
+            ["head_size"] = width / p.QueryHeads,
         });
 
         void Require(string name, int[] shape)
@@ -95,7 +100,9 @@ public sealed class Phi4TextGraphModule : IModelGraphModule, IGraphOperationVali
         var abi = $"phi4.text.kv@1:{p.Layers}:{p.QueryHeads}:{p.KeyValueHeads}:{head}:{context}:{adapter}";
         var builder = new LogicalGraphBuilder(new(ArchitectureId, 2, "forward"),
                 new GraphModelSignature(ArchitectureId, abi, dimensions))
-            .AddRegion("root", GraphRegionTypes.Graph, "Phi4 decoder")
+            .AddRegion("root", GraphRegionTypes.Graph, "Phi4 decoder", architecture: new(
+                Description: "Token embedding, grouped-query decoder Blocks and tied language-model head.",
+                DefaultView: GraphArchitectureView.Architecture, Step: GraphArchitectureStep.Token))
             .SetStateSchema(new(abi))
             .AddResource("position", "Position", GraphResourceKind.Input, GraphResourceLifetime.External,
                 new TensorDescriptor(GraphElementType.Int32, [1]), graphInput: true)
@@ -105,62 +112,96 @@ public sealed class Phi4TextGraphModule : IModelGraphModule, IGraphOperationVali
         var weights = new Dictionary<string, string>();
         var converted = new Dictionary<string, string>();
         var index = 0;
-        string? previous = null;
-        string hidden;
-        if (embeddingInput)
+        builder.AddRegion("blocks", GraphRegionTypes.Architecture, "Decoder Blocks", "root",
+            architecture: new(Description: "Ordered transformer decoder Block instances.", DefaultCollapsed: true, RepeatGroup: true));
+        var hidden = builder.WithRegion("embedding", GraphRegionTypes.Stage, "Embedding", _ =>
         {
-            hidden = "embedding";
-            builder.AddResource(hidden, "Embedding", GraphResourceKind.Input, GraphResourceLifetime.External, F(width), graphInput: true);
-        }
-        else
-        {
+            if (embeddingInput)
+            {
+                builder.AddResource("embedding", "Embedding", GraphResourceKind.Input, GraphResourceLifetime.External, F(width), graphInput: true);
+                return "embedding";
+            }
             builder.AddResource("token", "Token", GraphResourceKind.Input, GraphResourceLifetime.External,
                 new TensorDescriptor(GraphElementType.Int32, [1]), graphInput: true);
-            hidden = Temporary(width);
+            var embedded = Temporary(width);
             var table = Weight("text.token_embd.weight");
             Emit(PrimitiveGraphOperations.GatherRow,
-                [GraphBindings.Read("table", table), GraphBindings.Read("index", "token"), GraphBindings.Write("output", hidden)]);
-        }
+                [GraphBindings.Read("table", table), GraphBindings.Read("index", "token"), GraphBindings.Write("output", embedded)]);
+            return embedded;
+        }, parentId: "root", architecture: new(Description: "Looks up token embeddings, or accepts a model-owned embedding input."));
         for (var layer = 0; layer < p.Layers; layer++)
         {
+            var layerRegion = $"layer.{layer}";
+            builder.AddRegion(layerRegion, GraphRegionTypes.Layer, "Decoder Block", "blocks",
+                architecture: new(Description: "Pre-normalized grouped-query attention and SwiGLU feed forward with residual connections."));
+            var attentionRegion = layerRegion + ".attention";
+            builder.AddRegion(attentionRegion, GraphRegionTypes.Stage, "Attention", layerRegion, role: "attention",
+                architecture: new(Description: "Grouped-query attention with RoPE and persistent KV cache."));
             var prefix = $"text.blk.{layer}.";
-            var qkv = Linear(Norm(hidden, prefix + "attn_norm.weight"), prefix + "attn_qkv.weight", width + 2 * kv);
-            var query = Temporary(width);
-            var keys = Cache($"key_cache.{layer}");
-            var values = Cache($"value_cache.{layer}");
-            var frequencies = Weight("text.rope_frequencies", fp32: true);
-            Emit(Phi4TextGraphOperations.RopeKeyValueWrite,
-                [GraphBindings.Read("qkv", qkv), GraphBindings.Read("position", "position"), GraphBindings.Read("frequencies", frequencies),
-                 GraphBindings.Write("query", query), new("key_cache", new(keys), GraphResourceAccess.ReadWrite),
-                 new("value_cache", new(values), GraphResourceAccess.ReadWrite)],
-                Attr(("head_size", head), ("rotary_size", p.RotarySize), ("rope_scale", p.RopeScale)));
-            var scores = Temporary(p.QueryHeads, context);
-            Emit(Phi4TextGraphOperations.GroupedQueryScores,
-                [GraphBindings.Read("query", query), GraphBindings.Read("key_cache", keys), GraphBindings.Read("position", "position"),
-                 GraphBindings.Write("scores", scores)]);
-            var probabilities = Temporary(p.QueryHeads, context);
-            Emit(Phi4TextGraphOperations.CausalSoftmax,
-                [GraphBindings.Read("scores", scores), GraphBindings.Read("position", "position"), GraphBindings.Write("probabilities", probabilities)]);
-            var attention = Temporary(width);
-            Emit(Phi4TextGraphOperations.GroupedQueryValues,
-                [GraphBindings.Read("probabilities", probabilities), GraphBindings.Read("value_cache", values),
-                 GraphBindings.Read("position", "position"), GraphBindings.Write("output", attention)]);
-            hidden = Add(hidden, Linear(attention, prefix + "attn_output.weight", width));
-            var gate = Linear(Norm(hidden, prefix + "ffn_norm.weight"), prefix + "ffn_up.weight", 2 * intermediate);
-            var activated = Temporary(intermediate);
-            Emit(Phi4TextGraphOperations.SwiGlu, [GraphBindings.Read("gate_up", gate), GraphBindings.Write("output", activated)]);
-            hidden = Add(hidden, Linear(activated, prefix + "ffn_down.weight", width));
+            var attentionInput = builder.WithRegion(attentionRegion + ".norm", GraphRegionTypes.Architecture, "RMSNorm", _ => Norm(hidden, prefix + "attn_norm.weight"), parentId: attentionRegion, architecture: new(null, "Normalizes the attention input.", "x_norm = x / sqrt(mean(x^2) + epsilon) .* weight"));
+            var qkv = builder.WithRegion(attentionRegion + ".qkv", GraphRegionTypes.Architecture, "QKV Projection", _ => Linear(attentionInput, prefix + "attn_qkv.weight", width + 2 * kv), parentId: attentionRegion, architecture: new(null, "Projects query, key and value; includes the selected LoRA adapter when enabled.", null));
+            var (query, keys, values) = builder.WithRegion(attentionRegion + ".rope-cache", GraphRegionTypes.Architecture, "RoPE / KV Cache Write", _ =>
+            {
+                var query = Temporary(width);
+                var keys = Cache($"key_cache.{layer}");
+                var values = Cache($"value_cache.{layer}");
+                var frequencies = Weight("text.rope_frequencies", fp32: true);
+                Emit(Phi4TextGraphOperations.RopeKeyValueWrite, [GraphBindings.Read("qkv", qkv), GraphBindings.Read("position", "position"), GraphBindings.Read("frequencies", frequencies), GraphBindings.Write("query", query), new("key_cache", new(keys), GraphResourceAccess.ReadWrite), new("value_cache", new(values), GraphResourceAccess.ReadWrite)], Attr(("head_size", head), ("rotary_size", p.RotarySize), ("rope_scale", p.RopeScale)));
+                return (query, keys, values);
+            }, parentId: attentionRegion, architecture: new(null, "Rotates query/key and writes the current key/value cache row.", null));
+            var scores = builder.WithRegion(attentionRegion + ".scores", GraphRegionTypes.Architecture, "Grouped-Query Scores", _ =>
+            {
+                var scores = Temporary(p.QueryHeads, context);
+                Emit(Phi4TextGraphOperations.GroupedQueryScores, [GraphBindings.Read("query", query), GraphBindings.Read("key_cache", keys), GraphBindings.Read("position", "position"), GraphBindings.Write("scores", scores)]);
+                return scores;
+            }, parentId: attentionRegion, architecture: new(null, "Computes scores against the cached keys.", "scores = Q K_cache^T / sqrt(head_size)"));
+            var probabilities = builder.WithRegion(attentionRegion + ".softmax", GraphRegionTypes.Architecture, "Causal Softmax", _ =>
+            {
+                var probabilities = Temporary(p.QueryHeads, context);
+                Emit(Phi4TextGraphOperations.CausalSoftmax, [GraphBindings.Read("scores", scores), GraphBindings.Read("position", "position"), GraphBindings.Write("probabilities", probabilities)]);
+                return probabilities;
+            }, parentId: attentionRegion, architecture: new(null, "Masks future positions and normalizes attention scores.", "P = softmax(causal_mask(scores))"));
+            var attention = builder.WithRegion(attentionRegion + ".values", GraphRegionTypes.Architecture, "Grouped-Query Values", _ =>
+            {
+                var attention = Temporary(width);
+                Emit(Phi4TextGraphOperations.GroupedQueryValues, [GraphBindings.Read("probabilities", probabilities), GraphBindings.Read("value_cache", values), GraphBindings.Read("position", "position"), GraphBindings.Write("output", attention)]);
+                return attention;
+            }, parentId: attentionRegion, architecture: new(null, "Reads cached values with attention probabilities.", "attention = P V_cache"));
+            var attentionOutput = builder.WithRegion(attentionRegion + ".output", GraphRegionTypes.Architecture, "Output Projection", _ => Linear(attention, prefix + "attn_output.weight", width), parentId: attentionRegion, architecture: new(null, "Projects attention back to decoder width, including the selected adapter.", null));
+            builder.WithRegion(attentionRegion + ".residual", GraphRegionTypes.Architecture, "Attention Residual", _ =>
+            {
+                hidden = Add(hidden, attentionOutput);
+            }, parentId: attentionRegion, architecture: new("residual-add", "Adds the attention output.", "x <- x + attention_output"));
+            var ffnRegion = layerRegion + ".ffn";
+            builder.AddRegion(ffnRegion, GraphRegionTypes.Stage, "Feed forward", layerRegion, role: "ffn",
+                architecture: new(Description: "Pre-normalized SwiGLU feed forward."));
+            var ffnInput = builder.WithRegion(ffnRegion + ".norm", GraphRegionTypes.Architecture, "RMSNorm", _ => Norm(hidden, prefix + "ffn_norm.weight"), parentId: ffnRegion, architecture: new(null, "Normalizes the feed-forward input.", null));
+            var gate = builder.WithRegion(ffnRegion + ".up", GraphRegionTypes.Architecture, "Gate / Up Projection", _ => Linear(ffnInput, prefix + "ffn_up.weight", 2 * intermediate), parentId: ffnRegion, architecture: new(null, "Projects paired gate and value channels, including the selected adapter.", null));
+            var activated = builder.WithRegion(ffnRegion + ".activation", GraphRegionTypes.Architecture, "SwiGLU", _ =>
+            {
+                var activated = Temporary(intermediate);
+                Emit(Phi4TextGraphOperations.SwiGlu, [GraphBindings.Read("gate_up", gate), GraphBindings.Write("output", activated)]);
+                return activated;
+            }, parentId: ffnRegion, architecture: new(null, "Gates the value half with SiLU of the gate half.", "h = silu(gate) .* up"));
+            var ffnOutput = builder.WithRegion(ffnRegion + ".down", GraphRegionTypes.Architecture, "Down Projection", _ => Linear(activated, prefix + "ffn_down.weight", width), parentId: ffnRegion, architecture: new(null, "Projects back to decoder width, including the selected adapter.", null));
+            builder.WithRegion(ffnRegion + ".residual", GraphRegionTypes.Architecture, "FFN Residual", _ =>
+            {
+                hidden = Add(hidden, ffnOutput);
+            }, parentId: ffnRegion, architecture: new("residual-add", "Adds the feed-forward output.", "x <- x + ffn_output"));
         }
-        var normalized = Norm(hidden, "text.output_norm.weight");
-        Emit(PrimitiveGraphOperations.MatVec,
-            [GraphBindings.Read("matrix", Weight("text.token_embd.weight")), GraphBindings.Read("input", normalized), GraphBindings.Write("output", "logits")]);
-        var graph = builder.Build();
+        builder.WithRegion("output", GraphRegionTypes.Stage, "LM Head", _ =>
+        {
+            var normalized = Norm(hidden, "text.output_norm.weight");
+            builder.MatVec("text.node." + index++, Weight("text.token_embd.weight"), normalized, "logits");
+        }, parentId: "root", architecture: new(Description: "Final RMSNorm and vocabulary projection with the tied embedding matrix."));
+        var graph = GraphLayerReuse.Extract(builder.BuildSequential(), region =>
+            region.Type == GraphRegionTypes.Layer ? "Phi4.Text.Layer" : null);
         GraphValidator.Validate(graph, this);
         return graph;
 
         string Temporary(params int[] shape)
         {
-            var id = "text.buffer." + index++;
+            var id = "text.node." + index++ + "_output";
             descriptors.Add(id, F(shape));
             builder.AddResource(id, id, GraphResourceKind.Temporary, GraphResourceLifetime.Invocation, descriptors[id]);
             return id;
@@ -173,9 +214,10 @@ public sealed class Phi4TextGraphModule : IModelGraphModule, IGraphOperationVali
         }
         void Emit(GraphOperationId operation, NodeResourceBinding[] bindings, IReadOnlyDictionary<string, string>? attributes = null)
         {
-            var id = "text.node." + index++;
-            builder.AddNode(id, operation, "root", bindings, previous is null ? [] : [previous], attributes);
-            previous = id;
+            var output = bindings.FirstOrDefault(binding => binding.Access == GraphResourceAccess.Write &&
+                binding.Resource.Value.EndsWith("_output", StringComparison.Ordinal));
+            var id = output is null ? "text.node." + index++ : output.Resource.Value[..^"_output".Length];
+            builder.AddNode(id, operation, bindings, null, attributes);
         }
         string Weight(string name, bool fp32 = false)
         {
@@ -207,7 +249,7 @@ public sealed class Phi4TextGraphModule : IModelGraphModule, IGraphOperationVali
         {
             var output = Temporary(outputWidth);
             var weight = Weight(name);
-            Emit(PrimitiveGraphOperations.MatVec, [GraphBindings.Read("matrix", weight), GraphBindings.Read("input", source), GraphBindings.Write("output", output)]);
+            builder.MatVec(output[..^"_output".Length], weight, source, output);
             return output;
         }
         string Linear(string source, string name, int outputWidth)
@@ -225,7 +267,7 @@ public sealed class Phi4TextGraphModule : IModelGraphModule, IGraphOperationVali
         string Add(string left, string right)
         {
             var output = Temporary(width);
-            Emit(PrimitiveGraphOperations.Add, [GraphBindings.Read("left", left), GraphBindings.Read("right", right), GraphBindings.Write("output", output)]);
+            builder.Add(output[..^"_output".Length], left, right, output);
             return output;
         }
     }

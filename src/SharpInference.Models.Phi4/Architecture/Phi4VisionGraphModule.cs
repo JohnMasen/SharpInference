@@ -70,9 +70,16 @@ public sealed class Phi4VisionGraphModule : IModelGraphModule, IGraphOperationVa
         Linear("mm.2", textWidth, textWidth);
         return new(ArchitectureId, new Dictionary<string, long>
         {
-            ["crops"] = crops, ["image_tokens"] = imageTokens, ["patch_size"] = patchSize, ["grid"] = grid,
-            ["crop_size"] = checked(grid * patchSize), ["width"] = width, ["intermediate"] = intermediate,
-            ["embedding_width"] = textWidth, ["heads"] = heads, ["layers"] = layers,
+            ["crops"] = crops,
+            ["image_tokens"] = imageTokens,
+            ["patch_size"] = patchSize,
+            ["grid"] = grid,
+            ["crop_size"] = checked(grid * patchSize),
+            ["width"] = width,
+            ["intermediate"] = intermediate,
+            ["embedding_width"] = textWidth,
+            ["heads"] = heads,
+            ["layers"] = layers,
         });
 
         void Require(string name, int[] shape, bool half = false)
@@ -98,7 +105,9 @@ public sealed class Phi4VisionGraphModule : IModelGraphModule, IGraphOperationVa
         var cropSize = dimensions["crop_size"];
         var builder = new LogicalGraphBuilder(new(ArchitectureId, 2, "forward"),
                 new GraphModelSignature(ArchitectureId, "phi4.vision.empty@1", dimensions))
-            .AddRegion("root", GraphRegionTypes.Graph, "Vision encoder and HD projection")
+            .AddRegion("root", GraphRegionTypes.Graph, "Vision encoder and HD projection", architecture: new(
+                Description: "Patch embedding, vision transformer Blocks, HD token gathering and multimodal projection.",
+                DefaultView: GraphArchitectureView.Architecture))
             .AddResource("pixels", "Pixels", GraphResourceKind.Input, GraphResourceLifetime.External, F(crops, 3, cropSize, cropSize), graphInput: true)
             .AddResource("mask", "Patch mask", GraphResourceKind.Input, GraphResourceLifetime.External, F(crops, grid, grid), graphInput: true)
             .AddResource("mapping", "HD token mapping", GraphResourceKind.Input, GraphResourceLifetime.External,
@@ -109,61 +118,106 @@ public sealed class Phi4VisionGraphModule : IModelGraphModule, IGraphOperationVa
         var weights = new Dictionary<string, string>(StringComparer.Ordinal);
         var converted = new Dictionary<string, string>(StringComparer.Ordinal);
         var index = 0;
-        string? previous = null;
-        var hidden = Temporary(crops, grid, grid, width);
-        var patch = Weight("v.patch_embd.weight");
-        var bias = Weight("v.patch_embd.bias");
-        var position = Weight("v.position_embd.weight");
-        Emit(Phi4VisionGraphOperations.PatchEmbedding,
-            [GraphBindings.Read("pixels", "pixels"), GraphBindings.Read("mask", "mask"), GraphBindings.Read("weight", patch),
-             GraphBindings.Read("bias", bias), GraphBindings.Read("position", position), GraphBindings.Write("output", hidden)],
-            Attr(("crop_size", cropSize), ("patch_size", dimensions["patch_size"]), ("width", width)));
+        builder.AddRegion("blocks", GraphRegionTypes.Architecture, "Vision Blocks", "root",
+            architecture: new(Description: "Ordered vision transformer Block instances.", DefaultCollapsed: true, RepeatGroup: true));
+        var hidden = builder.WithRegion("embedding", GraphRegionTypes.Stage, "Patch Embedding", _ =>
+        {
+            var embedded = Temporary(crops, grid, grid, width);
+            var patch = Weight("v.patch_embd.weight");
+            var bias = Weight("v.patch_embd.bias");
+            var position = Weight("v.position_embd.weight");
+            Emit(Phi4VisionGraphOperations.PatchEmbedding,
+                [GraphBindings.Read("pixels", "pixels"), GraphBindings.Read("mask", "mask"), GraphBindings.Read("weight", patch),
+                 GraphBindings.Read("bias", bias), GraphBindings.Read("position", position), GraphBindings.Write("output", embedded)],
+                Attr(("crop_size", cropSize), ("patch_size", dimensions["patch_size"]), ("width", width)));
+            return embedded;
+        }, parentId: "root", architecture: new(Description: "Projects RGB patches, applies patch masks and adds positional embeddings."));
         for (var layer = 0; layer < layers; layer++)
         {
+            var layerRegion = $"layer.{layer}";
+            builder.AddRegion(layerRegion, GraphRegionTypes.Layer, "Vision Block", "blocks",
+                architecture: new(Description: "Pre-normalized masked self-attention and GELU feed forward with residual connections."));
+            var attentionRegion = layerRegion + ".attention";
+            builder.AddRegion(attentionRegion, GraphRegionTypes.Stage, "Attention", layerRegion, role: "attention",
+                architecture: new(Description: "Masked multi-head attention over patch tokens."));
             var prefix = $"v.blk.{layer}.";
-            var normalized = Norm(hidden, prefix + "ln1");
-            var query = Linear(normalized, prefix + "attn_q", width);
-            var key = Linear(normalized, prefix + "attn_k", width);
-            var value = Linear(normalized, prefix + "attn_v", width);
-            var attention = Temporary(crops, grid, grid, width);
-            var tokens = checked(grid * grid);
-            Emit(Phi4VisionGraphOperations.Attention,
-                [View("query", query, GraphResourceAccess.Read, crops, tokens, width),
-                 View("key", key, GraphResourceAccess.Read, crops, tokens, width),
-                 View("value", value, GraphResourceAccess.Read, crops, tokens, width),
-                 View("mask", "mask", GraphResourceAccess.Read, crops, tokens),
-                 View("output", attention, GraphResourceAccess.Write, crops, tokens, width)], Attr(("heads", heads)));
-            hidden = Add(hidden, Linear(attention, prefix + "attn_out", width));
-            var up = Linear(Norm(hidden, prefix + "ln2"), prefix + "ffn_up", dimensions["intermediate"]);
-            hidden = Add(hidden, Linear(Gelu(up), prefix + "ffn_down", width));
+            var (normalized, projections) = builder.WithRegion(attentionRegion + ".norm", GraphRegionTypes.Architecture, "LayerNorm", _ =>
+            {
+                var normalized = Norm(hidden, prefix + "ln1");
+                var projections = attentionRegion + ".qkv";
+                return (normalized, projections);
+            }, parentId: attentionRegion, architecture: new(null, "Normalizes patch features before attention.", null));
+            var (query, key, value) = builder.WithRegion(projections, GraphRegionTypes.Architecture, "QKV Projections", _ =>
+            {
+                var query = builder.WithRegion(projections + ".q", GraphRegionTypes.Architecture, "Query", _ => Linear(normalized, prefix + "attn_q", width), architecture: new(null, "Projects query features.", null));
+                var key = builder.WithRegion(projections + ".k", GraphRegionTypes.Architecture, "Key", _ => Linear(normalized, prefix + "attn_k", width), architecture: new(null, "Projects key features.", null));
+                var value = builder.WithRegion(projections + ".v", GraphRegionTypes.Architecture, "Value", _ => Linear(normalized, prefix + "attn_v", width), architecture: new(null, "Projects value features.", null));
+                return (query, key, value);
+            }, parentId: attentionRegion, architecture: new(null, "Projects separate query, key and value branches.", null));
+            var attention = builder.WithRegion(attentionRegion + ".attention", GraphRegionTypes.Architecture, "Masked Attention", _ =>
+            {
+                var attention = Temporary(crops, grid, grid, width);
+                var tokens = checked(grid * grid);
+                Emit(Phi4VisionGraphOperations.Attention, [View("query", query, GraphResourceAccess.Read, crops, tokens, width), View("key", key, GraphResourceAccess.Read, crops, tokens, width), View("value", value, GraphResourceAccess.Read, crops, tokens, width), View("mask", "mask", GraphResourceAccess.Read, crops, tokens), View("output", attention, GraphResourceAccess.Write, crops, tokens, width)], Attr(("heads", heads)));
+                return attention;
+            }, parentId: attentionRegion, architecture: new(null, "Computes masked multi-head attention.", "attention = softmax(mask(Q K^T / sqrt(head_size))) V"));
+            var attentionOutput = builder.WithRegion(attentionRegion + ".output", GraphRegionTypes.Architecture, "Output Projection", _ => Linear(attention, prefix + "attn_out", width), parentId: attentionRegion, architecture: new(null, "Projects attended features back to vision width.", null));
+            builder.WithRegion(attentionRegion + ".residual", GraphRegionTypes.Architecture, "Attention Residual", _ =>
+            {
+                hidden = Add(hidden, attentionOutput);
+            }, parentId: attentionRegion, architecture: new("residual-add", "Adds the attention output.", "x <- x + attention_output"));
+            var ffnRegion = layerRegion + ".ffn";
+            builder.AddRegion(ffnRegion, GraphRegionTypes.Stage, "Feed forward", layerRegion, role: "ffn",
+                architecture: new(Description: "Pre-normalized GELU feed forward."));
+            var ffnInput = builder.WithRegion(ffnRegion + ".norm", GraphRegionTypes.Architecture, "LayerNorm", _ => Norm(hidden, prefix + "ln2"), parentId: ffnRegion, architecture: new(null, "Normalizes the feed-forward input.", null));
+            var up = builder.WithRegion(ffnRegion + ".up", GraphRegionTypes.Architecture, "Up Projection", _ => Linear(ffnInput, prefix + "ffn_up", dimensions["intermediate"]), parentId: ffnRegion, architecture: new(null, "Expands to the feed-forward width.", null));
+            var activated = builder.WithRegion(ffnRegion + ".activation", GraphRegionTypes.Architecture, "GELU", _ => Gelu(up), parentId: ffnRegion, architecture: new(null, "Applies GELU.", null));
+            var ffnOutput = builder.WithRegion(ffnRegion + ".down", GraphRegionTypes.Architecture, "Down Projection", _ => Linear(activated, prefix + "ffn_down", width), parentId: ffnRegion, architecture: new(null, "Projects back to vision width.", null));
+            builder.WithRegion(ffnRegion + ".residual", GraphRegionTypes.Architecture, "FFN Residual", _ =>
+            {
+                hidden = Add(hidden, ffnOutput);
+            }, parentId: ffnRegion, architecture: new("residual-add", "Adds the feed-forward output.", "x <- x + ffn_output"));
         }
-        var compressed = Temporary(crops, grid / 2, grid / 2, width);
-        Emit(Phi4VisionGraphOperations.Pool2x2, [GraphBindings.Read("input", hidden), GraphBindings.Write("output", compressed)]);
-        var gathered = Temporary(imageTokens, width);
-        var subSeparator = Weight("v.sub_GN");
-        var globalSeparator = Weight("v.glb_GN");
-        Emit(Phi4VisionGraphOperations.HdGather,
-            [View("input", compressed, GraphResourceAccess.Read, checked(crops * (grid / 2) * (grid / 2)), width),
-             GraphBindings.Read("mapping", "mapping"), GraphBindings.Read("sub_separator", subSeparator),
-             GraphBindings.Read("global_separator", globalSeparator), GraphBindings.Write("output", gathered)]);
-        var projected = Linear(Gelu(Linear(gathered, "mm.0", dimensions["embedding_width"])), "mm.2", dimensions["embedding_width"]);
-        Emit(PrimitiveGraphOperations.Copy, [GraphBindings.Read("input", projected), GraphBindings.Write("output", "output")]);
-        var graph = builder.Build();
+        var outputRegion = "output";
+        builder.AddRegion(outputRegion, GraphRegionTypes.Stage, "HD Projection", "root",
+            architecture: new(Description: "Pools patches, gathers HD tokens and projects to decoder width."));
+        var compressed = builder.WithRegion(outputRegion + ".pool", GraphRegionTypes.Architecture, "2x2 Pooling", _ =>
+        {
+            var compressed = Temporary(crops, grid / 2, grid / 2, width);
+            Emit(Phi4VisionGraphOperations.Pool2x2, [GraphBindings.Read("input", hidden), GraphBindings.Write("output", compressed)]);
+            return compressed;
+        }, parentId: outputRegion, architecture: new(null, "Compresses spatial patch tokens.", null));
+        var gathered = builder.WithRegion(outputRegion + ".gather", GraphRegionTypes.Architecture, "HD Token Gathering", _ =>
+        {
+            var gathered = Temporary(imageTokens, width);
+            var subSeparator = Weight("v.sub_GN");
+            var globalSeparator = Weight("v.glb_GN");
+            Emit(Phi4VisionGraphOperations.HdGather, [View("input", compressed, GraphResourceAccess.Read, checked(crops * (grid / 2) * (grid / 2)), width), GraphBindings.Read("mapping", "mapping"), GraphBindings.Read("sub_separator", subSeparator), GraphBindings.Read("global_separator", globalSeparator), GraphBindings.Write("output", gathered)]);
+            return gathered;
+        }, parentId: outputRegion, architecture: new(null, "Assembles local/global image tokens and separator embeddings.", null));
+        builder.WithRegion(outputRegion + ".projector", GraphRegionTypes.Architecture, "Multimodal Projector", _ =>
+        {
+            var projected = Linear(Gelu(Linear(gathered, "mm.0", dimensions["embedding_width"])), "mm.2", dimensions["embedding_width"]);
+            Emit(PrimitiveGraphOperations.Copy, [GraphBindings.Read("input", projected), GraphBindings.Write("output", "output")]);
+        }, parentId: outputRegion, architecture: new(null, "Two linear projections with GELU map image tokens to decoder embeddings.", null));
+        var graph = GraphLayerReuse.Extract(builder.BuildSequential(), region =>
+            region.Type == GraphRegionTypes.Layer ? "Phi4.Vision.Layer" : null);
         GraphValidator.Validate(graph, this);
         return graph;
 
         string Temporary(params int[] shape)
         {
-            var id = "vision.buffer." + index++;
+            var id = "vision.node." + index++ + "_output";
             descriptors.Add(id, F(shape));
             builder.AddResource(id, id, GraphResourceKind.Temporary, GraphResourceLifetime.Invocation, descriptors[id]);
             return id;
         }
         void Emit(GraphOperationId operation, NodeResourceBinding[] bindings, IReadOnlyDictionary<string, string>? attributes = null)
         {
-            var id = "vision.node." + index++;
-            builder.AddNode(id, operation, "root", bindings, previous is null ? [] : [previous], attributes);
-            previous = id;
+            var output = bindings.FirstOrDefault(binding => binding.Access == GraphResourceAccess.Write &&
+                binding.Resource.Value.EndsWith("_output", StringComparison.Ordinal));
+            var id = output is null ? "vision.node." + index++ : output.Resource.Value[..^"_output".Length];
+            builder.AddNode(id, operation, bindings, null, attributes);
         }
         string Weight(string name, bool fp32 = false)
         {
@@ -213,7 +267,7 @@ public sealed class Phi4VisionGraphModule : IModelGraphModule, IGraphOperationVa
         string Add(string left, string right)
         {
             var output = Temporary(descriptors[left].Dimensions.ToArray());
-            Emit(PrimitiveGraphOperations.Add, [GraphBindings.Read("left", left), GraphBindings.Read("right", right), GraphBindings.Write("output", output)]);
+            builder.Add(output[..^"_output".Length], left, right, output);
             return output;
         }
         string Gelu(string source)

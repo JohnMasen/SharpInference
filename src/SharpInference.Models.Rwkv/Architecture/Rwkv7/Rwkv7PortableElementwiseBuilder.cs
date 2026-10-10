@@ -54,30 +54,32 @@ public sealed class Rwkv7PortableElementwiseBuilder
 
     private string Unary(string id, GraphOperationId operation, string input)
     {
-        AddOutput(id);
+        var output = AddOutput(id);
         builder.AddNode(id, operation, region,
-            [GraphBindings.Read("input", RequireInput(input)), GraphBindings.Write("output", id)]);
-        return id;
+            [GraphBindings.Read("input", RequireInput(input)), GraphBindings.Write("output", output)]);
+        return output;
     }
 
     private string Binary(string id, GraphOperationId operation, string left, string right)
     {
-        AddOutput(id);
+        var output = AddOutput(id);
         builder.AddNode(id, operation, region,
             [
                 GraphBindings.Read("left", RequireInput(left)),
                 GraphBindings.Read("right", RequireInput(right)),
-                GraphBindings.Write("output", id),
+                GraphBindings.Write("output", output),
             ]);
-        return id;
+        return output;
     }
 
-    private void AddOutput(string id)
+    private string AddOutput(string id)
     {
         if (string.IsNullOrWhiteSpace(id) || !names.Add(id))
             throw new ArgumentException($"Duplicate or invalid elementwise resource '{id}'.", nameof(id));
-        builder.AddResource(id, id, GraphResourceKind.Temporary, GraphResourceLifetime.Invocation,
+        var output = $"{id}_output";
+        builder.AddResource(output, output, GraphResourceKind.Temporary, GraphResourceLifetime.Invocation,
             new TensorDescriptor(GraphElementType.Float32, [width]));
+        return output;
     }
 
     private static string RequireInput(string input) =>

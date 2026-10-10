@@ -48,6 +48,11 @@ logit-array copies for validation. Every checked logit at every token and
 every final State value must be finite and satisfy the existing model gate
 `abs(actual-reference) <= 0.0003 + abs(reference)*0.0003`.
 
+`--export-logical <file.xml>` exports the actual model-owned logical graph as
+indented UTF-8 XML. `--logical-xml <file.xml>` loads that graph with the supplied
+model rather than regenerating it, so `--reference` can verify serialization/load
+and compiled-execution equivalence. This is logical XML, not VmProgram XML.
+
 Outputs are raw samples/selection/resource metadata in `.json`, every-token
 logits in `.logits.bin`, and a named GGUF State snapshot in `.state.bin`.
 `--reference` compares with another output prefix and fails explicitly on

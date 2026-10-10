@@ -4,7 +4,7 @@ using System.Xml.Linq;
 
 namespace SharpInference.Graphs;
 
-public static class GraphXml
+public static partial class GraphXml
 {
     private const int SchemaVersion = 1;
     private const int MaxCharacters = 16 * 1024 * 1024;
@@ -14,6 +14,7 @@ public static class GraphXml
     public static string Serialize(LogicalGraph graph)
     {
         ArgumentNullException.ThrowIfNull(graph);
+        if (graph.Structure is not null) return SerializeStructure(graph);
         var root = CreateGraph("LogicalGraph", graph.Identity, graph.Model, graph.Resources, graph.Regions,
             graph.Inputs, graph.Outputs, graph.GraphState);
         if (graph.Nodes.Any(node => node.Resources.Any(binding => binding.View is not null)))
@@ -64,6 +65,7 @@ public static class GraphXml
         var root = Read(xml, "LogicalGraph");
         try
         {
+            if (root.Element("Nodes") is null) return DeserializeStructure(root, legacyReader);
             var parts = ReadParts(root, legacyReader);
             var nodes = Children(parts.Nodes, "Node").Select(node =>
             {
@@ -143,7 +145,7 @@ public static class GraphXml
                 new XElement("Region", new XAttribute("id", region.Id.Value),
                     Optional("parentId", region.ParentId?.Value), new XAttribute("type", region.Type),
                     Optional("role", region.Role), new XAttribute("name", region.Name),
-                    CreateAttributes(region.Attributes)))),
+                    RegionMetadataXml(region)))),
             new XElement("Inputs", inputs.Select(id => new XElement("ResourceRef", new XAttribute("id", id.Value)))),
             new XElement("Outputs", outputs.Select(id => new XElement("ResourceRef", new XAttribute("id", id.Value)))),
             graphState is null || graphState.Entries.Count == 0 ? null : new XElement("GraphState",
@@ -232,7 +234,8 @@ public static class GraphXml
             };
             using var reader = XmlReader.Create(new StringReader(xml), settings);
             var document = XDocument.Load(reader, LoadOptions.None);
-            if (document.Nodes().Any(node => node is not XElement))
+            if (document.Nodes().Any(node => node is not XElement &&
+                (node is not XText text || !string.IsNullOrWhiteSpace(text.Value))))
             {
                 throw new InvalidDataException("Graph XML contains unexpected document content.");
             }
@@ -298,12 +301,7 @@ public static class GraphXml
         }).ToArray();
         var regions = Children(sections[3], "Region").Select(item =>
         {
-            Check(item, "Region", "id", "parentId", "type", "role", "name");
-            var attributes = Ordered(item, "Attributes")[0];
-            return new GraphRegion(new RegionId(Required(item, "id")),
-                item.Attribute("parentId") is XAttribute parent ? new RegionId(parent.Value) : null,
-                Required(item, "type"), (string?)item.Attribute("role"), Required(item, "name"),
-                ReadAttributes(attributes));
+            return ReadRegion(item, (string?)item.Attribute("parentId"), structured: false);
         }).ToArray();
         return new GraphParts(
             new GraphIdentity(Required(identity, "architectureId"), Number(identity, "irVersion"), Required(identity, "name")),

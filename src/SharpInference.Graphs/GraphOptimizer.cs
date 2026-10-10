@@ -696,6 +696,8 @@ public sealed class GraphOptimizer
         }
 
         var lca = regionMap[LowestCommonAncestor(regions, regionMap)];
+        while (lca.Type == GraphRegionTypes.Architecture && lca.ParentId is { } parent)
+            lca = regionMap[parent];
         return boundary switch
         {
             OptimizationBoundary.WithinStage => string.Equals(lca.Type, GraphRegionTypes.Stage, StringComparison.Ordinal),

@@ -11,6 +11,7 @@ public sealed class PortableRwkv7GraphProviderTests
     [Theory]
     [InlineData(TensorDataType.Float32, 1)]
     [InlineData(TensorDataType.Float16, 2)]
+    [InlineData(TensorDataType.Float32, 3)]
     public void BuildsCompletePrimitiveGraphWithVersionedTensorContracts(
         TensorDataType weightType, int layerCount)
     {
@@ -18,6 +19,25 @@ public sealed class PortableRwkv7GraphProviderTests
         var graph = new PortableRwkv7GraphProvider().Build(catalog);
         GraphValidator.Validate(graph);
         PortableTensorOperationContracts.ValidateGraph(graph);
+        ModelGraphNamingAssertions.Validate(graph);
+        Assert.Equal(layerCount, graph.Regions.Count(region => region.Architecture?.Role == "time-mix"));
+        Assert.Equal(layerCount, graph.Regions.Count(region => region.Architecture?.Role == "channel-mix"));
+        Assert.Contains(graph.Regions, region => region.Architecture?.RepeatGroup == true);
+        foreach (var timeMix in graph.Regions.Where(region => region.Architecture?.Role == "time-mix"))
+            Assert.Equal(6, graph.Regions.Count(region => region.ParentId == timeMix.Id));
+        foreach (var channelMix in graph.Regions.Where(region => region.Architecture?.Role == "channel-mix"))
+            Assert.Equal(4, graph.Regions.Count(region => region.ParentId == channelMix.Id));
+        var calls = ModelGraphNamingAssertions.Calls(graph.Structure!.Root).ToArray();
+        Assert.Equal(layerCount + 2, calls.Length);
+        Assert.Contains(graph.Structure.LayerDefinitions, definition => definition.Id == "Rwkv7.Layer.CaptureFirstValue");
+        if (layerCount > 1)
+        {
+            Assert.NotEqual(calls[1].Definition, calls[2].Definition);
+            Assert.Contains(calls[1].Bindings, binding => binding.Port == "firstValueOut");
+            Assert.Contains(calls[2].Bindings, binding => binding.Port == "firstValue");
+        }
+        if (layerCount > 2) Assert.Equal(calls[2].Definition, calls[3].Definition);
+        Assert.All(calls, call => Assert.Empty(call.DependsOn));
         Assert.Equal("rwkv7.forward-token.portable", graph.Identity.Name);
         Assert.Equal("rwkv-7", graph.Identity.ArchitectureId);
         Assert.Equal("RWKV7_State", graph.GraphState.Schema.Name);

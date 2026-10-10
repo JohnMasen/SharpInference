@@ -35,6 +35,11 @@ public sealed class PortableRwkv7ElementwiseTests
         var activation = portable.ReluSquare("ffn", "value");
         var graph = builder.Build();
         GraphValidator.Validate(graph);
+        ModelGraphNamingAssertions.Validate(graph);
+        Assert.Equal("time-mix.output_output", mix);
+        Assert.Equal("value-mix.output_output", value);
+        Assert.Equal("key.output_output", key);
+        Assert.Equal("ffn.output_output", activation);
         var standard = PrimitiveGraphOperations.CreateStandardDescriptions(false)
             .Select(description => description.Operation).ToHashSet();
         Assert.All(graph.Nodes, node => Assert.Contains(node.Operation, standard));

@@ -102,48 +102,119 @@ public sealed class Phi4AudioGraphModule : IModelGraphModule, IGraphOperationVal
         var intermediate = dimensions["intermediate"];
         var builder = new LogicalGraphBuilder(new(ArchitectureId, 2, "forward"),
                 new GraphModelSignature(ArchitectureId, ArchitectureId + ".empty@1", dimensions))
-            .AddRegion("root", GraphRegionTypes.Graph, "Audio encoder and projection");
+            .AddRegion("root", GraphRegionTypes.Graph, "Audio encoder and projection", architecture: new(
+                Description: "Audio subsampling, Conformer Blocks and decoder-width projection.",
+                DefaultView: GraphArchitectureView.Architecture));
         var resources = new Dictionary<string, TensorDescriptor>(StringComparer.Ordinal);
         var weights = new Dictionary<string, string>(StringComparer.Ordinal);
         var zeros = new Dictionary<int, string>();
-        string? previous = null;
         var index = 0;
-        Append(subsampling.Build(tensors), "subsampling", new Dictionary<string, string> { ["output"] = "flattened" });
-        var hidden = Linear("flattened", "a.conv1d.out", width);
-        var relative = Weight("a.rel_attn_bias");
+        builder.AddRegion("blocks", GraphRegionTypes.Architecture, "Conformer Blocks", "root",
+            architecture: new(Description: "Ordered Conformer Block instances.", DefaultCollapsed: true, RepeatGroup: true));
+        var currentRegion = "embedding";
+        builder.AddRegion(currentRegion, GraphRegionTypes.Stage, "Acoustic Frontend", "root",
+            architecture: new(Description: "Normalizes and subsamples audio features, then projects frames and prepares relative attention bias."));
+        Append(subsampling.Build(tensors), "subsampling", new Dictionary<string, string> { ["output"] = "subsampling.flatten_output" });
+        var (hidden, relative) = builder.WithRegion("embedding.projection", GraphRegionTypes.Architecture, "Frame Projection", _ =>
+        {
+            var projected = Linear("subsampling.flatten_output", "a.conv1d.out", width);
+            var bias = Weight("a.rel_attn_bias");
+            return (projected, bias);
+        }, parentId: "embedding", architecture: new(Description: "Projects subsampled frames to Conformer width and prepares relative attention bias."));
         for (var layer = 0; layer < layers; layer++)
         {
+            var layerRegion = $"layer.{layer}";
+            builder.AddRegion(layerRegion, GraphRegionTypes.Layer, "Conformer Block", "blocks",
+                architecture: new(Description: "Half-step input FFN, relative attention, convolution, half-step output FFN and final normalization."));
+            currentRegion = layerRegion + ".ffn-in";
+            builder.AddRegion(currentRegion, GraphRegionTypes.Stage, "Input Feed Forward", layerRegion,
+                architecture: new(Description: "Pre-normalized SwiGLU FFN with a half-scaled residual."));
+            var inputFfn = currentRegion;
             var prefix = $"a.blk.{layer}.";
-            hidden = Residual(hidden, FeedForward(hidden, prefix + "ffn_in"), 0.5f);
-            var normalized = Norm(hidden, prefix + "ln_att");
-            var query = Linear(normalized, prefix + "attn_q", width);
-            var key = Linear(normalized, prefix + "attn_k", width);
-            var value = Linear(normalized, prefix + "attn_v", width);
-            var attention = Temporary(tokens, width);
-            Emit(Phi4AudioGraphOperations.RelativeAttention,
-                [GraphBindings.Read("query", query), GraphBindings.Read("key", key), GraphBindings.Read("value", value),
-                 GraphBindings.Read("relative_bias", relative), GraphBindings.Read("frame_count", "frame_count"),
-                 GraphBindings.Write("output", attention)],
-                Attr(("tokens", tokens), ("width", width), ("heads", dimensions["heads"]), ("subsampling", 8)));
-            hidden = Residual(hidden, Linear(attention, prefix + "attn_out", width), 1f);
-            normalized = Norm(hidden, prefix + "conv.ln");
-            var wide = Linear(normalized, prefix + "conv.glu.pw", checked(width * 2));
-            var gated = SwiGlu(wide, width, Weight(prefix + "conv.glu.b1"), Weight(prefix + "conv.glu.b2"));
-            var depthwise = Conv1D(gated, prefix + "conv.dw", 3, 2, width);
-            var middle = Conv1D(depthwise, prefix + "conv.pw_mid", 1, 0, 1);
-            middle = Activate(middle, width, "swish");
-            hidden = Residual(hidden, Conv1D(middle, prefix + "conv.pw_ext", 1, 0, 1), 1f);
-            hidden = Residual(hidden, FeedForward(hidden, prefix + "ffn_out"), 0.5f);
-            hidden = Norm(hidden, prefix + "ln");
+            var inputUpdate = FeedForward(hidden, prefix + "ffn_in", inputFfn);
+            builder.WithRegion(inputFfn + ".residual", GraphRegionTypes.Architecture, "Half-Step Residual", _ =>
+            {
+                hidden = Residual(hidden, inputUpdate, 0.5f);
+            }, parentId: inputFfn, architecture: new("residual-add", "Adds half of the FFN output.", "x <- x + 0.5 * ffn_output"));
+            currentRegion = layerRegion + ".attention";
+            builder.AddRegion(currentRegion, GraphRegionTypes.Stage, "Attention", layerRegion,
+                architecture: new(Description: "Masked relative-position self-attention over subsampled frames."));
+            var attentionRegion = currentRegion;
+            var (normalized, projections) = builder.WithRegion(attentionRegion + ".norm", GraphRegionTypes.Architecture, "LayerNorm", _ =>
+            {
+                var normalized = Norm(hidden, prefix + "ln_att");
+                var projections = attentionRegion + ".qkv";
+                return (normalized, projections);
+            }, parentId: attentionRegion, architecture: new(null, "Normalizes the attention input.", null));
+            var (query, key, value) = builder.WithRegion(projections, GraphRegionTypes.Architecture, "QKV Projections", _ =>
+            {
+                var query = builder.WithRegion(projections + ".q", GraphRegionTypes.Architecture, "Query", _ => Linear(normalized, prefix + "attn_q", width), architecture: new(null, "Projects query features.", null));
+                var key = builder.WithRegion(projections + ".k", GraphRegionTypes.Architecture, "Key", _ => Linear(normalized, prefix + "attn_k", width), architecture: new(null, "Projects key features.", null));
+                var value = builder.WithRegion(projections + ".v", GraphRegionTypes.Architecture, "Value", _ => Linear(normalized, prefix + "attn_v", width), architecture: new(null, "Projects value features.", null));
+                return (query, key, value);
+            }, parentId: attentionRegion, architecture: new(null, "Projects separate query, key and value branches.", null));
+            var attention = builder.WithRegion(attentionRegion + ".attention", GraphRegionTypes.Architecture, "Relative Attention", _ =>
+            {
+                var attention = Temporary(tokens, width);
+                Emit(Phi4AudioGraphOperations.RelativeAttention, [GraphBindings.Read("query", query), GraphBindings.Read("key", key), GraphBindings.Read("value", value), GraphBindings.Read("relative_bias", relative), GraphBindings.Read("frame_count", "frame_count"), GraphBindings.Write("output", attention)], Attr(("tokens", tokens), ("width", width), ("heads", dimensions["heads"]), ("subsampling", 8)));
+                return attention;
+            }, parentId: attentionRegion, architecture: new(null, "Uses relative-position bias and valid frame counts to attend over frames.", null));
+            var attentionOutput = builder.WithRegion(attentionRegion + ".output", GraphRegionTypes.Architecture, "Output Projection", _ => Linear(attention, prefix + "attn_out", width), parentId: attentionRegion, architecture: new(null, "Projects attended features to Conformer width.", null));
+            builder.WithRegion(attentionRegion + ".residual", GraphRegionTypes.Architecture, "Attention Residual", _ =>
+            {
+                hidden = Residual(hidden, attentionOutput, 1f);
+            }, parentId: attentionRegion, architecture: new("residual-add", "Adds the attention output.", "x <- x + attention_output"));
+            currentRegion = layerRegion + ".convolution";
+            builder.AddRegion(currentRegion, GraphRegionTypes.Stage, "Convolution", layerRegion,
+                architecture: new(Description: "Pre-normalized pointwise expansion, gated depthwise convolution and pointwise output."));
+            var convolution = currentRegion;
+            builder.WithRegion(convolution + ".norm", GraphRegionTypes.Architecture, "LayerNorm", _ =>
+            {
+                normalized = Norm(hidden, prefix + "conv.ln");
+            }, parentId: convolution, architecture: new(null, "Normalizes the convolution input.", null));
+            var wide = builder.WithRegion(convolution + ".expand", GraphRegionTypes.Architecture, "Pointwise Expansion", _ => Linear(normalized, prefix + "conv.glu.pw", checked(width * 2)), parentId: convolution, architecture: new(null, "Projects paired gating and value channels.", null));
+            var gated = builder.WithRegion(convolution + ".gate", GraphRegionTypes.Architecture, "Gated Activation", _ => SwiGlu(wide, width, Weight(prefix + "conv.glu.b1"), Weight(prefix + "conv.glu.b2")), parentId: convolution, architecture: new(null, "Applies the model's biased SwiGLU gate.", null));
+            var depthwise = builder.WithRegion(convolution + ".depthwise", GraphRegionTypes.Architecture, "Depthwise Convolution", _ => Conv1D(gated, prefix + "conv.dw", 3, 2, width), parentId: convolution, architecture: new(null, "Filters each feature channel along the frame axis.", null));
+            var middle = builder.WithRegion(convolution + ".middle", GraphRegionTypes.Architecture, "Pointwise / Swish", _ =>
+            {
+                var middle = Conv1D(depthwise, prefix + "conv.pw_mid", 1, 0, 1);
+                middle = Activate(middle, width, "swish");
+                return middle;
+            }, parentId: convolution, architecture: new(null, "Mixes feature channels and applies Swish.", null));
+            var convolutionOutput = builder.WithRegion(convolution + ".output", GraphRegionTypes.Architecture, "Pointwise Output", _ => Conv1D(middle, prefix + "conv.pw_ext", 1, 0, 1), parentId: convolution, architecture: new(null, "Projects the convolution output.", null));
+            builder.WithRegion(convolution + ".residual", GraphRegionTypes.Architecture, "Convolution Residual", _ =>
+            {
+                hidden = Residual(hidden, convolutionOutput, 1f);
+            }, parentId: convolution, architecture: new("residual-add", "Adds the convolution output.", "x <- x + convolution_output"));
+            currentRegion = layerRegion + ".ffn-out";
+            builder.AddRegion(currentRegion, GraphRegionTypes.Stage, "Output Feed Forward", layerRegion,
+                architecture: new(Description: "Half-scaled output FFN and final Block normalization."));
+            var outputFfn = currentRegion;
+            var outputUpdate = FeedForward(hidden, prefix + "ffn_out", outputFfn);
+            builder.WithRegion(outputFfn + ".residual", GraphRegionTypes.Architecture, "Half-Step Residual", _ =>
+            {
+                hidden = Residual(hidden, outputUpdate, 0.5f);
+            }, parentId: outputFfn, architecture: new("residual-add", "Adds half of the FFN output.", "x <- x + 0.5 * ffn_output"));
+            builder.WithRegion(outputFfn + ".final-norm", GraphRegionTypes.Architecture, "Final LayerNorm", _ =>
+            {
+                hidden = Norm(hidden, prefix + "ln");
+            }, parentId: outputFfn, architecture: new(null, "Normalizes the completed Conformer Block.", null));
         }
+        currentRegion = "output";
+        builder.AddRegion(currentRegion, GraphRegionTypes.Stage, "Audio Projector", "root",
+            architecture: new(Description: "Projects Conformer features to decoder embeddings."));
         Append(projection.Build(tensors), "projection", new Dictionary<string, string> { ["audio_hidden"] = hidden });
-        var graph = builder.Build();
+        var graph = GraphLayerReuse.Extract(builder.BuildSequential(), region =>
+            region.Type == GraphRegionTypes.Layer ? "Phi4.Audio.Layer" : null);
         GraphValidator.Validate(graph, this);
         return graph;
 
         void Append(LogicalGraph component, string tag, IReadOnlyDictionary<string, string> aliases)
         {
-            string Map(ResourceId id) => aliases.GetValueOrDefault(id.Value, id.Value);
+            var temporaries = component.Resources.Where(resource => resource.Kind == GraphResourceKind.Temporary)
+                .Select(resource => resource.Id).ToHashSet();
+            string Map(ResourceId id) => aliases.TryGetValue(id.Value, out var alias) ? alias :
+                temporaries.Contains(id) ? tag + "." + id.Value : id.Value;
             foreach (var resource in component.Resources)
             {
                 var id = Map(resource.Id);
@@ -160,29 +231,30 @@ public sealed class Phi4AudioGraphModule : IModelGraphModule, IGraphOperationVal
                     component.Inputs.Contains(resource.Id), !internalOutput && component.Outputs.Contains(resource.Id));
                 resources.Add(id, resource.Tensor);
             }
-            var predecessor = previous;
+            foreach (var region in component.Regions)
+                builder.AddRegion(tag + "." + region.Id.Value, region.Type == GraphRegionTypes.Graph ? GraphRegionTypes.Stage : region.Type,
+                    region.Name, region.ParentId is { } parent ? tag + "." + parent.Value : currentRegion, region.Role, region.Attributes,
+                    region.Architecture?.MapResources(id => new ResourceId(Map(id))));
             foreach (var node in component.Nodes)
             {
                 var id = tag + "." + node.Id.Value;
-                var dependencies = node.Dependencies.Select(dependency => tag + "." + dependency.Value).ToList();
-                if (dependencies.Count == 0 && predecessor is not null) dependencies.Add(predecessor);
-                builder.AddNode(id, node.Operation, "root", node.Resources.Select(binding => binding with { Resource = new(Map(binding.Resource)) }),
-                    dependencies, node.Attributes, node.Requirements);
-                previous = id;
+                builder.AddNode(id, node.Operation, tag + "." + node.Region.Value, node.Resources.Select(binding => binding with { Resource = new(Map(binding.Resource)) }),
+                    null, node.Attributes, node.Requirements);
             }
         }
         string Temporary(params int[] shape)
         {
-            var id = "conformer.buffer." + index++;
+            var id = "conformer.node." + index++ + "_output";
             resources.Add(id, F(shape));
             builder.AddResource(id, id, GraphResourceKind.Temporary, GraphResourceLifetime.Invocation, resources[id]);
             return id;
         }
         void Emit(GraphOperationId operation, NodeResourceBinding[] bindings, IReadOnlyDictionary<string, string>? attributes = null)
         {
-            var id = "conformer.node." + index++;
-            builder.AddNode(id, operation, "root", bindings, previous is null ? [] : [previous], attributes);
-            previous = id;
+            var output = bindings.FirstOrDefault(binding => binding.Access == GraphResourceAccess.Write &&
+                binding.Resource.Value.EndsWith("_output", StringComparison.Ordinal));
+            var id = output is null ? "conformer.node." + index++ : output.Resource.Value[..^"_output".Length];
+            builder.AddNode(id, operation, bindings, null, attributes);
         }
         string Weight(string name)
         {
@@ -216,9 +288,7 @@ public sealed class Phi4AudioGraphModule : IModelGraphModule, IGraphOperationVal
             var output = Temporary(tokens, outputWidth);
             var weight = Weight(prefix + ".weight");
             var bias = Weight(prefix + ".bias");
-            Emit(PrimitiveGraphOperations.Affine,
-                [GraphBindings.Read("left", source), GraphBindings.Read("right", weight), GraphBindings.Read("bias", bias),
-                 GraphBindings.Write("output", output)], Attr(("transpose_left", "false"), ("transpose_right", "true")));
+            builder.Affine(output[..^"_output".Length], source, weight, bias, output, transposeRight: true);
             return output;
         }
         string Norm(string source, string prefix)
@@ -239,11 +309,20 @@ public sealed class Phi4AudioGraphModule : IModelGraphModule, IGraphOperationVal
                  GraphBindings.Write("output", output)], Attr(("rows", tokens), ("width", size)));
             return output;
         }
-        string FeedForward(string source, string prefix)
+        string FeedForward(string source, string prefix, string region)
         {
-            var wide = Linear(Norm(source, prefix + ".ln"), prefix + ".up", checked(intermediate * 2));
-            var gated = SwiGlu(wide, intermediate, Zero(intermediate), Zero(intermediate));
-            return Linear(gated, prefix + ".down", width);
+            var normalized = builder.WithRegion(region + ".norm", GraphRegionTypes.Architecture, "LayerNorm",
+                _ => Norm(source, prefix + ".ln"), parentId: region,
+                architecture: new(Description: "Normalizes the feed-forward input."));
+            var wide = builder.WithRegion(region + ".up", GraphRegionTypes.Architecture, "Gate / Up Projection",
+                _ => Linear(normalized, prefix + ".up", checked(intermediate * 2)), parentId: region,
+                architecture: new(Description: "Projects paired gate and value channels."));
+            var gated = builder.WithRegion(region + ".activation", GraphRegionTypes.Architecture, "SwiGLU",
+                _ => SwiGlu(wide, intermediate, Zero(intermediate), Zero(intermediate)), parentId: region,
+                architecture: new(Description: "Applies the gated activation.", Formula: "h = silu(gate) .* up"));
+            return builder.WithRegion(region + ".down", GraphRegionTypes.Architecture, "Down Projection",
+                _ => Linear(gated, prefix + ".down", width), parentId: region,
+                architecture: new(Description: "Projects back to Conformer width."));
         }
         string Residual(string source, string update, float scale)
         {

@@ -1,0 +1,1016 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SharpInference XML 图查看器</title>
+<style>
+:root{color-scheme:dark;font-family:system-ui,"Microsoft YaHei",sans-serif;background:#0d1421;color:#e5edf8}
+*{box-sizing:border-box}body{margin:0;height:100vh;display:flex;flex-direction:column}
+header{padding:16px 20px;background:#151f30;border-bottom:1px solid #2b3b52}
+.heading{display:flex;justify-content:space-between;align-items:flex-start;gap:16px}
+.languages{display:flex;gap:6px;flex-shrink:0}
+.languages button[aria-pressed=true]{background:#224f86;border-color:#7098e4}
+h1{font-size:18px;margin:0 0 12px;flex:1}h1 .offline{font-size:12px;font-weight:400;color:#a2b3ca;margin-left:12px}
+.tools{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+button,.file,select,input[type=search]{font:inherit;font-size:13px;border:1px solid #435571;border-radius:6px;background:#233149;color:#e5edf8;padding:7px 10px}
+button,.file{cursor:pointer}button:hover,.file:hover{background:#324868}button:disabled{opacity:.4;cursor:default}
+.file{background:#224f86}input[type=file]{position:absolute;width:1px;height:1px;opacity:0}
+select{max-width:320px}input[type=search]{width:190px}label{font-size:13px}
+#status{margin-top:10px;font-size:12px;color:#a2b3ca;overflow-wrap:anywhere}
+#status.error{color:#ffb4a9}
+main{display:flex;flex:1;min-height:0}
+#viewport{flex:1;position:relative;min-width:0;background:#0d1421;overflow:hidden}
+svg{width:100%;height:100%;display:block;touch-action:none;cursor:grab}
+svg.dragging{cursor:grabbing}
+aside{width:340px;flex-shrink:0;overflow:auto;background:#151f30;border-left:1px solid #2b3b52;padding:18px;font-size:13px;line-height:1.6}
+h2{font-size:15px;margin:0 0 12px}h3{font-size:13px;color:#a6c8fa;margin:18px 0 6px}
+p{margin:8px 0}code{overflow-wrap:anywhere;color:#b6d3ff}
+.hint{color:#9bacc4;font-size:12px}.badge{display:inline-block;padding:2px 8px;border-radius:4px;background:#293b56;margin:2px}
+table{width:100%;border-collapse:collapse;font-size:12px}td{border-bottom:1px solid #30415a;padding:6px 0;vertical-align:top;overflow-wrap:anywhere}td:first-child{width:38%;color:#9bacc4;padding-right:8px}
+pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;color:#bccce0}
+.formula{font-size:13px;line-height:1.7}
+#empty{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;text-align:center;pointer-events:none;padding:25px}
+#empty div{max-width:470px}#empty strong{font-size:22px}#empty p{color:#9bacc4;line-height:1.8}
+#legend{position:absolute;bottom:12px;left:14px;display:flex;gap:12px;font-size:11px;color:#a2b3ca;pointer-events:none}
+.dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:5px}
+.edge{fill:none;stroke:#486384;stroke-width:1.2}
+.edge-link{cursor:pointer;outline:none}.edge-hit{fill:none;stroke:transparent;stroke-width:12;vector-effect:non-scaling-stroke;pointer-events:stroke}
+.edge-link:hover .edge:not(.active),.edge-link:focus .edge:not(.active){stroke:#bdd5f5;stroke-width:2}
+.edge.state{stroke:#bd93e0;stroke-dasharray:5 4}
+.edge.skip{stroke:#60c9ba}
+.edge.residual{stroke:#60c9ba}
+.edge.active{stroke:#ffcd70;stroke-width:2.4;vector-effect:non-scaling-stroke;marker-end:url(#arrow-active)}
+.node{cursor:pointer;outline:none}.node rect{stroke:#56728e;stroke-width:1.2;fill:#22364f}
+.node.call rect,.node.region rect{fill:#23385d;stroke:#7098e4}.node.external rect{fill:#233e39;stroke:#62a48f}
+.node text{fill:#e5edf8;font-size:14px;pointer-events:none}.node .subtitle{fill:#abc0d9;font-size:12px}
+.node.match rect{stroke:#e0aaff;stroke-width:2.4}.node.selected rect{stroke:#ffcd70;stroke-width:3}
+.node:not(.selected):hover rect,.node:not(.selected):focus rect{stroke:#fff}
+@media(max-width:760px){aside{width:260px}header{padding:12px}h1 .offline{display:none}}
+@media(max-width:540px){main{flex-direction:column}aside{width:100%;height:180px;border-left:0;border-top:1px solid #2b3b52}#legend{display:none}}
+</style>
+</head>
+<body>
+<header>
+  <div class="heading">
+    <h1><span data-i18n="title">SharpInference XML 图查看器</span><span class="offline" data-i18n="offline">单文件 · 离线 · 无依赖</span></h1>
+    <nav class="languages" data-i18n-aria-label="languages" aria-label="界面语言">
+      <button type="button" data-language="zh" lang="zh-CN" aria-pressed="true">中文</button>
+      <button type="button" data-language="en" lang="en" aria-pressed="false">English</button>
+    </nav>
+  </div>
+  <div class="tools">
+    <label class="file" for="file" data-i18n="open">打开 XML 文件</label><input id="file" type="file" accept=".xml,text/xml,application/xml">
+    <button id="back" data-i18n="back" data-i18n-title="backTitle" title="后退（Alt + ←）" disabled>← 后退</button>
+    <button id="forward" data-i18n="forward" data-i18n-title="forwardTitle" title="前进（Alt + →）" disabled>前进 →</button>
+    <span id="history" class="hint" aria-live="polite">0 / 0</span>
+    <button id="home" data-i18n="home" disabled>主图</button>
+    <button id="architecture" data-i18n="architecture" disabled>架构视图</button>
+    <select id="scope" data-i18n-aria-label="scope" aria-label="图或层定义" disabled><option data-i18n="unopened">尚未打开文件</option></select>
+    <label><input id="weights" type="checkbox"> <span data-i18n="weights">显示权重 / 常量</span></label>
+    <label><input id="collapse" type="checkbox" disabled> <span data-i18n="collapse">折叠重复组</span></label>
+    <label><input id="states" type="checkbox" disabled> <span data-i18n="states">跨步状态</span></label>
+    <input id="search" type="search" data-i18n-placeholder="search" data-i18n-aria-label="searchLabel" placeholder="搜索节点 / 算子 / 资源" aria-label="搜索节点">
+    <button id="next" data-i18n="next" disabled>下一个</button>
+    <button id="fit" data-i18n="fit" disabled>适应画布</button>
+    <button id="readable" data-i18n="readable" data-i18n-title="readableTitle" title="可读视图（F）：恢复 100% 比例；选中节点时以它为中心" aria-keyshortcuts="F" disabled>可读视图 (F)</button>
+    <button id="minus" data-i18n-aria-label="zoomOut" aria-label="缩小" disabled>−</button>
+    <button id="plus" data-i18n-aria-label="zoomIn" aria-label="放大" disabled>+</button>
+    <span id="zoom" class="hint">100%</span>
+    <span id="readability" class="hint"></span>
+  </div>
+  <div id="status" role="status" aria-live="polite">请选择 SharpInference Graph XML。</div>
+</header>
+<main>
+  <div id="viewport">
+    <svg id="canvas" xmlns="http://www.w3.org/2000/svg" data-i18n-aria-label="canvas" aria-label="节点关系图">
+      <defs>
+        <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10z" fill="#7896bc"/></marker>
+        <marker id="arrow-active" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10z" fill="#ffcd70"/></marker>
+      </defs>
+      <g id="world"><g id="edges"></g><g id="nodes"></g></g>
+    </svg>
+    <div id="empty"><div><strong data-i18n="emptyTitle">把模型结构变成可探索的节点图</strong><p data-i18n="emptyHelp">点击“打开 XML 文件”，也可将文件拖放到这里。</p><p data-i18n="privacy">文件仅在浏览器内读取，不会上传到任何服务器。</p></div></div>
+    <div id="legend"><span><i class="dot" style="background:#7098e4"></i><span data-i18n="legendRegions">Region / 层调用</span></span><span><i class="dot" style="background:#56728e"></i><span data-i18n="legendOperators">算子</span></span><span><i class="dot" style="background:#62a48f"></i><span data-i18n="legendResources">输入 / 状态 / 资源</span></span></div>
+  </div>
+  <aside id="details">
+    <h2 data-i18n="helpTitle">使用说明</h2>
+    <p data-i18n="helpNodes"></p>
+    <p data-i18n="helpEdges"></p>
+    <p data-i18n="helpRegions"></p>
+    <p data-i18n="helpMetadata"></p>
+    <p data-i18n="helpReadable"></p>
+    <p data-i18n="helpHistory"></p>
+    <p data-i18n="helpWeights"></p>
+    <p class="hint" data-i18n="helpOrder"></p>
+  </aside>
+</main>
+<script>
+"use strict";
+(() => {
+  const $ = id => document.getElementById(id);
+  const NS = "http://www.w3.org/2000/svg";
+  const messages = {
+    "title": ["SharpInference XML 图查看器", "SharpInference XML Graph Viewer"],
+    "offline": ["单文件 · 离线 · 无依赖", "Single file · Offline · No dependencies"],
+    "languages": ["界面语言", "Interface language"],
+    "open": ["打开 XML 文件", "Open XML file"],
+    "back": ["← 后退", "← Back"],
+    "backTitle": ["后退（Alt + ←）", "Back (Alt + ←)"],
+    "forward": ["前进 →", "Forward →"],
+    "forwardTitle": ["前进（Alt + →）", "Forward (Alt + →)"],
+    "home": ["主图", "Main graph"],
+    "architecture": ["架构视图", "Architecture view"],
+    "scope": ["图或层定义", "Graph or layer definition"],
+    "unopened": ["尚未打开文件", "No file opened"],
+    "weights": ["显示权重 / 常量", "Show weights / constants"],
+    "collapse": ["折叠重复组", "Collapse repeated groups"],
+    "states": ["跨步状态", "Cross-token state"],
+    "search": ["搜索节点 / 算子 / 资源", "Search nodes / operations / resources"],
+    "searchLabel": ["搜索节点", "Search nodes"],
+    "next": ["下一个", "Next"],
+    "nextCount": ["下一个 ({0})", "Next ({0})"],
+    "fit": ["适应画布", "Fit to canvas"],
+    "readable": ["可读视图 (F)", "Readable view (F)"],
+    "readableTitle": ["可读视图（F）：恢复 100% 比例；选中节点时以它为中心", "Readable view (F): restore 100% zoom and center the selection"],
+    "zoomOut": ["缩小", "Zoom out"],
+    "zoomIn": ["放大", "Zoom in"],
+    "chooseFile": ["请选择 SharpInference Graph XML，例如 artifacts 中的 rwkv7-tiny.region-architecture.xml。", "Choose a SharpInference Graph XML file, for example rwkv7-tiny.region-architecture.xml in artifacts."],
+    "canvas": ["节点关系图", "Node graph"],
+    "emptyTitle": ["把模型结构变成可探索的节点图", "Explore your model as a node graph"],
+    "emptyHelp": ["点击“打开 XML 文件”，也可将文件拖放到这里。", "Click “Open XML file” or drop a file here."],
+    "privacy": ["文件仅在浏览器内读取，不会上传到任何服务器。", "Files are read locally in your browser and never uploaded."],
+    "legendRegions": ["Region / 层调用", "Regions / layer calls"],
+    "legendOperators": ["算子", "Operations"],
+    "legendResources": ["输入 / 状态 / 资源", "Inputs / state / resources"],
+    "helpTitle": ["使用说明", "How to use"],
+    "helpNodes": ["单击节点查看绑定、张量形状及属性；双击层调用进入对应层定义，也可使用顶部下拉菜单切换。", "Click a node to inspect bindings, tensor shapes and attributes. Double-click a layer call to enter its definition, or use the view selector."],
+    "helpEdges": ["单击连线以金黄色高亮线条、箭头及两端节点，并查看连接资源；再次单击节点恢复节点选择。", "Click an edge to highlight its line, arrow and endpoints in gold and inspect its resources. Click a node to return to node selection."],
+    "helpRegions": ["Region 下可包含一个可选的 Architecture 元数据元素。嵌套 Region 直接包含真实算子，不需要独立架构树或 NodeRef 映射。双击 Region 展开子步骤，双击叶子 Region 查看算子；也可直接“查看全部算子”。说明与公式显示在详情顶部。", "A Region may contain optional Architecture metadata. Nested Regions own real operations directly, without a separate architecture tree or NodeRef mapping. Double-click to explore substeps or leaf operations, or choose “View all operations”. Descriptions and formulas appear at the top of the details panel."],
+    "helpMetadata": ["架构连线由真实资源绑定聚合生成。Architecture 的 Ports/Port 可用 resource、direction（in/out）、name 为边界命名；Description、Formula 提供说明。defaultCollapsed=false 让结构容器透明展开，repeatGroup=true 标记可切换的重复组。所属计算上下文声明 step=token 时，紫色虚线表示末次状态写入到下一 token 首次读取，不参与本步排序。", "Architecture edges aggregate real resource bindings. Architecture Ports/Port uses resource, direction (in/out) and name to label boundaries; Description and Formula provide documentation. defaultCollapsed=false expands a container transparently; repeatGroup=true marks a toggleable repeated group. With step=token in the computation context, purple dashed edges connect the last state write to the first read of the next token and do not affect current-step ordering."],
+    "helpReadable": ["默认以 100% 可读比例显示节点，拖动画布探索大图。“适应画布”显示全貌，但大图文字会缩小；“可读视图”（F）恢复 100%，有选中节点时以它为中心。输入框内不触发 F 快捷键。搜索后点击“下一个”定位匹配节点。", "Nodes start at readable 100% zoom. Pan to explore large graphs. “Fit to canvas” shows the whole graph but may shrink text; “Readable view” (F) restores 100% and centers the selection. F is ignored in text fields. Search and use “Next” to locate matches."],
+    "helpHistory": ["“后退 / 前进”或 Alt + ← / → 导航本文件内的视图历史，恢复画布位置、显示选项和选中内容。打开新文件会重置历史。", "Use Back / Forward or Alt + ← / → to navigate this file’s view history, restoring canvas position, display options and selection. Opening another file resets history."],
+    "helpWeights": ["默认隐藏权重和常量节点，减少连线噪声；它们的绑定仍可在节点详情中查看。", "Weights and constants are hidden by default to reduce clutter; their bindings remain available in node details."],
+    "helpOrder": ["连线按 XML 执行顺序连接资源的最近写入者与读取者。ReadWrite 同时读写，不绘制节点自身的回边。层定义显示模板端口，不代表已展开的全部实例。", "Edges connect resource readers to their latest writers in XML execution order. ReadWrite accesses read and write; ordinary self-edges are omitted. Layer definitions show template ports rather than all expanded instances."],
+    "invalidId": ["{0} 的 id 为空或重复：{1}", "{0} has an empty or duplicate id: {1}"],
+    "xmlError": ["XML 格式错误：{0}", "Invalid XML: {0}"],
+    "invalidRoot": ["不支持的 XML：根元素必须为 Graph。", "Unsupported XML: the root element must be Graph."],
+    "missingStructure": ["Graph 缺少 Region 或 Nodes，无法绘制节点。", "Graph requires Region or Nodes to draw its structure."],
+    "legacyArchitecture": ["旧的独立 Architecture 格式已移除，请使用嵌套 Region 示例。", "The legacy standalone Architecture format is no longer supported. Use the nested Region example."],
+    "loading": ["正在读取 {0}…", "Reading {0}…"],
+    "mainOperators": ["主图 · 全部算子/调用", "Main graph · All operations/calls"],
+    "openFailed": ["打开失败：{0}", "Open failed: {0}"],
+    "fileFailed": ["文件未打开，请选择有效的 Graph XML。", "No file opened. Choose a valid Graph XML file."],
+    "portCollision": ["端口和资源 id 重复：{0}/{1}", "Port and resource id collision: {0}/{1}"],
+    "elementId": ["元素 id 为空或重复：{0}/{1}", "Empty or duplicate element id: {0}/{1}"],
+    "regionDepth": ["Region 嵌套超过 64 层：{0}", "Region nesting exceeds 64 levels: {0}"],
+    "missingDefinition": ["层调用 {0} 引用不存在的定义：{1}", "Layer call {0} references a missing definition: {1}"],
+    "missingResource": ["节点 {0}/{1} 引用不存在的资源：{2}", "Node {0}/{1} references a missing resource: {2}"],
+    "invalidAccess": ["节点 {0} 的访问类型不受支持：{1}", "Node {0} uses an unsupported access type: {1}"],
+    "duplicateMetadata": ["Region {0}/{1} 只能有一个 Architecture。", "Region {0}/{1} may have only one Architecture element."],
+    "invalidStep": ["Region {0}/{1} 只支持 step=token。", "Region {0}/{1} supports only step=token."],
+    "invalidBoolean": ["Region {0} 的 {1} 必须为 true 或 false。", "Region {0}: {1} must be true or false."],
+    "invalidDefaultView": ["Region {0} 的 defaultView 无效。", "Region {0} has an invalid defaultView."],
+    "duplicateMetadataChild": ["Architecture 的 {0} 重复。", "Duplicate Architecture element: {0}."],
+    "unknownMetadata": ["Architecture 含未知元数据：{0}", "Unknown Architecture metadata: {0}"],
+    "invalidPort": ["Region {0} 的架构端口无效或重复：{1}", "Region {0} has an invalid or duplicate architecture port: {1}"],
+    "unknownRegionChild": ["Region {0} 含未知元素：{1}", "Region {0} contains an unknown element: {1}"],
+    "unknownNodeChild": ["Nodes 含未知元素：{0}", "Nodes contains an unknown element: {0}"],
+    "mainArchitecture": ["主图 · Region 架构", "Main graph · Region architecture"],
+    "allOperators": ["{0} · 全部算子", "{0} · All operations"],
+    "portBindingMismatch": ["Region {0} 的架构端口与实际绑定不符：{1}", "Region {0} has an architecture port that does not match its bindings: {1}"],
+    "missingHistoryNode": ["导航失败：历史视图中的节点不存在。", "Navigation failed: the historical node no longer exists."],
+    "missingHistoryEdge": ["导航失败：历史视图中的连线不存在。", "Navigation failed: the historical edge no longer exists."],
+    "missingView": ["导航失败：找不到视图 {0}", "Navigation failed: view not found: {0}"],
+    "missingScope": ["找不到所选图或 Region。", "The selected graph or Region was not found."],
+    "expandRegionHint": ["双击展开子 Region", "Double-click to expand Regions"],
+    "expandOperatorsHint": ["双击查看算子", "Double-click to view operations"],
+    "stateBoundary": ["跨 token 状态{0}", "Cross-token state {0}"],
+    "output": ["输出", "output"],
+    "input": ["输入", "input"],
+    "callDepth": ["层调用递归超过 64 层，无法确定资源读写关系。", "Layer calls exceed 64 levels; resource access cannot be determined."],
+    "unusedCallPort": ["层调用 {0} 的端口未被定义使用：{1}", "Layer call {0} has a port unused by its definition: {1}"],
+    "invalidDependency": ["执行依赖无效：{0}", "Invalid execution dependency: {0}"],
+    "backwardDependency": ["执行依赖不是前向依赖：{0}", "Execution dependency is not forward-only: {0}"],
+    "orderDependency": ["执行依赖", "Execution dependency"],
+    "missingDependency": ["执行依赖引用不存在：{0}", "Execution dependency references a missing element: {0}"],
+    "missingOutput": ["输出资源不存在：{0}", "Output resource not found: {0}"],
+    "cycle": ["节点依赖存在循环，无法进行分层布局。", "Node dependencies contain a cycle; layered layout is not possible."],
+    "edgeLabel": ["连线：{0} → {1}", "Edge: {0} → {1}"],
+    "noNodes": ["当前图没有可绘制的节点。", "This graph has no drawable nodes."],
+    "graphStatus": ["{0} · {1} · {2} · {3} 个{4} · {5} 个资源/输出节点 · {6} 条连线", "{0} · {1} · {2} · {3} {4} · {5} resource/output nodes · {6} edges"],
+    "modules": ["模块/分组", "modules/groups"],
+    "executionNodes": ["执行节点", "execution nodes"],
+    "drawingFailed": ["绘图失败：{0}", "Drawing failed: {0}"],
+    "overviewClick": ["单击查看节点详情；单击连线高亮两端节点；双击层调用查看模板内部算子。", "Click to inspect node details, click an edge to highlight its endpoints, or double-click a layer call to explore its template."],
+    "overviewRegions": ["当前层级直接来自嵌套 Region，连线由真实算子/调用的资源绑定聚合。双击 Region 展开子步骤，叶子 Region 展开为算子；详情中可直接查看全部算子。绿色侧线表示残差连接，紫色虚线表示跨 token 状态。", "This hierarchy comes directly from nested Regions; edges aggregate real operation/call bindings. Double-click to explore substeps or leaf operations, or view all operations from the details panel. Green side edges are residual connections; purple dashed edges are cross-token state."],
+    "overviewMetadata": ["Architecture 只是所属 Region 的可选元数据，不是执行节点。状态写入保留原执行位置。层定义中的资源和端口是模板，不是具体层实例。", "Architecture is optional Region metadata, not an execution node. State writes keep their original execution positions. Definition resources and ports are templates, not concrete layer instances."],
+    "model": ["模型", "Model"],
+    "tips": ["操作提示", "Tips"],
+    "overviewReadable": ["默认使用 100% 可读比例。大图可拖动或搜索探索；“适应画布”用于总览，“可读视图”（F）恢复清晰文字并定位选中节点。输入框内不触发 F 快捷键。", "Default zoom is a readable 100%. Pan or search large graphs. “Fit to canvas” shows an overview; “Readable view” (F) restores clear text and centers the selected node. F is ignored in text fields."],
+    "overviewHistory": ["后退 / 前进（Alt + ← / →）恢复已访问视图的位置、选项与选中内容；新文件会重置导航历史。", "Back / Forward (Alt + ← / →) restores visited views, positions, options and selection. Opening another file resets history."],
+    "overviewControls": ["滚轮缩放 / 拖动画布 / 搜索定位。默认隐藏权重和常量；资源连线依据 XML 顺序中的最近写入者。纯执行依赖使用虚线。支持区域嵌套图和 Nodes 平铺逻辑图。", "Scroll to zoom, drag to pan and search to locate nodes. Weights and constants are hidden by default. Resource edges use the latest writer in XML order; pure ordering dependencies are dashed. Both nested Region and flat Nodes graphs are supported."],
+    "templateHint": ["当前为可复用层的模板图。端口是抽象资源，不是某个层实例的实际权重或状态。", "This is a reusable layer template. Ports represent abstract resources, not a particular instance’s weights or state."],
+    "expandRegion": ["展开 Region →", "Expand Region →"],
+    "viewOperators": ["查看对应算子 →", "View operations →"],
+    "enterDefinition": ["进入层定义 →", "Enter layer definition →"],
+    "viewAll": ["查看全部算子 →", "View all operations →"],
+    "descendants": ["{0} 个算子/调用；范围为该 Region 的全部后代。", "{0} operations/calls, covering all descendants of this Region."],
+    "descriptionFormula": ["说明与公式", "Description and formula"],
+    "boundaries": ["边界名称", "Boundary labels"],
+    "attributes": ["算子属性", "Operation attributes"],
+    "bindings": ["资源绑定 ({0})", "Resource bindings ({0})"],
+    "boundaryInput": ["边界输入", "Boundary input"],
+    "boundaryOutput": ["边界输出", "Boundary output"],
+    "neighbors": ["相邻节点", "Adjacent nodes"],
+    "noEdges": ["没有可见连接。", "No visible connections."],
+    "rawXml": ["原始 XML", "Raw XML"],
+    "edgeDetails": ["连线详情", "Edge details"],
+    "source": ["起点", "Source"],
+    "target": ["终点", "Target"],
+    "edgeBindings": ["连接绑定 ({0})", "Connection bindings ({0})"],
+    "smallText": ["文字较小，可切换“可读视图”", "Text is small; switch to “Readable view”"]
+  };
+  let language = "zh";
+  const message = (key, ...args) => ({ key, args });
+  function format(value) {
+    if (typeof value !== "object" || value === null || !("key" in value)) return String(value);
+    const pair = messages[value.key];
+    if (!pair) throw new Error(`Missing UI translation: ${value.key}`);
+    return pair[language === "en" ? 1 : 0].replace(/\{(\d+)\}/g, (_, index) => format(value.args[Number(index)]));
+  }
+  const t = (key, ...args) => format(message(key, ...args));
+  class ViewerError extends Error {
+    constructor(key, ...args) {
+      super(t(key, ...args));
+      this.detail = message(key, ...args);
+    }
+  }
+  const errorMessage = error => error instanceof ViewerError ? error.detail : error.message;
+  function localizeStatic() {
+    document.documentElement.lang = language === "en" ? "en" : "zh-CN";
+    document.title = t("title");
+    for (const element of document.querySelectorAll("[data-i18n]"))
+      element.textContent = t(element.dataset.i18n);
+    for (const name of ["title", "aria-label", "placeholder"])
+      for (const element of document.querySelectorAll(`[data-i18n-${name}]`))
+        element.setAttribute(name, t(element.getAttribute(`data-i18n-${name}`)));
+    for (const button of document.querySelectorAll("[data-language]"))
+      button.setAttribute("aria-pressed", String(button.dataset.language === language));
+  }
+  function setLanguage(next) {
+    if (next === language) return;
+    const view = state.root ? captureView() : null;
+    const rawOpen = $("details").querySelector("details")?.open;
+    language = next;
+    localizeStatic();
+    if (view) {
+      $("scope").replaceChildren(new Option(t("mainOperators"), "root"));
+      registerRegionViews();
+      if (!restoreView(view)) return;
+      const raw = $("details").querySelector("details");
+      if (raw && rawOpen) raw.open = true;
+      $("details").scrollTop = view.detailsScroll;
+    } else if (state.emptyMessage) {
+      $("empty").firstElementChild.textContent = t(state.emptyMessage);
+    }
+    if (state.statusMessage) $("status").textContent = format(state.statusMessage);
+  }
+
+  const state = { root: null, definitions: new Map(), resources: new Map(), nodes: [], edges: [],
+    selected: null, selectedEdge: null, matches: [], matchIndex: -1, scale: 1, x: 0, y: 0,
+    width: 1, height: 1, loadId: 0, history: [], historyIndex: -1, viewScope: "" };
+  const children = (element, name) => Array.from(element?.children || []).filter(e => e.localName === name);
+  const child = (element, name) => children(element, name)[0];
+  const attr = (element, name) => element?.getAttribute(name) || "";
+  const svgElement = (name, attrs = {}) => {
+    const element = document.createElementNS(NS, name);
+    for (const [key, value] of Object.entries(attrs)) element.setAttribute(key, value);
+    return element;
+  };
+  const text = (parent, tag, value, className) => {
+    const element = document.createElement(tag);
+    element.textContent = value;
+    if (className) element.className = className;
+    parent.append(element);
+    return element;
+  };
+  function status(message, error = false) {
+    state.statusMessage = message;
+    $("status").textContent = format(message);
+    $("status").classList.toggle("error", error);
+  }
+  function namedMap(container, tag) {
+    const result = new Map();
+    if (!container) return result;
+    for (const element of children(container, tag)) {
+      const id = attr(element, "id");
+      if (!id || result.has(id)) throw new ViewerError("invalidId", tag, id);
+      result.set(id, element);
+    }
+    return result;
+  }
+  function parseXml(source) {
+    const documentXml = new DOMParser().parseFromString(source, "application/xml");
+    const error = documentXml.querySelector("parsererror");
+    if (error) throw new ViewerError("xmlError", error.textContent.trim().slice(0, 220));
+    const root = documentXml.documentElement;
+    if (root.localName !== "Graph") throw new ViewerError("invalidRoot");
+    if (!child(root, "Region") && !child(root, "Nodes"))
+      throw new ViewerError("missingStructure");
+    if (child(root, "Architecture"))
+      throw new ViewerError("legacyArchitecture");
+    return { root, definitions: namedMap(child(root, "LayerDefinitions"), "LayerDefinition"),
+      resources: namedMap(child(root, "Resources"), "Resource") };
+  }
+  async function openFile(file) {
+    if (!file) return;
+    const loadId = ++state.loadId;
+    status(message("loading", file.name));
+    try {
+      const parsed = parseXml(await file.text());
+      if (loadId !== state.loadId) return;
+      Object.assign(state, parsed);
+      state.rootResources = parsed.resources;
+      state.filename = file.name;
+      state.history = []; state.historyIndex = -1; updateNavigation();
+      $("scope").replaceChildren(new Option(t("mainOperators"), "root"));
+      registerRegionViews();
+      $("architecture").disabled = !state.architectureKey;
+      $("collapse").checked = Array.from(state.regionMetadata.values()).some(entry =>
+        attr(entry.metadata, "repeatGroup") === "true" && attr(entry.metadata, "defaultCollapsed") !== "false");
+      $("states").checked = false;
+      $("search").value = "";
+      $("scope").value = state.architectureKey &&
+        attr(state.views.get(state.architectureKey).metadata, "defaultView") !== "computation"
+        ? state.architectureKey : "root";
+      $("scope").disabled = false; $("home").disabled = false;
+      if (!render()) throw state.drawError;
+      state.history = [captureView()]; state.historyIndex = 0; updateNavigation();
+    } catch (error) {
+      if (loadId === state.loadId) {
+        state.root = null;
+        state.nodes = []; state.edges = [];
+        state.selected = null; state.selectedEdge = null;
+        state.history = []; state.historyIndex = -1; updateNavigation();
+        $("nodes").replaceChildren(); $("edges").replaceChildren();
+        const unopened = new Option(t("unopened"), "");
+        unopened.dataset.i18n = "unopened";
+        $("scope").replaceChildren(unopened);
+        for (const id of ["scope", "home", "architecture", "collapse", "states", "fit", "readable", "plus", "minus", "next"])
+          $(id).disabled = true;
+        $("weights").disabled = false;
+        $("empty").style.display = "flex";
+        state.emptyMessage = "fileFailed";
+        $("empty").firstElementChild.textContent = t("fileFailed");
+        $("details").replaceChildren();
+        status(message("openFailed", errorMessage(error)), true);
+      }
+    } finally { $("file").value = ""; }
+  }
+  function registerRegionViews() {
+    state.views = new Map(); state.contexts = new Map(); state.regionMetadata = new Map();
+    state.architectureKey = "";
+    for (const [id, scope] of [["root", state.root], ...state.definitions]) {
+      const resources = id === "root" ? new Map(state.rootResources) : namedMap(child(scope, "LocalResources"), "Resource");
+      for (const [portId, port] of namedMap(child(scope, "Ports"), "Port")) {
+        if (resources.has(portId)) throw new ViewerError("portCollision", id, portId);
+        resources.set(portId, port);
+      }
+      const context = { id, scope, resources, nodes: [], regions: [], elements: new Map(), nodeMetadata: new Map() };
+      state.contexts.set(id, context);
+      function addElement(element) {
+        const elementId = attr(element, "id");
+        if (!elementId || context.elements.has(elementId)) throw new ViewerError("elementId", id, elementId);
+        context.elements.set(elementId, element);
+      }
+      function visit(element, path, names) {
+        if (path.length > 64) throw new ViewerError("regionDepth", id);
+        addElement(element);
+        if (element.localName !== "Region") {
+          const definition = attr(element, "definition");
+          if (element.localName === "Call" && !state.definitions.has(definition))
+            throw new ViewerError("missingDefinition", attr(element, "id"), definition);
+          const item = { element, id: attr(element, "id"), definition, path: names.join(" / "), bindings: bindings(element) };
+          for (const binding of item.bindings) {
+            if (!resources.has(binding.resource)) throw new ViewerError("missingResource", id, item.id, binding.resource);
+            if (!["Read", "Write", "ReadWrite"].includes(binding.access))
+              throw new ViewerError("invalidAccess", item.id, binding.access);
+          }
+          context.nodes.push(item); context.nodeMetadata.set(element, item);
+          return [item];
+        }
+        const metadataElements = children(element, "Architecture");
+        if (metadataElements.length > 1) throw new ViewerError("duplicateMetadata", id, attr(element, "id"));
+        const metadata = metadataElements[0];
+        if (metadata) {
+          if (attr(metadata, "step") && attr(metadata, "step") !== "token")
+            throw new ViewerError("invalidStep", id, attr(element, "id"));
+          for (const name of ["defaultCollapsed", "repeatGroup"])
+            if (attr(metadata, name) && !["true", "false"].includes(attr(metadata, name)))
+              throw new ViewerError("invalidBoolean", attr(element, "id"), name);
+          if (attr(metadata, "defaultView") && !["architecture", "computation"].includes(attr(metadata, "defaultView")))
+            throw new ViewerError("invalidDefaultView", attr(element, "id"));
+          for (const tag of ["Description", "Formula", "Ports"])
+            if (children(metadata, tag).length > 1) throw new ViewerError("duplicateMetadataChild", tag);
+          for (const item of metadata.children)
+            if (!["Description", "Formula", "Ports"].includes(item.localName))
+              throw new ViewerError("unknownMetadata", item.localName);
+          const ports = child(metadata, "Ports"), seenPorts = new Set();
+          if (ports) for (const port of ports.children) {
+            const resource = attr(port, "resource"), direction = attr(port, "direction");
+            const key = `${resource}:${direction}`;
+            if (port.localName !== "Port" || !resources.has(resource) || !["in", "out"].includes(direction) || seenPorts.has(key))
+              throw new ViewerError("invalidPort", attr(element, "id"), key);
+            seenPorts.add(key);
+          }
+        }
+        const regionPath = [...path, attr(element, "id")], regionNames = [...names, attr(element, "name") || attr(element, "id")];
+        const key = `@region:${encodeURIComponent(id)}:${regionPath.map(encodeURIComponent).join("/")}`;
+        const entry = { type: "architecture", context, region: element, metadata, path: regionPath,
+          key, operatorKey: `@operators:${encodeURIComponent(id)}:${regionPath.map(encodeURIComponent).join("/")}`, nodes: [] };
+        state.regionMetadata.set(element, entry);
+        context.regions.push(entry);
+        for (const item of element.children) {
+          if (["Region", "Node", "Call"].includes(item.localName))
+            entry.nodes.push(...visit(item, regionPath, regionNames));
+          else if (!["Attributes", "Architecture", "DependsOn"].includes(item.localName))
+            throw new ViewerError("unknownRegionChild", attr(element, "id"), item.localName);
+        }
+        return entry.nodes;
+      }
+      for (const region of children(scope, "Region")) visit(region, [], []);
+      const flat = child(scope, "Nodes");
+      if (flat) for (const node of flat.children) {
+        if (!["Node", "Call"].includes(node.localName)) throw new ViewerError("unknownNodeChild", node.localName);
+        visit(node, [], []);
+      }
+      const hasArchitecture = context.regions.some(entry => entry.metadata || attr(entry.region, "type") === "architecture");
+      context.architecture = hasArchitecture;
+      const main = context.regions[0];
+      if (hasArchitecture && main) {
+        context.architectureKey = id === "root" ? "@architecture" : main.key;
+        if (id === "root") {
+          state.architectureKey = "@architecture"; state.views.set("@architecture", main);
+          $("scope").add(new Option(t("mainArchitecture"), "@architecture"));
+        }
+        for (const entry of context.regions) {
+          state.views.set(entry.key, entry);
+          state.views.set(entry.operatorKey, { ...entry, type: "operators" });
+          const label = `${id === "root" ? t("home") : id} · ${entry.path.join(" / ")} · ${attr(entry.region, "name")}`;
+          if (entry !== main || id !== "root") $("scope").add(new Option(label, entry.key));
+          $("scope").add(new Option(t("allOperators", label), entry.operatorKey));
+        }
+      }
+      if (id !== "root") $("scope").add(new Option(t("allOperators", id), id));
+      for (const entry of context.regions) {
+        const ports = child(entry.metadata, "Ports");
+        if (ports) for (const port of ports.children) {
+          const direction = attr(port, "direction"), resource = attr(port, "resource");
+          if (!entry.nodes.some(node => node.bindings.some(binding => binding.resource === resource &&
+              (direction === "in" ? binding.access !== "Write" : binding.access !== "Read"))))
+            throw new ViewerError("portBindingMismatch", attr(entry.region, "id"), resource);
+        }
+      }
+    }
+  }
+  function captureView() {
+    return { scope: state.viewScope, weights: $("weights").checked, collapse: $("collapse").checked,
+      states: $("states").checked, search: $("search").value, matchIndex: state.matchIndex,
+      scale: state.scale, x: state.x, y: state.y, selected: state.selected?.key,
+      selectedEdge: state.selectedEdge ? {
+        from: state.selectedEdge.from.key, to: state.selectedEdge.to.key, role: state.selectedEdge.role
+      } : null, detailsScroll: $("details").scrollTop };
+  }
+  function updateNavigation() {
+    $("back").disabled = state.historyIndex <= 0;
+    $("forward").disabled = state.historyIndex < 0 || state.historyIndex >= state.history.length - 1;
+    $("history").textContent = `${state.historyIndex + 1} / ${state.history.length}`;
+  }
+  function restoreView(view) {
+    $("scope").value = view.scope;
+    for (const id of ["weights", "collapse", "states"]) $(id).checked = view[id];
+    $("search").value = view.search;
+    if (!render()) return false;
+    state.scale = view.scale; state.x = view.x; state.y = view.y; state.matchIndex = view.matchIndex;
+    transform();
+    if (view.selected) {
+      const node = state.nodes.find(item => item.key === view.selected);
+      if (!node) { status(message("missingHistoryNode"), true); return false; }
+      select(node);
+    } else if (view.selectedEdge) {
+      const edge = state.edges.find(item => item.from.key === view.selectedEdge.from &&
+        item.to.key === view.selectedEdge.to && item.role === view.selectedEdge.role);
+      if (!edge) { status(message("missingHistoryEdge"), true); return false; }
+      selectEdge(edge);
+    }
+    $("details").scrollTop = view.detailsScroll;
+    return true;
+  }
+  function navigate(scope, changes = {}, afterRender = null) {
+    if (!state.root) return;
+    const current = captureView();
+    if (current.scope === scope && Object.entries(changes).every(([id, value]) => $(id).checked === value)) return;
+    if (!Array.from($("scope").options).some(option => option.value === scope)) {
+      status(message("missingView", scope), true); return;
+    }
+    $("scope").value = scope;
+    for (const [id, value] of Object.entries(changes)) $(id).checked = value;
+    if (!render()) {
+      const failure = state.statusMessage;
+      restoreView(current); status(failure, true); return;
+    }
+    if (afterRender) afterRender();
+    if (state.historyIndex >= 0) state.history[state.historyIndex] = current;
+    state.history.splice(state.historyIndex + 1);
+    state.history.push(captureView()); state.historyIndex = state.history.length - 1;
+    updateNavigation();
+  }
+  function travel(direction) {
+    const target = state.historyIndex + direction;
+    if (target < 0 || target >= state.history.length) return;
+    const current = captureView();
+    if (!restoreView(state.history[target])) {
+      const failure = state.statusMessage;
+      restoreView(current); status(failure, true); return;
+    }
+    state.history[state.historyIndex] = current;
+    state.historyIndex = target; updateNavigation();
+  }
+  function bindings(element) {
+    const container = child(element, "Bindings");
+    return container ? children(container, "Binding").map(binding => ({
+      port: attr(binding, "port"), resource: attr(binding, "resource"), access: attr(binding, "access")
+    })) : [];
+  }
+  function buildGraph() {
+    const view = state.views.get($("scope").value);
+    const context = view?.context || state.contexts.get($("scope").value);
+    if (!context) throw new ViewerError("missingScope");
+    const architectureView = view?.type === "architecture";
+    const selectedNodes = view ? view.nodes : context.nodes;
+    const selected = new Set(selectedNodes);
+    const resources = context.resources, visible = [], owners = new Map();
+    const primitive = item => {
+      const target = item.definition && state.contexts.get(item.definition);
+      const node = { ...item, key: `node:${item.id}`, label: item.definition || attr(item.element, "operation"),
+        displayName: target?.architecture ? `${attr(target.regions[0].region, "name")}${item.id.startsWith("layer.") ? ` ${item.id.slice(6)}` : ""}` : "",
+        drillTarget: target?.architectureKey || item.definition, external: false };
+      if (target?.architectureKey) node.operatorTarget = item.definition;
+      visible.push(node); owners.set(item, node);
+    };
+    function show(element) {
+      if (element.localName !== "Region") { primitive(context.nodeMetadata.get(element)); return; }
+      const entry = state.regionMetadata.get(element), metadata = entry.metadata;
+      if (!entry.nodes.length) return;
+      if (attr(metadata, "repeatGroup") === "true" ? !$("collapse").checked : attr(metadata, "defaultCollapsed") === "false") {
+        for (const item of element.children) if (["Region", "Node", "Call"].includes(item.localName)) show(item);
+        return;
+      }
+      const hasChildren = children(element, "Region").length > 0;
+      const node = { key: `region:${entry.key}`, id: attr(element, "id"), element, metadata,
+        displayName: `${attr(element, "name") || attr(element, "id")}${attr(metadata, "repeatGroup") === "true" ? ` × ${entry.nodes.length}` : ""}`,
+        label: attr(metadata, "role") || (hasChildren ? t("expandRegionHint") : t("expandOperatorsHint")),
+        drillTarget: hasChildren ? entry.key : entry.operatorKey, operatorTarget: entry.operatorKey,
+        bindings: entry.nodes.flatMap(item => item.bindings), nodeCount: entry.nodes.length,
+        external: false, region: true };
+      visible.push(node);
+      for (const item of entry.nodes) owners.set(item, node);
+    }
+    if (architectureView) {
+      for (const item of view.region.children) if (["Region", "Node", "Call"].includes(item.localName)) show(item);
+    } else for (const item of selectedNodes) primitive(item);
+    const inputs = new Map(), outputs = new Map(), edges = [], edgeMap = new Map();
+    const kindOf = resource => attr(resources.get(resource), "kind") || attr(resources.get(resource), "resourceKind") || "Port";
+    const portName = (resource, direction) => {
+      const port = children(child(view?.metadata, "Ports"), "Port").find(item =>
+        attr(item, "resource") === resource && attr(item, "direction") === direction);
+      return attr(port, "name") || attr(resources.get(resource), "name") || resource;
+    };
+    function boundary(resource, direction, temporal = false) {
+      const kind = kindOf(resource);
+      if (!$("weights").checked && /^(Weight|Constant)$/i.test(kind)) return null;
+      if (architectureView && kind === "SessionState" && !temporal) return null;
+      const map = direction === "in" ? inputs : outputs;
+      if (!map.has(resource)) {
+        const node = { key: `${direction}:${resource}`, id: resource, element: resources.get(resource), kind,
+          displayName: portName(resource, direction),
+          label: temporal ? t("stateBoundary", direction === "out" ? t("output") : t("input")) : direction === "out" ? t("output") : kind,
+          bindings: [], external: true };
+        map.set(resource, node); visible.push(node);
+      }
+      return map.get(resource);
+    }
+    function connect(from, to, binding, temporal = false) {
+      if (!from || !to || !temporal && from === to) return;
+      const role = temporal ? "state" : binding.access === "Order" ? "" :
+        attr(to.metadata, "role") === "residual-add" ? "residual" : "";
+      const key = `${from.key}\n${to.key}\n${role}`;
+      let edge = edgeMap.get(key);
+      if (!edge) {
+        edge = { from, to, bindings: [], role, temporal };
+        edgeMap.set(key, edge); edges.push(edge);
+      }
+      if (!edge.bindings.some(item => item.resource === binding.resource && item.port === binding.port && item.access === binding.access))
+        edge.bindings.push(binding);
+    }
+    function readsBeforeWrite(item, binding, depth = 0) {
+      if (binding.access !== "ReadWrite" || !item.definition) return binding.access !== "Write";
+      if (depth >= 64) throw new ViewerError("callDepth");
+      const target = state.contexts.get(item.definition);
+      // A ReadWrite call port may be initialized by its callee before any read.
+      for (const node of target.nodes) {
+        const first = node.bindings.find(candidate => candidate.resource === binding.port);
+        if (first) return readsBeforeWrite(node, first, depth + 1);
+      }
+      throw new ViewerError("unusedCallPort", item.id, binding.port);
+    }
+    const writers = new Map(), firstReaders = new Map(), lastWriters = new Map();
+    for (const item of context.nodes) {
+      for (const binding of item.bindings) {
+        if (readsBeforeWrite(item, binding)) {
+          const writer = writers.get(binding.resource);
+          if (!writer && !firstReaders.has(binding.resource)) firstReaders.set(binding.resource, item);
+          if (selected.has(item)) connect(owners.get(writer) || boundary(binding.resource, "in"), owners.get(item),
+            { ...binding, sourceNode: writer?.id || "", targetNode: item.id });
+          else if (writer && selected.has(writer)) connect(owners.get(writer), boundary(binding.resource, "out"),
+            { ...binding, sourceNode: writer.id, targetNode: item.id });
+        }
+      }
+      for (const binding of item.bindings) if (binding.access !== "Read") {
+        writers.set(binding.resource, item); lastWriters.set(binding.resource, item);
+      }
+    }
+    function executionDependency(fromElement, toElement, id) {
+      const sourceItems = fromElement.localName === "Region" ? state.regionMetadata.get(fromElement).nodes : [context.nodeMetadata.get(fromElement)];
+      const targetItems = toElement.localName === "Region" ? state.regionMetadata.get(toElement).nodes : [context.nodeMetadata.get(toElement)];
+      const source = sourceItems[sourceItems.length - 1], target = targetItems[0];
+      if (!source || !target || source === target) throw new ViewerError("invalidDependency", id);
+      if (context.nodes.indexOf(source) >= context.nodes.indexOf(target)) throw new ViewerError("backwardDependency", id);
+      if (selected.has(source) && selected.has(target))
+        connect(owners.get(source), owners.get(target), { resource: id, port: t("orderDependency"), access: "Order" });
+    }
+    for (const element of context.elements.values()) {
+      for (const ref of children(child(element, "DependsOn"), "ElementRef")) {
+        const from = context.elements.get(attr(ref, "id"));
+        if (!from) throw new ViewerError("missingDependency", attr(ref, "id"));
+        executionDependency(from, element, attr(ref, "id"));
+      }
+      for (const ref of children(child(element, "Dependencies"), "Dependency")) {
+        const from = context.elements.get(attr(ref, "id"));
+        if (!from) throw new ViewerError("missingDependency", attr(ref, "id"));
+        executionDependency(from, element, attr(ref, "id"));
+      }
+    }
+    const outputIds = context.id === "root"
+      ? children(child(context.scope, "Outputs"), "ResourceRef").map(ref => attr(ref, "id"))
+      : children(child(context.scope, "Ports"), "Port").filter(port => attr(port, "access") !== "Read").map(port => attr(port, "id"));
+    for (const resource of outputIds) {
+      if (!resources.has(resource)) throw new ViewerError("missingOutput", resource);
+      const writer = writers.get(resource);
+      if (writer && selected.has(writer)) connect(owners.get(writer), boundary(resource, "out"),
+        { resource, port: "output", access: "Read", sourceNode: writer.id, targetNode: "" });
+      else if (!view) connect(boundary(resource, "in"), boundary(resource, "out"), { resource, port: "output", access: "Read" });
+    }
+    const temporalEnabled = architectureView && context.regions.some(entry => attr(entry.metadata, "step") === "token");
+    if (temporalEnabled && $("states").checked) {
+      for (const [resource, reader] of firstReaders) {
+        const writer = lastWriters.get(resource);
+        if (kindOf(resource) !== "SessionState" || !writer || !selected.has(reader) && !selected.has(writer)) continue;
+        connect(owners.get(writer) || boundary(resource, "in", true), owners.get(reader) || boundary(resource, "out", true),
+          { resource, port: `${writer.id} → ${reader.id}`,
+          access: "State(t) → State(t+1)" }, true);
+      }
+    }
+    const graph = layoutGraph(visible, edges, resources, view?.region || context.scope, [...inputs.values()], architectureView);
+    graph.contextId = context.id;
+    graph.hasGroups = architectureView && children(view.region, "Region").some(region =>
+      Array.from(region.getElementsByTagName("Architecture")).some(metadata => attr(metadata, "repeatGroup") === "true"));
+    graph.hasStates = temporalEnabled;
+    return graph;
+  }
+
+  function layoutGraph(all, edges, resources, scope, externals = [], architectureView = false) {
+    const pending = new Map(all.map(node => [node, 0]));
+    const outgoing = new Map(all.map(node => [node, []]));
+    for (const node of all) node.rank = 0;
+    for (const edge of edges) {
+      if (edge.temporal) continue;
+      pending.set(edge.to, pending.get(edge.to) + 1);
+      outgoing.get(edge.from).push(edge.to);
+    }
+    const queue = all.filter(node => pending.get(node) === 0);
+    for (let index = 0; index < queue.length; index++) {
+      const from = queue[index];
+      for (const to of outgoing.get(from)) {
+        to.rank = Math.max(to.rank, from.rank + 1);
+        pending.set(to, pending.get(to) - 1);
+        if (pending.get(to) === 0) queue.push(to);
+      }
+    }
+    if (queue.length !== all.length) throw new ViewerError("cycle");
+    for (const node of externals) {
+      const targets = outgoing.get(node);
+      if (targets.length) node.rank = Math.max(0, Math.min(...targets.map(to => to.rank - 1)));
+    }
+    const levels = new Map();
+    for (const node of all) {
+      const level = levels.get(node.rank) || [];
+      node.x = level.length * 260 + 30;
+      node.y = node.rank * 116 + 30;
+      level.push(node); levels.set(node.rank, level);
+    }
+    return { nodes: all, edges, resources, scope, architectureView,
+      width: Math.max(300, ...all.map(node => node.x + (architectureView ? 330 : 250))),
+      height: Math.max(160, ...all.map(node => node.y + 94)) };
+  }
+  function shorten(value, max = 29) { return value.length > max ? value.slice(0, max - 1) + "…" : value; }
+  function render() {
+    if (!state.root) return;
+    try {
+      const graph = buildGraph();
+      Object.assign(state, graph, { selected: null, selectedEdge: null, matchIndex: -1 });
+      $("collapse").disabled = !state.hasGroups;
+      $("states").disabled = !state.hasStates;
+      $("weights").disabled = false;
+      $("edges").replaceChildren(); $("nodes").replaceChildren();
+      for (const edge of state.edges) {
+        const x1 = edge.from.x + 110, y1 = edge.from.y + 64;
+        const x2 = edge.to.x + 110, y2 = edge.to.y;
+        const mid = (y1 + y2) / 2;
+        const d = edge.from === edge.to
+          ? `M${edge.from.x + 220},${edge.from.y + 48} C${edge.from.x + 310},${edge.from.y + 100} ${edge.from.x + 310},${edge.from.y - 36} ${edge.from.x + 220},${edge.from.y + 16}`
+          : edge.role === "skip" || edge.role === "residual"
+            ? `M${edge.from.x + 220},${edge.from.y + 32} C${edge.from.x + 310},${edge.from.y + 32} ${edge.to.x + 310},${edge.to.y + 32} ${edge.to.x + 220},${edge.to.y + 32}`
+            : `M${x1},${y1} C${x1},${mid} ${x2},${mid} ${x2},${y2}`;
+        const path = svgElement("path", { d, class: `edge ${edge.role || ""}`, "marker-end": "url(#arrow)" });
+        if (edge.bindings.every(binding => binding.access === "Order")) path.setAttribute("stroke-dasharray", "5 4");
+        const title = svgElement("title");
+        title.textContent = edge.bindings.map(b => `${b.resource} → ${b.port} (${b.access})`).join("\n");
+        const group = svgElement("g", { class: "edge-link", tabindex: "0", role: "button",
+          "aria-label": t("edgeLabel", edge.from.id, edge.to.id) });
+        const hit = svgElement("path", { d: path.getAttribute("d"), class: "edge-hit" });
+        group.append(title, path, hit);
+        group.addEventListener("click", () => selectEdge(edge));
+        group.addEventListener("keydown", event => {
+          if (event.key === "Enter" || event.key === " ") { event.preventDefault(); selectEdge(edge); }
+        });
+        edge.dom = path; $("edges").append(group);
+      }
+      for (const node of state.nodes) {
+        const group = svgElement("g", { transform: `translate(${node.x},${node.y})`,
+          class: `node${node.external ? " external" : node.region ? " region" : node.definition ? " call" : ""}`,
+          tabindex: "0", role: "button", "aria-label": `${node.id}: ${node.label}` });
+        group.append(svgElement("rect", { width: 220, height: 64, rx: 9 }));
+        const name = svgElement("text", { x: 12, y: 25 });
+        name.textContent = shorten(node.displayName || node.id, 25); group.append(name);
+        const label = svgElement("text", { x: 12, y: 46, class: "subtitle" });
+        label.textContent = shorten(node.label, 28); group.append(label);
+        const title = svgElement("title"); title.textContent = `${node.id}\n${node.label}`;
+        group.append(title);
+        group.addEventListener("click", () => select(node));
+        group.addEventListener("dblclick", () => enter(node));
+        group.addEventListener("keydown", event => {
+          if (event.key === "Enter" || event.key === " ") { event.preventDefault(); select(node); }
+        });
+        node.dom = group; $("nodes").append(group);
+      }
+      $("empty").style.display = state.nodes.length ? "none" : "flex";
+      state.emptyMessage = state.nodes.length ? null : "noNodes";
+      if (!state.nodes.length) $("empty").firstElementChild.textContent = t("noNodes");
+      for (const id of ["fit", "readable", "plus", "minus"]) $(id).disabled = !state.nodes.length;
+      updateSearch(false); readable(false); overview();
+      const identity = child(state.root, "Identity");
+      status(message("graphStatus", state.filename, identity ? attr(identity, "name") : "Graph", $("scope").selectedOptions[0].textContent, state.nodes.filter(n => !n.external).length, state.architectureView ? t("modules") : t("executionNodes"), state.nodes.filter(n => n.external).length, state.edges.length));
+      state.viewScope = $("scope").value;
+      return true;
+    } catch (error) { state.drawError = error; status(message("drawingFailed", errorMessage(error)), true); return false; }
+  }
+  function table(parent, rows) {
+    const element = document.createElement("table");
+    for (const [key, value] of rows) {
+      const row = document.createElement("tr");
+      text(row, "td", key); text(row, "td", value); element.append(row);
+    }
+    parent.append(element);
+  }
+  function tensor(element) {
+    const t = child(element, "Tensor");
+    return t ? `${attr(t, "elementType")} [${children(t, "Dimension").map(d => attr(d, "size") || attr(d, "symbol") || "?").join(" × ")}] ${attr(t, "layout")}` : "";
+  }
+  function overview() {
+    const panel = $("details"); panel.replaceChildren();
+    text(panel, "h2", $("scope").selectedOptions[0].textContent);
+    text(panel, "p", t("overviewClick"));
+    if (state.architectureView) {
+      text(panel, "p", t("overviewRegions"));
+      text(panel, "p", t("overviewMetadata"), "hint");
+    }
+    const model = child(state.root, "Model");
+    if (model) {
+      text(panel, "h3", t("model"));
+      table(panel, Array.from(model.attributes).map(a => [a.name, a.value]));
+      const dimensions = child(model, "Dimensions");
+      if (dimensions) table(panel, children(dimensions, "Dimension").map(d => [attr(d, "name"), attr(d, "size")]));
+    }
+    text(panel, "h3", t("tips"));
+    text(panel, "p", t("overviewReadable"), "hint");
+    text(panel, "p", t("overviewHistory"), "hint");
+    text(panel, "p", t("overviewControls"), "hint");
+    if (state.contextId !== "root" && !state.architectureView) text(panel, "p", t("templateHint"), "hint");
+  }
+  function select(node) {
+    state.selected = node;
+    state.selectedEdge = null;
+    for (const item of state.nodes) item.dom.classList.toggle("selected", item === node);
+    for (const edge of state.edges) edge.dom.classList.toggle("active", edge.from === node || edge.to === node);
+    const panel = $("details"); panel.replaceChildren();
+    text(panel, "h2", node.displayName || node.id);
+    text(panel, "p", node.label, "badge");
+    if (node.drillTarget || node.definition) {
+      const button = text(panel, "button", node.drillTarget?.startsWith("@region:") ? t("expandRegion") : node.region ? t("viewOperators") : t("enterDefinition"));
+      button.addEventListener("click", () => enter(node));
+    }
+    if (node.operatorTarget && node.operatorTarget !== node.drillTarget) {
+      const button = text(panel, "button", t("viewAll"));
+      button.style.marginLeft = "6px";
+      button.addEventListener("click", () => navigate(node.operatorTarget));
+    }
+    if (node.nodeCount) text(panel, "p", t("descendants", node.nodeCount), "hint");
+    const metadata = node.metadata || child(node.element, "Architecture");
+    if (metadata) {
+      const description = child(metadata, "Description"), formula = child(metadata, "Formula");
+      if (description || formula) text(panel, "h3", t("descriptionFormula"));
+      if (description) text(panel, "p", description.textContent);
+      if (formula) text(panel, "pre", formula.textContent, "formula");
+      const ports = children(child(metadata, "Ports"), "Port");
+      if (ports.length) {
+        text(panel, "h3", t("boundaries"));
+        table(panel, ports.map(port => [attr(port, "name"), `${attr(port, "direction")} · ${attr(port, "resource")}`]));
+      }
+    }
+    const attributes = child(node.element, "Attributes");
+    if (attributes && attributes.children.length) {
+      text(panel, "h3", t("attributes"));
+      table(panel, children(attributes, "Attribute").map(a => [attr(a, "key") || attr(a, "name"), attr(a, "value")]));
+    }
+    const properties = Array.from(node.element.attributes).map(a => [a.name, a.value]);
+    if (node.path) properties.push(["region", node.path]);
+    table(panel, properties);
+    if (tensor(node.element)) text(panel, "p", tensor(node.element), "hint");
+    if (node.bindings.length) {
+      text(panel, "h3", t("bindings", node.bindings.length));
+      for (const binding of node.bindings) {
+        text(panel, "p", `${binding.port} · ${binding.access}`, "badge");
+        text(panel, "code", binding.resource);
+        if (binding.sourceNode || binding.targetNode)
+          text(panel, "p", `${binding.sourceNode || t("boundaryInput")} → ${binding.targetNode || t("boundaryOutput")}`, "hint");
+        const resource = state.resources.get(binding.resource);
+        if (resource) text(panel, "p", `${attr(resource, "kind") || attr(resource, "resourceKind") || "Port"} · ${tensor(resource)}`, "hint");
+      }
+    }
+    text(panel, "h3", t("neighbors"));
+    const adjacent = state.edges.filter(edge => edge.from === node || edge.to === node);
+    if (!adjacent.length) text(panel, "p", t("noEdges"), "hint");
+    for (const edge of adjacent) {
+      const target = edge.from === node ? edge.to : edge.from;
+      const button = text(panel, "button", `${edge.from === node ? "→" : "←"} ${target.id}`);
+      button.style.margin = "3px";
+      button.addEventListener("click", () => { select(target); focusNode(target); });
+    }
+    const raw = document.createElement("details");
+    text(raw, "summary", t("rawXml"));
+    text(raw, "pre", new XMLSerializer().serializeToString(node.element)); panel.append(raw);
+  }
+  function selectEdge(edge) {
+    state.selected = null;
+    state.selectedEdge = edge;
+    for (const node of state.nodes)
+      node.dom.classList.toggle("selected", node === edge.from || node === edge.to);
+    for (const item of state.edges) item.dom.classList.toggle("active", item === edge);
+    const panel = $("details"); panel.replaceChildren();
+    text(panel, "h2", t("edgeDetails"));
+    for (const [label, node] of [[t("source"), edge.from], [t("target"), edge.to]]) {
+      text(panel, "h3", label);
+      const button = text(panel, "button", node.id);
+      button.addEventListener("click", () => { select(node); focusNode(node); });
+      text(panel, "p", node.label, "hint");
+    }
+    text(panel, "h3", t("edgeBindings", edge.bindings.length));
+    for (const binding of edge.bindings) {
+      text(panel, "p", `${binding.port} · ${binding.access}`, "badge");
+      text(panel, "code", binding.resource);
+      const resource = state.resources.get(binding.resource);
+      if (resource) text(panel, "p", tensor(resource), "hint");
+    }
+  }
+  function enter(node) {
+    if (!node.drillTarget && !node.definition) return;
+    navigate(node.drillTarget || node.definition);
+  }
+  function transform() {
+    $("world").setAttribute("transform", `translate(${state.x},${state.y}) scale(${state.scale})`);
+    $("zoom").textContent = `${state.scale < .01 ? (state.scale * 100).toFixed(2) : Math.round(state.scale * 100)}%`;
+    $("readability").textContent = state.scale < .85 ? t("smallText") : "";
+  }
+  function readable(centerSelection = true) {
+    const anchor = centerSelection ? state.selected || state.selectedEdge?.from : null;
+    if (anchor) { focusNode(anchor); return; }
+    const rect = $("canvas").getBoundingClientRect();
+    state.scale = 1;
+    state.x = Math.max(20, (rect.width - state.width) / 2);
+    state.y = Math.max(20, (rect.height - state.height) / 2);
+    transform();
+  }
+  function fit() {
+    const rect = $("canvas").getBoundingClientRect();
+    state.scale = Math.max(.0001, Math.min(1, (rect.width - 40) / state.width, (rect.height - 40) / state.height));
+    state.x = (rect.width - state.width * state.scale) / 2;
+    state.y = (rect.height - state.height * state.scale) / 2; transform();
+  }
+  function zoom(factor, x, y) {
+    const next = Math.max(.0001, Math.min(3, state.scale * factor));
+    state.x = x - (x - state.x) * next / state.scale;
+    state.y = y - (y - state.y) * next / state.scale;
+    state.scale = next; transform();
+  }
+  function focusNode(node) {
+    const rect = $("canvas").getBoundingClientRect();
+    state.scale = 1; state.x = rect.width / 2 - node.x - 110; state.y = rect.height / 2 - node.y - 32;
+    transform();
+  }
+  function updateSearch(focus = true) {
+    const query = $("search").value.trim().toLocaleLowerCase();
+    state.matches = query ? state.nodes.filter(node => `${node.id} ${node.displayName || ""} ${node.label} ${node.path || ""} ${node.bindings.map(b => `${b.port} ${b.resource}`).join(" ")}`.toLocaleLowerCase().includes(query)) : [];
+    for (const node of state.nodes) node.dom.classList.toggle("match", state.matches.includes(node));
+    $("next").disabled = !state.matches.length;
+    $("next").textContent = query ? t("nextCount", state.matches.length) : t("next");
+    state.matchIndex = -1;
+    if (focus && state.matches.length) nextMatch();
+  }
+  function nextMatch() {
+    if (!state.matches.length) return;
+    state.matchIndex = (state.matchIndex + 1) % state.matches.length;
+    const node = state.matches[state.matchIndex]; select(node); focusNode(node);
+  }
+  $("file").addEventListener("change", event => openFile(event.target.files[0]));
+  $("scope").addEventListener("change", () => navigate($("scope").value));
+  $("home").addEventListener("click", () => navigate("root"));
+  $("architecture").addEventListener("click", () => navigate(state.architectureKey));
+  $("back").addEventListener("click", () => travel(-1));
+  $("forward").addEventListener("click", () => travel(1));
+  document.addEventListener("keydown", event => {
+    if (!event.isComposing && !event.altKey && !event.ctrlKey && !event.metaKey &&
+        event.key.toLowerCase() === "f" && !$("readable").disabled && event.target instanceof Element &&
+        !event.target.closest("input, textarea, select") && !event.target.isContentEditable) {
+      event.preventDefault(); readable();
+    }
+    if (state.root && event.altKey && !event.ctrlKey && !event.metaKey &&
+        (event.key === "ArrowLeft" || event.key === "ArrowRight")) {
+      event.preventDefault(); travel(event.key === "ArrowLeft" ? -1 : 1);
+    }
+  });
+  $("collapse").addEventListener("change", render);
+  $("states").addEventListener("change", render);
+  $("weights").addEventListener("change", render);
+  $("fit").addEventListener("click", fit);
+  $("readable").addEventListener("click", () => readable());
+  $("search").addEventListener("input", () => updateSearch());
+  $("search").addEventListener("keydown", event => { if (event.key === "Enter") nextMatch(); });
+  $("next").addEventListener("click", nextMatch);
+  for (const [id, factor] of [["plus", 1.25], ["minus", .8]]) $(id).addEventListener("click", () => {
+    const rect = $("canvas").getBoundingClientRect(); zoom(factor, rect.width / 2, rect.height / 2);
+  });
+  $("canvas").addEventListener("wheel", event => {
+    if (!state.root) return;
+    event.preventDefault();
+    const rect = $("canvas").getBoundingClientRect();
+    zoom(Math.exp(-event.deltaY * .0015), event.clientX - rect.left, event.clientY - rect.top);
+  }, { passive: false });
+  let drag = null;
+  $("canvas").addEventListener("pointerdown", event => {
+    if (event.button !== 0) return;
+    drag = { x: event.clientX, y: event.clientY, startX: state.x, startY: state.y };
+    if (!event.target.closest(".node, .edge-link")) {
+      $("canvas").setPointerCapture(event.pointerId);
+      $("canvas").classList.add("dragging");
+    } else drag = null;
+  });
+  $("canvas").addEventListener("pointermove", event => {
+    if (!drag) return;
+    state.x = drag.startX + event.clientX - drag.x; state.y = drag.startY + event.clientY - drag.y; transform();
+  });
+  const stopDrag = () => { drag = null; $("canvas").classList.remove("dragging"); };
+  $("canvas").addEventListener("pointerup", stopDrag);
+  $("canvas").addEventListener("pointercancel", stopDrag);
+  $("viewport").addEventListener("dragover", event => { event.preventDefault(); event.dataTransfer.dropEffect = "copy"; });
+  $("viewport").addEventListener("drop", event => { event.preventDefault(); openFile(event.dataTransfer.files[0]); });
+  for (const button of document.querySelectorAll("[data-language]"))
+    button.addEventListener("click", () => setLanguage(button.dataset.language));
+  localizeStatic();
+  status(message("chooseFile"));
+
+})();
+</script>
+</body>
+</html>

@@ -25,6 +25,22 @@ public static class GraphValidator
             }
         }
 
+        var regions = graph.Regions.ToDictionary(region => region.Id);
+        foreach (var region in graph.Regions.Where(region => region.Architecture?.Ports.Count > 0))
+        {
+            bool Contains(RegionId id)
+            {
+                while (id != region.Id)
+                {
+                    if (regions[id].ParentId is not { } parent) return false;
+                    id = parent;
+                }
+                return true;
+            }
+            region.Architecture!.ValidateBindings(region.Id.Value,
+                graph.Nodes.Where(node => Contains(node.Region)).SelectMany(node => node.Resources));
+        }
+
         ValidateAcyclic(
             graph.Nodes.Select(node => node.Id),
             id => graph.Nodes.First(node => node.Id == id).Dependencies,
@@ -186,6 +202,8 @@ public static class GraphValidator
             }
         }
 
+        foreach (var region in regions)
+            region.Architecture?.Validate(region.Id.Value, resourceIds);
         foreach (var id in inputs.Concat(outputs))
         {
             if (!resourceIds.Contains(id))

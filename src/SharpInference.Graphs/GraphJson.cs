@@ -9,12 +9,27 @@ public static class GraphJson
     {
         WriteIndented = true,
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
-        Converters = { new JsonStringEnumConverter() },
+        Converters = { new JsonStringEnumConverter(), new StructureTensorConverter() },
+    };
+    private static readonly JsonSerializerOptions StructureOptions = new(Options)
+    {
+        UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow,
     };
 
     public static string Serialize(LogicalGraph graph)
     {
         ArgumentNullException.ThrowIfNull(graph);
+        if (graph.Structure is not null)
+            return JsonSerializer.Serialize(new
+            {
+                Kind = graph.Structure.HasTensorViews ? "LogicalGraphV2" : "LogicalGraph",
+                FormatVersion = graph.Structure.HasTensorViews ? 2 : 1,
+                graph.Identity, graph.Model,
+                Resources = graph.DeclaredResources.Select(ResourceDto),
+                Regions = Array.Empty<object>(), graph.Structure,
+                Inputs = graph.Inputs.Select(id => id.Value), Outputs = graph.Outputs.Select(id => id.Value),
+                GraphState = StateDto(graph.GraphState),
+            }, Options);
         return JsonSerializer.Serialize(ToDto(graph), Options);
     }
 
@@ -83,6 +98,19 @@ public static class GraphJson
         Slots = state.Slots.Select(slot => new { slot.Name, Resource = slot.Resource.Value }),
     };
 
+    private sealed class StructureTensorConverter : JsonConverter<TensorDescriptor>
+    {
+        public override TensorDescriptor Read(ref Utf8JsonReader reader, Type type, JsonSerializerOptions options)
+        {
+            using var doc = JsonDocument.ParseValue(ref reader);
+            var root = doc.RootElement;
+            return new(root.GetProperty("ElementType").Deserialize<GraphElementType>(options),
+                root.GetProperty("Dimensions").EnumerateArray().Select(d => d.GetInt32()), Text(root, "Layout"));
+        }
+        public override void Write(Utf8JsonWriter writer, TensorDescriptor value, JsonSerializerOptions options) =>
+            JsonSerializer.Serialize(writer, new { value.ElementType, value.Dimensions, value.Layout }, options);
+    }
+
     private static object ResourceDto(GraphResource resource) => new
     {
         Id = resource.Id.Value,
@@ -108,6 +136,7 @@ public static class GraphJson
         region.Role,
         region.Name,
         region.Attributes,
+        region.Architecture,
     };
 
     private static object BindingDto(NodeResourceBinding binding) => new
@@ -127,6 +156,22 @@ public static class GraphJson
         var root = document.RootElement;
         RequireKind(root, "LogicalGraph");
         var parts = ReadParts(root, legacyReader);
+        if (root.TryGetProperty("Structure", out var structure))
+        {
+            if (root.TryGetProperty("Nodes", out _) || parts.Regions.Length != 0)
+                throw new InvalidDataException("Structured JSON cannot also declare flat nodes or regions.");
+            GraphStructure parsed;
+            try
+            {
+                parsed = structure.Deserialize<GraphStructure>(StructureOptions) ?? throw new InvalidDataException("Missing structure.");
+            }
+            catch (JsonException exception)
+            {
+                throw new InvalidDataException("Invalid structured graph JSON.", exception);
+            }
+            return new LogicalGraph(parts.Identity, parts.Model, parts.Resources, parsed,
+                parts.Inputs, parts.Outputs, parts.GraphState);
+        }
         var nodes = root.GetProperty("Nodes").EnumerateArray().Select(node =>
             new LogicalNode(new LogicalNodeId(Text(node, "Id")), Operation(node),
                 new RegionId(Text(node, "Region")), Bindings(node, "Resources"),
@@ -167,6 +212,14 @@ public static class GraphJson
     {
         var actual = Text(root, "Kind");
         if (actual != kind && actual != kind + "V2") throw new InvalidDataException($"Expected {kind} JSON.");
+        if (kind == "LogicalGraph" && root.TryGetProperty("Structure", out var structure))
+        {
+            var expectedVersion = actual == kind + "V2" ? 2 : 1;
+            if (!root.TryGetProperty("FormatVersion", out var structuredVersion) || structuredVersion.GetInt32() != expectedVersion)
+                throw new InvalidDataException($"Structured logical JSON requires format version {expectedVersion}.");
+            if (expectedVersion == 1 && StructureContainsViews(structure))
+                throw new InvalidDataException("Legacy graph JSON cannot contain tensor views.");
+        }
         if (actual == kind + "V2")
         {
             if (!root.TryGetProperty("FormatVersion", out var version) || version.GetInt32() != 2)
@@ -178,12 +231,27 @@ public static class GraphJson
         {
             if (root.TryGetProperty("FormatVersion", out var version) && version.GetInt32() != 1)
                 throw new InvalidDataException("Unsupported graph JSON format version.");
-            foreach (var node in root.GetProperty("Nodes").EnumerateArray())
+            foreach (var node in root.TryGetProperty("Nodes", out var legacyNodes) ? legacyNodes.EnumerateArray() : Enumerable.Empty<JsonElement>())
                 foreach (var property in new[] { "Resources", "InternalResources" })
                     if (node.TryGetProperty(property, out var bindings) && bindings.EnumerateArray().Any(binding =>
                         binding.TryGetProperty("View", out var view) && view.ValueKind != JsonValueKind.Null))
                         throw new InvalidDataException("Legacy graph JSON cannot contain tensor views.");
         }
+    }
+
+    private static bool StructureContainsViews(JsonElement structure)
+    {
+        bool BodyContainsViews(JsonElement element)
+        {
+            var node = element.TryGetProperty("Node", out var value) ? value : element;
+            foreach (var property in new[] { "Resources", "Bindings" })
+                if (node.TryGetProperty(property, out var bindings) && bindings.ValueKind == JsonValueKind.Array &&
+                    bindings.EnumerateArray().Any(binding => binding.TryGetProperty("View", out var view) && view.ValueKind != JsonValueKind.Null))
+                    return true;
+            return element.TryGetProperty("Children", out var children) && children.EnumerateArray().Any(BodyContainsViews);
+        }
+        return BodyContainsViews(structure.GetProperty("Root")) ||
+            structure.GetProperty("LayerDefinitions").EnumerateArray().Any(definition => BodyContainsViews(definition.GetProperty("Body")));
     }
 
     private static GraphParts ReadParts(JsonElement root, IGraphModelSignatureReader? legacyReader)
@@ -205,7 +273,11 @@ public static class GraphJson
             new GraphRegion(new RegionId(Text(item, "Id")),
                 NullableText(item, "ParentId") is string parent ? new RegionId(parent) : null,
                 Text(item, "Type"), NullableText(item, "Role"), Text(item, "Name"),
-                Attributes(item))).ToArray();
+                Attributes(item))
+            {
+                Architecture = item.TryGetProperty("Architecture", out var architecture) && architecture.ValueKind != JsonValueKind.Null
+                    ? architecture.Deserialize<GraphRegionArchitecture>(StructureOptions) : null,
+            }).ToArray();
         GraphState? graphState = null;
         if (root.TryGetProperty("GraphState", out var state) && state.ValueKind != JsonValueKind.Null)
         {

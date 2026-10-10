@@ -15,6 +15,16 @@ namespace SharpInference.Tests;
 public sealed class Phi4AudioSubsamplingGraphTests
 {
     [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void GeneratedGraphUsesExplicitOutputResources(bool half)
+    {
+        var module = new Phi4AudioSubsamplingGraphModule(16);
+        using var file = new AudioFile(half);
+        ModelGraphNamingAssertions.Validate(module.Build(file), module);
+    }
+
+    [Theory]
     [InlineData(false, false)]
     [InlineData(true, false)]
     [InlineData(false, true)]
@@ -35,6 +45,7 @@ public sealed class Phi4AudioSubsamplingGraphTests
             : CpuVmBackendFactory.Create(instructionCollections: collections);
         using var processor = Processor.Load("audio", new Reader(file), registry, backend);
         Assert.True(file.Disposed);
+        ModelGraphNamingAssertions.Validate(processor.LogicalGraph!, module);
         Assert.Equal(5, processor.LogicalGraph!.Nodes.Count(node => node.Operation == Phi4AudioGraphOperations.Conv2D));
         Assert.Contains(processor.LogicalGraph.Nodes, node => node.Resources.Any(binding => binding.View is not null));
         using var session = Assert.IsAssignableFrom<ITensorProcessorSession>(((IProcessor)processor).CreateSession());

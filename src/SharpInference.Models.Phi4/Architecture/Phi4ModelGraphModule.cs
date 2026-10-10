@@ -37,14 +37,15 @@ public sealed class Phi4ModelGraphModule : IModelGraphModule, IGraphOperationVal
         var decoder = text.Build(tensors);
         var builder = new LogicalGraphBuilder(new(ArchitectureId, 2, "forward"),
                 new GraphModelSignature(ArchitectureId, decoder.Model.StateAbiId, decoder.Model.Dimensions, decoder.Model.Attributes))
-            .AddRegion("root", GraphRegionTypes.Graph, "Phi4 model-owned component composition")
+            .AddRegion("root", GraphRegionTypes.Graph, "Phi4 model-owned component composition", architecture: new(
+                Description: "Model-owned audio/vision encoders, dense embedding fusion and a stateful text decoder.",
+                DefaultView: GraphArchitectureView.Architecture, Step: GraphArchitectureStep.Token))
             .SetStateSchema(decoder.GraphState.Schema);
         var resources = new Dictionary<string, TensorDescriptor>(StringComparer.Ordinal);
-        string? previous = null;
         if (fusion is not null)
         {
             var fused = fusion.Build(tensors);
-            var aliases = new Dictionary<string, string>(StringComparer.Ordinal) { ["output"] = "fused_embeddings", ["token_ids"] = "token_ids" };
+            var aliases = new Dictionary<string, string>(StringComparer.Ordinal) { ["output"] = "fusion." + fused.Nodes[^1].Id.Value + "_output", ["token_ids"] = "token_ids" };
             foreach (var (port, module) in encoders)
             {
                 if (!fused.Inputs.Contains(new ResourceId(port))) throw new InvalidDataException($"Fusion has no encoder port '{port}'.");
@@ -52,27 +53,30 @@ public sealed class Phi4ModelGraphModule : IModelGraphModule, IGraphOperationVal
                 var output = component.Resources.Single(resource => resource.Id.Value == "output").Tensor;
                 var target = fused.Resources.Single(resource => resource.Id.Value == port).Tensor;
                 if (!Same(output, target)) throw new InvalidDataException($"Encoder '{port}' does not match the dense fusion ABI.");
-                var destination = "encoded." + port;
+                var destination = port + "." + component.Nodes[^1].Id.Value + "_output";
                 Append(component, port, new Dictionary<string, string> { ["output"] = destination });
                 aliases.Add(port, destination);
             }
             Append(fused, "fusion", aliases);
             var width = decoder.Model.Dimensions["embedding_width"];
             var shape = new TensorDescriptor(GraphElementType.Float32, [width]);
-            builder.AddResource("selected_embedding", "Selected fused token", GraphResourceKind.Temporary, GraphResourceLifetime.Invocation, shape)
+            builder.AddResource("select_prompt_embedding_output", "Selected fused token", GraphResourceKind.Temporary, GraphResourceLifetime.Invocation, shape)
                 .AddResource("prompt_index", "Prompt row", GraphResourceKind.Input, GraphResourceLifetime.External,
                     new TensorDescriptor(GraphElementType.Int32, [1]), graphInput: true);
-            resources.Add("selected_embedding", shape);
-            builder.AddNode("select_prompt_embedding", PrimitiveGraphOperations.GatherRow, "root",
-                [GraphBindings.Read("table", "fused_embeddings"), GraphBindings.Read("index", "prompt_index"), GraphBindings.Write("output", "selected_embedding")],
-                previous is null ? [] : [previous]);
-            previous = "select_prompt_embedding";
+            resources.Add("select_prompt_embedding_output", shape);
+            builder.AddRegion("prompt-selection", GraphRegionTypes.Architecture, "Prompt Row Selection", "root",
+                architecture: new(Description: "Selects the fused prompt embedding for the current decoder invocation."));
+            builder.AddNode("select_prompt_embedding", PrimitiveGraphOperations.GatherRow, "prompt-selection",
+                [GraphBindings.Read("table", aliases["output"]), GraphBindings.Read("index", "prompt_index"), GraphBindings.Write("output", "select_prompt_embedding_output")],
+                null);
         }
         Append(decoder, "decoder", new Dictionary<string, string>
         {
-            ["embedding"] = "selected_embedding", ["position"] = "position", ["token"] = "token", ["logits"] = "logits",
+            ["embedding"] = "select_prompt_embedding_output", ["position"] = "position", ["token"] = "token", ["logits"] = "logits",
         }, exposeOutputs: true);
-        var graph = builder.Build();
+        var graph = GraphLayerReuse.Extract(builder.BuildSequential(), region => region.Type != GraphRegionTypes.Layer ? null :
+            region.Id.Value.StartsWith("decoder.", StringComparison.Ordinal) ? "Phi4.Text.Layer" :
+            region.Id.Value.StartsWith("audio.", StringComparison.Ordinal) ? "Phi4.Audio.Layer" : "Phi4.Vision.Layer");
         GraphValidator.Validate(graph, this);
         return graph;
 
@@ -99,15 +103,15 @@ public sealed class Phi4ModelGraphModule : IModelGraphModule, IGraphOperationVal
                     component.Inputs.Contains(resource.Id), output && exposeOutputs, resource.DeclaredScope);
                 resources.Add(id, resource.Tensor);
             }
-            var predecessor = previous;
+            foreach (var region in component.Regions)
+                builder.AddRegion(tag + "." + region.Id.Value, region.Type == GraphRegionTypes.Graph ? GraphRegionTypes.Stage : region.Type,
+                    region.Name, region.ParentId is { } parent ? tag + "." + parent.Value : "root", region.Role, region.Attributes,
+                    region.Architecture?.MapResources(id => new ResourceId(Map(id))));
             foreach (var node in component.Nodes)
             {
-                var dependencies = node.Dependencies.Select(id => tag + "." + id.Value).ToList();
-                if (predecessor is not null) dependencies.Add(predecessor);
                 var id = tag + "." + node.Id.Value;
-                builder.AddNode(id, node.Operation, "root", node.Resources.Select(binding => binding with { Resource = new(Map(binding.Resource)) }),
-                    dependencies, node.Attributes, node.Requirements);
-                previous = id;
+                builder.AddNode(id, node.Operation, tag + "." + node.Region.Value, node.Resources.Select(binding => binding with { Resource = new(Map(binding.Resource)) }),
+                    null, node.Attributes, node.Requirements);
             }
             foreach (var state in component.GraphState) builder.AddStateSlot(tag + "." + state.Name, Map(state.Resource));
         }

@@ -9,6 +9,7 @@ public sealed class LogicalGraphBuilder(GraphIdentity identity, GraphModelSignat
     private readonly List<ResourceId> outputs = [];
     private readonly List<GraphStateSlot> stateSlots = [];
     private StateSchema? stateSchema;
+    private string? currentRegion;
 
     public GraphIdentity Identity { get; } = identity ?? throw new ArgumentNullException(nameof(identity));
     public GraphModelSignature Model { get; } = model ?? throw new ArgumentNullException(nameof(model));
@@ -19,7 +20,8 @@ public sealed class LogicalGraphBuilder(GraphIdentity identity, GraphModelSignat
         string name,
         string? parentId = null,
         string? role = null,
-        IReadOnlyDictionary<string, string>? attributes = null)
+        IReadOnlyDictionary<string, string>? attributes = null,
+        GraphRegionArchitecture? architecture = null)
     {
         regions.Add(new GraphRegion(
             new RegionId(RequireId(id, nameof(id))),
@@ -27,8 +29,52 @@ public sealed class LogicalGraphBuilder(GraphIdentity identity, GraphModelSignat
             RequireId(type, nameof(type)),
             role,
             string.IsNullOrWhiteSpace(name) ? throw new ArgumentException("A region name is required.", nameof(name)) : name,
-            attributes ?? EmptyAttributes));
+            attributes ?? EmptyAttributes)
+        { Architecture = architecture });
         return this;
+    }
+
+    public LogicalGraphBuilder WithRegion(
+        string id,
+        string type,
+        string name,
+        Action<LogicalGraphBuilder> build,
+        string? parentId = null,
+        string? role = null,
+        IReadOnlyDictionary<string, string>? attributes = null,
+        GraphRegionArchitecture? architecture = null)
+    {
+        ArgumentNullException.ThrowIfNull(build);
+        WithRegion(id, type, name, scoped =>
+        {
+            build(scoped);
+            return true;
+        }, parentId, role, attributes, architecture);
+        return this;
+    }
+
+    public T WithRegion<T>(
+        string id,
+        string type,
+        string name,
+        Func<LogicalGraphBuilder, T> build,
+        string? parentId = null,
+        string? role = null,
+        IReadOnlyDictionary<string, string>? attributes = null,
+        GraphRegionArchitecture? architecture = null)
+    {
+        ArgumentNullException.ThrowIfNull(build);
+        var previous = currentRegion;
+        AddRegion(id, type, name, parentId ?? previous, role, attributes, architecture);
+        currentRegion = id;
+        try
+        {
+            return build(this);
+        }
+        finally
+        {
+            currentRegion = previous;
+        }
     }
 
     public LogicalGraphBuilder AddResource(
@@ -55,6 +101,17 @@ public sealed class LogicalGraphBuilder(GraphIdentity identity, GraphModelSignat
         if (graphOutput) outputs.Add(resourceId);
         return this;
     }
+
+    public LogicalGraphBuilder AddNode(
+        string id,
+        GraphOperationId operation,
+        IEnumerable<NodeResourceBinding> bindings,
+        IEnumerable<string>? dependencies = null,
+        IReadOnlyDictionary<string, string>? attributes = null,
+        PrecisionRequirement? requirements = null) =>
+        AddNode(id, operation, currentRegion ??
+            throw new InvalidOperationException("A region scope is required when the node's region is omitted."),
+            bindings, dependencies, attributes, requirements);
 
     public LogicalGraphBuilder AddNode(
         string id,
@@ -95,12 +152,35 @@ public sealed class LogicalGraphBuilder(GraphIdentity identity, GraphModelSignat
 
     public LogicalGraph Build()
     {
+        if (nodes.All(node => node.Dependencies.Count == 0)) return BuildSequential();
         GraphState? state = null;
         if (stateSchema is not null || stateSlots.Count > 0)
         {
             state = new GraphState(stateSchema ?? new StateSchema(Model.StateAbiId), stateSlots);
         }
         return new LogicalGraph(Identity, Model, resources, regions, nodes, inputs, outputs, state);
+    }
+
+    public LogicalGraph Build(GraphStructure structure)
+    {
+        GraphState? state = stateSchema is null && stateSlots.Count == 0 ? null :
+            new GraphState(stateSchema ?? new StateSchema(Model.StateAbiId), stateSlots);
+        return new LogicalGraph(Identity, Model, resources, structure, inputs, outputs, state);
+    }
+
+    public LogicalGraph BuildSequential()
+    {
+        // Compatibility migration for model providers which previously emitted serial predecessor chains.
+        var positions = nodes.Select((node, index) => (node.Id, index)).ToDictionary(x => x.Id, x => x.index);
+        for (var i = 0; i < nodes.Count; i++)
+            foreach (var dependency in nodes[i].Dependencies)
+                if (!positions.TryGetValue(dependency, out var position) || position >= i)
+                    throw new InvalidDataException("Sequential dependencies must precede the dependent node.");
+        var serial = nodes.Select(node => node with { Dependencies = Array.Empty<LogicalNodeId>() }).ToArray();
+        var structure = GraphStructure.FromExpanded(regions, serial);
+        GraphState? state = stateSchema is null && stateSlots.Count == 0 ? null :
+            new GraphState(stateSchema ?? new StateSchema(Model.StateAbiId), stateSlots);
+        return new LogicalGraph(Identity, Model, resources, structure, inputs, outputs, state);
     }
 
     private static readonly IReadOnlyDictionary<string, string> EmptyAttributes =

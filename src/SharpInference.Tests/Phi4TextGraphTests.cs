@@ -15,6 +15,45 @@ namespace SharpInference.Tests;
 public sealed class Phi4TextGraphTests
 {
     [Theory]
+    [InlineData(false, false, Phi4Adapter.None)]
+    [InlineData(true, true, Phi4Adapter.None)]
+    [InlineData(false, true, Phi4Adapter.Vision)]
+    [InlineData(true, false, Phi4Adapter.Vision)]
+    [InlineData(false, false, Phi4Adapter.Speech)]
+    [InlineData(true, true, Phi4Adapter.Speech)]
+    public void GeneratedGraphUsesExplicitOutputResources(bool half, bool embeddings, Phi4Adapter adapter)
+    {
+        using var file = Package(half, 2);
+        var module = new Phi4TextGraphModule(4, embeddings, adapter);
+        var graph = module.Build(file);
+        Assert.NotEmpty(graph.Structure!.LayerDefinitions);
+        Assert.Equal(2, ModelGraphNamingAssertions.Calls(graph.Structure.Root).Count());
+        ModelGraphNamingAssertions.Validate(graph, module);
+        var model = new Phi4ModelGraphModule(4, adapter);
+        var composed = model.Build(file);
+        Assert.NotEmpty(composed.Structure!.LayerDefinitions);
+        ModelGraphNamingAssertions.Validate(composed, model);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ComposedGraphUsesExplicitOutputResources(bool half)
+    {
+        var audio = Phi4AudioGraphTests.CreateSyntheticFile(half, 2, 4);
+        var vision = Phi4VisionGraphTests.CreateSyntheticFile(half, 2, 4);
+        using var file = Package(half, 2, new CombinedFile([audio, vision]));
+        var fusion = new Phi4FusionGraphModule(15, [new(0, 1), new(1, 10, "image"), new(11, 3, "audio"), new(14, 1)]);
+        ModelGraphNamingAssertions.Validate(fusion.Build(file));
+        var module = new Phi4ModelGraphModule(16, Phi4Adapter.Vision, fusion: fusion, encoders: new Dictionary<string, IModelGraphModule>
+        {
+            ["audio"] = new Phi4AudioGraphModule(Phi4AudioProjector.Vision, frames: 24, layers: 2),
+            ["image"] = new Phi4VisionGraphModule(2, 10, heads: 2, layers: 2),
+        });
+        ModelGraphNamingAssertions.Validate(module.Build(file), module);
+    }
+
+    [Theory]
     [InlineData(false, false, false, Phi4Adapter.None, 2)]
     [InlineData(false, true, false, Phi4Adapter.None, 32)]
     [InlineData(false, true, true, Phi4Adapter.Vision, 2)]
@@ -36,6 +75,7 @@ public sealed class Phi4TextGraphTests
         using var backend = gpu ? D3D12VmBackendFactory.Create(instructionCollections: collections) : CpuVmBackendFactory.Create(instructionCollections: collections);
         using var processor = Processor.Load("text", new Reader(file), registry, backend);
         var graph = processor.LogicalGraph!;
+        ModelGraphNamingAssertions.Validate(graph, module);
         Assert.Equal(layers * 2, graph.GraphState.Count);
         Assert.Equal(layers, graph.Nodes.Count(node => node.Operation == Phi4TextGraphOperations.RopeKeyValueWrite));
         GraphValidator.Validate(GraphXml.DeserializeLogical(GraphXml.Serialize(graph)), module);
@@ -86,6 +126,7 @@ public sealed class Phi4TextGraphTests
         using var backend = gpu ? D3D12VmBackendFactory.Create(instructionCollections: collections) : CpuVmBackendFactory.Create(instructionCollections: collections);
         using var processor = Processor.Load("model", new Reader(file), registry, backend);
         Assert.Equal("phi4", processor.Metadata.ArchitectureId);
+        ModelGraphNamingAssertions.Validate(processor.LogicalGraph!, module);
         GraphValidator.Validate(GraphXml.DeserializeLogical(GraphXml.Serialize(processor.LogicalGraph!)), module);
         using var session = Assert.IsAssignableFrom<ITensorProcessorSession>(((IProcessor)processor).CreateSession());
         int[] tokens = [1, -1, -1, 2];
@@ -146,6 +187,7 @@ public sealed class Phi4TextGraphTests
         using var backend = gpu ? D3D12VmBackendFactory.Create(instructionCollections: collections) : CpuVmBackendFactory.Create(instructionCollections: collections);
         using var processor = Processor.Load("multimodal", new Reader(package), registry, backend);
         Assert.Equal("phi4", processor.LogicalGraph!.Identity.ArchitectureId);
+        ModelGraphNamingAssertions.Validate(processor.LogicalGraph!, module);
         Assert.Contains(processor.LogicalGraph.Nodes, node => node.Operation == Phi4AudioGraphOperations.RelativeAttention);
         if (gpu) Assert.Contains(processor.LogicalGraph.Nodes, node => node.Operation == Phi4VisionGraphOperations.Attention);
         Assert.Equal(1, processor.LogicalGraph.Resources.Count(resource => resource.BindingKey == "text.token_embd.weight"));

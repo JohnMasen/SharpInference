@@ -44,14 +44,8 @@ internal static class GraphViewAccessValidation
                     throw new InvalidDataException($"Resource '{resourceId}' view at '{access.Node.Id}' reads an uninitialized byte range.");
             }
         }
-        foreach (var output in outputs.Where(output => !initialized.Contains(output)))
-        {
-            if (!accesses.TryGetValue(output, out var uses) ||
-                !Covered((0, GraphTensorView.ByteLengthOf(parents[output].Tensor)),
-                    uses.Where(access => access.Binding.Access != GraphResourceAccess.Read)
-                        .Select(access => Range(access.Binding, parents[output]))))
-                throw new InvalidDataException($"Output '{output}' has an uninitialized byte range.");
-        }
+        ValidateOutputs(resources, outputs.Where(output => !initialized.Contains(output)).ToArray(),
+            values.SelectMany(node => node.Bindings));
 
         HashSet<string> Ancestors(GraphViewAccessNode node)
         {
@@ -62,6 +56,18 @@ internal static class GraphViewAccessValidation
                     foreach (var dependency in byId[id].Dependencies) pending.Push(dependency);
             return result;
         }
+    }
+
+    internal static void ValidateOutputs(IReadOnlyList<GraphResource> resources, IReadOnlyList<ResourceId> outputs,
+        IEnumerable<NodeResourceBinding> bindings)
+    {
+        var parents = resources.ToDictionary(resource => resource.Id);
+        var writes = bindings.Where(binding => binding.Access != GraphResourceAccess.Read)
+            .ToLookup(binding => binding.Resource);
+        foreach (var output in outputs)
+            if (!Covered((0, GraphTensorView.ByteLengthOf(parents[output].Tensor)),
+                writes[output].Select(binding => Range(binding, parents[output]))))
+                throw new InvalidDataException($"Output '{output}' has an uninitialized byte range.");
     }
 
     private static (ulong Start, ulong End) Range(NodeResourceBinding binding, GraphResource parent) =>

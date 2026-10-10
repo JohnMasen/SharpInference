@@ -5,6 +5,33 @@ namespace SharpInference.Tests;
 public sealed class GraphXmlTests
 {
     [Fact]
+    public void UserSuppliedNodeAndResourceIdsAreNotRenamed()
+    {
+        var graph = new LogicalGraphBuilder(new("custom", 1, "shared-id"),
+                new GraphModelSignature("custom", "custom.empty@1", new Dictionary<string, int>()))
+            .AddRegion("root", GraphRegionTypes.Graph, "Root")
+            .AddResource("input", "Input", GraphResourceKind.Input, GraphResourceLifetime.External,
+                new TensorDescriptor(GraphElementType.Float32, [3]), graphInput: true)
+            .AddResource("output", "Output", GraphResourceKind.Output, GraphResourceLifetime.External,
+                new TensorDescriptor(GraphElementType.Float32, [3]), graphOutput: true)
+            .AddNode("output", PrimitiveGraphOperations.Copy, "root",
+                [GraphBindings.Read("input", "input"), GraphBindings.Write("output", "output")])
+            .Build();
+        Assert.Same(graph, GraphOperationLowering.Apply(graph, null));
+        foreach (var restored in new[]
+        {
+            GraphXml.DeserializeLogical(GraphXml.Serialize(graph)),
+            GraphJson.DeserializeLogical(GraphJson.Serialize(graph)),
+        })
+        {
+            GraphValidator.Validate(restored);
+            Assert.Equal("output", Assert.Single(restored.Nodes).Id.Value);
+            Assert.Equal("output", Assert.Single(restored.Outputs).Value);
+            Assert.Equal("output", restored.Nodes[0].Resources.Single(binding => binding.Port == "output").Resource.Value);
+        }
+    }
+
+    [Fact]
     public void LogicalGraph_RoundTripsAllGraphFields()
     {
         var original = CreateLogical();

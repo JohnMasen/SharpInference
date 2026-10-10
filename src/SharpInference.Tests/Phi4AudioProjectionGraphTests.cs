@@ -15,6 +15,18 @@ namespace SharpInference.Tests;
 public sealed class Phi4AudioProjectionGraphTests
 {
     [Theory]
+    [InlineData(false, Phi4AudioProjector.Speech)]
+    [InlineData(true, Phi4AudioProjector.Speech)]
+    [InlineData(false, Phi4AudioProjector.Vision)]
+    [InlineData(true, Phi4AudioProjector.Vision)]
+    public void GeneratedGraphUsesExplicitOutputResources(bool half, Phi4AudioProjector projector)
+    {
+        var module = new Phi4AudioProjectionGraphModule(projector, 2);
+        using var file = new ProjectionFile(half);
+        ModelGraphNamingAssertions.Validate(module.Build(file), module);
+    }
+
+    [Theory]
     [InlineData(Phi4AudioProjector.Speech, false, false)]
     [InlineData(Phi4AudioProjector.Speech, true, false)]
     [InlineData(Phi4AudioProjector.Vision, false, false)]
@@ -40,6 +52,7 @@ public sealed class Phi4AudioProjectionGraphTests
         using var processor = Processor.Load("projection", new Reader(file), registry, backend);
         Assert.True(file.Disposed);
         var graph = processor.LogicalGraph!;
+        ModelGraphNamingAssertions.Validate(graph, module);
         Assert.Equal(module.ArchitectureId, graph.Model.ModelType);
         Assert.Single(graph.Nodes, node => node.Operation == PrimitiveGraphOperations.MatrixMultiply);
         Assert.Single(graph.Nodes, node => node.Operation == PrimitiveGraphOperations.Affine);

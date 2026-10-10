@@ -15,6 +15,19 @@ namespace SharpInference.Tests;
 public sealed class Phi4VisionGraphTests
 {
     [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void GeneratedGraphUsesExplicitOutputResources(bool fp32Linear)
+    {
+        var module = new Phi4VisionGraphModule(2, 10, heads: 2, layers: 2);
+        using var file = new VisionFile(fp32Linear, 2);
+        var graph = module.Build(file);
+        Assert.Single(graph.Structure!.LayerDefinitions);
+        Assert.Equal(2, ModelGraphNamingAssertions.Calls(graph.Structure.Root).Count());
+        ModelGraphNamingAssertions.Validate(graph, module);
+    }
+
+    [Theory]
     [InlineData(false, 2)]
     [InlineData(true, 2)]
     [InlineData(false, 26)]
@@ -33,6 +46,7 @@ public sealed class Phi4VisionGraphTests
         using var processor = Processor.Load("vision", new Reader(file), registry, backend);
         Assert.True(file.Disposed);
         var graph = processor.LogicalGraph!;
+        ModelGraphNamingAssertions.Validate(graph, module);
         Assert.Equal(layers, graph.Nodes.Count(node => node.Operation == Phi4VisionGraphOperations.Attention));
         Assert.Single(graph.Nodes, node => node.Operation == Phi4VisionGraphOperations.PatchEmbedding);
         Assert.Single(graph.Nodes, node => node.Operation == Phi4VisionGraphOperations.HdGather);

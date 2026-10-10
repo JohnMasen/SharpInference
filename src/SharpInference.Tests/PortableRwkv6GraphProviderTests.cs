@@ -11,12 +11,26 @@ public sealed class PortableRwkv6GraphProviderTests(ITestOutputHelper output)
     [Theory]
     [InlineData(TensorDataType.Float32, 1)]
     [InlineData(TensorDataType.Float16, 2)]
+    [InlineData(TensorDataType.Float32, 3)]
     public void BuildsCompletePrimitiveGraph(TensorDataType type, int layers)
     {
         var catalog = new Catalog(type, layers);
         var graph = new PortableRwkv6GraphProvider().Build(catalog);
         GraphValidator.Validate(graph);
         PortableTensorOperationContracts.ValidateGraph(graph);
+        ModelGraphNamingAssertions.Validate(graph);
+        Assert.Equal(layers, graph.Regions.Count(region => region.Architecture?.Role == "time-mix"));
+        Assert.Equal(layers, graph.Regions.Count(region => region.Architecture?.Role == "channel-mix"));
+        Assert.Contains(graph.Regions, region => region.Architecture?.RepeatGroup == true);
+        foreach (var timeMix in graph.Regions.Where(region => region.Architecture?.Role == "time-mix"))
+            Assert.Equal(6, graph.Regions.Count(region => region.ParentId == timeMix.Id));
+        foreach (var channelMix in graph.Regions.Where(region => region.Architecture?.Role == "channel-mix"))
+            Assert.Equal(5, graph.Regions.Count(region => region.ParentId == channelMix.Id));
+        Assert.Equal(3, graph.Structure!.LayerDefinitions.Count);
+        var calls = ModelGraphNamingAssertions.Calls(graph.Structure.Root).ToArray();
+        Assert.Equal(layers + 2, calls.Length);
+        Assert.Single(calls.Skip(1).Take(layers).Select(call => call.Definition).Distinct());
+        Assert.All(calls, call => Assert.Empty(call.DependsOn));
         Assert.Equal("rwkv-6", graph.Identity.ArchitectureId);
         Assert.Equal("rwkv6.forward-token.portable", graph.Identity.Name);
         Assert.Equal("RWKV6_State", graph.GraphState.Schema.Name);

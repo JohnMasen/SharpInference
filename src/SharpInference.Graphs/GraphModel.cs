@@ -31,6 +31,7 @@ public static class GraphRegionTypes
     public const string Pipeline = "pipeline";
     public const string Layer = "layer";
     public const string Stage = "stage";
+    public const string Architecture = "architecture";
 }
 
 public enum GraphResourceKind
@@ -226,7 +227,10 @@ public sealed record GraphRegion(
     string Type,
     string? Role,
     string Name,
-    IReadOnlyDictionary<string, string> Attributes);
+    IReadOnlyDictionary<string, string> Attributes)
+{
+    public GraphRegionArchitecture? Architecture { get; init; }
+}
 
 public sealed record NodeResourceBinding(
     string Port,
@@ -246,6 +250,34 @@ public sealed record LogicalNode(
 
 public sealed class LogicalGraph
 {
+    public LogicalGraph(GraphIdentity identity, GraphModelSignature model, IEnumerable<GraphResource> resources,
+        GraphStructure structure, IEnumerable<ResourceId> inputs, IEnumerable<ResourceId> outputs,
+        IEnumerable<GraphStateEntry>? graphState = null)
+    {
+        Identity = identity ?? throw new ArgumentNullException(nameof(identity));
+        Model = model ?? throw new ArgumentNullException(nameof(model));
+        declaredResources = resources?.ToArray() ?? throw new ArgumentNullException(nameof(resources));
+        Structure = structure ?? throw new ArgumentNullException(nameof(structure));
+        if (Identity.IrVersion < 2 && structure.LayerDefinitions.Any(definition =>
+            GraphStructure.Walk(definition.Body).OfType<GraphNodeElement>().Any(node => node.Node.Resources.Any(binding => binding.View is not null))))
+            throw new InvalidDataException("Tensor views require graph IR version 2 or newer, including unused definitions.");
+        var expanded = structure.Expand(DeclaredResources);
+        Resources = expanded.Resources;
+        Regions = expanded.Regions;
+        Nodes = expanded.Nodes;
+        Inputs = inputs?.ToArray() ?? throw new ArgumentNullException(nameof(inputs));
+        Outputs = outputs?.ToArray() ?? throw new ArgumentNullException(nameof(outputs));
+        var externalIds = DeclaredResources.Select(r => r.Id).ToHashSet();
+        if (Inputs.Concat(Outputs).Any(id => !externalIds.Contains(id)))
+            throw new InvalidDataException("Definition-local resources cannot be graph IO.");
+        GraphState = CreateGraphState(Model, Resources, graphState);
+        GraphValidator.Validate(this);
+    }
+
+    public GraphStructure? Structure { get; }
+    public IReadOnlyList<GraphResource> DeclaredResources => declaredResources ?? Resources;
+    private readonly IReadOnlyList<GraphResource>? declaredResources;
+
     public LogicalGraph(
         GraphIdentity identity,
         GraphModelSignature model,

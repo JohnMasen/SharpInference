@@ -20,6 +20,58 @@ standalone numerical reference tools, not runtime execution contracts.
 Runtime no longer accepts legacy backends, execution-graph XML, or primitive
 debug plans. Old `Graph kind="ExecutionGraph"` XML is not VM XML.
 
+## Structured logical frontend
+
+Production logical XML keeps the `<Graph kind="LogicalGraph">` root: whole-tensor
+graphs use schema version 1, while graphs containing tensor views use version 2
+and require graph **IR** version 2. Structured logical JSON likewise uses
+`Kind: LogicalGraph` / `FormatVersion: 1` without views and `Kind: LogicalGraphV2` /
+`FormatVersion: 2` with views. Views in unused definitions also require version 2;
+downgrading the kind or format version is rejected. Legacy flat view formats
+retain their version-2 contracts. `Resources` declares external
+weights, state and graph data; `LayerDefinitions` declares reusable concrete
+ports, `LocalResources` and a body `Region`. The graph contains one root `Region`
+whose executable children are `Node`, nested `Region`, or parameter-bound `Call`.
+Definitions are model-owned computation, not `GraphNodeDefinition` pattern
+vocabulary, cost profiles, fusion rules, or VM definitions.
+
+Children execute in document order. A nested region or call completes before
+its next sibling begins. `DependsOn/ElementRef` is only for additional cross-region
+constraints within the same instantiated scope: the referenced element must
+already have completed. Same-region edges, unknown references, backwards edges
+and cycles are rejected. No region implies concurrency or fusion. RWKV-6/7 use
+embedding, layer (attention/FFN), and output definitions; RWKV-7 exposes the first
+value from its first layer and binds it in later calls. Phi4 text, vision and audio
+extract repeated actual layer bodies, with separate signatures for structural
+differences such as first-layer shared FP16 conversions or audio zero-buffer
+initialization. Model composition re-extracts component layers while preserving
+nested stage boundaries.
+
+`LogicalGraph.Structure` retains definitions and containment; `DeclaredResources`
+retains declarations. `Nodes`, `Regions` and `Resources` are the validated expanded
+lowering facade. Calls alpha-rename their local resources, nodes and regions;
+public IO, weight binding keys and state ABI remain unchanged. Expansion adds
+serial control edges before optimizer, allocator and VM generation. The current
+VM generator consumes this expanded facade: structural reuse reduces the logical
+representation, **not** runtime call count or arithmetic. Optional existing T1
+optimization is separate and still respects instantiated region boundaries.
+
+XML and JSON preserve the full structure on roundtrip. The loader rejects missing,
+duplicate or recursive definitions/calls, invalid ports/bindings, tensor/access
+mismatches and local resource leakage, with bounded depth and expansion size.
+Every definition, including unused ones, must initialize the entire tensor of each
+Write-only port through body writes or validated nested calls. Partial views must
+jointly cover the output; ReadWrite ports may preserve their existing input.
+Views belong to node bindings; call ports bind complete concrete tensors.
+`LogicalGraphBuilder.Build(GraphStructure)` supports explicit composites;
+`Build()` without legacy dependencies builds ordered regions. The old flat
+`Resources/Regions/Nodes` reader and explicit-dependency builder overload remain
+compatibility paths, as does serialization of explicitly legacy flat graphs.
+`BuildSequential()` is an explicit migration for already ordered expanded graphs;
+it removes only already-satisfied predecessor constraints. New structured XML
+never silently accepts old same-region dependency chains or prototype metadata.
+ExecutionGraph XML and VmProgram XML contracts are unchanged.
+
 ## Program contract
 
 `SharpInference.Vm` is platform-neutral and independent of models, optimizers,

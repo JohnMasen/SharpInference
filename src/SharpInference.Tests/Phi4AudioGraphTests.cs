@@ -15,6 +15,24 @@ namespace SharpInference.Tests;
 public sealed class Phi4AudioGraphTests
 {
     [Theory]
+    [InlineData(false, Phi4AudioProjector.Speech)]
+    [InlineData(true, Phi4AudioProjector.Speech)]
+    [InlineData(false, Phi4AudioProjector.Vision)]
+    [InlineData(true, Phi4AudioProjector.Vision)]
+    public void GeneratedGraphUsesExplicitOutputResources(bool half, Phi4AudioProjector projector)
+    {
+        var module = new Phi4AudioGraphModule(projector, frames: 24, layers: 3);
+        using var file = new AudioFile(half, 3);
+        var graph = module.Build(file);
+        Assert.Equal(2, graph.Structure!.LayerDefinitions.Count);
+        var calls = ModelGraphNamingAssertions.Calls(graph.Structure.Root).ToArray();
+        Assert.Equal(3, calls.Length);
+        Assert.NotEqual(calls[0].Definition, calls[1].Definition);
+        Assert.Equal(calls[1].Definition, calls[2].Definition);
+        ModelGraphNamingAssertions.Validate(graph, module);
+    }
+
+    [Theory]
     [InlineData(Phi4AudioProjector.Speech, false, false, 2)]
     [InlineData(Phi4AudioProjector.Speech, true, false, 2)]
     [InlineData(Phi4AudioProjector.Vision, false, false, 2)]
@@ -41,6 +59,7 @@ public sealed class Phi4AudioGraphTests
         using var processor = Processor.Load("audio", new Reader(file), registry, backend);
         Assert.True(file.Disposed);
         var graph = processor.LogicalGraph!;
+        ModelGraphNamingAssertions.Validate(graph, module);
         Assert.Equal(module.ArchitectureId, graph.Model.ModelType);
         Assert.Equal(layers, graph.Nodes.Count(node => node.Operation == Phi4AudioGraphOperations.RelativeAttention));
         Assert.Equal(layers * 3, graph.Nodes.Count(node => node.Operation == Phi4AudioGraphOperations.Conv1D));

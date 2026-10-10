@@ -51,8 +51,10 @@ public sealed class Phi4AudioProjectionGraphModule : IModelGraphModule, IGraphOp
         Require(tensors.GetRequired(prefix + ".2.bias"), [second.Dimensions[0]]);
         return new(ArchitectureId, new Dictionary<string, long>
         {
-            ["tokens"] = tokens, ["audio_width"] = first.Dimensions[1],
-            ["hidden_width"] = first.Dimensions[0], ["embedding_width"] = second.Dimensions[0],
+            ["tokens"] = tokens,
+            ["audio_width"] = first.Dimensions[1],
+            ["hidden_width"] = first.Dimensions[0],
+            ["embedding_width"] = second.Dimensions[0],
         });
 
         static void Require(IModelTensor tensor, int[]? dimensions = null)
@@ -73,35 +75,44 @@ public sealed class Phi4AudioProjectionGraphModule : IModelGraphModule, IGraphOp
         var outputWidth = dimensions["embedding_width"];
         var builder = new LogicalGraphBuilder(new(ArchitectureId, 2, "forward"),
                 new GraphModelSignature(ArchitectureId, ArchitectureId + ".empty@1", dimensions))
-            .AddRegion("root", GraphRegionTypes.Graph, "Audio projection")
+            .AddRegion("root", GraphRegionTypes.Graph, "Audio projection", architecture: new(
+                Description: "Two-layer audio-to-decoder projector with biased GELU.",
+                DefaultView: GraphArchitectureView.Architecture))
             .AddResource("audio_hidden", "Conformer output", GraphResourceKind.Input, GraphResourceLifetime.External,
                 F(tokens, inputWidth), graphInput: true)
             .AddResource("output", "Projected audio embeddings", GraphResourceKind.Output, GraphResourceLifetime.External,
                 F(tokens, outputWidth), graphOutput: true);
-        string? previous = null;
-        Temporary("projector_linear", tokens, hiddenWidth);
-        Temporary("projector_hidden", tokens, hiddenWidth);
-        var firstWeight = Weight(prefix + ".0.weight");
-        var firstBias = Weight(prefix + ".0.bias");
-        var secondWeight = Weight(prefix + ".2.weight");
-        var secondBias = Weight(prefix + ".2.bias");
-        var transpose = new Dictionary<string, string> { ["transpose_left"] = "false", ["transpose_right"] = "true" };
-        Emit("projector_up", PrimitiveGraphOperations.MatrixMultiply,
-            [GraphBindings.Read("left", "audio_hidden"), GraphBindings.Read("right", firstWeight),
-             GraphBindings.Write("output", "projector_linear")], transpose);
-        Emit("projector_gelu", Phi4AudioGraphOperations.BiasActivation,
-            [new("input", new("projector_linear"), GraphResourceAccess.Read, View: new(0, F(checked(tokens * hiddenWidth)))),
-             GraphBindings.Read("bias", firstBias),
-             new("output", new("projector_hidden"), GraphResourceAccess.Write, View: new(0, F(checked(tokens * hiddenWidth))))],
-            new Dictionary<string, string>
+        Temporary("projector_up_output", tokens, hiddenWidth);
+        Temporary("projector_gelu_output", tokens, hiddenWidth);
+        var (firstWeight, firstBias, secondWeight, secondBias) = builder.WithRegion(
+            "weights", GraphRegionTypes.Architecture, "Weight Preparation", _ =>
             {
-                ["count"] = checked(tokens * hiddenWidth).ToString(CultureInfo.InvariantCulture),
-                ["width"] = hiddenWidth.ToString(CultureInfo.InvariantCulture), ["activation"] = "gelu",
-            });
-        Emit("projector_down", PrimitiveGraphOperations.Affine,
-            [GraphBindings.Read("left", "projector_hidden"), GraphBindings.Read("right", secondWeight),
-             GraphBindings.Read("bias", secondBias), GraphBindings.Write("output", "output")], transpose);
-        var graph = builder.Build();
+                var upWeight = Weight(prefix + ".0.weight");
+                var upBias = Weight(prefix + ".0.bias");
+                var downWeight = Weight(prefix + ".2.weight");
+                var downBias = Weight(prefix + ".2.bias");
+                return (upWeight, upBias, downWeight, downBias);
+            }, parentId: "root", architecture: new(Description: "Converts projector weights to FP32 when required."));
+        builder.WithRegion("up", GraphRegionTypes.Architecture, "Up Projection",
+            scoped => scoped.MatrixMultiply("projector_up", "audio_hidden", firstWeight, "projector_up_output", transposeRight: true),
+            parentId: "root", architecture: new(Description: "Projects Conformer features to the projector hidden width."));
+        builder.WithRegion("activation", GraphRegionTypes.Architecture, "Bias / GELU", _ =>
+        {
+            Emit("projector_gelu", Phi4AudioGraphOperations.BiasActivation,
+                [new("input", new("projector_up_output"), GraphResourceAccess.Read, View: new(0, F(checked(tokens * hiddenWidth)))),
+                 GraphBindings.Read("bias", firstBias),
+                 new("output", new("projector_gelu_output"), GraphResourceAccess.Write, View: new(0, F(checked(tokens * hiddenWidth))))],
+                new Dictionary<string, string>
+                {
+                    ["count"] = checked(tokens * hiddenWidth).ToString(CultureInfo.InvariantCulture),
+                    ["width"] = hiddenWidth.ToString(CultureInfo.InvariantCulture),
+                    ["activation"] = "gelu",
+                });
+        }, parentId: "root", architecture: new(Description: "Adds the hidden bias and applies GELU.", Formula: "h = gelu(x W_up^T + b_up)"));
+        builder.WithRegion("down", GraphRegionTypes.Architecture, "Down Projection",
+            scoped => scoped.Affine("projector_down", "projector_gelu_output", secondWeight, secondBias, "output", transposeRight: true),
+            parentId: "root", architecture: new(Description: "Projects activated features to decoder embeddings.", Formula: "output = h W_down^T + b_down"));
+        var graph = builder.BuildSequential();
         GraphValidator.Validate(graph, this);
         return graph;
 
@@ -115,7 +126,7 @@ public sealed class Phi4AudioProjectionGraphModule : IModelGraphModule, IGraphOp
                 new TensorDescriptor(tensor.DataType == TensorDataType.Float16 ? GraphElementType.Float16 : GraphElementType.Float32,
                     tensor.Dimensions), name);
             if (tensor.DataType == TensorDataType.Float32) return id;
-            var converted = "converted." + name;
+            var converted = "cast." + name + "_output";
             Temporary(converted, tensor.Dimensions.ToArray());
             Emit("cast." + name, PortableTensorOperationContracts.CastFp16ToFp32,
                 [GraphBindings.Read("input", id), GraphBindings.Write("output", converted)], new Dictionary<string, string>());
@@ -123,8 +134,7 @@ public sealed class Phi4AudioProjectionGraphModule : IModelGraphModule, IGraphOp
         }
         void Emit(string id, GraphOperationId operation, NodeResourceBinding[] bindings, IReadOnlyDictionary<string, string> attributes)
         {
-            builder.AddNode(id, operation, "root", bindings, previous is null ? [] : [previous], attributes);
-            previous = id;
+            builder.AddNode(id, operation, bindings, null, attributes);
         }
     }
 

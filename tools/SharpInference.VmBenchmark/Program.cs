@@ -68,7 +68,18 @@ if (arguments.Optional("profile") is not null) throw new ArgumentException("The 
 var setup = Stopwatch.StartNew();
 using var backend = target == VmTarget.Cpu ? SharpInference.Runtime.Cpu.CpuVmBackendFactory.Create(configuration) :
     SharpInference.Runtime.D3D12.D3D12VmBackendFactory.Create(configuration);
-using var processor = Processor.Load(path, new GgmlModelReader(), RwkvApplicationComposition.CreateModelModules(), backend);
+using var processor = arguments.Optional("logical-xml") is { } logicalXml
+    ? Processor.LoadGraph(path, GraphXml.DeserializeLogical(File.ReadAllText(logicalXml)), backend)
+    : Processor.Load(path, new GgmlModelReader(), RwkvApplicationComposition.CreateModelModules(), backend);
+if (arguments.Optional("export-logical") is { } exportLogical)
+{
+    var document = System.Xml.Linq.XDocument.Parse(GraphXml.Serialize(processor.LogicalGraph!));
+    using var writer = System.Xml.XmlWriter.Create(exportLogical, new System.Xml.XmlWriterSettings
+    {
+        Indent = true, Encoding = new System.Text.UTF8Encoding(false), NewLineChars = "\r\n",
+    });
+    document.Save(writer);
+}
 using var session = processor.CreateSession();
 setup.Stop();
 var warmup = Stopwatch.StartNew();
