@@ -41,11 +41,17 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;color:#bccce0}
 .edge.skip{stroke:#60c9ba}
 .edge.residual{stroke:#60c9ba}
 .edge.active{stroke:#ffcd70;stroke-width:2.4;vector-effect:non-scaling-stroke;marker-end:url(#arrow-active)}
-.node{cursor:pointer;outline:none}.node rect{stroke:#56728e;stroke-width:1.2;fill:#22364f}
+.node{cursor:grab;outline:none}.node.dragging{cursor:grabbing}.node rect{stroke:#56728e;stroke-width:1.2;fill:#22364f}
 .node.call rect,.node.region rect{fill:#23385d;stroke:#7098e4}.node.external rect{fill:#233e39;stroke:#62a48f}
 .node text{fill:#e5edf8;font-size:14px;pointer-events:none}.node .subtitle{fill:#abc0d9;font-size:12px}
 .node.match rect{stroke:#e0aaff;stroke-width:2.4}.node.selected rect{stroke:#ffcd70;stroke-width:3}
 .node:not(.selected):hover rect,.node:not(.selected):focus rect{stroke:#fff}
+.node .port rect{fill:#173d50;stroke:#78bfd6;stroke-width:1}
+.node .port.out rect{fill:#254536;stroke:#80c9a3}
+.node .port text{font-size:11px;fill:#e5edf8;text-anchor:middle}
+.node .port{cursor:help}.node .port.active rect{fill:#705526;stroke:#ffcd70;stroke-width:2}
+.node .port.hidden-source rect{stroke:#c6a572;stroke-dasharray:3 2;fill:#413629}
+.node .port .source-note{font-size:9px;fill:#d8bc90}
 @media(max-width:760px){aside{width:260px}header{padding:12px}h1 .offline{display:none}}
 @media(max-width:540px){main{flex-direction:column}aside{width:100%;height:180px;border-left:0;border-top:1px solid #2b3b52}#legend{display:none}}
 </style>
@@ -73,6 +79,7 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;color:#bccce0}
     <input id="search" type="search" data-i18n-placeholder="search" data-i18n-aria-label="searchLabel" placeholder="搜索节点 / 算子 / 资源" aria-label="搜索节点">
     <button id="next" data-i18n="next" disabled>下一个</button>
     <button id="fit" data-i18n="fit" disabled>适应画布</button>
+    <button id="layout" data-i18n="layout" disabled>重置布局</button>
     <button id="readable" data-i18n="readable" data-i18n-title="readableTitle" title="可读视图（F）：恢复 100% 比例；选中节点时以它为中心" aria-keyshortcuts="F" disabled>可读视图 (F)</button>
     <button id="minus" data-i18n-aria-label="zoomOut" aria-label="缩小" disabled>−</button>
     <button id="plus" data-i18n-aria-label="zoomIn" aria-label="放大" disabled>+</button>
@@ -144,7 +151,7 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;color:#bccce0}
     "legendOperators": ["算子", "Operations"],
     "legendResources": ["输入 / 状态 / 资源", "Inputs / state / resources"],
     "helpTitle": ["使用说明", "How to use"],
-    "helpNodes": ["单击节点查看绑定、张量形状及属性；双击层调用进入对应层定义，也可使用顶部下拉菜单切换。", "Click a node to inspect bindings, tensor shapes and attributes. Double-click a layer call to enter its definition, or use the view selector."],
+    "helpNodes": ["节点上边缘方块代表输入，下边缘方块代表输出；连线连接对应端口，悬停查看完整名称与资源。单击节点查看详情，拖动调整位置；双击层调用进入对应定义。", "Blocks on the top edge are inputs; blocks on the bottom edge are outputs. Edges attach to their ports; hover for full names and resources. Click a node for details, drag to reposition it, or double-click a layer call to enter its definition."],
     "helpEdges": ["单击连线以金黄色高亮线条、箭头及两端节点，并查看连接资源；再次单击节点恢复节点选择。", "Click an edge to highlight its line, arrow and endpoints in gold and inspect its resources. Click a node to return to node selection."],
     "helpRegions": ["Region 下可包含一个可选的 Architecture 元数据元素。嵌套 Region 直接包含真实算子，不需要独立架构树或 NodeRef 映射。双击 Region 展开子步骤，双击叶子 Region 查看算子；也可直接“查看全部算子”。说明与公式显示在详情顶部。", "A Region may contain optional Architecture metadata. Nested Regions own real operations directly, without a separate architecture tree or NodeRef mapping. Double-click to explore substeps or leaf operations, or choose “View all operations”. Descriptions and formulas appear at the top of the details panel."],
     "helpMetadata": ["架构连线由真实资源绑定聚合生成。Architecture 的 Ports/Port 可用 resource、direction（in/out）、name 为边界命名；Description、Formula 提供说明。defaultCollapsed=false 让结构容器透明展开，repeatGroup=true 标记可切换的重复组。所属计算上下文声明 step=token 时，紫色虚线表示末次状态写入到下一 token 首次读取，不参与本步排序。", "Architecture edges aggregate real resource bindings. Architecture Ports/Port uses resource, direction (in/out) and name to label boundaries; Description and Formula provide documentation. defaultCollapsed=false expands a container transparently; repeatGroup=true marks a toggleable repeated group. With step=token in the computation context, purple dashed edges connect the last state write to the first read of the next token and do not affect current-step ordering."],
@@ -196,6 +203,12 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;color:#bccce0}
     "missingDependency": ["执行依赖引用不存在：{0}", "Execution dependency references a missing element: {0}"],
     "missingOutput": ["输出资源不存在：{0}", "Output resource not found: {0}"],
     "cycle": ["节点依赖存在循环，无法进行分层布局。", "Node dependencies contain a cycle; layered layout is not possible."],
+    "layout": ["重置布局", "Reset layout"],
+    "executionOrder": ["执行顺序", "Order"],
+    "hiddenWeight": ["权重已隐藏", "Hidden weight"],
+    "hiddenConstant": ["常量已隐藏", "Hidden constant"],
+    "hiddenSourceHelp": ["来源：{0}（{1}）。勾选“显示权重 / 常量”可显示来源节点和连线。", "Source: {0} ({1}). Enable “Weights / constants” to show its node and connection."],
+    "overlappingNodes": ["节点距离过近，无法安全布线；请将节点拖到空白区域。", "Nodes are too close to route safely; move the node into empty space."],
     "edgeLabel": ["连线：{0} → {1}", "Edge: {0} → {1}"],
     "noNodes": ["当前图没有可绘制的节点。", "This graph has no drawable nodes."],
     "graphStatus": ["{0} · {1} · {2} · {3} 个{4} · {5} 个资源/输出节点 · {6} 条连线", "{0} · {1} · {2} · {3} {4} · {5} resource/output nodes · {6} edges"],
@@ -209,7 +222,7 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;color:#bccce0}
     "tips": ["操作提示", "Tips"],
     "overviewReadable": ["默认使用 100% 可读比例。大图可拖动或搜索探索；“适应画布”用于总览，“可读视图”（F）恢复清晰文字并定位选中节点。输入框内不触发 F 快捷键。", "Default zoom is a readable 100%. Pan or search large graphs. “Fit to canvas” shows an overview; “Readable view” (F) restores clear text and centers the selected node. F is ignored in text fields."],
     "overviewHistory": ["后退 / 前进（Alt + ← / →）恢复已访问视图的位置、选项与选中内容；新文件会重置导航历史。", "Back / Forward (Alt + ← / →) restores visited views, positions, options and selection. Opening another file resets history."],
-    "overviewControls": ["滚轮缩放 / 拖动画布 / 搜索定位。默认隐藏权重和常量；资源连线依据 XML 顺序中的最近写入者。纯执行依赖使用虚线。支持区域嵌套图和 Nodes 平铺逻辑图。", "Scroll to zoom, drag to pan and search to locate nodes. Weights and constants are hidden by default. Resource edges use the latest writer in XML order; pure ordering dependencies are dashed. Both nested Region and flat Nodes graphs are supported."],
+    "overviewControls": ["滚轮缩放 / 拖动节点调整布局 / 拖动空白处平移画布 / 搜索定位。跨层连线绕开中间节点，手动位置在当前文件内保留。默认隐藏权重和常量；连线依据最近写入者，纯执行依赖使用虚线。", "Scroll to zoom, drag nodes to adjust layout, drag empty space to pan, and search to locate nodes. Long edges avoid intermediate nodes; manual positions are retained within the current file. Weights/constants are hidden by default; edges use the latest writer and pure ordering dependencies are dashed."],
     "templateHint": ["当前为可复用层的模板图。端口是抽象资源，不是某个层实例的实际权重或状态。", "This is a reusable layer template. Ports represent abstract resources, not a particular instance’s weights or state."],
     "expandRegion": ["展开 Region →", "Expand Region →"],
     "viewOperators": ["查看对应算子 →", "View operations →"],
@@ -279,7 +292,8 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;color:#bccce0}
 
   const state = { root: null, definitions: new Map(), resources: new Map(), nodes: [], edges: [],
     selected: null, selectedEdge: null, matches: [], matchIndex: -1, scale: 1, x: 0, y: 0,
-    width: 1, height: 1, loadId: 0, history: [], historyIndex: -1, viewScope: "" };
+    width: 1, height: 1, loadId: 0, history: [], historyIndex: -1, viewScope: "",
+    positions: new Map(), layoutKey: "" };
   const children = (element, name) => Array.from(element?.children || []).filter(e => e.localName === name);
   const child = (element, name) => children(element, name)[0];
   const attr = (element, name) => element?.getAttribute(name) || "";
@@ -333,6 +347,7 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;color:#bccce0}
       Object.assign(state, parsed);
       state.rootResources = parsed.resources;
       state.filename = file.name;
+      state.positions.clear();
       state.history = []; state.historyIndex = -1; updateNavigation();
       $("scope").replaceChildren(new Option(t("mainOperators"), "root"));
       registerRegionViews();
@@ -479,7 +494,8 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;color:#bccce0}
       states: $("states").checked, search: $("search").value, matchIndex: state.matchIndex,
       scale: state.scale, x: state.x, y: state.y, selected: state.selected?.key,
       selectedEdge: state.selectedEdge ? {
-        from: state.selectedEdge.from.key, to: state.selectedEdge.to.key, role: state.selectedEdge.role
+        from: state.selectedEdge.from.key, to: state.selectedEdge.to.key, role: state.selectedEdge.role,
+        resource: state.selectedEdge.bindings[0].resource, port: state.selectedEdge.bindings[0].port
       } : null, detailsScroll: $("details").scrollTop };
   }
   function updateNavigation() {
@@ -500,7 +516,8 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;color:#bccce0}
       select(node);
     } else if (view.selectedEdge) {
       const edge = state.edges.find(item => item.from.key === view.selectedEdge.from &&
-        item.to.key === view.selectedEdge.to && item.role === view.selectedEdge.role);
+        item.to.key === view.selectedEdge.to && item.role === view.selectedEdge.role &&
+        item.bindings[0].resource === view.selectedEdge.resource && item.bindings[0].port === view.selectedEdge.port);
       if (!edge) { status(message("missingHistoryEdge"), true); return false; }
       selectEdge(edge);
     }
@@ -605,7 +622,7 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;color:#bccce0}
       if (!from || !to || !temporal && from === to) return;
       const role = temporal ? "state" : binding.access === "Order" ? "" :
         attr(to.metadata, "role") === "residual-add" ? "residual" : "";
-      const key = `${from.key}\n${to.key}\n${role}`;
+      const key = JSON.stringify([from.key, to.key, role, binding.resource, binding.port, binding.access]);
       let edge = edgeMap.get(key);
       if (!edge) {
         edge = { from, to, bindings: [], role, temporal };
@@ -691,6 +708,7 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;color:#bccce0}
   }
 
   function layoutGraph(all, edges, resources, scope, externals = [], architectureView = false) {
+    preparePorts(all, edges, resources);
     const pending = new Map(all.map(node => [node, 0]));
     const outgoing = new Map(all.map(node => [node, []]));
     for (const node of all) node.rank = 0;
@@ -716,69 +734,245 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;color:#bccce0}
     const levels = new Map();
     for (const node of all) {
       const level = levels.get(node.rank) || [];
-      node.x = level.length * 260 + 30;
-      node.y = node.rank * 116 + 30;
+      node.x = level.length ? level[level.length - 1].x + level[level.length - 1].width + 40 : 30;
+      node.y = node.rank * 152 + 30;
       level.push(node); levels.set(node.rank, level);
     }
     return { nodes: all, edges, resources, scope, architectureView,
-      width: Math.max(300, ...all.map(node => node.x + (architectureView ? 330 : 250))),
-      height: Math.max(160, ...all.map(node => node.y + 94)) };
+      width: Math.max(300, ...all.map(node => node.x + node.width + 30)),
+      height: Math.max(160, ...all.map(node => node.y + node.height + 30)) };
   }
+  function preparePorts(nodes, edges, resources) {
+    for (const node of nodes) node.ports = [];
+    function port(node, direction, resource, name) {
+      const key = JSON.stringify([direction, resource, name]);
+      let item = node.ports.find(candidate => candidate.key === key);
+      if (!item) {
+        const metadata = children(child(node.metadata, "Ports"), "Port").find(candidate =>
+          attr(candidate, "resource") === resource && attr(candidate, "direction") === direction);
+        const source = resources.get(resource);
+        const kind = attr(source, "kind") || attr(source, "resourceKind");
+        const hiddenSource = direction === "in" && !$("weights").checked &&
+          /^(Weight|Constant)$/i.test(kind);
+        item = { key, direction, resource, name: attr(metadata, "name") || (node.region ? resource : name),
+          sourceName: attr(source, "name") || resource,
+          hiddenSource: hiddenSource ? /^Weight$/i.test(kind) ? "hiddenWeight" : "hiddenConstant" : null };
+        node.ports.push(item);
+      }
+      return item;
+    }
+    for (const node of nodes.filter(node => !node.region && !node.external)) {
+      for (const binding of node.bindings) {
+        if (binding.access !== "Write") port(node, "in", binding.resource, binding.port);
+        if (binding.access !== "Read") port(node, "out", binding.resource, binding.port);
+      }
+    }
+    for (const edge of edges) {
+      const binding = edge.bindings[0];
+      const order = binding.access === "Order";
+      const writer = [...edge.from.bindings].reverse().find(candidate =>
+        candidate.resource === binding.resource && candidate.access !== "Read");
+      const reader = edge.to.bindings.find(candidate =>
+        candidate.resource === binding.resource && candidate.access !== "Write" &&
+        (candidate.port === binding.port || edge.temporal));
+      edge.outputPort = port(edge.from, "out", binding.resource,
+        order ? t("executionOrder") : writer?.port || (edge.from.external ? "output" : binding.resource));
+      edge.inputPort = port(edge.to, "in", binding.resource,
+        order ? t("executionOrder") : reader?.port || (edge.to.external ? "input" : binding.port));
+    }
+    for (const node of nodes) {
+      const inputs = node.ports.filter(port => port.direction === "in");
+      const outputs = node.ports.filter(port => port.direction === "out");
+      node.width = Math.max(220, Math.max(inputs.length, outputs.length) * 88 + 24);
+      node.height = 100;
+      for (const ports of [inputs, outputs]) {
+        ports.forEach((port, index) => {
+          port.x = 12 + (index + .5) * (node.width - 24) / ports.length;
+          port.y = port.direction === "in" ? 0 : node.height;
+        });
+      }
+    }
+  }
+    function updateBounds() {
+      state.left = Math.min(0, ...state.nodes.map(node => node.x), ...state.edges.flatMap(edge => edge.points.map(point => point.x)));
+      state.top = Math.min(0, ...state.nodes.map(node => node.y), ...state.edges.flatMap(edge => edge.points.map(point => point.y)));
+      const right = Math.max(300, ...state.nodes.map(node => node.x + node.width + 30), ...state.edges.flatMap(edge => edge.points.map(point => point.x + 24)));
+      const bottom = Math.max(160, ...state.nodes.map(node => node.y + node.height + 30), ...state.edges.flatMap(edge => edge.points.map(point => point.y + 24)));
+      state.width = right - state.left; state.height = bottom - state.top;
+    }
+    function routeEdges() {
+      const boxes = state.nodes.map(node => ({ left: node.x - 6, right: node.x + node.width + 6, top: node.y - 12, bottom: node.y + node.height + 12 }));
+      const blocked = (a, b) => boxes.some(box => a.x === b.x
+        ? a.x > box.left && a.x < box.right && Math.max(a.y, b.y) > box.top && Math.min(a.y, b.y) < box.bottom
+        : a.y > box.top && a.y < box.bottom && Math.max(a.x, b.x) > box.left && Math.min(a.x, b.x) < box.right);
+      const clear = points => points.slice(1).every((point, index) => !blocked(points[index], point));
+      const left = Math.min(...boxes.map(box => box.left)) - 24;
+      const right = Math.max(...boxes.map(box => box.right)) + 24;
+      const lanes = [];
+      const escapePorts = new Map();
+      for (const edge of state.edges) {
+        for (const [node, direction] of [[edge.from, "out"], [edge.to, "in"]]) {
+          const escapeKey = node.y + direction;
+          const escapeList = escapePorts.get(escapeKey) || [];
+          escapeList.push(edge); escapePorts.set(escapeKey, escapeList);
+        }
+      }
+      const escapeOffset = (node, edge, direction) => {
+        const list = escapePorts.get(node.y + direction);
+        return 16 + 6 * (list.indexOf(edge) + 1) / (list.length + 1);
+      };
+      for (const edge of state.edges) {
+        const from = edge.from, to = edge.to;
+        const forward = to.y >= from.y + from.height + 26 && from !== to;
+        const start = { x: from.x + edge.outputPort.x, y: from.y + from.height + 9 };
+        const end = { x: to.x + edge.inputPort.x, y: to.y - 9 };
+        const a = { x: start.x, y: start.y + escapeOffset(from, edge, "out") };
+        const b = { x: end.x, y: end.y - escapeOffset(to, edge, "in") };
+        const mid = (a.y + b.y) / 2;
+        const direct = [a, { x: a.x, y: mid }, { x: b.x, y: mid }, b];
+        let interior = forward && to.rank <= from.rank + 1 && clear(direct) ? direct : null;
+        if (!interior) {
+          const low = Math.min(a.y, b.y), high = Math.max(a.y, b.y);
+          let lane = lanes.findIndex(intervals => intervals.every(([lo, hi]) => high + 16 < lo || low > hi + 16));
+          if (lane < 0) { lane = lanes.length; lanes.push([]); }
+          lanes[lane].push([low, high]);
+          const candidates = [right + lane * 18, left - lane * 18].map(x =>
+            [a, { x, y: a.y }, { x, y: b.y }, b]);
+          interior = candidates.find(clear) || findRoute(a, b, boxes, blocked);
+        }
+        // Short terminal segments connect to the actual source and target ports.
+        edge.points = [start, ...interior, end];
+        const d = edge.points.map((point, index) => `${index ? "L" : "M"}${point.x},${point.y}`).join(" ");
+        edge.dom.setAttribute("d", d); edge.hit.setAttribute("d", d);
+      }
+      updateBounds();
+    }
+    function findRoute(start, end, boxes, blocked) {
+      const xs = [...new Set([start.x, end.x, ...boxes.flatMap(box => [box.left - 10, box.right + 10])])].sort((a, b) => a - b);
+      const ys = [...new Set([start.y, end.y, ...boxes.flatMap(box => [box.top - 10, box.bottom + 10])])].sort((a, b) => a - b);
+      const key = (x, y) => y * xs.length + x;
+      const target = key(xs.indexOf(end.x), ys.indexOf(end.y));
+      const first = key(xs.indexOf(start.x), ys.indexOf(start.y));
+      const costs = new Map([[first, 0]]), previous = new Map(), heap = [];
+      function push(id, cost) {
+        const x = id % xs.length, y = Math.floor(id / xs.length);
+        const item = { id, cost, score: cost + Math.abs(xs[x] - end.x) + Math.abs(ys[y] - end.y) };
+        heap.push(item);
+        let index = heap.length - 1;
+        while (index > 0) {
+          const parent = (index - 1) >> 1;
+          if (heap[parent].score <= item.score) break;
+          heap[index] = heap[parent]; index = parent;
+        }
+        heap[index] = item;
+      }
+      function pop() {
+        const first = heap[0], last = heap.pop();
+        if (heap.length) {
+          let index = 0;
+          while (index * 2 + 1 < heap.length) {
+            let child = index * 2 + 1;
+            if (child + 1 < heap.length && heap[child + 1].score < heap[child].score) child++;
+            if (last.score <= heap[child].score) break;
+            heap[index] = heap[child]; index = child;
+          }
+          heap[index] = last;
+        }
+        return first;
+      }
+      push(first, 0);
+      while (heap.length) {
+        const item = pop();
+        if (item.cost !== costs.get(item.id)) continue;
+        if (item.id === target) {
+          const points = [];
+          for (let id = target; id !== undefined; id = previous.get(id))
+            points.push({ x: xs[id % xs.length], y: ys[Math.floor(id / xs.length)] });
+          return points.reverse();
+        }
+        const x = item.id % xs.length, y = Math.floor(item.id / xs.length);
+        for (const [nx, ny] of [[x - 1, y], [x + 1, y], [x, y - 1], [x, y + 1]]) {
+          if (nx < 0 || nx >= xs.length || ny < 0 || ny >= ys.length) continue;
+          const a = { x: xs[x], y: ys[y] }, b = { x: xs[nx], y: ys[ny] };
+          if (blocked(a, b)) continue;
+          const id = key(nx, ny), cost = item.cost + Math.abs(a.x - b.x) + Math.abs(a.y - b.y) + 1;
+          if (cost >= (costs.get(id) ?? Infinity)) continue;
+          costs.set(id, cost); previous.set(id, item.id); push(id, cost);
+        }
+      }
+      throw new ViewerError("overlappingNodes");
+    }
   function shorten(value, max = 29) { return value.length > max ? value.slice(0, max - 1) + "…" : value; }
   function render() {
     if (!state.root) return;
     try {
       const graph = buildGraph();
       Object.assign(state, graph, { selected: null, selectedEdge: null, matchIndex: -1 });
+      state.layoutKey = JSON.stringify([$("scope").value, $("weights").checked, $("collapse").checked, $("states").checked]);
+      const positions = state.positions.get(state.layoutKey);
+      for (const node of state.nodes) {
+        const position = positions?.get(node.key);
+        if (position) { node.x = position.x; node.y = position.y; }
+      }
       $("collapse").disabled = !state.hasGroups;
       $("states").disabled = !state.hasStates;
       $("weights").disabled = false;
       $("edges").replaceChildren(); $("nodes").replaceChildren();
       for (const edge of state.edges) {
-        const x1 = edge.from.x + 110, y1 = edge.from.y + 64;
-        const x2 = edge.to.x + 110, y2 = edge.to.y;
-        const mid = (y1 + y2) / 2;
-        const d = edge.from === edge.to
-          ? `M${edge.from.x + 220},${edge.from.y + 48} C${edge.from.x + 310},${edge.from.y + 100} ${edge.from.x + 310},${edge.from.y - 36} ${edge.from.x + 220},${edge.from.y + 16}`
-          : edge.role === "skip" || edge.role === "residual"
-            ? `M${edge.from.x + 220},${edge.from.y + 32} C${edge.from.x + 310},${edge.from.y + 32} ${edge.to.x + 310},${edge.to.y + 32} ${edge.to.x + 220},${edge.to.y + 32}`
-            : `M${x1},${y1} C${x1},${mid} ${x2},${mid} ${x2},${y2}`;
-        const path = svgElement("path", { d, class: `edge ${edge.role || ""}`, "marker-end": "url(#arrow)" });
+        const path = svgElement("path", { class: `edge ${edge.role || ""}`, "marker-end": "url(#arrow)" });
         if (edge.bindings.every(binding => binding.access === "Order")) path.setAttribute("stroke-dasharray", "5 4");
         const title = svgElement("title");
         title.textContent = edge.bindings.map(b => `${b.resource} → ${b.port} (${b.access})`).join("\n");
         const group = svgElement("g", { class: "edge-link", tabindex: "0", role: "button",
           "aria-label": t("edgeLabel", edge.from.id, edge.to.id) });
-        const hit = svgElement("path", { d: path.getAttribute("d"), class: "edge-hit" });
+        const hit = svgElement("path", { class: "edge-hit" });
         group.append(title, path, hit);
         group.addEventListener("click", () => selectEdge(edge));
         group.addEventListener("keydown", event => {
           if (event.key === "Enter" || event.key === " ") { event.preventDefault(); selectEdge(edge); }
         });
-        edge.dom = path; $("edges").append(group);
+        edge.dom = path; edge.hit = hit; $("edges").append(group);
       }
       for (const node of state.nodes) {
         const group = svgElement("g", { transform: `translate(${node.x},${node.y})`,
           class: `node${node.external ? " external" : node.region ? " region" : node.definition ? " call" : ""}`,
           tabindex: "0", role: "button", "aria-label": `${node.id}: ${node.label}` });
-        group.append(svgElement("rect", { width: 220, height: 64, rx: 9 }));
-        const name = svgElement("text", { x: 12, y: 25 });
+        group.append(svgElement("rect", { width: node.width, height: node.height, rx: 9 }));
+        const name = svgElement("text", { x: 12, y: 41 });
         name.textContent = shorten(node.displayName || node.id, 25); group.append(name);
-        const label = svgElement("text", { x: 12, y: 46, class: "subtitle" });
+        const label = svgElement("text", { x: 12, y: 65, class: "subtitle" });
         label.textContent = shorten(node.label, 28); group.append(label);
         const title = svgElement("title"); title.textContent = `${node.id}\n${node.label}`;
         group.append(title);
-        group.addEventListener("click", () => select(node));
-        group.addEventListener("dblclick", () => enter(node));
+        for (const port of node.ports) {
+          const sourceHelp = port.hiddenSource ? t("hiddenSourceHelp", port.sourceName, port.resource) : "";
+          const element = svgElement("g", { class: `port ${port.direction}${port.hiddenSource ? " hidden-source" : ""}`,
+            transform: `translate(${port.x},${port.y})`, "data-direction": port.direction,
+            "data-resource": port.resource, "aria-label": `${port.direction}: ${port.name} (${port.resource})${sourceHelp ? ". " + sourceHelp : ""}` });
+          element.append(svgElement("rect", { x: -38, y: -9, width: 76, height: 18, rx: 2 }));
+          const label = svgElement("text", { x: 0, y: 4 });
+          label.textContent = shorten(port.name, 11); element.append(label);
+          if (port.hiddenSource) {
+            const note = svgElement("text", { x: 0, y: 22, class: "source-note" });
+            note.textContent = t(port.hiddenSource); element.append(note);
+          }
+          const title = svgElement("title");
+          title.textContent = `${port.direction}: ${port.name}\n${port.resource}${sourceHelp ? "\n" + sourceHelp : ""}`;
+          element.append(title); group.append(element); port.dom = element;
+        }
+        group.addEventListener("click", event => { if (!suppressClick && event.detail <= 1) select(node); });
+        group.addEventListener("dblclick", () => { if (!suppressClick) enter(node); });
+        group.addEventListener("pointerdown", event => startNodeDrag(event, node));
         group.addEventListener("keydown", event => {
           if (event.key === "Enter" || event.key === " ") { event.preventDefault(); select(node); }
         });
         node.dom = group; $("nodes").append(group);
       }
+      routeEdges();
       $("empty").style.display = state.nodes.length ? "none" : "flex";
       state.emptyMessage = state.nodes.length ? null : "noNodes";
       if (!state.nodes.length) $("empty").firstElementChild.textContent = t("noNodes");
-      for (const id of ["fit", "readable", "plus", "minus"]) $(id).disabled = !state.nodes.length;
+      for (const id of ["fit", "layout", "readable", "plus", "minus"]) $(id).disabled = !state.nodes.length;
       updateSearch(false); readable(false); overview();
       const identity = child(state.root, "Identity");
       status(message("graphStatus", state.filename, identity ? attr(identity, "name") : "Graph", $("scope").selectedOptions[0].textContent, state.nodes.filter(n => !n.external).length, state.architectureView ? t("modules") : t("executionNodes"), state.nodes.filter(n => n.external).length, state.edges.length));
@@ -824,6 +1018,7 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;color:#bccce0}
     state.selectedEdge = null;
     for (const item of state.nodes) item.dom.classList.toggle("selected", item === node);
     for (const edge of state.edges) edge.dom.classList.toggle("active", edge.from === node || edge.to === node);
+    highlightPorts(state.edges.filter(edge => edge.from === node || edge.to === node));
     const panel = $("details"); panel.replaceChildren();
     text(panel, "h2", node.displayName || node.id);
     text(panel, "p", node.label, "badge");
@@ -888,6 +1083,7 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;color:#bccce0}
     for (const node of state.nodes)
       node.dom.classList.toggle("selected", node === edge.from || node === edge.to);
     for (const item of state.edges) item.dom.classList.toggle("active", item === edge);
+    highlightPorts([edge]);
     const panel = $("details"); panel.replaceChildren();
     text(panel, "h2", t("edgeDetails"));
     for (const [label, node] of [[t("source"), edge.from], [t("target"), edge.to]]) {
@@ -908,6 +1104,11 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;color:#bccce0}
     if (!node.drillTarget && !node.definition) return;
     navigate(node.drillTarget || node.definition);
   }
+  function highlightPorts(edges) {
+    const ports = new Set(edges.flatMap(edge => [edge.inputPort, edge.outputPort]));
+    for (const node of state.nodes)
+      for (const port of node.ports) port.dom.classList.toggle("active", ports.has(port));
+  }
   function transform() {
     $("world").setAttribute("transform", `translate(${state.x},${state.y}) scale(${state.scale})`);
     $("zoom").textContent = `${state.scale < .01 ? (state.scale * 100).toFixed(2) : Math.round(state.scale * 100)}%`;
@@ -918,15 +1119,15 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;color:#bccce0}
     if (anchor) { focusNode(anchor); return; }
     const rect = $("canvas").getBoundingClientRect();
     state.scale = 1;
-    state.x = Math.max(20, (rect.width - state.width) / 2);
-    state.y = Math.max(20, (rect.height - state.height) / 2);
+    state.x = Math.max(20, (rect.width - state.width) / 2) - (state.left || 0);
+    state.y = Math.max(20, (rect.height - state.height) / 2) - (state.top || 0);
     transform();
   }
   function fit() {
     const rect = $("canvas").getBoundingClientRect();
     state.scale = Math.max(.0001, Math.min(1, (rect.width - 40) / state.width, (rect.height - 40) / state.height));
-    state.x = (rect.width - state.width * state.scale) / 2;
-    state.y = (rect.height - state.height * state.scale) / 2; transform();
+    state.x = (rect.width - state.width * state.scale) / 2 - (state.left || 0) * state.scale;
+    state.y = (rect.height - state.height * state.scale) / 2 - (state.top || 0) * state.scale; transform();
   }
   function zoom(factor, x, y) {
     const next = Math.max(.0001, Math.min(3, state.scale * factor));
@@ -936,7 +1137,7 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;color:#bccce0}
   }
   function focusNode(node) {
     const rect = $("canvas").getBoundingClientRect();
-    state.scale = 1; state.x = rect.width / 2 - node.x - 110; state.y = rect.height / 2 - node.y - 32;
+    state.scale = 1; state.x = rect.width / 2 - node.x - node.width / 2; state.y = rect.height / 2 - node.y - node.height / 2;
     transform();
   }
   function updateSearch(focus = true) {
@@ -970,10 +1171,43 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;color:#bccce0}
       event.preventDefault(); travel(event.key === "ArrowLeft" ? -1 : 1);
     }
   });
-  $("collapse").addEventListener("change", render);
-  $("states").addEventListener("change", render);
-  $("weights").addEventListener("change", render);
+  function redrawOptions() {
+    const view = captureView(), rect = $("canvas").getBoundingClientRect();
+    const centerX = (rect.width / 2 - state.x) / state.scale;
+    const centerY = (rect.height / 2 - state.y) / state.scale;
+    const distance = node => Math.hypot(node.x + node.width / 2 - centerX, node.y + node.height / 2 - centerY);
+    const candidates = [...state.nodes].sort((a, b) => distance(a) - distance(b));
+    const preferred = state.selected || state.selectedEdge?.from;
+    if (preferred) candidates.unshift(preferred);
+    const anchors = candidates.map(node => ({ key: node.key,
+      x: state.x + (node.x + node.width / 2) * state.scale,
+      y: state.y + (node.y + node.height / 2) * state.scale }));
+    if (!render()) return;
+    state.scale = view.scale; state.x = view.x; state.y = view.y;
+    for (const anchor of anchors) {
+      const node = state.nodes.find(item => item.key === anchor.key);
+      if (!node) continue;
+      state.x = anchor.x - (node.x + node.width / 2) * state.scale;
+      state.y = anchor.y - (node.y + node.height / 2) * state.scale;
+      break;
+    }
+    transform();
+    const selected = state.nodes.find(node => node.key === view.selected);
+    if (selected) select(selected);
+    else if (view.selectedEdge) {
+      const edge = state.edges.find(item => item.from.key === view.selectedEdge.from &&
+        item.to.key === view.selectedEdge.to && item.role === view.selectedEdge.role &&
+        item.bindings[0].resource === view.selectedEdge.resource && item.bindings[0].port === view.selectedEdge.port);
+      if (edge) selectEdge(edge);
+    }
+    state.matchIndex = view.matchIndex;
+    $("details").scrollTop = view.detailsScroll;
+  }
+  $("collapse").addEventListener("change", redrawOptions);
+  $("states").addEventListener("change", redrawOptions);
+  $("weights").addEventListener("change", redrawOptions);
   $("fit").addEventListener("click", fit);
+  $("layout").addEventListener("click", () => { state.positions.delete(state.layoutKey); render(); });
   $("readable").addEventListener("click", () => readable());
   $("search").addEventListener("input", () => updateSearch());
   $("search").addEventListener("keydown", event => { if (event.key === "Enter") nextMatch(); });
@@ -987,22 +1221,61 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;color:#bccce0}
     const rect = $("canvas").getBoundingClientRect();
     zoom(Math.exp(-event.deltaY * .0015), event.clientX - rect.left, event.clientY - rect.top);
   }, { passive: false });
-  let drag = null;
+  let drag = null, suppressClick = false, routingFrame = null;
+  function startNodeDrag(event, node) {
+    if (event.button !== 0 || drag) return;
+    event.stopPropagation();
+    suppressClick = false;
+    drag = { node, pointerId: event.pointerId, x: event.clientX, y: event.clientY,
+      startX: node.x, startY: node.y, scale: state.scale, moved: false, status: state.statusMessage };
+    node.dom.setPointerCapture(event.pointerId);
+  }
   $("canvas").addEventListener("pointerdown", event => {
-    if (event.button !== 0) return;
-    drag = { x: event.clientX, y: event.clientY, startX: state.x, startY: state.y };
+    if (event.button !== 0 || drag) return;
+    suppressClick = false;
+    drag = { pointerId: event.pointerId, x: event.clientX, y: event.clientY, startX: state.x, startY: state.y };
     if (!event.target.closest(".node, .edge-link")) {
       $("canvas").setPointerCapture(event.pointerId);
       $("canvas").classList.add("dragging");
     } else drag = null;
   });
   $("canvas").addEventListener("pointermove", event => {
-    if (!drag) return;
+    if (!drag || event.pointerId !== drag.pointerId) return;
+    if (drag.node) {
+      const dx = event.clientX - drag.x, dy = event.clientY - drag.y;
+      if (!drag.moved && Math.hypot(dx, dy) < 4) return;
+      drag.moved = true; suppressClick = true;
+      const node = drag.node, x = drag.startX + dx / drag.scale, y = drag.startY + dy / drag.scale;
+      if (state.nodes.some(other => other !== node &&
+          x < other.x + other.width + 24 && x + node.width + 24 > other.x &&
+          y < other.y + other.height + 36 && y + node.height + 36 > other.y)) {
+        status(message("overlappingNodes"), true); return;
+      }
+      node.x = x; node.y = y; node.dom.classList.add("dragging");
+      node.dom.setAttribute("transform", `translate(${x},${y})`);
+      status(drag.status);
+      const positions = state.positions.get(state.layoutKey) || new Map();
+      positions.set(node.key, { x, y }); state.positions.set(state.layoutKey, positions);
+      if (routingFrame === null) routingFrame = requestAnimationFrame(() => {
+        routingFrame = null;
+        try { routeEdges(); } catch (error) { status(message("drawingFailed", errorMessage(error)), true); }
+      });
+      return;
+    }
     state.x = drag.startX + event.clientX - drag.x; state.y = drag.startY + event.clientY - drag.y; transform();
   });
-  const stopDrag = () => { drag = null; $("canvas").classList.remove("dragging"); };
+  const stopDrag = event => {
+    if (!drag || event.pointerId !== drag.pointerId) return;
+    const target = drag.node?.dom || $("canvas");
+    drag.node?.dom.classList.remove("dragging");
+    const moved = drag.moved;
+    drag = null; $("canvas").classList.remove("dragging");
+    if (target.hasPointerCapture(event.pointerId)) target.releasePointerCapture(event.pointerId);
+    if (moved) setTimeout(() => { suppressClick = false; }, 0);
+  };
   $("canvas").addEventListener("pointerup", stopDrag);
   $("canvas").addEventListener("pointercancel", stopDrag);
+  $("canvas").addEventListener("lostpointercapture", stopDrag);
   $("viewport").addEventListener("dragover", event => { event.preventDefault(); event.dataTransfer.dropEffect = "copy"; });
   $("viewport").addEventListener("drop", event => { event.preventDefault(); openFile(event.dataTransfer.files[0]); });
   for (const button of document.querySelectorAll("[data-language]"))

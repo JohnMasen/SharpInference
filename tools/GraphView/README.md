@@ -28,10 +28,30 @@ are supported. The former standalone `Architecture` tree is not supported.
 - Click an edge to highlight its line, arrow and both endpoints.
 - **View all operations** bypasses a Region's intermediate semantic levels.
 - Drag to pan; scroll to zoom; search and use **Next** to locate matches.
+- Drag a node to reposition it; drag empty canvas space to pan. Connected edges
+  update while dragging. Nodes keep a small clearance to leave room for routing.
+  Positions are retained per view/display-option combination during the current
+  file session, including navigation and language changes; they do not modify
+  the XML. **Reset layout** restores the current view's automatic positions.
+- Long connections use separate outside lanes rather than passing behind
+  intermediate nodes. Arrowheads terminate at the actual target, and multiple
+  connections use separate attachment points. Routing also updates after a drag.
+- Input ports are labeled blocks on the top edge of each node; output ports
+  sit on the bottom edge. Connections attach to the corresponding blocks.
+  Nodes widen to accommodate their ports. Long names are shortened on the
+  blocks; hover to see the full name and resource ID. ReadWrite bindings have
+  both input and output blocks. Selecting an edge highlights its two ports.
+  Region boundary names use Architecture port metadata when available.
+- When weights/constants are hidden, their input ports retain the real binding
+  and use a dashed border with a “Hidden weight” / “Hidden constant” label.
+  Hover for the source name/resource; enable weights/constants to show the edge.
 - **Fit to canvas** shows the whole graph; **F** restores readable 100% zoom.
   F is ignored in editable fields and does not intercept Ctrl+F.
 - **Alt+Left / Alt+Right** navigates view history. Opening another file resets it.
 - Weights/constants, repeated groups and cross-token state have separate toggles.
+  Changing display options preserves zoom and the selected node's screen
+  position (or a surviving node nearest the viewport center when nothing is
+  selected), rather than jumping back to the top of the graph.
 
 ## Region architecture metadata
 
