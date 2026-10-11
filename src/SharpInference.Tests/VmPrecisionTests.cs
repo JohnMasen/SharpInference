@@ -179,15 +179,19 @@ public sealed class VmPrecisionTests
             original.Resources.Append(output with { Id = new("second-output"), Name = "second-output" }),
             original.Regions, original.Nodes.Append(second), original.Inputs,
             original.Outputs.Append(new("second-output")));
-        var program = new VmExecutionGraphGenerator(
+        var generator = new VmExecutionGraphGenerator(
             target == VmTarget.Cpu ? InstructionTarget.Cpu : InstructionTarget.Direct3D12,
-            SharpInference.Runtime.Cpu.CpuInstructionCollections.Create().Concat(SharpInference.Runtime.D3D12.D3D12InstructionCollections.Create())).Generate(logical, new(PrefillCapacity: 1, WeightViews: false));
+            SharpInference.Runtime.Cpu.CpuInstructionCollections.Create().Concat(SharpInference.Runtime.D3D12.D3D12InstructionCollections.Create()));
+        var options = new VmOptimizationOptions(PrefillCapacity: 1, WeightViews: false);
+        var plan = VmGraphOptimizer.BuildPlan(logical, target, options).Plan;
+        var program = ExecutionPlanAssembler.Assemble(plan);
         var operations = program.Definitions.SelectMany(definition => definition.Nodes)
             .Select(node => node.Instruction).OfType<VmOperator>().ToArray();
         Assert.Equal(2, operations.Length);
         Assert.Equal(F32, operations[0].Precision);
         Assert.Equal(F16, operations[1].Precision);
-        Assert.All(operations, operation => Assert.Equal(Provided32, operation.ResolvedPrecision));
+        Assert.All(operations, operation => Assert.Null(operation.ResolvedPrecision));
+        Assert.Throws<InvalidDataException>(() => generator.Generate(logical, options));
     }
 
     [Fact]

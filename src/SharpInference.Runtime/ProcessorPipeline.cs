@@ -474,6 +474,14 @@ public sealed class Processor : IProcessor
         WriteGraphText(stream, VmProgramXml.Serialize(compiled.Program));
     }
 
+    public void ExportExecutionPlan(Stream stream)
+    {
+        ThrowIfDisposed();
+        var executionPlan = PreparedPlan.ExecutionPlan ??
+            throw new NotSupportedException("A supplied VM program does not have an authoritative target execution plan.");
+        WriteGraphText(stream, ExecutionPlanXml.Serialize(executionPlan));
+    }
+
     private static void WriteGraphText(Stream stream, string text)
     {
         ArgumentNullException.ThrowIfNull(stream);

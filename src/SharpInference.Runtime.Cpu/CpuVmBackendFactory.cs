@@ -1,6 +1,8 @@
 using SharpInference.Backends.CpuVm;
 using SharpInference.Instructions;
+using SharpInference.Graphs;
 using SharpInference.Vm;
+using SharpInference.Vm.Optimization;
 
 namespace SharpInference.Runtime.Cpu;
 
@@ -16,10 +18,18 @@ public static class CpuVmBackendFactory
         var collections = instructionCollections?.ToArray() ?? CpuInstructionCollections.Create();
         var compiler = new CpuVmCompiler(collections);
         var options = configuration.EngineOptions();
+        var executionPlan = configuration.ExecutionPlanPath is { } planPath
+            ? ExecutionPlanXml.DeserializeTarget(File.ReadAllText(planPath)) : null;
         CpuVmCompiledArtifact? compiled = configuration.ArtifactDirectory is { } directory
             ? CpuVmCompiledArtifact.Load(directory) : null;
         var loaded = compiled;
-        var program = loaded?.Program ?? (configuration.ProgramPath is { } path
+        if (loaded is { } artifact && configuration.ArtifactDirectory is { } artifactDirectory &&
+            File.Exists(Path.Combine(artifactDirectory, "execution-plan.xml")))
+        {
+            executionPlan = ExecutionPlanXml.DeserializeTarget(File.ReadAllText(Path.Combine(artifactDirectory, "execution-plan.xml")));
+            ExecutionPlanAssembler.ValidateArtifact(executionPlan, artifact.Program, new(collections));
+        }
+        var program = executionPlan is not null ? null : loaded?.Program ?? (configuration.ProgramPath is { } path
             ? VmProgramXml.Deserialize(File.ReadAllText(path)) : null);
         CpuVmCompiledArtifact? prefillCompiled = configuration.PrefillArtifactDirectory is { } prefillDirectory
             ? CpuVmCompiledArtifact.Load(prefillDirectory) : null;
@@ -42,7 +52,8 @@ public static class CpuVmBackendFactory
                 throw new InvalidOperationException("The prefill VM has not been compiled.")).Export(output),
             generatorCollections: generatorCollections ?? collections.Select(provider =>
                 new TargetInstructionCollection(provider, InstructionTarget.Cpu)),
-            executionCapabilities: new(options.InferenceInstances, 1, new HashSet<string> { "vm.cpu.host" }));
+            executionCapabilities: new(options.InferenceInstances, 1, new HashSet<string> { "vm.cpu.host" }),
+            suppliedExecutionPlan: executionPlan);
     }
 
     public static VmGraphBackend CreateArtifact(CpuVmCompiledArtifact artifact, VmEngineOptions? options = null,

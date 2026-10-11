@@ -28,22 +28,24 @@ public interface IVmSessionExecutor : IProcessorSessionExecutor, IProcessorState
 
 public sealed class VmCompiledPlan
 {
-    internal VmCompiledPlan(ExecutionGraph bindingGraph, VmProgram program,
+    internal VmCompiledPlan(LogicalGraph bindingGraph, VmProgram program,
         Func<IVmExecutable> createExecutable, Action<string>? exportArtifact = null,
-        VmCompiledPlan? prefillPlan = null)
+        VmCompiledPlan? prefillPlan = null, TargetExecutionPlan? executionPlan = null)
     {
         BindingGraph = bindingGraph;
         Program = program;
         CreateExecutable = createExecutable;
         ExportArtifact = exportArtifact;
         PrefillPlan = prefillPlan;
+        ExecutionPlan = executionPlan;
     }
 
-    internal ExecutionGraph BindingGraph { get; }
+    internal LogicalGraph BindingGraph { get; }
     public VmProgram Program { get; }
     public Func<IVmExecutable> CreateExecutable { get; }
     public Action<string>? ExportArtifact { get; }
     public VmCompiledPlan? PrefillPlan { get; }
+    public TargetExecutionPlan? ExecutionPlan { get; }
 }
 
 public sealed class VmGraphBackend : IDisposable
@@ -54,6 +56,7 @@ public sealed class VmGraphBackend : IDisposable
     private readonly VmOptimizationOptions optimization;
     private readonly Action? disposeCompiler;
     private readonly VmProgram? suppliedProgram;
+    private readonly TargetExecutionPlan? suppliedExecutionPlan;
     private readonly Action<string>? exportArtifact;
     private readonly VmProgram? suppliedPrefillProgram;
     private readonly Func<VmProgram, Func<IVmExecutable>>? compilePrefill;
@@ -76,7 +79,7 @@ public sealed class VmGraphBackend : IDisposable
         Action<string>? exportPrefillArtifact = null, Func<VmSlot, IVmStorage>? allocate = null,
         string? deviceName = null, IEnumerable<IInstructionCollectionProvider>? generatorCollections = null,
         IVmBackendDiagnostics? diagnostics = null, IGraphOperationLowerer? operationLowerer = null,
-        ProcessorExecutionCapabilities? executionCapabilities = null)
+        ProcessorExecutionCapabilities? executionCapabilities = null, TargetExecutionPlan? suppliedExecutionPlan = null)
     {
         this.target = target;
         this.compile = compile;
@@ -84,6 +87,9 @@ public sealed class VmGraphBackend : IDisposable
         this.optimization = optimization ?? new VmOptimizationOptions();
         this.disposeCompiler = disposeCompiler;
         this.suppliedProgram = suppliedProgram;
+        if (suppliedProgram is not null && suppliedExecutionPlan is not null)
+            throw new ArgumentException("Select either a VM program or a target execution plan.");
+        this.suppliedExecutionPlan = suppliedExecutionPlan;
         this.exportArtifact = exportArtifact;
         this.suppliedPrefillProgram = suppliedPrefillProgram;
         this.compilePrefill = compilePrefill;
@@ -100,17 +106,14 @@ public sealed class VmGraphBackend : IDisposable
             _ => throw new NotSupportedException($"No VM backend target adapter is installed for '{target}'."),
         };
         generator = generatorCollections is null ? null : new VmExecutionGraphGenerator(architecture, generatorCollections);
-        KernelCatalog = new ExecutionKernelCatalog($"vm.{target.ToString().ToLowerInvariant()}",
-            TierZeroOperationContracts.Contracts.Select(contract => contract.Operation)
-                .Concat((generator?.InstructionCollections as IGraphInstructionProvider)?.QueryGraphInstructionBindings()
-                    .Where(binding => binding.Target == architecture).Select(binding => binding.Operation) ?? []));
     }
 
-    private IExecutionKernelCatalog KernelCatalog { get; }
     public VmTarget Target => target;
     public string DeviceName { get; }
-    public TierOneOptimizationReport? OptimizationReport => generator?.LastOptimizationReport;
-    public GpuMatVecOptimizationReport? MatVecOptimizationReport => generator?.LastMatVecOptimizationReport;
+    public TierOneOptimizationReport? OptimizationReport =>
+        generator?.LastPlan is { } generated && ReferenceEquals(generated, plan?.ExecutionPlan) ? generator.LastOptimizationReport : null;
+    public GpuMatVecOptimizationReport? MatVecOptimizationReport =>
+        generator?.LastPlan is { } generated && ReferenceEquals(generated, plan?.ExecutionPlan) ? generator.LastMatVecOptimizationReport : null;
     public IVmBackendDiagnostics? Diagnostics { get; }
     public ProcessorExecutionCapabilities ExecutionCapabilities { get; }
     public VmProgram? Program => plan?.Program;
@@ -137,33 +140,65 @@ public sealed class VmGraphBackend : IDisposable
             if (modelBound) throw new InvalidOperationException("An initialized backend cannot change programs.");
             if (graphSessions.Count != 0)
                 throw new InvalidOperationException("A backend with active graph sessions cannot change programs.");
+            if (suppliedExecutionPlan is not null) return Prepare(suppliedExecutionPlan);
             GraphValidator.Validate(logical, modelModule?.OperationValidator);
             logical = GraphOperationLowering.Apply(logical, modelModule?.OperationLowerer);
             logical = GraphOperationLowering.Apply(logical, operationLowerer);
-            var defaultOptions = logical.Nodes.Any(node => node.Resources.Any(binding => binding.View is not null))
-                ? new GraphOptimizationOptions(OptimizationBoundary.Off, DefinitionPolicy: GraphDefinitionPolicy.PreserveExpanded)
-                : new GraphOptimizationOptions(OptimizationBoundary.Unrestricted);
-            var graph = new GraphOptimizer().Optimize(logical,
-                options ?? defaultOptions, KernelCatalog);
-            var program = suppliedProgram ?? (generator ??
-                throw new InvalidOperationException("Supply a graph generator IC catalog or a pre-generated execution program."))
-                .Generate(logical, optimization);
-            ValidateProgram(program, graph, prefill: false);
-            var factory = compile(program);
-            VmCompiledPlan? prefillPlan = null;
-            if (suppliedPrefillProgram is { } prefillProgram)
+            if (options is not null && options.Boundary != OptimizationBoundary.Off)
+                throw new NotSupportedException("Graph optimization must be configured during target execution-plan generation.");
+            if (suppliedProgram is not null)
             {
-                ValidateProgram(prefillProgram, graph, prefill: true);
-                prefillPlan = new VmCompiledPlan(graph, prefillProgram,
-                    (compilePrefill ?? compile)(prefillProgram), exportPrefillArtifact);
+                var metadata = TargetExecutionPlan.CreateBindings(logical);
+                return CompilePrepared(metadata, suppliedProgram, null);
             }
-            else ValidateProgram(program, graph, prefill: true);
-            plan = new VmCompiledPlan(graph, program, factory, exportArtifact, prefillPlan);
-            return plan;
+            var targetGenerator = generator ?? throw new InvalidOperationException(
+                "Supply a graph generator IC catalog or a pre-generated execution program.");
+            var il = new IlExecutionPlan(logical);
+            targetGenerator.ValidateOperations(il);
+            var executionPlan = targetGenerator.GeneratePlan(il, optimization);
+            return Prepare(executionPlan);
         }
     }
 
-    private void ValidateProgram(VmProgram program, ExecutionGraph graph, bool prefill)
+    public VmCompiledPlan Prepare(TargetExecutionPlan executionPlan)
+    {
+        ArgumentNullException.ThrowIfNull(executionPlan);
+        lock (graphSessions)
+        {
+            ObjectDisposedException.ThrowIf(disposed, this);
+            if (modelBound || graphSessions.Count != 0)
+                throw new InvalidOperationException("A backend with bound resources or active sessions cannot change plans.");
+            executionPlan = generator?.BindPlan(executionPlan) ?? executionPlan;
+            var metadata = executionPlan.Bindings ??
+                throw new InvalidDataException("Runtime preparation requires execution-plan IO and state binding metadata.");
+            var program = ExecutionPlanAssembler.Assemble(executionPlan);
+            VmInstructionContracts.ValidateResolved(program);
+            return CompilePrepared(metadata, program, executionPlan);
+        }
+    }
+
+    private VmCompiledPlan CompilePrepared(LogicalGraph graph, VmProgram program, TargetExecutionPlan? executionPlan)
+    {
+        ValidateProgram(program, graph);
+        var factory = compile(program);
+        VmCompiledPlan? prefillPlan = null;
+        if (suppliedPrefillProgram is { } prefillProgram)
+        {
+            ValidateProgram(prefillProgram, graph);
+            prefillPlan = new VmCompiledPlan(graph, prefillProgram,
+                (compilePrefill ?? compile)(prefillProgram), exportPrefillArtifact);
+        }
+        Action<string>? export = exportArtifact is null ? null : directory =>
+        {
+            exportArtifact(directory);
+            if (executionPlan is not null)
+                File.WriteAllText(Path.Combine(directory, "execution-plan.xml"), ExecutionPlanXml.Serialize(executionPlan));
+        };
+        plan = new VmCompiledPlan(graph, program, factory, export, prefillPlan, executionPlan);
+        return plan;
+    }
+
+    private void ValidateProgram(VmProgram program, LogicalGraph graph)
     {
         VmProgramValidator.Validate(program);
         VmGraphBindingValidator.Validate(program, graph, allowTokenPrefill: true);
@@ -248,11 +283,11 @@ public sealed class VmGraphBackend : IDisposable
     {
         private readonly VmInferenceSession session;
         private readonly PortableGraphState state;
-        private readonly ExecutionGraph graph;
+        private readonly LogicalGraph graph;
         private long revision;
         private bool disposed;
 
-        public Session(VmInferenceSession session, PortableGraphState state, ExecutionGraph graph)
+        public Session(VmInferenceSession session, PortableGraphState state, LogicalGraph graph)
         {
             this.session = session;
             this.state = state;

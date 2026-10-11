@@ -31,7 +31,7 @@ public static class GraphResourceAllocator
     /// Do not use this to trust arbitrary serialized or custom operations.
     /// </param>
     public static GraphResourceAllocationPlan Plan(
-        ExecutionGraph graph,
+        IExecutionPlanningGraph graph,
         Func<ResourceId, bool>? initializedBeforeRead = null) =>
         PlanCore(graph, initializedBeforeRead is null ? null : (_, id) => initializedBeforeRead(id),
             includePublic: false);
@@ -45,7 +45,7 @@ public static class GraphResourceAllocator
     /// validate serialized first-write claims against the supported operation before executing it.
     /// </summary>
     public static GraphResourceAllocationPlan PlanLocal(
-        ExecutionGraph graph,
+        IExecutionPlanningGraph graph,
         Func<ResourceId, bool>? initializedBeforeRead = null) =>
         PlanCore(graph, initializedBeforeRead is null ? null : (_, id) => initializedBeforeRead(id),
             includePublic: true);
@@ -55,7 +55,7 @@ public static class GraphResourceAllocator
     /// accessed by different kernels and not every kernel has the same initialization guarantee.
     /// </summary>
     public static GraphResourceAllocationPlan PlanLocal(
-        ExecutionGraph graph,
+        IExecutionPlanningGraph graph,
         Func<ExecutionNode, ResourceId, bool> initializedBeforeRead)
     {
         ArgumentNullException.ThrowIfNull(initializedBeforeRead);
@@ -63,7 +63,7 @@ public static class GraphResourceAllocator
     }
 
     private static GraphResourceAllocationPlan PlanCore(
-        ExecutionGraph graph,
+        IExecutionPlanningGraph graph,
         Func<ExecutionNode, ResourceId, bool>? initializedBeforeRead,
         bool includePublic)
     {

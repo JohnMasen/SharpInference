@@ -14,6 +14,8 @@ if (args.Length == 0 || args[0] is "--help" or "-h")
 {
     Console.WriteLine("""
         build <cpu|d3d12> <weights.bin> <artifact-directory> [program.xml] [--source-only]
+        plan <cpu|d3d12> <weights.bin> <execution-plan.xml>
+        compile-plan <execution-plan.xml> <artifact-directory> [--source-only]
         tune <cpu|d3d12> <weights.bin> <report.json> <hardware-id> <driver-id> <compiler-id> <prefill|inference> <candidate.xml>...
         Tuning validates logits and all registered State entries against the portable CPU reference.
         Tuning tokens are 1,2,3,2; each measured run restores zero initial State.
@@ -23,6 +25,36 @@ if (args.Length == 0 || args[0] is "--help" or "-h")
 
 try
 {
+    if (args[0] == "compile-plan")
+    {
+        if (args.Length is < 3 or > 4 || args.Length == 4 && args[3] != "--source-only")
+            throw new ArgumentException("Use compile-plan <execution-plan.xml> <artifact-directory> [--source-only].");
+        var selectedPlan = ExecutionPlanXml.DeserializeTarget(File.ReadAllText(args[1]));
+        var sourceOnly = args.Length == 4;
+        var collections = selectedPlan.Target == ExecutionPlanTarget.Cpu
+            ? SharpInference.Runtime.Cpu.CpuInstructionCollections.Create()
+            : SharpInference.Runtime.D3D12.D3D12InstructionCollections.Create();
+        var bound = ExecutionPlanAssembler.Bind(selectedPlan, new(collections));
+        var selectedProgram = ExecutionPlanAssembler.Assemble(bound);
+        if (selectedPlan.Target == ExecutionPlanTarget.Cpu)
+        {
+            var compiler = new CpuVmCompiler(collections);
+            var image = sourceOnly ? compiler.GenerateSource(selectedProgram) : compiler.Compile(selectedProgram);
+            image.Export(args[2], includeBinary: !sourceOnly);
+        }
+        else
+        {
+            if (sourceOnly) throw new ArgumentException("--source-only is CPU-only.");
+            var image = new D3D12VmCompiler(collections).Compile(selectedProgram);
+            Directory.CreateDirectory(args[2]);
+            using var destination = File.Create(Path.Combine(args[2], "program.vm.zip"));
+            image.Export(destination);
+            File.WriteAllText(Path.Combine(args[2], "program.xml"), VmProgramXml.Serialize(selectedProgram));
+        }
+        File.WriteAllText(Path.Combine(args[2], "execution-plan.xml"), ExecutionPlanXml.Serialize(bound));
+        Console.WriteLine($"Compiled execution plan without a logical graph: {Path.GetFullPath(args[2])}");
+        return;
+    }
     if (args.Length < 4 || args[1] is not ("cpu" or "d3d12"))
         throw new ArgumentException("Select a supported target ('cpu'/'d3d12') and supply the required arguments.");
     var target = args[1] == "cpu" ? VmTarget.Cpu : VmTarget.Direct3D12;
@@ -31,12 +63,30 @@ try
     modules.Register(new Rwkv6ModelModule());
     modules.Register(new Rwkv7ModelModule());
     var logical = modules.Build(catalog).Graph;
-    if (args[0] == "build")
+    if (args[0] == "plan")
+    {
+        if (args.Length != 4) throw new ArgumentException("Use plan <cpu|d3d12> <weights.bin> <execution-plan.xml>.");
+        var collections = target == VmTarget.Cpu ? SharpInference.Runtime.Cpu.CpuInstructionCollections.Create()
+            : SharpInference.Runtime.D3D12.D3D12InstructionCollections.Create();
+        var il = new IlExecutionPlan(logical);
+        var generator = new VmExecutionGraphGenerator(target == VmTarget.Cpu ? SharpInference.Instructions.InstructionTarget.Cpu :
+            SharpInference.Instructions.InstructionTarget.Direct3D12, collections);
+        File.WriteAllText(Path.ChangeExtension(args[3], ".il.xml"), il.Serialize());
+        var selectedPlan = generator.GeneratePlan(IlExecutionPlan.Deserialize(il.Serialize()));
+        File.WriteAllText(args[3], ExecutionPlanXml.Serialize(selectedPlan));
+        Console.WriteLine($"Exported {selectedPlan.Target} execution plan: {Path.GetFullPath(args[3])}");
+    }
+    else if (args[0] == "build")
     {
         var sourceOnly = args[^1] == "--source-only";
         var count = args.Length - (sourceOnly ? 1 : 0);
         if (count is < 4 or > 5) throw new ArgumentException("Invalid build arguments.");
-        var program = count == 5 ? ReadProgram(args[4]) : VmGraphOptimizer.Optimize(logical, target);
+        var collections = target == VmTarget.Cpu ? SharpInference.Runtime.Cpu.CpuInstructionCollections.Create()
+            : SharpInference.Runtime.D3D12.D3D12InstructionCollections.Create();
+        var selectedPlan = count == 5 ? null : new VmExecutionGraphGenerator(
+            target == VmTarget.Cpu ? SharpInference.Instructions.InstructionTarget.Cpu :
+                SharpInference.Instructions.InstructionTarget.Direct3D12, collections).GeneratePlan(new(logical));
+        var program = selectedPlan is null ? ReadProgram(args[4]) : ExecutionPlanAssembler.Assemble(selectedPlan);
         if (target == VmTarget.Cpu)
         {
             var compiler = new CpuVmCompiler(SharpInference.Runtime.Cpu.CpuInstructionCollections.Create());
@@ -53,6 +103,8 @@ try
             File.WriteAllText(Path.Combine(args[3], "program.xml"), VmProgramXml.Serialize(program));
         }
         Console.WriteLine($"Exported {program.Target} VM: {Path.GetFullPath(args[3])}");
+        if (selectedPlan is not null)
+            File.WriteAllText(Path.Combine(args[3], "execution-plan.xml"), ExecutionPlanXml.Serialize(selectedPlan));
         var xml = VmProgramXml.Serialize(program);
         Console.WriteLine($"Slots: {program.Slots.Count}; definitions: {program.Definitions.Count}; XML characters: {xml.Length}; " +
             $"elements: {System.Xml.Linq.XDocument.Parse(xml).Descendants().Count()}; " +

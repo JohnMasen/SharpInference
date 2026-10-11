@@ -32,7 +32,7 @@ public sealed class TierOneFusionCandidate
 
 public static class TierOnePatternMatcher
 {
-    public static IReadOnlyList<TierOneFusionCandidate> Find(ExecutionGraph graph,
+    public static IReadOnlyList<TierOneFusionCandidate> Find(IExecutionPlanningGraph graph,
         IReadOnlyList<InstructionOptimizationCapability> capabilities, VmTarget target,
         IReadOnlyDictionary<ResourceId, ResourceId>? aliases = null)
     {

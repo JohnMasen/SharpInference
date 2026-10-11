@@ -21,6 +21,64 @@ the browser and is never uploaded.
 These local artifacts are optional, git-ignored examples, not tool dependencies.
 Flat `Nodes` graphs and structured `Region` / `LayerDefinition` / `Call` graphs
 are supported. The former standalone `Architecture` tree is not supported.
+The heading and status identify the loaded file as a **Logical graph**, an
+**Execution graph**, or an **Execution graph · IL / CPU / GPU**. Files without a
+declared graph kind are labeled as unspecified, not guessed to be logical graphs.
+
+## Execution plans
+
+The viewer accepts production `ExecutionPlan` XML
+(`schema="sharp-inference"`, `version="1"`, `kind="il|cpu|gpu"`).
+Generate it with the VM tool's `plan cpu|d3d12` command; `compile-plan` reloads
+CPU/GPU plans without the model graph generator. Production examples:
+
+- [Production CPU plan](../../artifacts/rwkv7-execution-plans/rwkv7-tiny.production.cpu.xml)
+- [Production GPU plan](../../artifacts/rwkv7-execution-plans/rwkv7-tiny.production.gpu.xml)
+- [Structured IL plan](../../artifacts/rwkv7-execution-plans/rwkv7-tiny.production.cpu.il.xml)
+
+Production target views display explicit EntryPoints, orchestration Calls,
+Functions, Kernels, Dispatches and Barriers. Double-click a call to enter its
+definition. Details retain the original execution-plan XML, thread/grid
+configuration, formal/actual bindings and offsets. ResourcePlan summaries show
+concrete local slots, resource mappings, static views and payload capacity;
+these are declarations, not measurements or allocated memory.
+Resource kinds propagate through actual call bindings, so weight visibility
+continues to work when reusable definitions use normalized formal slot names.
+
+The viewer also accepts the earlier experimental `ExecutionPlan` XML format
+(`schema="rwkv7-experiment"`, `version="1"`) for IL, CPU and GPU plans:
+
+- [IL plan](../../artifacts/rwkv7-execution-plans/rwkv7-tiny.il.xml)
+- [CPU plan](../../artifacts/rwkv7-execution-plans/rwkv7-tiny.cpu.xml)
+- [GPU plan](../../artifacts/rwkv7-execution-plans/rwkv7-tiny.gpu.xml)
+
+These optional, git-ignored examples can be generated with
+[the experiment script](../../scripts/rwkv7_execution_plan_experiment.py).
+
+Experimental plans open at the entry's Region hierarchy. Double-click a layer call to inspect
+its definition, then a Function or Kernel to inspect the exact internal operations.
+GPU Kernels are purple and synchronization barriers are amber. Invocation order
+is shown as dashed control edges, separately from data-resource connections.
+Unit declarations are not executed twice: only their `Invoke` sites appear in
+the containing graph. Multiple entry points are available in the scope selector.
+
+The details panel shows plan stage, target, fingerprints, default contracts,
+frame-local slot counts/payload budgets, resource-to-slot mappings, and the
+cross-host partition interface example. Kernel details include group/thread
+configuration and the original Unit XML; operations retain their original XML.
+Compact tensor declarations (`elementType` / `shape`) are supported, with
+comma-separated dimensions such as `shape="64,64"`. Earlier space-separated
+experimental shapes can still be viewed.
+Target resources with `viewOf`, `byteOffset="0"`, `access="Read"`, and
+`binding="frame-static"` are static views, not allocation or execution nodes.
+The details panel lists these views; data edges track their base producers and
+weight visibility follows the base resource. Views are excluded from slot budgets.
+
+This is visualization, not compilation, resource allocation, performance
+measurement, or VM execution. Unsupported plan schemas and missing/duplicate
+unit references are rejected. The viewer builds an internal display model without
+modifying the file or re-optimizing the plan. Existing Graph XML behavior is
+unchanged.
 
 ## Controls
 
@@ -30,6 +88,8 @@ are supported. The former standalone `Architecture` tree is not supported.
 - Drag to pan; scroll to zoom; search and use **Next** to locate matches.
 - Drag a node to reposition it; drag empty canvas space to pan. Connected edges
   update while dragging. Nodes keep a small clearance to leave room for routing.
+  Automatic layout leaves 96 pixels between nodes in the same row and 140 pixels
+  between node bodies in adjacent rows, providing space for ports and routing lanes.
   Positions are retained per view/display-option combination during the current
   file session, including navigation and language changes; they do not modify
   the XML. **Reset layout** restores the current view's automatic positions.

@@ -5,7 +5,7 @@ namespace SharpInference.Vm.Optimization;
 
 public static class VmGraphBindingValidator
 {
-    public static void Validate(VmProgram program, ExecutionGraph graph, bool allowTokenPrefill = false)
+    public static void Validate(VmProgram program, IGraphBindingMetadata graph, bool allowTokenPrefill = false)
     {
         ArgumentNullException.ThrowIfNull(program);
         ArgumentNullException.ThrowIfNull(graph);

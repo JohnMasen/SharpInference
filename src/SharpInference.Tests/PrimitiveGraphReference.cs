@@ -56,7 +56,7 @@ internal sealed class PrimitiveGraphReference : IDisposable
 
 internal sealed class PrimitiveGraphReferenceSession(
     PrimitiveGraphReference owner, PortableGraphState state,
-    IProcessorSessionExecutor executor, ExecutionGraph graph, int vocabularySize) : IDisposable
+    IProcessorSessionExecutor executor, IGraphBindingMetadata graph, int vocabularySize) : IDisposable
 {
     private readonly float[] logits = new float[vocabularySize];
     private readonly IProcessorStateExecutor stateAccess = Assert.IsAssignableFrom<IProcessorStateExecutor>(executor);

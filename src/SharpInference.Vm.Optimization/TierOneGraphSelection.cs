@@ -3,11 +3,11 @@ using SharpInference.Instructions;
 
 namespace SharpInference.Vm.Optimization;
 
-internal sealed record TierOneGraphSelection(ExecutionGraph Graph,
+internal sealed record TierOneGraphSelection(IlExecutionPlan Graph,
     IReadOnlyDictionary<ExecutionNodeId, InstructionOptimizationCapability> Implementations,
     TierOneOptimizationReport Report)
 {
-    public static TierOneGraphSelection Apply(ExecutionGraph graph, VmTarget target, VmOptimizationOptions options,
+    public static TierOneGraphSelection Apply(IlExecutionPlan graph, VmTarget target, VmOptimizationOptions options,
         IReadOnlyList<InstructionOptimizationCapability> capabilities,
         IReadOnlyDictionary<ResourceId, ResourceId> aliases)
     {
@@ -92,8 +92,7 @@ internal sealed record TierOneGraphSelection(ExecutionGraph Graph,
                 FirstWriteResources = [],
             };
         }).ToArray();
-        var optimized = new ExecutionGraph(graph.Identity, graph.Model, graph.Resources.Where(resource => !removed.Contains(resource.Id)),
-            graph.Regions, nodes, graph.Inputs, graph.Outputs, graph.GraphState);
+        var optimized = graph.WithNodes(graph.Resources.Where(resource => !removed.Contains(resource.Id)), nodes);
         return new(optimized, implementations,
             new(budget.Exhausted ? TierOneSelectionStatus.BestFoundWithinBudget : TierOneSelectionStatus.ModelOptimal,
                 model, budget.Exhausted ? "Legal profitable incumbent; search budget exhausted, optimality not proved." :
@@ -170,7 +169,7 @@ internal sealed record TierOneGraphSelection(ExecutionGraph Graph,
         }
     }
 
-    private static HashSet<int>[] Dependencies(ExecutionGraph graph)
+    private static HashSet<int>[] Dependencies(IExecutionPlanningGraph graph)
     {
         var indices = graph.Nodes.Select((node, index) => (node.Id, index)).ToDictionary(pair => pair.Id, pair => pair.index);
         var dependencies = graph.Nodes.Select(node => node.Dependencies.Select(dependency => indices[dependency]).ToHashSet()).ToArray();
@@ -198,7 +197,7 @@ internal sealed record TierOneGraphSelection(ExecutionGraph Graph,
         return dependencies;
     }
 
-    private static ContractedPlan? Contract(ExecutionGraph graph, HashSet<int>[] dependencies,
+    private static ContractedPlan? Contract(IExecutionPlanningGraph graph, HashSet<int>[] dependencies,
         IReadOnlyList<TierOneFusionCandidate> candidates)
     {
         var owners = Enumerable.Range(0, graph.Nodes.Count).ToArray();

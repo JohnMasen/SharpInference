@@ -7,7 +7,10 @@ namespace SharpInference.Vm.Optimization;
 public sealed record VmOptimizationOptions(
     bool ReuseLocalStorage = true, uint ThreadsPerGroup = 64, int PrefillCapacity = 64,
     bool NativeHalfWeights = true, bool WeightViews = true, TierOneOptimizationSettings? TierOne = null,
-    GpuMatVecOptimizationSettings? GpuMatVec = null);
+    GpuMatVecOptimizationSettings? GpuMatVec = null, bool TensorViews = true);
+
+public sealed record ExecutionPlanOptimizationResult(TargetExecutionPlan Plan,
+    TierOneOptimizationReport Report, GpuMatVecOptimizationReport MatVecReport);
 
 public static class VmGraphOptimizer
 {
@@ -18,7 +21,20 @@ public static class VmGraphOptimizer
         VmOptimizationOptions? options = null, IReadOnlyList<InstructionOptimizationCapability>? capabilities = null,
         IReadOnlyList<GraphInstructionBinding>? operationBindings = null)
     {
-        ArgumentNullException.ThrowIfNull(logical);
+        var result = BuildPlan(logical, target, options, capabilities, operationBindings);
+        return new(ExecutionPlanAssembler.Assemble(result.Plan), result.Report, result.MatVecReport);
+    }
+
+    public static ExecutionPlanOptimizationResult BuildPlan(LogicalGraph logical, VmTarget target,
+        VmOptimizationOptions? options = null, IReadOnlyList<InstructionOptimizationCapability>? capabilities = null,
+        IReadOnlyList<GraphInstructionBinding>? operationBindings = null)
+        => BuildPlan(new IlExecutionPlan(logical), target, options, capabilities, operationBindings);
+
+    public static ExecutionPlanOptimizationResult BuildPlan(IlExecutionPlan il, VmTarget target,
+        VmOptimizationOptions? options = null, IReadOnlyList<InstructionOptimizationCapability>? capabilities = null,
+        IReadOnlyList<GraphInstructionBinding>? operationBindings = null)
+    {
+        ArgumentNullException.ThrowIfNull(il);
         options ??= new VmOptimizationOptions();
         if (options.ThreadsPerGroup is 0 or > 1024)
             throw new ArgumentOutOfRangeException(nameof(options), "Thread group size must be between 1 and 1024.");
@@ -26,8 +42,7 @@ public static class VmGraphOptimizer
             throw new ArgumentOutOfRangeException(nameof(options), "Prefill capacity must be between 1 and 1024.");
         if (target != VmTarget.Direct3D12 && options.GpuMatVec is not null)
             throw new NotSupportedException("GPU MatVec settings require a Direct3D12 target.");
-        GraphValidator.Validate(logical);
-        var hasViews = logical.Nodes.Any(node => node.Resources.Any(binding => binding.View is not null));
+        var hasViews = il.Nodes.Any(node => node.Resources.Any(binding => binding.View is not null));
         if (hasViews && options.TierOne is not null)
             throw new NotSupportedException("Tier-one instruction selection does not declare tensor-view support.");
         var architecture = target switch
@@ -40,60 +55,60 @@ public static class VmGraphOptimizer
             .ToDictionary(binding => binding.Operation);
         if (bindings.Keys.Any(operation => TierZeroOperationContracts.Contracts.Any(contract => contract.Operation == operation)))
             throw new InvalidDataException("Model instruction bindings cannot override standard tensor operation contracts.");
-        var resourceDescriptions = logical.Resources.ToDictionary(resource => resource.Id);
-        foreach (var node in logical.Nodes)
-            if (!bindings.ContainsKey(node.Operation)) TierZeroOperationContracts.ValidateNode(node, resourceDescriptions);
-        var execution = new GraphOptimizer().Optimize(logical,
-            new GraphOptimizationOptions(OptimizationBoundary.Off,
-                DefinitionPolicy: GraphDefinitionPolicy.PreserveExpanded));
-        var descriptors = logical.Resources.ToDictionary(resource => resource.Id);
+        var resourceDescriptions = il.Resources.ToDictionary(resource => resource.Id);
+        foreach (var node in il.Nodes)
+            if (!bindings.ContainsKey(node.Operation)) TierZeroOperationContracts.ValidateNode(
+                new LogicalNode(new(node.Id.Value), node.Operation, node.Region, node.Resources, [], node.Attributes, node.Requirements),
+                resourceDescriptions);
+        var execution = il;
+        var descriptors = il.Resources.ToDictionary(resource => resource.Id);
         var aliases = new Dictionary<ResourceId, ResourceId>();
         IReadOnlyList<ExecutionNode> nodes = execution.Nodes;
-        if (options.WeightViews && !hasViews)
-            (nodes, aliases) = LowerWeightViews(execution, descriptors, options.NativeHalfWeights);
-        execution = new ExecutionGraph(execution.Identity, execution.Model, descriptors.Values, execution.Regions,
-            nodes, execution.Inputs, execution.Outputs, execution.GraphState);
+        if ((options.WeightViews || options.TensorViews) && !hasViews)
+            (nodes, aliases) = LowerViews(execution, descriptors,
+                options.WeightViews && options.NativeHalfWeights, options.WeightViews, options.TensorViews);
+        execution = execution.WithNodes(descriptors.Values, nodes);
         var selection = TierOneGraphSelection.Apply(execution, target, options, capabilities ?? [], aliases);
         execution = selection.Graph;
         nodes = execution.Nodes;
         var retainedResources = execution.Resources.Select(resource => resource.Id).ToHashSet();
         var physical = new Dictionary<ResourceId, string>();
-        var slots = new List<VmSlot>();
+        var slots = new List<ExecutionPlanSlot>();
         if (options.ReuseLocalStorage)
         {
-            var allocationGraph = aliases.Count == 0 ? execution : new ExecutionGraph(execution.Identity, execution.Model,
-                execution.Resources.Where(resource => !aliases.ContainsKey(resource.Id)), execution.Regions,
+            var allocationGraph = aliases.Count == 0 ? execution : execution.WithNodes(
+                execution.Resources.Where(resource => !aliases.ContainsKey(resource.Id)),
                 nodes.Select(node => node with
                 {
                     Resources = node.Resources.Select(binding => aliases.TryGetValue(binding.Resource, out var source)
                         ? binding with { Resource = source } : binding).ToArray(),
-                }), execution.Inputs, execution.Outputs, execution.GraphState);
+                }));
             var allocation = GraphResourceAllocator.PlanLocal(allocationGraph);
             foreach (var slot in allocation.Slots)
-                slots.Add(new VmSlot($"local.{slot.Id}", VmSlotScope.Local,
-                    VmAccess.ReadWrite, Tensor(slot.Tensor)));
+                slots.Add(new ExecutionPlanSlot($"local.{slot.Id}", GraphResourceScope.Local,
+                    GraphResourceAccess.ReadWrite, slot.Tensor));
             foreach (var (resource, slot) in allocation.SlotByResource)
                 physical.Add(resource, $"local.{slot}");
         }
-        foreach (var resource in logical.Resources)
+        foreach (var resource in il.Resources)
         {
             if (!retainedResources.Contains(resource.Id)) continue;
             if (aliases.ContainsKey(resource.Id)) continue;
             if (physical.ContainsKey(resource.Id)) continue;
             physical.Add(resource.Id, resource.Id.Value);
-            var scope = Scope(resource.Scope);
             if (resource.Tensor.Layout != "dense")
                 throw new NotSupportedException($"Resource '{resource.Id}' requires unsupported layout '{resource.Tensor.Layout}'.");
-            slots.Add(new VmSlot(resource.Id.Value, scope,
+            slots.Add(new ExecutionPlanSlot(resource.Id.Value, resource.Scope,
                 resource.Kind is GraphResourceKind.Weight or GraphResourceKind.Constant or GraphResourceKind.Input
-                    ? VmAccess.ReadOnly : VmAccess.ReadWrite,
-                Tensor(resource.Tensor), resource.BindingKey));
+                    ? GraphResourceAccess.Read : GraphResourceAccess.ReadWrite,
+                resource.Tensor, resource.BindingKey));
         }
         foreach (var (alias, source) in aliases) physical.Add(alias, physical[source]);
-        var definitions = new List<VmDefinition>();
-        var keys = new Dictionary<string, VmDefinition>(StringComparer.Ordinal);
-        var sequence = new List<VmNode>();
-        var rootParameters = slots.Select(slot => new VmParameter(slot.Id, slot.Access, slot.Tensor)).ToArray();
+        var definitions = new List<ExecutionPlanDefinition>();
+        var keys = new Dictionary<string, ExecutionPlanDefinition>(StringComparer.Ordinal);
+        var sequence = new List<ExecutionPlanNode>();
+        var nodeRegions = new Dictionary<string, RegionId>(StringComparer.Ordinal);
+        var rootParameters = slots.Select(slot => new ExecutionPlanParameter(slot.Id, slot.Access, slot.Tensor)).ToArray();
         string? previous = null;
         var matVecCalls = 0;
         var cooperativeCalls = 0;
@@ -105,9 +120,9 @@ public static class VmGraphOptimizer
             if (!node.Resources.Where(binding => binding.Access == GraphResourceAccess.ReadWrite).Select(binding => binding.Port)
                     .ToHashSet(StringComparer.Ordinal).SetEquals(instructionBinding?.ReadWritePorts ?? []))
                 throw new NotSupportedException($"Node '{node.Id}' requires an explicit read/write operator contract.");
-            var parameters = node.Resources.Select(binding => new VmParameter(binding.Port,
-                binding.Access == GraphResourceAccess.Read ? VmAccess.ReadOnly : VmAccess.ReadWrite,
-                Tensor(binding.View?.Tensor ?? descriptors[binding.Resource].Tensor))).ToArray();
+            var parameters = node.Resources.Select(binding => new ExecutionPlanParameter(binding.Port,
+                binding.Access == GraphResourceAccess.Read ? GraphResourceAccess.Read : GraphResourceAccess.ReadWrite,
+                binding.View?.Tensor ?? descriptors[binding.Resource].Tensor)).ToArray();
             InstructionExecutionConfiguration? configuration = implementation?.Configuration;
             var threads = options.ThreadsPerGroup;
             var dispatch = target == VmTarget.Direct3D12 ? instructionBinding?.Dispatch?.Invoke(
@@ -126,7 +141,7 @@ public static class VmGraphOptimizer
             if (target == VmTarget.Direct3D12 && node.Operation.Name == "core.mat-vec")
             {
                 matVecCalls++;
-                var choice = options.GpuMatVec is { } settings ? settings.Select(parameters, options) :
+                var choice = options.GpuMatVec is { } settings ? settings.Select(parameters.Select(ExecutionPlanAssembler.Parameter).ToArray(), options) :
                     (Cooperative: true, Diagnostic: "Default GPU MatVec implementation: cooperative.");
                 cooperative = choice.Cooperative;
                 matVecDiagnostics.Add(choice.Diagnostic);
@@ -150,88 +165,99 @@ public static class VmGraphOptimizer
                 .ToString(SaveOptions.DisableFormatting);
             if (!keys.TryGetValue(key, out var definition))
             {
-                definition = new VmDefinition($"op.{definitions.Count:D4}",
-                    target == VmTarget.Cpu ? VmDefinitionKind.Function : VmDefinitionKind.Kernel,
-                    parameters, [new VmNode("body", new VmOperator(node.Requirements,
-                        instructionBinding?.CollectionId ?? implementation?.CollectionId ?? (parameters.Single(parameter => parameter.Name == "output").Tensor.ElementType == VmElementType.Float16
+                definition = new ExecutionPlanDefinition($"op.{definitions.Count:D4}",
+                    target == VmTarget.Cpu ? ExecutionPlanDefinitionKind.Function : ExecutionPlanDefinitionKind.Kernel,
+                    parameters, [new ExecutionPlanNode("body", new ExecutionPlanOperator(node.Requirements,
+                        instructionBinding?.CollectionId ?? implementation?.CollectionId ?? (parameters.Single(parameter => parameter.Name == "output").Tensor.ElementType == GraphElementType.Float16
                             ? InstructionCollectionIds.TierZeroFloat16 : InstructionCollectionIds.TierZeroFloat32),
                         instructionBinding?.InstructionName ?? implementation?.Name ?? node.Operation.Name,
-                        parameters.Select(parameter => new VmArgument(parameter.Name, parameter.Name)),
-                        node.Attributes, executionConfiguration: configuration))],
-                    target == VmTarget.Direct3D12 ? new VmThreadGroup(threads, dispatch?.ThreadsY ?? 1, dispatch?.ThreadsZ ?? 1) : null);
+                        parameters.Select(parameter => new ExecutionPlanArgument(parameter.Name, parameter.Name)),
+                        node.Attributes, implementation: configuration?.Implementation.Value,
+                        cooperativeThreads: target == VmTarget.Direct3D12 && node.Operation.Name == "core.mat-vec"
+                            ? cooperative ? 64u : 1u : null))],
+                    target == VmTarget.Direct3D12 ? new ExecutionPlanGrid(threads, dispatch?.ThreadsY ?? 1, dispatch?.ThreadsZ ?? 1) : null);
                 definitions.Add(definition);
                 keys.Add(key, definition);
             }
             var arguments = node.Resources.Select(binding =>
-                new VmArgument(binding.Port, physical[binding.Resource], binding.View?.ByteOffset ?? 0)).ToArray();
-            VmInstruction instruction;
+                new ExecutionPlanArgument(binding.Port, physical[binding.Resource], binding.View?.ByteOffset ?? 0)).ToArray();
+            ExecutionPlanInstruction instruction;
             if (target == VmTarget.Cpu)
-                instruction = new VmCall(definition.Id, arguments);
+                instruction = new ExecutionPlanCall(definition.Id, arguments);
             else if (dispatch is not null)
-                instruction = new VmDispatch(definition.Id, arguments, new(dispatch.GroupsX, dispatch.GroupsY, dispatch.GroupsZ));
+                instruction = new ExecutionPlanDispatch(definition.Id, arguments, new(dispatch.GroupsX, dispatch.GroupsY, dispatch.GroupsZ));
             else
             {
-                var output = parameters.Single(parameter => parameter.Access == VmAccess.ReadWrite);
+                var output = parameters.Single(parameter => parameter.Access == GraphResourceAccess.ReadWrite);
                 if (cooperative)
                 {
-                    var groups = GpuMatVecExecution.Groups(output.Tensor.ElementCount);
-                    instruction = new VmDispatch(definition.Id, arguments, new(groups.X, groups.Y));
+                    var groups = GpuMatVecExecution.Groups(ElementCount(output.Tensor));
+                    instruction = new ExecutionPlanDispatch(definition.Id, arguments, new(groups.X, groups.Y));
                 }
                 else
                 {
-                    var groups = checked((uint)((output.Tensor.ElementCount + threads - 1) / threads));
+                    var groups = checked((uint)((ElementCount(output.Tensor) + threads - 1) / threads));
                     if (groups > 65535)
                         throw new NotSupportedException($"Node '{node.Id}' exceeds the configured one-dimensional GPU dispatch grid.");
-                    instruction = new VmDispatch(definition.Id, arguments, new(groups));
+                    instruction = new ExecutionPlanDispatch(definition.Id, arguments, new(groups));
                 }
             }
             var id = node.Id.Value;
-            sequence.Add(new VmNode(id, instruction, previous is null ? [] : [previous]));
+            sequence.Add(new ExecutionPlanNode(id, instruction, previous is null ? [] : [previous],
+                node.Source.LogicalNodes.Select(source => source.Value)));
+            nodeRegions.Add(id, node.Region);
             previous = id;
             if (target == VmTarget.Direct3D12)
             {
                 var writes = node.Resources.Where(binding => binding.Access != GraphResourceAccess.Read)
                     .Select(binding => physical[binding.Resource]).Distinct(StringComparer.Ordinal).ToArray();
                 var barrierId = $"{id}.barrier";
-                sequence.Add(new VmNode(barrierId, new VmBarrier(writes), [id]));
+                sequence.Add(new ExecutionPlanNode(barrierId, new ExecutionPlanBarrier(writes), [id]));
+                nodeRegions.Add(barrierId, node.Region);
                 previous = barrierId;
             }
         }
-        definitions.Add(new VmDefinition("forward", VmDefinitionKind.Orchestration, rootParameters, sequence));
-        var entries = new List<VmEntry>
+        var forwardNodes = il.Structure is { LayerDefinitions.Count: > 0 }
+            ? GroupRegions(execution.Regions, nodeRegions, sequence, rootParameters, definitions) : sequence;
+        definitions.Add(new ExecutionPlanDefinition("forward", ExecutionPlanDefinitionKind.Orchestration, rootParameters, forwardNodes));
+        var entries = new List<ExecutionPlanEntry>
         {
-            new("forward", "forward", slots.Select(slot => new VmArgument(slot.Id, slot.Id))),
+            new("forward", "forward", slots.Select(slot => new ExecutionPlanArgument(slot.Id, slot.Id))),
         };
-        if (logical.Model.Attributes.GetValueOrDefault("execution.token-prefill") == "true" &&
-            logical.Inputs.Count == 1 && descriptors[logical.Inputs[0]].Tensor.ElementType == GraphElementType.Int32 &&
-            descriptors[logical.Inputs[0]].Tensor.Dimensions.SequenceEqual([1]))
+        if (il.Model.Attributes.GetValueOrDefault("execution.token-prefill") == "true" &&
+            il.Inputs.Count == 1 && descriptors[il.Inputs[0]].Tensor.ElementType == GraphElementType.Int32 &&
+            descriptors[il.Inputs[0]].Tensor.Dimensions.SequenceEqual([1]))
         {
-            var tokenSlot = physical[logical.Inputs[0]];
+            var tokenSlot = physical[il.Inputs[0]];
             var index = slots.FindIndex(slot => slot.Id == tokenSlot);
-            slots[index] = slots[index] with { Tensor = new VmTensor(VmElementType.Int32, [options.PrefillCapacity]) };
+            slots[index] = slots[index] with { Tensor = new TensorDescriptor(GraphElementType.Int32, [options.PrefillCapacity]) };
             for (var count = 1; count <= options.PrefillCapacity; count *= 2)
             {
-                var prefillParameters = slots.Select(slot => new VmParameter(slot.Id, slot.Access,
-                    slot.Id == tokenSlot ? new VmTensor(VmElementType.Int32, [count]) : slot.Tensor)).ToArray();
+                var prefillParameters = slots.Select(slot => new ExecutionPlanParameter(slot.Id, slot.Access,
+                    slot.Id == tokenSlot ? new TensorDescriptor(GraphElementType.Int32, [count]) : slot.Tensor)).ToArray();
                 var child = count == 1 ? "forward" : $"prefill.{count / 2}";
-                var calls = Enumerable.Range(0, count == 1 ? 1 : 2).Select(position => new VmNode($"token.{position}",
-                    new VmCall(child, slots.Select(slot => new VmArgument(slot.Id, slot.Id,
+                var calls = Enumerable.Range(0, count == 1 ? 1 : 2).Select(position => new ExecutionPlanNode($"token.{position}",
+                    new ExecutionPlanCall(child, slots.Select(slot => new ExecutionPlanArgument(slot.Id, slot.Id,
                         slot.Id == tokenSlot ? checked((ulong)position * (ulong)(count / 2) * sizeof(int)) : 0))),
                     position == 0 ? [] : [$"token.{position - 1}"])).ToArray();
                 var id = $"prefill.{count}";
-                definitions.Add(new VmDefinition(id, VmDefinitionKind.Orchestration, prefillParameters, calls));
-                entries.Add(new VmEntry(id, id, slots.Select(slot => new VmArgument(slot.Id, slot.Id))));
+                definitions.Add(new ExecutionPlanDefinition(id, ExecutionPlanDefinitionKind.Orchestration, prefillParameters, calls));
+                entries.Add(new ExecutionPlanEntry(id, id, slots.Select(slot => new ExecutionPlanArgument(slot.Id, slot.Id))));
             }
         }
-        var program = new VmProgram(logical.Identity.Name, $"vm:{logical.Model.StateAbiId}", target,
-            slots, definitions, entries, new VmState(logical.GraphState.Schema.Name, 1,
-                logical.GraphState.Entries.Select(entry => new VmStateEntry(entry.Name, physical[entry.Resource]))));
-        return new(program, selection.Report, new(matVecCalls, cooperativeCalls,
+        var plan = new TargetExecutionPlan(il.Identity.Name, $"vm:{il.Model.StateAbiId}",
+            target == VmTarget.Cpu ? ExecutionPlanTarget.Cpu : ExecutionPlanTarget.Direct3D12,
+            slots, definitions, entries, il.GraphState.Schema.Name, 1,
+            il.GraphState.Entries.Select(entry => new ExecutionPlanStateEntry(entry.Name, physical[entry.Resource])),
+            TargetExecutionPlan.CreateBindings(il),
+            physical.Select(pair => new ExecutionPlanResourceBinding(pair.Key.Value, pair.Value,
+                descriptors[pair.Key].Tensor, IsView: aliases.ContainsKey(pair.Key))));
+        return new(plan, selection.Report, new(matVecCalls, cooperativeCalls,
             Array.AsReadOnly(matVecDiagnostics.Order(StringComparer.Ordinal).ToArray())));
     }
 
-    private static (IReadOnlyList<ExecutionNode> Nodes, Dictionary<ResourceId, ResourceId> Aliases) LowerWeightViews(
-        ExecutionGraph graph, Dictionary<ResourceId, GraphResource> resources, bool nativeHalf)
+    private static (IReadOnlyList<ExecutionNode> Nodes, Dictionary<ResourceId, ResourceId> Aliases) LowerViews(
+        IExecutionPlanningGraph graph, Dictionary<ResourceId, GraphResource> resources, bool nativeHalf, bool weightViews, bool tensorViews)
     {
         var aliases = new Dictionary<ResourceId, ResourceId>();
         var removed = new Dictionary<ExecutionNodeId, ExecutionNode>();
@@ -281,29 +307,30 @@ public static class VmGraphOptimizer
                 removed[item.Id] = item;
             }
         }
-        var immutable = graph.Resources.Where(resource => resource.Kind == GraphResourceKind.Weight)
-            .Select(resource => resource.Id).Concat(aliases.Keys).ToHashSet();
-        foreach (var cast in graph.Nodes.Where(node => node.Operation == PortableTensorOperationContracts.CastFp16ToFp32 &&
-            !removed.ContainsKey(node.Id)))
+        ResourceId Base(ResourceId id) => aliases.TryGetValue(id, out var baseId) ? baseId : id;
+        var positions = graph.Nodes.Select((node, index) => (node.Id, index)).ToDictionary(pair => pair.Id, pair => pair.index);
+        foreach (var node in graph.Nodes.Where(node => node.Operation == PortableTensorOperationContracts.Reshape &&
+                     !removed.ContainsKey(node.Id)))
         {
-            var input = cast.Resources.Single(binding => binding.Port == "input").Resource;
-            var output = cast.Resources.Single(binding => binding.Port == "output").Resource;
-            if (immutable.Contains(input) && ReadOnlyUses(output, cast.Id)) immutable.Add(output);
-        }
-        var views = new Queue<ResourceId>(immutable);
-        while (views.TryDequeue(out var input))
-        {
-            if (!consumers.TryGetValue(input, out var uses)) continue;
-            foreach (var (node, binding) in uses.Where(pair => pair.node.Operation == PortableTensorOperationContracts.Reshape &&
-                pair.binding.Port == "input" && !removed.ContainsKey(pair.node.Id)))
-            {
-                var output = node.Resources.Single(binding => binding.Port == "output").Resource;
-                if (ExternallyVisible(output) || !ReadOnlyUses(output, node.Id)) continue;
-                aliases[output] = aliases.TryGetValue(input, out var source) ? source : input;
-                resources[output] = View(resources[output], resources[input].Tensor.ElementType);
-                removed[node.Id] = node;
-                views.Enqueue(output);
-            }
+            var input = node.Resources.Single(binding => binding.Port == "input").Resource;
+            var output = node.Resources.Single(binding => binding.Port == "output").Resource;
+            var baseId = Base(input);
+            if (!(resources[baseId].Kind == GraphResourceKind.Weight ? weightViews : tensorViews) ||
+                ExternallyVisible(output) || !ReadOnlyUses(output, node.Id) ||
+                resources[input].Tensor.Layout != "dense" || resources[output].Tensor.Layout != "dense")
+                continue;
+            var uses = consumers[output].Where(pair => pair.node.Id != node.Id).ToArray();
+            if (uses.Length == 0 || uses.Any(pair => positions[pair.node.Id] <= positions[node.Id]))
+                continue;
+            var last = uses.Max(pair => positions[pair.node.Id]);
+            if (graph.Nodes.Skip(positions[node.Id] + 1).Take(last - positions[node.Id])
+                .Where(other => !removed.ContainsKey(other.Id))
+                .Any(other => other.Resources.Any(binding =>
+                    binding.Access != GraphResourceAccess.Read && Base(binding.Resource) == baseId)))
+                continue;
+            aliases[output] = baseId;
+            resources[output] = View(resources[output], resources[input].Tensor.ElementType);
+            removed[node.Id] = node;
         }
         if (removed.Count == 0) return (graph.Nodes, aliases);
         var nodes = graph.Nodes.Where(node => !removed.ContainsKey(node.Id)).Select(node => node with
@@ -333,21 +360,95 @@ public static class VmGraphOptimizer
         }
     }
 
-    private static VmSlotScope Scope(GraphResourceScope scope) => scope switch
-    {
-        GraphResourceScope.Global => VmSlotScope.Global,
-        GraphResourceScope.Session => VmSlotScope.Session,
-        GraphResourceScope.Local => VmSlotScope.Local,
-        _ => throw new InvalidDataException("Unknown graph resource scope."),
-    };
+    private static ulong ElementCount(TensorDescriptor tensor) =>
+        tensor.Dimensions.Aggregate(1UL, (count, size) => checked(count * (ulong)size));
 
-    private static VmTensor Tensor(TensorDescriptor tensor) => new(tensor.ElementType switch
+    private static List<ExecutionPlanNode> GroupRegions(IReadOnlyList<GraphRegion> regions,
+        IReadOnlyDictionary<string, RegionId> nodeRegions, IReadOnlyList<ExecutionPlanNode> nodes,
+        IReadOnlyList<ExecutionPlanParameter> rootParameters, List<ExecutionPlanDefinition> definitions)
     {
-        GraphElementType.Byte => VmElementType.Byte,
-        GraphElementType.Int32 => VmElementType.Int32,
-        GraphElementType.UInt32 => VmElementType.UInt32,
-        GraphElementType.Float16 => VmElementType.Float16,
-        GraphElementType.Float32 => VmElementType.Float32,
-        _ => throw new NotSupportedException($"Unsupported tensor type '{tensor.ElementType}'."),
-    }, tensor.Dimensions);
+        var byId = regions.ToDictionary(region => region.Id);
+        string Group(ExecutionPlanNode node)
+        {
+            var region = byId[nodeRegions[node.Id]];
+            var outer = region;
+            while (region.ParentId is { } parent)
+            {
+                if (region.Type == GraphRegionTypes.Layer) return region.Id.Value;
+                outer = region;
+                region = byId[parent];
+            }
+            return outer.Id.Value;
+        }
+        var result = new List<ExecutionPlanNode>();
+        var templates = new Dictionary<string, int>(StringComparer.Ordinal);
+        var rootByName = rootParameters.ToDictionary(parameter => parameter.Name, StringComparer.Ordinal);
+        var offset = 0;
+        while (offset < nodes.Count)
+        {
+            var group = Group(nodes[offset]);
+            var end = offset + 1;
+            while (end < nodes.Count && Group(nodes[end]) == group) end++;
+            var body = nodes.Skip(offset).Take(end - offset).ToArray();
+            var bodyIds = body.Select((node, index) => (node.Id, Name: $"step.{index:D4}"))
+                .ToDictionary(pair => pair.Id, pair => pair.Name, StringComparer.Ordinal);
+            var sources = body.SelectMany(node => node.Instruction switch
+            {
+                ExecutionPlanCall call => call.Arguments.Select(argument => argument.Source),
+                ExecutionPlanDispatch dispatch => dispatch.Arguments.Select(argument => argument.Source),
+                ExecutionPlanBarrier barrier => barrier.Resources,
+                _ => throw new InvalidDataException("Region grouping requires an already lowered target sequence."),
+            }).Distinct(StringComparer.Ordinal).ToArray();
+            var formals = sources.Select((source, index) => (source, Name: $"slot.{index:D4}"))
+                .ToDictionary(pair => pair.source, pair => pair.Name, StringComparer.Ordinal);
+            var parameters = sources.Select(source =>
+                rootByName[source] with { Name = formals[source] }).ToArray();
+            ExecutionPlanArgument Argument(ExecutionPlanArgument argument) =>
+                argument with { Source = formals[argument.Source] };
+            var normalized = body.Select(node => new ExecutionPlanNode(bodyIds[node.Id], node.Instruction switch
+            {
+                ExecutionPlanCall call => new ExecutionPlanCall(call.Definition, call.Arguments.Select(Argument)),
+                ExecutionPlanDispatch dispatch => new ExecutionPlanDispatch(dispatch.Definition,
+                    dispatch.Arguments.Select(Argument), dispatch.Groups),
+                ExecutionPlanBarrier barrier => new ExecutionPlanBarrier(barrier.Resources.Select(source => formals[source])),
+                _ => throw new InvalidDataException("Unexpected unlowered region instruction."),
+            }, node.Dependencies.Where(bodyIds.ContainsKey).Select(dependency => bodyIds[dependency]), node.Sources)).ToArray();
+            XElement Arguments(IEnumerable<ExecutionPlanArgument> arguments) => new("Arguments", arguments.Select(argument =>
+                new XElement("Argument", new XAttribute("parameter", argument.Parameter),
+                    new XAttribute("source", argument.Source), new XAttribute("offset", argument.ByteOffset))));
+            var key = new XElement("Region",
+                parameters.Select(parameter => new XElement("Parameter", new XAttribute("access", parameter.Access),
+                    new XAttribute("type", parameter.Tensor.ElementType),
+                    new XAttribute("shape", string.Join(",", parameter.Tensor.Dimensions)))),
+                normalized.Select(node => new XElement("Node",
+                    new XAttribute("dependencies", string.Join(",", node.Dependencies)), node.Instruction switch
+                    {
+                        ExecutionPlanCall call => new XElement("Call", new XAttribute("definition", call.Definition), Arguments(call.Arguments)),
+                        ExecutionPlanDispatch dispatch => new XElement("Dispatch", new XAttribute("definition", dispatch.Definition),
+                            new XAttribute("groups", $"{dispatch.Groups.X},{dispatch.Groups.Y},{dispatch.Groups.Z}"), Arguments(dispatch.Arguments)),
+                        ExecutionPlanBarrier barrier => new XElement("Barrier", new XAttribute("resources", string.Join(",", barrier.Resources))),
+                        _ => throw new InvalidDataException("Unexpected region instruction."),
+                    }))).ToString(SaveOptions.DisableFormatting);
+            string id;
+            if (templates.TryGetValue(key, out var template))
+            {
+                var existing = definitions[template];
+                id = existing.Id;
+                definitions[template] = new(existing.Id, existing.Kind, existing.Parameters,
+                    existing.Nodes.Select((node, index) => new ExecutionPlanNode(node.Id, node.Instruction,
+                        node.Dependencies, node.Sources.Concat(normalized[index].Sources).Distinct(StringComparer.Ordinal))));
+            }
+            else
+            {
+                id = $"region.{templates.Count:D4}";
+                templates.Add(key, definitions.Count);
+                definitions.Add(new(id, ExecutionPlanDefinitionKind.Orchestration, parameters, normalized));
+            }
+            result.Add(new($"region-call.{result.Count:D4}", new ExecutionPlanCall(id,
+                sources.Select(source => new ExecutionPlanArgument(formals[source], source))),
+                result.Count == 0 ? [] : [result[^1].Id], [group]));
+            offset = end;
+        }
+        return result;
+    }
 }

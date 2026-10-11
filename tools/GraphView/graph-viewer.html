@@ -12,6 +12,7 @@ header{padding:16px 20px;background:#151f30;border-bottom:1px solid #2b3b52}
 .languages{display:flex;gap:6px;flex-shrink:0}
 .languages button[aria-pressed=true]{background:#224f86;border-color:#7098e4}
 h1{font-size:18px;margin:0 0 12px;flex:1}h1 .offline{font-size:12px;font-weight:400;color:#a2b3ca;margin-left:12px}
+#graph-kind{font-size:12px;font-weight:400;margin-left:10px;background:#224f86}#graph-kind[hidden]{display:none}
 .tools{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 button,.file,select,input[type=search]{font:inherit;font-size:13px;border:1px solid #435571;border-radius:6px;background:#233149;color:#e5edf8;padding:7px 10px}
 button,.file{cursor:pointer}button:hover,.file:hover{background:#324868}button:disabled{opacity:.4;cursor:default}
@@ -43,6 +44,7 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;color:#bccce0}
 .edge.active{stroke:#ffcd70;stroke-width:2.4;vector-effect:non-scaling-stroke;marker-end:url(#arrow-active)}
 .node{cursor:grab;outline:none}.node.dragging{cursor:grabbing}.node rect{stroke:#56728e;stroke-width:1.2;fill:#22364f}
 .node.call rect,.node.region rect{fill:#23385d;stroke:#7098e4}.node.external rect{fill:#233e39;stroke:#62a48f}
+.node.kernel rect{fill:#40315b;stroke:#be91e5}.node.barrier rect{fill:#493b25;stroke:#d3b071}
 .node text{fill:#e5edf8;font-size:14px;pointer-events:none}.node .subtitle{fill:#abc0d9;font-size:12px}
 .node.match rect{stroke:#e0aaff;stroke-width:2.4}.node.selected rect{stroke:#ffcd70;stroke-width:3}
 .node:not(.selected):hover rect,.node:not(.selected):focus rect{stroke:#fff}
@@ -59,7 +61,7 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;color:#bccce0}
 <body>
 <header>
   <div class="heading">
-    <h1><span data-i18n="title">SharpInference XML 图查看器</span><span class="offline" data-i18n="offline">单文件 · 离线 · 无依赖</span></h1>
+    <h1><span data-i18n="title">SharpInference XML 图查看器</span><span id="graph-kind" class="badge" hidden aria-live="polite"></span><span class="offline" data-i18n="offline">单文件 · 离线 · 无依赖</span></h1>
     <nav class="languages" data-i18n-aria-label="languages" aria-label="界面语言">
       <button type="button" data-language="zh" lang="zh-CN" aria-pressed="true">中文</button>
       <button type="button" data-language="en" lang="en" aria-pressed="false">English</button>
@@ -142,7 +144,7 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;color:#bccce0}
     "readableTitle": ["可读视图（F）：恢复 100% 比例；选中节点时以它为中心", "Readable view (F): restore 100% zoom and center the selection"],
     "zoomOut": ["缩小", "Zoom out"],
     "zoomIn": ["放大", "Zoom in"],
-    "chooseFile": ["请选择 SharpInference Graph XML，例如 artifacts 中的 rwkv7-tiny.region-architecture.xml。", "Choose a SharpInference Graph XML file, for example rwkv7-tiny.region-architecture.xml in artifacts."],
+    "chooseFile": ["请选择 SharpInference Graph 或 ExecutionPlan XML。", "Choose a SharpInference Graph or ExecutionPlan XML file."],
     "canvas": ["节点关系图", "Node graph"],
     "emptyTitle": ["把模型结构变成可探索的节点图", "Explore your model as a node graph"],
     "emptyHelp": ["点击“打开 XML 文件”，也可将文件拖放到这里。", "Click “Open XML file” or drop a file here."],
@@ -161,13 +163,32 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;color:#bccce0}
     "helpOrder": ["连线按 XML 执行顺序连接资源的最近写入者与读取者。ReadWrite 同时读写，不绘制节点自身的回边。层定义显示模板端口，不代表已展开的全部实例。", "Edges connect resource readers to their latest writers in XML execution order. ReadWrite accesses read and write; ordinary self-edges are omitted. Layer definitions show template ports rather than all expanded instances."],
     "invalidId": ["{0} 的 id 为空或重复：{1}", "{0} has an empty or duplicate id: {1}"],
     "xmlError": ["XML 格式错误：{0}", "Invalid XML: {0}"],
-    "invalidRoot": ["不支持的 XML：根元素必须为 Graph。", "Unsupported XML: the root element must be Graph."],
+    "invalidRoot": ["不支持的 XML：根元素必须为 Graph 或 ExecutionPlan。", "Unsupported XML: the root element must be Graph or ExecutionPlan."],
+    "invalidPlan": ["执行计划无效或不支持：{0}", "Invalid or unsupported execution plan: {0}"],
+    "planInfo": ["执行计划", "Execution plan"],
+    "planNotice": ["这是设计用执行计划；查看器展示计划，不编译或运行 VM。双击函数或 Kernel 查看内部步骤。", "This is a design execution plan. The viewer does not compile or execute a VM. Double-click a function or Kernel to inspect its steps."],
+    "targetPlanNotice": ["这是可供编译器装配的执行计划；查看器不编译或运行 VM。双击调用查看其定义。", "This execution plan can be assembled by the compiler. The viewer does not compile or run a VM. Double-click calls to inspect their definitions."],
+    "planStage": ["{0} 执行计划", "{0} execution plan"],
+    "logicalGraph": ["逻辑图", "Logical graph"],
+    "executionGraph": ["执行图", "Execution graph"],
+    "targetGraph": ["执行图 · {0}", "Execution graph · {0}"],
+    "unspecifiedGraph": ["图（未声明类型）", "Graph (type unspecified)"],
+    "unitLabel": ["{0} · {1} 步骤", "{0} · {1} steps"],
+    "inspectUnit": ["查看 {0} 内部步骤 →", "Inspect {0} steps →"],
+    "resourcePlan": ["资源规划（不分配实际内存）", "Resource plan (no actual allocation)"],
+    "resourceBudget": ["{0} 个资源 → {1} 个槽 · {2} 字节 payload", "{0} resources → {1} slots · {2} payload bytes"],
+    "plannedSlot": ["规划槽", "Planned slot"],
+    "staticViews": ["静态只读视图（共享底层存储，无执行指令）", "Static read-only views (shared storage, no instruction)"],
+    "planDefaults": ["计划默认契约", "Plan defaults"],
+    "partitions": ["跨 host 分片示例（接口清单）", "Cross-host partition example (interface manifest)"],
+    "partitionState": ["{0} · {1} 个状态", "{0} · {1} state resources"],
+    "barrierLabel": ["同步屏障 · {0} 个资源", "Barrier · {0} resources"],
     "missingStructure": ["Graph 缺少 Region 或 Nodes，无法绘制节点。", "Graph requires Region or Nodes to draw its structure."],
     "legacyArchitecture": ["旧的独立 Architecture 格式已移除，请使用嵌套 Region 示例。", "The legacy standalone Architecture format is no longer supported. Use the nested Region example."],
     "loading": ["正在读取 {0}…", "Reading {0}…"],
     "mainOperators": ["主图 · 全部算子/调用", "Main graph · All operations/calls"],
     "openFailed": ["打开失败：{0}", "Open failed: {0}"],
-    "fileFailed": ["文件未打开，请选择有效的 Graph XML。", "No file opened. Choose a valid Graph XML file."],
+    "fileFailed": ["文件未打开，请选择有效的 Graph 或 ExecutionPlan XML。", "No file opened. Choose a valid Graph or ExecutionPlan XML file."],
     "portCollision": ["端口和资源 id 重复：{0}/{1}", "Port and resource id collision: {0}/{1}"],
     "elementId": ["元素 id 为空或重复：{0}/{1}", "Empty or duplicate element id: {0}/{1}"],
     "regionDepth": ["Region 嵌套超过 64 层：{0}", "Region nesting exceeds 64 levels: {0}"],
@@ -270,6 +291,7 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;color:#bccce0}
         element.setAttribute(name, t(element.getAttribute(`data-i18n-${name}`)));
     for (const button of document.querySelectorAll("[data-language]"))
       button.setAttribute("aria-pressed", String(button.dataset.language === language));
+    updateGraphType();
   }
   function setLanguage(next) {
     if (next === language) return;
@@ -314,6 +336,17 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;color:#bccce0}
     $("status").textContent = format(message);
     $("status").classList.toggle("error", error);
   }
+  function graphType() {
+    if (state.plan) return t("targetGraph", state.plan.kind.toUpperCase());
+    const kind = attr(state.root, "kind");
+    if (kind === "LogicalGraph") return t("logicalGraph");
+    if (kind === "ExecutionGraph") return t("executionGraph");
+    return t("unspecifiedGraph");
+  }
+  function updateGraphType() {
+    $("graph-kind").hidden = !state.root;
+    $("graph-kind").textContent = state.root ? graphType() : "";
+  }
   function namedMap(container, tag) {
     const result = new Map();
     if (!container) return result;
@@ -329,13 +362,342 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;color:#bccce0}
     const error = documentXml.querySelector("parsererror");
     if (error) throw new ViewerError("xmlError", error.textContent.trim().slice(0, 220));
     const root = documentXml.documentElement;
+    if (root.localName === "ExecutionPlan") return parseExecutionPlan(root);
     if (root.localName !== "Graph") throw new ViewerError("invalidRoot");
     if (!child(root, "Region") && !child(root, "Nodes"))
       throw new ViewerError("missingStructure");
     if (child(root, "Architecture"))
       throw new ViewerError("legacyArchitecture");
     return { root, definitions: namedMap(child(root, "LayerDefinitions"), "LayerDefinition"),
-      resources: namedMap(child(root, "Resources"), "Resource") };
+      resources: namedMap(child(root, "Resources"), "Resource"), plan: null };
+  }
+  function parseExecutionPlan(planRoot) {
+    if (attr(planRoot, "schema") === "sharp-inference") return parseTargetExecutionPlan(planRoot);
+    const fail = detail => { throw new ViewerError("invalidPlan", detail); };
+    const kind = attr(planRoot, "kind");
+    if (attr(planRoot, "schema") !== "rwkv7-experiment" || attr(planRoot, "version") !== "1" ||
+        !["il", "cpu", "gpu"].includes(kind)) fail("schema / version / kind");
+    if (attr(child(planRoot, "Defaults"), "order") !== "document-sequential") fail("order");
+    const definitions = namedMap(child(planRoot, "Definitions"), "Definition");
+    const entries = children(child(planRoot, "EntryPoints"), "Entry");
+    if (!entries.length || entries.some(entry => !attr(entry, "name") || !child(entry, "Region")) ||
+        new Set(entries.map(entry => attr(entry, "name"))).size !== entries.length) fail("EntryPoints");
+    const documentXml = document.implementation.createDocument("", "Graph");
+    const root = documentXml.documentElement;
+    root.setAttribute("kind", `${kind.toUpperCase()} ExecutionPlan`);
+    const copy = element => documentXml.importNode(element, true);
+    const create = (name, attributes = {}) => {
+      const element = documentXml.createElement(name);
+      for (const [key, value] of Object.entries(attributes)) element.setAttribute(key, value);
+      return element;
+    };
+    for (const name of ["Identity", "Model", "Resources", "Inputs", "Outputs", "GraphState"]) {
+      const element = child(planRoot, name);
+      if (!element) fail(name);
+      root.append(copy(element));
+    }
+    function parseTargetExecutionPlan(planRoot) {
+      const fail = detail => { throw new ViewerError("invalidPlan", detail); };
+      const kind = attr(planRoot, "kind");
+      if (attr(planRoot, "version") !== "1" || !["il", "cpu", "gpu"].includes(kind)) fail("schema / version / kind");
+      if (kind === "il") {
+        const graph = child(planRoot, "Graph");
+        if (!graph) fail("IL Graph");
+        const parsed = parseXml(new XMLSerializer().serializeToString(graph));
+        parsed.plan = { root: planRoot, kind, originals: new WeakMap(), owners: new Map(), unitPlans: new Map() };
+        return parsed;
+      }
+      const documentXml = document.implementation.createDocument("", "Graph");
+      const root = documentXml.documentElement;
+      root.setAttribute("kind", `${kind.toUpperCase()} ExecutionPlan`);
+      const create = (name, attributes = {}) => {
+        const element = documentXml.createElement(name);
+        for (const [key, value] of Object.entries(attributes)) element.setAttribute(key, value);
+        return element;
+      };
+      const copy = element => documentXml.importNode(element, true);
+      const metadata = child(child(planRoot, "Bindings"), "Graph");
+      for (const name of ["Identity", "Model", "Inputs", "Outputs"]) {
+        const element = child(metadata, name);
+        if (element) root.append(copy(element));
+      }
+      if (!child(root, "Identity")) root.append(create("Identity", { name: attr(planRoot, "name") }));
+      const slots = namedMap(child(planRoot, "Slots"), "Slot");
+      const metadataResources = namedMap(child(metadata, "Resources"), "Resource");
+      const resources = create("Resources"); root.append(resources);
+      for (const [id, slot] of slots) {
+        const source = metadataResources.get(id);
+        const kind = attr(source, "kind") || (attr(slot, "scope") === "Global" ? attr(slot, "bindingKey") ? "Weight" : "Constant"
+          : attr(slot, "scope") === "Session" ? "SessionState" : "Temporary");
+        resources.append(create("Resource", { id, kind, scope: attr(slot, "scope"),
+          elementType: attr(slot, "elementType"), shape: attr(slot, "shape") }));
+      }
+      const definitions = namedMap(child(planRoot, "Definitions"), "Definition");
+      const entries = children(child(planRoot, "EntryPoints"), "Entry");
+      if (!entries.length) fail("EntryPoints");
+      const parameterKinds = new Map(Array.from(definitions, ([id]) => [id, new Map()]));
+      const resourceKinds = new Map(Array.from(resources.children, resource => [attr(resource, "id"), attr(resource, "kind")]));
+      function addKinds(definition, parameter, kinds) {
+        const ports = parameterKinds.get(definition);
+        if (!ports) fail(`definition ${definition}`);
+        if (!ports.has(parameter)) ports.set(parameter, new Set());
+        const known = ports.get(parameter), before = known.size;
+        for (const kind of kinds) if (kind) known.add(kind);
+        return before !== known.size;
+      }
+      for (const entry of entries)
+        for (const argument of children(child(entry, "Arguments"), "Argument"))
+          addKinds(attr(entry, "definition"), attr(argument, "parameter"), [resourceKinds.get(attr(argument, "source"))]);
+      for (let pass = 0; pass < definitions.size; pass++) {
+        let changed = false;
+        for (const [id, definition] of definitions)
+          for (const node of children(child(definition, "Body"), "Node"))
+            for (const instruction of Array.from(node.children).filter(element => ["Call", "Dispatch"].includes(element.localName)))
+              for (const argument of children(child(instruction, "Arguments"), "Argument"))
+                changed = addKinds(attr(instruction, "definition"), attr(argument, "parameter"),
+                  parameterKinds.get(id).get(attr(argument, "source")) || []) || changed;
+        if (!changed) break;
+      }
+      const originals = new WeakMap(), owners = new Map(), unitPlans = new Map();
+      const table = create("LayerDefinitions"); root.append(table);
+      const argumentsOf = (source, targetParameters) => {
+        const result = create("Bindings");
+        for (const argument of children(child(source, "Arguments"), "Argument")) {
+          const port = attr(argument, "parameter"), parameter = targetParameters.get(port);
+          if (!parameter) fail(`parameter ${port}`);
+          result.append(create("Binding", { port, resource: attr(argument, "source"),
+            access: attr(parameter, "access"), byteOffset: attr(argument, "byteOffset") || "0" }));
+        }
+        return result;
+      };
+      for (const [id, definition] of definitions) {
+        const normalized = create("LayerDefinition", { id });
+        const ports = create("Ports"); normalized.append(ports);
+        const parameters = new Map();
+        for (const parameter of children(child(definition, "Parameters"), "Parameter")) {
+          const name = attr(parameter, "name");
+          if (!name || parameters.has(name)) fail(`parameter ${id}/${name}`);
+          parameters.set(name, parameter);
+          const kinds = parameterKinds.get(id).get(name) || new Set();
+          const resourceKind = kinds.size === 1 ? Array.from(kinds)[0]
+            : kinds.size && Array.from(kinds).every(kind => ["Weight", "Constant"].includes(kind)) ? "Weight" : "Port";
+          ports.append(create("Port", { id: name, access: attr(parameter, "access"),
+            elementType: attr(parameter, "elementType"), shape: attr(parameter, "shape"),
+            resourceKind }));
+        }
+        const nodeIds = new Set(children(child(definition, "Body"), "Node").map(node => attr(node, "id")));
+        let bodyId = "@body";
+        while (nodeIds.has(bodyId)) bodyId += ":";
+        const body = create("Region", { id: bodyId, type: attr(definition, "kind").toLowerCase(), name: id });
+        for (const sourceNode of children(child(definition, "Body"), "Node")) {
+          const instruction = Array.from(sourceNode.children).find(element =>
+            ["Operation", "Call", "Dispatch", "Barrier"].includes(element.localName));
+          if (!instruction) fail(`instruction ${id}/${attr(sourceNode, "id")}`);
+          let node;
+          if (instruction.localName === "Operation") {
+            node = create("Node", { id: attr(sourceNode, "id"), operation: attr(instruction, "name") });
+            node.append(argumentsOf(instruction, new Map(children(child(instruction, "Accesses"), "Access").map(access =>
+              [attr(access, "port"), create("Parameter", { access: attr(access, "value") })]))));
+            const attributes = child(instruction, "Attributes");
+            if (attributes) node.append(copy(attributes));
+          } else if (instruction.localName === "Barrier") {
+            node = create("Node", { id: attr(sourceNode, "id"), operation: "Barrier",
+              resources: children(instruction, "ResourceRef").map(resource => attr(resource, "id")).join(" ") });
+          } else {
+            const target = definitions.get(attr(instruction, "definition"));
+            if (!target) fail(`definition ${attr(instruction, "definition")}`);
+            node = create("Call", { id: attr(sourceNode, "id"), definition: attr(target, "id") });
+            if (["Kernel", "Function"].includes(attr(target, "kind"))) {
+              node.setAttribute("unitKind", attr(target, "kind"));
+              node.setAttribute("steps", String(children(child(target, "Body"), "Node").length));
+            }
+            node.append(argumentsOf(instruction, new Map(children(child(target, "Parameters"), "Parameter").map(parameter =>
+              [attr(parameter, "name"), parameter]))));
+          }
+          const depends = create("DependsOn");
+          for (const reference of children(child(sourceNode, "DependsOn"), "NodeRef"))
+            depends.append(create("ElementRef", { id: attr(reference, "id") }));
+          node.append(depends); originals.set(node, sourceNode); body.append(node);
+        }
+        normalized.append(body); owners.set(id, definition); table.append(normalized);
+      }
+      function entryRegion(entry) {
+        const target = definitions.get(attr(entry, "definition"));
+        if (!target) fail(`entry ${attr(entry, "name")}`);
+        const region = create("Region", { id: "entry", type: "graph", name: attr(entry, "name") });
+        const call = create("Call", { id: "invoke", definition: attr(target, "id") });
+        call.append(argumentsOf(entry, new Map(children(child(target, "Parameters"), "Parameter").map(parameter =>
+          [attr(parameter, "name"), parameter]))));
+        originals.set(call, entry); region.append(call);
+        return region;
+      }
+      root.append(entryRegion(entries[0])); owners.set("root", entries[0]);
+      for (const entry of entries.slice(1)) {
+        const id = `@entry:${encodeURIComponent(attr(entry, "name"))}`;
+        if (definitions.has(id)) fail(`entry ${id}`);
+        const scope = create("LayerDefinition", { id }), ports = create("Ports");
+        for (const resource of resources.children) {
+          const port = create("Port", Object.fromEntries(Array.from(resource.attributes).map(a => [a.name, a.value])));
+          port.setAttribute("access", ["Weight", "Constant", "Input"].includes(attr(resource, "kind")) ? "Read" : "ReadWrite");
+          ports.append(port);
+        }
+        scope.append(ports, entryRegion(entry)); table.append(scope); owners.set(id, entry);
+      }
+      return { root, definitions: namedMap(table, "LayerDefinition"), resources: namedMap(resources, "Resource"),
+        plan: { root: planRoot, kind, originals, owners, unitPlans } };
+    }
+    const table = create("LayerDefinitions"); root.append(table);
+    const originals = new WeakMap(), owners = new Map([["root", entries[0]]]), unitPlans = new Map();
+    const scopeIds = new Set(["root"]);
+    const serial = kind !== "il";
+    function region(source, unitIds = new Map()) {
+      const result = create("Region", Object.fromEntries(Array.from(source.attributes).map(a => [a.name, a.value])));
+      originals.set(result, source);
+      let previous = "", barrierIndex = 0;
+      for (const element of source.children) {
+        let item;
+        if (element.localName === "Unit") continue;
+        if (element.localName === "Region") item = region(element, unitIds);
+        else if (["Node", "Call", "Attributes", "Architecture", "DependsOn"].includes(element.localName)) item = copy(element);
+        else if (element.localName === "Invoke") {
+          const unit = unitIds.get(attr(element, "unit"));
+          if (!unit) fail(`Invoke ${attr(element, "unit")}`);
+          if (unit.invoked) fail(`duplicate Invoke ${attr(element, "unit")}`);
+          unit.invoked = true;
+          item = create("Call", {
+            id: attr(unit.source, "id"), definition: unit.id,
+            unitKind: attr(unit.source, "kind"), steps: String(children(child(unit.source, "Body"), "Operation").length)
+          });
+          for (const name of ["threads", "groups", "indexing", "implementation"])
+            if (attr(unit.source, name)) item.setAttribute(name, attr(unit.source, name));
+          const bindings = create("Bindings");
+          for (const parameter of children(child(unit.source, "Parameters"), "Parameter"))
+            bindings.append(create("Binding", {
+              port: attr(parameter, "resource"), resource: attr(parameter, "resource"), access: attr(parameter, "access")
+            }));
+          item.append(bindings); originals.set(item, unit.source);
+        } else if (element.localName === "Barrier") {
+          const resourceIds = attr(element, "resources").trim().split(/\s+/).filter(Boolean);
+          if (kind !== "gpu" || attr(element, "kind") !== "uav" || !resourceIds.length ||
+              new Set(resourceIds).size !== resourceIds.length) fail("Barrier");
+          item = create("Node", {
+            id: `@barrier:${attr(source, "id")}:${barrierIndex++}`, operation: "Barrier",
+            barrierKind: attr(element, "kind"), resources: attr(element, "resources")
+          });
+          originals.set(item, element);
+        } else fail(`Region / ${element.localName}`);
+        if (["Region", "Node", "Call"].includes(item.localName)) {
+          if (serial && previous) {
+            let depends = child(item, "DependsOn");
+            if (!depends) { depends = create("DependsOn"); item.append(depends); }
+            if (!children(depends, "ElementRef").some(ref => attr(ref, "id") === previous))
+              depends.append(create("ElementRef", { id: previous }));
+          }
+          previous = attr(item, "id");
+          if (!originals.has(item)) originals.set(item, element);
+        }
+        result.append(item);
+      }
+      return result;
+    }
+    for (const [id, definition] of definitions) {
+      if (scopeIds.has(id)) fail(`definition ${id}`);
+      scopeIds.add(id);
+      const normalized = create("LayerDefinition", { id });
+      owners.set(id, definition);
+      for (const name of ["Ports", "LocalResources"]) {
+        if (!child(definition, name)) fail(`${id} / ${name}`);
+        normalized.append(copy(child(definition, name)));
+      }
+      const resources = new Map([...namedMap(child(definition, "Ports"), "Port"),
+        ...namedMap(child(definition, "LocalResources"), "Resource")]);
+      for (const resource of resources.values()) {
+        const baseId = attr(resource, "viewOf");
+        if (!baseId) continue;
+        const base = resources.get(baseId);
+        if (!base || base === resource || attr(base, "viewOf") ||
+            attr(resource, "access") !== "Read" || attr(resource, "binding") !== "frame-static" ||
+            attr(resource, "byteOffset") !== "0") fail(`static view ${id}/${attr(resource, "id")}`);
+      }
+      const units = new Map();
+      for (const unit of definition.getElementsByTagName("Unit")) {
+        const unitId = attr(unit, "id"), key = `@unit:${encodeURIComponent(id)}:${encodeURIComponent(unitId)}`;
+        if (!unitId || units.has(unitId) || scopeIds.has(key)) fail(`unit ${id}/${unitId}`);
+        const expected = kind === "gpu" ? "Kernel" : "Function";
+        if (kind === "il" || attr(unit, "kind") !== expected) fail(`unit kind ${id}/${unitId}`);
+        scopeIds.add(key); units.set(unitId, { id: key, source: unit, invoked: false });
+        const unitDefinition = create("LayerDefinition", { id: key });
+        owners.set(key, unit);
+        unitPlans.set(key, child(definition, "ResourcePlan"));
+        const ports = create("Ports"); unitDefinition.append(ports);
+        const parameters = new Map();
+        for (const parameter of children(child(unit, "Parameters"), "Parameter")) {
+          const resourceId = attr(parameter, "resource");
+          if (!resourceId || parameters.has(resourceId)) fail(`duplicate unit parameter ${id}/${resourceId}`);
+          parameters.set(resourceId, parameter);
+        }
+        for (const [resourceId, parameter] of parameters) {
+          const resource = resources.get(resourceId);
+          if (!resource) fail(`unit resource ${id}/${resourceId}`);
+          const port = create("Port", { id: resourceId, access: attr(parameter, "access") });
+          for (const name of ["elementType", "shape", "layout"])
+            if (attr(resource, name)) port.setAttribute(name, attr(resource, name));
+          const tensor = child(resource, "Tensor");
+          if (tensor) port.append(copy(tensor));
+          const storage = resources.get(attr(resource, "viewOf")) || resource;
+          const resourceKind = attr(storage, "kind") || attr(storage, "resourceKind");
+          if (resourceKind) port.setAttribute("resourceKind", resourceKind);
+          ports.append(port);
+        }
+        const body = create("Region", { id: "body", type: expected.toLowerCase(), name: `${id} / ${unitId}` });
+        let previous = "";
+        const operations = children(child(unit, "Body"), "Operation");
+        if (!operations.length) fail(`empty unit ${id}/${unitId}`);
+        for (const operation of operations) {
+          const node = create("Node", Object.fromEntries(Array.from(operation.attributes).map(a => [a.name, a.value])));
+          for (const element of operation.children) node.append(copy(element));
+          if (previous) {
+            const depends = create("DependsOn"); depends.append(create("ElementRef", { id: previous })); node.append(depends);
+          }
+          previous = attr(node, "id"); originals.set(node, operation); body.append(node);
+        }
+        unitDefinition.append(body); table.append(unitDefinition);
+      }
+      if (!child(definition, "Region")) fail(`definition body ${id}`);
+      normalized.append(region(child(definition, "Region"), units));
+      for (const barrier of normalized.getElementsByTagName("Node"))
+        if (attr(barrier, "operation") === "Barrier")
+          for (const resource of attr(barrier, "resources").split(/\s+/))
+            if (!resources.has(resource)) fail(`barrier resource ${id}/${resource}`);
+      if (Array.from(units.values()).some(unit => !unit.invoked)) fail(`uninvoked unit ${id}`);
+      table.append(normalized);
+    }
+    root.append(region(child(entries[0], "Region")));
+    for (const [index, entry] of entries.entries()) {
+      if (index === 0) continue;
+      const id = `@entry:${encodeURIComponent(attr(entry, "name"))}`;
+      if (!attr(entry, "name") || scopeIds.has(id)) fail(`entry ${attr(entry, "name")}`);
+      scopeIds.add(id); owners.set(id, entry);
+      const scope = create("LayerDefinition", { id });
+      const ports = create("Ports");
+      for (const resource of children(child(planRoot, "Resources"), "Resource")) {
+        const port = create("Port", { id: attr(resource, "id"),
+          access: ["Input", "Weight", "Constant"].includes(attr(resource, "kind")) ? "Read" : "ReadWrite" });
+        for (const name of ["elementType", "shape", "scope", "kind"]) if (attr(resource, name)) port.setAttribute(name, attr(resource, name));
+        ports.append(port);
+      }
+      const body = region(child(entry, "Region"));
+      const metadata = create("Architecture", { defaultView: "architecture" });
+      if (attr(entry, "step") === "one-token") metadata.setAttribute("step", "token");
+      body.prepend(metadata);
+      scope.append(ports, body); table.append(scope);
+    }
+    const metadata = create("Architecture", { defaultView: "architecture" });
+    if (attr(entries[0], "step") === "one-token") metadata.setAttribute("step", "token");
+    child(root, "Region").prepend(metadata);
+    return { root, definitions: namedMap(table, "LayerDefinition"),
+      resources: namedMap(child(root, "Resources"), "Resource"),
+      plan: { root: planRoot, kind, originals, owners, unitPlans } };
   }
   async function openFile(file) {
     if (!file) return;
@@ -345,6 +707,7 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;color:#bccce0}
       const parsed = parseXml(await file.text());
       if (loadId !== state.loadId) return;
       Object.assign(state, parsed);
+      updateGraphType();
       state.rootResources = parsed.resources;
       state.filename = file.name;
       state.positions.clear();
@@ -364,7 +727,8 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;color:#bccce0}
       state.history = [captureView()]; state.historyIndex = 0; updateNavigation();
     } catch (error) {
       if (loadId === state.loadId) {
-        state.root = null;
+        state.root = null; state.plan = null;
+        updateGraphType();
         state.nodes = []; state.edges = [];
         state.selected = null; state.selectedEdge = null;
         state.history = []; state.historyIndex = -1; updateNavigation();
@@ -570,8 +934,13 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;color:#bccce0}
     const resources = context.resources, visible = [], owners = new Map();
     const primitive = item => {
       const target = item.definition && state.contexts.get(item.definition);
-      const node = { ...item, key: `node:${item.id}`, label: item.definition || attr(item.element, "operation"),
-        displayName: target?.architecture ? `${attr(target.regions[0].region, "name")}${item.id.startsWith("layer.") ? ` ${item.id.slice(6)}` : ""}` : "",
+      const unitKind = attr(item.element, "unitKind"), barrier = attr(item.element, "operation") === "Barrier";
+      const node = { ...item, key: `node:${item.id}`,
+        label: unitKind ? t("unitLabel", unitKind, attr(item.element, "steps")) : barrier
+          ? t("barrierLabel", attr(item.element, "resources").split(/\s+/).filter(Boolean).length)
+          : item.definition || attr(item.element, "operation"),
+        displayName: unitKind ? `${item.id} · ${unitKind}` : target?.architecture ? `${attr(target.regions[0].region, "name")}${item.id.startsWith("layer.") ? ` ${item.id.slice(6)}` : ""}` : "",
+        unitKind, kernel: unitKind === "Kernel", barrier,
         drillTarget: target?.architectureKey || item.definition, external: false };
       if (target?.architectureKey) node.operatorTarget = item.definition;
       visible.push(node); owners.set(item, node);
@@ -598,7 +967,8 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;color:#bccce0}
       for (const item of view.region.children) if (["Region", "Node", "Call"].includes(item.localName)) show(item);
     } else for (const item of selectedNodes) primitive(item);
     const inputs = new Map(), outputs = new Map(), edges = [], edgeMap = new Map();
-    const kindOf = resource => attr(resources.get(resource), "kind") || attr(resources.get(resource), "resourceKind") || "Port";
+    const backingOf = resource => attr(resources.get(resource), "viewOf") || resource;
+    const kindOf = resource => attr(resources.get(backingOf(resource)), "kind") || attr(resources.get(backingOf(resource)), "resourceKind") || "Port";
     const portName = (resource, direction) => {
       const port = children(child(view?.metadata, "Ports"), "Port").find(item =>
         attr(item, "resource") === resource && attr(item, "direction") === direction);
@@ -646,7 +1016,7 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;color:#bccce0}
     for (const item of context.nodes) {
       for (const binding of item.bindings) {
         if (readsBeforeWrite(item, binding)) {
-          const writer = writers.get(binding.resource);
+          const writer = writers.get(backingOf(binding.resource));
           if (!writer && !firstReaders.has(binding.resource)) firstReaders.set(binding.resource, item);
           if (selected.has(item)) connect(owners.get(writer) || boundary(binding.resource, "in"), owners.get(item),
             { ...binding, sourceNode: writer?.id || "", targetNode: item.id });
@@ -655,7 +1025,7 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;color:#bccce0}
         }
       }
       for (const binding of item.bindings) if (binding.access !== "Read") {
-        writers.set(binding.resource, item); lastWriters.set(binding.resource, item);
+        writers.set(backingOf(binding.resource), item); lastWriters.set(binding.resource, item);
       }
     }
     function executionDependency(fromElement, toElement, id) {
@@ -734,8 +1104,8 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;color:#bccce0}
     const levels = new Map();
     for (const node of all) {
       const level = levels.get(node.rank) || [];
-      node.x = level.length ? level[level.length - 1].x + level[level.length - 1].width + 40 : 30;
-      node.y = node.rank * 152 + 30;
+      node.x = level.length ? level[level.length - 1].x + level[level.length - 1].width + 96 : 30;
+      node.y = node.rank * 240 + 30;
       level.push(node); levels.set(node.rank, level);
     }
     return { nodes: all, edges, resources, scope, architectureView,
@@ -935,7 +1305,7 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;color:#bccce0}
       }
       for (const node of state.nodes) {
         const group = svgElement("g", { transform: `translate(${node.x},${node.y})`,
-          class: `node${node.external ? " external" : node.region ? " region" : node.definition ? " call" : ""}`,
+          class: `node${node.external ? " external" : node.region ? " region" : node.definition ? " call" : ""}${node.kernel ? " kernel" : ""}${node.barrier ? " barrier" : ""}`,
           tabindex: "0", role: "button", "aria-label": `${node.id}: ${node.label}` });
         group.append(svgElement("rect", { width: node.width, height: node.height, rx: 9 }));
         const name = svgElement("text", { x: 12, y: 41 });
@@ -975,7 +1345,7 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;color:#bccce0}
       for (const id of ["fit", "layout", "readable", "plus", "minus"]) $(id).disabled = !state.nodes.length;
       updateSearch(false); readable(false); overview();
       const identity = child(state.root, "Identity");
-      status(message("graphStatus", state.filename, identity ? attr(identity, "name") : "Graph", $("scope").selectedOptions[0].textContent, state.nodes.filter(n => !n.external).length, state.architectureView ? t("modules") : t("executionNodes"), state.nodes.filter(n => n.external).length, state.edges.length));
+      status(message("graphStatus", `${state.filename} · ${graphType()}`, identity ? attr(identity, "name") : "Graph", $("scope").selectedOptions[0].textContent, state.nodes.filter(n => !n.external).length, state.architectureView ? t("modules") : t("executionNodes"), state.nodes.filter(n => n.external).length, state.edges.length));
       state.viewScope = $("scope").value;
       return true;
     } catch (error) { state.drawError = error; status(message("drawingFailed", errorMessage(error)), true); return false; }
@@ -990,12 +1360,82 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;color:#bccce0}
   }
   function tensor(element) {
     const t = child(element, "Tensor");
-    return t ? `${attr(t, "elementType")} [${children(t, "Dimension").map(d => attr(d, "size") || attr(d, "symbol") || "?").join(" × ")}] ${attr(t, "layout")}` : "";
+    return t ? `${attr(t, "elementType")} [${children(t, "Dimension").map(d => attr(d, "size") || attr(d, "symbol") || "?").join(" × ")}] ${attr(t, "layout")}`
+      : attr(element, "elementType") ? `${attr(element, "elementType")} [${attr(element, "shape").trim().split(/[,\s]+/).join(" × ")}] ${attr(element, "layout") || "dense"}` : "";
+  }
+  function currentResourcePlan() {
+    return state.plan ? child(state.plan.owners.get(state.contextId), "ResourcePlan") ||
+      state.plan.unitPlans.get(state.contextId) : null;
+  }
+  function planOverview(panel) {
+    if (!state.plan) return;
+    text(panel, "h3", t("planInfo"));
+    text(panel, "p", t(attr(state.plan.root, "schema") === "sharp-inference" ? "targetPlanNotice" : "planNotice"), "hint");
+    table(panel, Array.from(state.plan.root.attributes).map(a => [a.name, a.value]));
+    if (attr(state.plan.root, "schema") === "sharp-inference" && state.plan.kind !== "il") {
+      const slots = children(child(state.plan.root, "Slots"), "Slot").filter(slot => attr(slot, "scope") === "Local");
+      const slotIds = new Set(slots.map(slot => attr(slot, "id")));
+      const mappings = children(child(state.plan.root, "ResourcePlan"), "Map").filter(mapping => slotIds.has(attr(mapping, "slot")));
+      const sizes = { Byte: 1, Float16: 2, Float32: 4, Int32: 4, UInt32: 4 };
+      const bytes = slots.reduce((sum, slot) => sum + (sizes[attr(slot, "elementType")] || 0) *
+        attr(slot, "shape").split(",").reduce((count, dimension) => count * Number(dimension), 1), 0);
+      text(panel, "h3", t("resourcePlan"));
+      text(panel, "p", t("resourceBudget", mappings.filter(mapping => attr(mapping, "view") !== "true").length, slots.length, bytes));
+      const details = document.createElement("details");
+      text(details, "summary", t("plannedSlot"));
+      table(details, mappings.map(mapping => [attr(mapping, "resource"),
+        `${attr(mapping, "slot")} + ${attr(mapping, "byteOffset")} · ${tensor(mapping)}${attr(mapping, "view") === "true" ? " · View" : ""}`]));
+      panel.append(details);
+    }
+    const owner = state.plan.owners.get(state.contextId);
+    if (owner && owner.localName === "Unit")
+      table(panel, Array.from(owner.attributes).map(a => [a.name, a.value]));
+    const definition = owner?.localName === "Definition" ? owner : owner?.closest("Definition");
+    const views = children(child(definition, "LocalResources"), "Resource").filter(resource => attr(resource, "viewOf"));
+    if (views.length) {
+      const details = document.createElement("details");
+      text(details, "summary", `${t("staticViews")} · ${views.length}`);
+      table(details, views.map(view => [attr(view, "id"),
+        `${attr(view, "viewOf")} · ${tensor(view)} · ${attr(view, "binding")}`]));
+      panel.append(details);
+    }
+    const resourcePlan = currentResourcePlan();
+    if (resourcePlan) {
+      const slots = children(child(resourcePlan, "Slots"), "Slot");
+      const sizes = { Byte: 1, Float16: 2, Float32: 4, Int32: 4, UInt32: 4 };
+      const bytes = slots.reduce((sum, slot) => sum +
+        (sizes[attr(slot, "elementType")] || 0) * attr(slot, "shape").trim().split(/[,\s]+/).reduce((n, d) => n * Number(d), 1), 0);
+      text(panel, "h3", t("resourcePlan"));
+      text(panel, "p", t("resourceBudget", children(resourcePlan, "Map").length, slots.length, bytes));
+      const details = document.createElement("details");
+      text(details, "summary", t("plannedSlot"));
+      table(details, children(resourcePlan, "Map").map(mapping => [attr(mapping, "resource"), attr(mapping, "slot")]));
+      panel.append(details);
+    }
+    const defaults = child(state.plan.root, "Defaults");
+    if (defaults) {
+      const details = document.createElement("details");
+      text(details, "summary", t("planDefaults"));
+      table(details, Array.from(defaults.attributes).map(a => [a.name, a.value]));
+      panel.append(details);
+    }
+    const partitions = child(state.plan.root, "PartitionExample");
+    if (partitions && state.contextId === "root") {
+      text(panel, "h3", t("partitions"));
+      table(panel, Array.from(partitions.attributes).map(a => [a.name, a.value]));
+      for (const partition of children(partitions, "Partition")) {
+        text(panel, "p", t("partitionState", attr(partition, "id"), children(partition, "OwnsState").length));
+        text(panel, "p", children(partition, "CallRef").map(call => attr(call, "id")).join(" → "), "hint");
+      }
+      table(panel, children(partitions, "Connection").map(connection =>
+        [attr(connection, "resource"), `${attr(connection, "from")} → ${attr(connection, "to")} · ${attr(connection, "ready")}`]));
+    }
   }
   function overview() {
     const panel = $("details"); panel.replaceChildren();
     text(panel, "h2", $("scope").selectedOptions[0].textContent);
     text(panel, "p", t("overviewClick"));
+    planOverview(panel);
     if (state.architectureView) {
       text(panel, "p", t("overviewRegions"));
       text(panel, "p", t("overviewMetadata"), "hint");
@@ -1023,7 +1463,8 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;color:#bccce0}
     text(panel, "h2", node.displayName || node.id);
     text(panel, "p", node.label, "badge");
     if (node.drillTarget || node.definition) {
-      const button = text(panel, "button", node.drillTarget?.startsWith("@region:") ? t("expandRegion") : node.region ? t("viewOperators") : t("enterDefinition"));
+      const button = text(panel, "button", node.unitKind ? t("inspectUnit", node.unitKind)
+        : node.drillTarget?.startsWith("@region:") ? t("expandRegion") : node.region ? t("viewOperators") : t("enterDefinition"));
       button.addEventListener("click", () => enter(node));
     }
     if (node.operatorTarget && node.operatorTarget !== node.drillTarget) {
@@ -1062,6 +1503,10 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;color:#bccce0}
           text(panel, "p", `${binding.sourceNode || t("boundaryInput")} → ${binding.targetNode || t("boundaryOutput")}`, "hint");
         const resource = state.resources.get(binding.resource);
         if (resource) text(panel, "p", `${attr(resource, "kind") || attr(resource, "resourceKind") || "Port"} · ${tensor(resource)}`, "hint");
+        if (attr(resource, "viewOf"))
+          text(panel, "p", `${t("staticViews")}: ${attr(resource, "viewOf")} · ${attr(resource, "binding")}`, "hint");
+        const mapping = children(currentResourcePlan(), "Map").find(item => attr(item, "resource") === binding.resource);
+        if (mapping) text(panel, "p", `${t("plannedSlot")}: ${attr(mapping, "slot")}`, "hint");
       }
     }
     text(panel, "h3", t("neighbors"));
@@ -1075,7 +1520,7 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;color:#bccce0}
     }
     const raw = document.createElement("details");
     text(raw, "summary", t("rawXml"));
-    text(raw, "pre", new XMLSerializer().serializeToString(node.element)); panel.append(raw);
+    text(raw, "pre", new XMLSerializer().serializeToString(state.plan?.originals.get(node.element) || node.element)); panel.append(raw);
   }
   function selectEdge(edge) {
     state.selected = null;

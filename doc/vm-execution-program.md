@@ -6,8 +6,9 @@ programs. RWKV-6/7 model readers and logical graph providers remain the frontend
 
 ```text
 model + logical graph
-  -> external target optimizer
-  -> editable VmProgram XML
+  -> serialized IL ExecutionPlan
+  -> authoritative CPU / GPU ExecutionPlan
+  -> mechanical VmProgram assembly
   -> complete generated C# / HLSL
   -> CPU assembly / DXIL artifact
   -> fixed-slot VM instances
@@ -15,10 +16,90 @@ model + logical graph
 
 The backend validates and implements the supplied program; it does not silently
 replan storage, fuse nodes, invent dispatch boundaries, or fall back to a legacy
-executor. Legacy graph types remain optimizer/model-binding intermediates and
-standalone numerical reference tools, not runtime execution contracts.
+executor. Legacy graph types remain in standalone numerical reference/debug
+tools, not production optimizer/model-binding intermediates or runtime execution contracts.
 Runtime no longer accepts legacy backends, execution-graph XML, or primitive
 debug plans. Old `Graph kind="ExecutionGraph"` XML is not VM XML.
+
+## Authoritative target execution plans
+
+`IlExecutionPlan` materializes portable execution nodes, dependencies, resources,
+regions and source mappings without target-specific choices. It implements the
+shared `IExecutionPlanningGraph` planning contract; its edited node sequence,
+not the original logical graph, drives target planning. `ToLogicalGraph` and
+IL XML reuse the structured portable tensor schema for serialization and
+model-owned lowering. `WithNodes` creates an explicit rewritten IL;
+rewritten IL serializes its current nodes rather than restoring frontend nodes.
+`VmExecutionGraphGenerator.GeneratePlan` selects
+instructions, continuous views, local slots, prefill entries and GPU
+synchronization before constructing a `TargetExecutionPlan`. Its XML root is
+`ExecutionPlan schema="sharp-inference" version="1" kind="il|cpu|gpu"`.
+Tensor dimensions use commas, for example `shape="64,64"`.
+
+Target plans contain explicit Slots, ResourcePlan mappings, Definitions,
+EntryPoints and State. Orchestration calls bind formal parameters to concrete
+slots or parent parameters with byte offsets. Structured layer bodies normalize
+formal slots and step names, then reuse a definition only when operations,
+types, precision, synchronization, geometry and alias patterns match exactly.
+Each invocation binds the actual weight, state and scratch slots explicitly.
+Different layer implementations remain distinct; operator definitions also
+reuse matching contracts.
+Offsets belong to call/entry bindings, where the callee declares the exact view
+shape. An operator consumes its complete formal tensor and cannot attach a
+nonzero offset without reducing that descriptor; such target arguments are
+rejected rather than allowing access beyond the declared capacity.
+Resource mappings retain eliminated reshapes as static views of the same storage.
+They never allocate, copy or reshape data at runtime.
+
+`ExecutionPlanAssembler.Bind` checks the registered instruction's signature,
+accesses, index bounds, implementation and **exact** arithmetic/accumulator
+precision. Higher internal precision is not an implicit substitute. Binding
+does not optimize a graph or construct an intermediate whole VM program.
+`Assemble` only maps target definitions, nodes, arguments, slots and entries to
+the corresponding VM structures. It cannot restore deleted steps or invent
+prefill entries. Resolved target validation walks real entry bindings and rejects
+overlapping writable arguments and uninitialized temporary reads, including
+partial tensor intervals and nested calls. Target GPU validation rejects overlapping writable dispatch
+parameters and accesses to pending writes without an explicit barrier.
+Fixed cooperative MatVec supports only `cooperativeThreads="1"` and `"64"`;
+64 requires an isolated kernel with `Threads x="64" y="1" z="1"` and the
+matching cooperative grid. This is not an arbitrary range of multiples of 32.
+
+Runtime accepts `Prepare(TargetExecutionPlan)` or
+`VmRuntimeConfig.ExecutionPlanPath`. Offline plans are not reoptimized using
+the current runtime's view, workspace or prefill options. Runtime graph sessions
+use the plan's computation-free Bindings metadata for IO/state/weight contracts.
+The final target plan is available as `VmCompiledPlan.ExecutionPlan`;
+`Processor.ExportExecutionPlan` writes it, while `ExportExecutionGraph` continues
+to write VM program XML for existing program consumers.
+
+Generated runtime and CLI artifacts include `execution-plan.xml`. Factories
+reload this file when present and require full assembled-program correspondence
+with the compiled artifact, not merely matching IO/state ABI. Artifacts and
+handwritten VM programs without a target plan remain independently supported;
+they do not claim an authoritative graph-to-VM relationship.
+
+```powershell
+dotnet run --project .\src\SharpInference.Vm.Tool -- plan cpu weights.bin target.cpu.xml
+dotnet run --project .\src\SharpInference.Vm.Tool -- plan d3d12 weights.bin target.gpu.xml
+dotnet run --project .\src\SharpInference.Vm.Tool -- compile-plan target.cpu.xml cpu-artifact
+dotnet run --project .\src\SharpInference.Vm.Tool -- compile-plan target.gpu.xml gpu-artifact
+```
+
+`plan` also writes the structured `.il.xml`. `compile-plan` does not read weights
+or invoke the model/logical graph generator; execution still requires the
+declared globals/session/inputs and installed instruction providers.
+
+The production planner and runtime no longer construct `ExecutionGraph` or call
+the legacy `GraphOptimizer`. View lowering and TierOne operate on portable IL,
+and the existing resource allocator accepts `IExecutionPlanningGraph`, preserving
+its proven lifetime/initialization rules without a legacy graph conversion.
+Runtime binding uses computation-free metadata and `IGraphBindingMetadata`.
+Legacy graph models/XML and primitive executors remain exclusively for standalone
+reference/debug tools and existing numerical coverage, not as a supported
+production execution contract or a second compilation source. Implementation
+and validation results are recorded in
+[the migration plan](../docs/execution-graph-vm-refactor-plan.md).
 
 ## Structured logical frontend
 
@@ -52,8 +133,10 @@ retains declarations. `Nodes`, `Regions` and `Resources` are the validated expan
 lowering facade. Calls alpha-rename their local resources, nodes and regions;
 public IO, weight binding keys and state ABI remain unchanged. Expansion adds
 serial control edges before optimizer, allocator and VM generation. The current
-VM generator consumes this expanded facade: structural reuse reduces the logical
-representation, **not** runtime call count or arithmetic. Optional existing T1
+IL conversion consumes this expanded facade while retaining structured provenance.
+Target planning then normalizes and deduplicates compatible layer bodies with
+explicit actual-slot bindings; definition reuse does **not** reduce arithmetic.
+Optional existing T1
 optimization is separate and still respects instantiated region boundaries.
 
 XML and JSON preserve the full structure on roundtrip. The loader rejects missing,
@@ -196,9 +279,12 @@ IC implementations apply type, geometry, attribute, alias and access
 contracts during CPU and GPU recording. MatVec accepts the existing
 `weight` port as an alias for `matrix`, but not both at once.
 
-Arithmetic, accumulation and model State are FP32. The separate FP16 IC supports
+Arithmetic, accumulation and model State are normally FP32. The separate FP16 IC supports
 FP16 input/output tensors on CPU and Direct3D12 with FP32 accumulation and FP16
-output rounding. Reshape retains copy semantics. Runtime tensor-slot allocation,
+output rounding. Logical Reshape retains copy semantics; target lowering may
+replace a safe continuous reshape with a static zero-copy view. `TensorViews`
+controls general reshape views, while `WeightViews` controls weight views.
+Runtime tensor-slot allocation,
 in-place operator outputs, implicit broadcasting and silent fallback are not
 introduced. Existing numerical kernels are reused rather than adding another
 interpreter. FP32 pointwise T1 is available but selected only with explicit

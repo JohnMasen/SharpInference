@@ -16,11 +16,13 @@ public sealed class VmRuntimeConfig
     public bool ReuseLocalStorage { get; init; } = true;
     public bool NativeHalfWeights { get; init; } = true;
     public bool WeightViews { get; init; } = true;
+    public bool TensorViews { get; init; } = true;
     public GpuMatVecMode GpuMatVecMode { get; init; } = GpuMatVecMode.Default;
     public TierOneCostProfile? GpuMatVecCostProfile { get; init; }
     public TierOneCostProfile? TierOneCostProfile { get; init; }
     public int TierOneMaximumSearchStates { get; init; } = 100_000;
     public string? ProgramPath { get; init; }
+    public string? ExecutionPlanPath { get; init; }
     public string? ArtifactDirectory { get; init; }
     public string? PrefillProgramPath { get; init; }
     public string? PrefillArtifactDirectory { get; init; }
@@ -39,8 +41,10 @@ public sealed class VmRuntimeConfig
         options.Validate();
         if (PrefillCapacity is < 1 or > 1024 || ThreadsPerGroup is 0 or > 1024)
             throw new InvalidOperationException("VM prefill capacity and thread group dimensions must be in 1..1024.");
-        if (ProgramPath is not null && ArtifactDirectory is not null)
-            throw new InvalidOperationException("Select a program to compile or an existing artifact, not both.");
+        if (new[] { ProgramPath, ArtifactDirectory, ExecutionPlanPath }.Count(path => path is not null) > 1)
+            throw new InvalidOperationException("Select an execution plan, a program, or an existing artifact, not multiple inputs.");
+        if (ExecutionPlanPath is not null && (TierOneCostProfile is not null || GpuMatVecCostProfile is not null))
+            throw new InvalidOperationException("An offline execution plan cannot be replanned using optimization profiles.");
         if (PrefillProgramPath is not null && PrefillArtifactDirectory is not null)
             throw new InvalidOperationException("Select a prefill program or prefill artifact, not both.");
         return options;
@@ -58,5 +62,5 @@ public sealed class VmRuntimeConfig
             GpuMatVecMode == GpuMatVecMode.Default ||
                 target == VmTarget.Cpu && GpuMatVecMode == GpuMatVecMode.Serial ? null :
                 new(GpuMatVecMode, GpuMatVecCostProfile,
-                    GpuMatVecMode == GpuMatVecMode.Profile ? tierOneEnvironmentFingerprint : null));
+                    GpuMatVecMode == GpuMatVecMode.Profile ? tierOneEnvironmentFingerprint : null), TensorViews);
 }

@@ -3,11 +3,11 @@ namespace SharpInference.Graphs;
 public sealed class PortableGraphModel(
     ModelMetadata metadata,
     IModelTensorCatalog tensors,
-    ExecutionGraph graph) : IModel
+    IGraphBindingMetadata graph) : IModel
 {
     public ModelMetadata ModelMetadata { get; } = metadata ?? throw new ArgumentNullException(nameof(metadata));
     public IModelTensorCatalog Tensors { get; } = tensors ?? throw new ArgumentNullException(nameof(tensors));
-    public ExecutionGraph Graph { get; } = graph ?? throw new ArgumentNullException(nameof(graph));
+    public IGraphBindingMetadata Graph { get; } = graph ?? throw new ArgumentNullException(nameof(graph));
 }
 
 public sealed class PortableGraphState : INamedFloat32ModelState
@@ -16,7 +16,7 @@ public sealed class PortableGraphState : INamedFloat32ModelState
     private Action<IReadOnlyList<Float32StateView>>? synchronizeFromDevice;
     private bool deviceModified;
 
-    public PortableGraphState(ExecutionGraph graph)
+    public PortableGraphState(IGraphBindingMetadata graph)
     {
         ArgumentNullException.ThrowIfNull(graph);
         ArchitectureId = graph.Identity.ArchitectureId;

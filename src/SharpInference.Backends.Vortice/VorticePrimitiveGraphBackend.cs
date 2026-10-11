@@ -181,7 +181,9 @@ public sealed class VorticePrimitiveGraphBackend : IGraphModelWeightBackend, IDi
         if (executor is not null)
             throw new InvalidOperationException(
                 "This graph backend already owns resident model weights; use a separate backend for another model.");
-        var prepared = new VorticePrimitiveGraphExecutor(device, model.Graph);
+        var graph = model.Graph as ExecutionGraph ??
+            throw new ArgumentException("The primitive reference backend requires an execution graph.", nameof(model));
+        var prepared = new VorticePrimitiveGraphExecutor(device, graph);
         try
         {
             prepared.ProfileCommandRecording = profileCommandRecording;

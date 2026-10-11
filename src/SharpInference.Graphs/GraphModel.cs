@@ -248,7 +248,17 @@ public sealed record LogicalNode(
     IReadOnlyDictionary<string, string> Attributes,
     PrecisionRequirement Requirements);
 
-public sealed class LogicalGraph
+public interface IGraphBindingMetadata
+{
+    GraphIdentity Identity { get; }
+    GraphModelSignature Model { get; }
+    IReadOnlyList<GraphResource> Resources { get; }
+    IReadOnlyList<ResourceId> Inputs { get; }
+    IReadOnlyList<ResourceId> Outputs { get; }
+    GraphState GraphState { get; }
+}
+
+public sealed class LogicalGraph : IGraphBindingMetadata
 {
     public LogicalGraph(GraphIdentity identity, GraphModelSignature model, IEnumerable<GraphResource> resources,
         GraphStructure structure, IEnumerable<ResourceId> inputs, IEnumerable<ResourceId> outputs,
@@ -349,7 +359,14 @@ public sealed record ExecutionNode(
     public IReadOnlyList<ResourceId> FirstWriteResources { get; init; } = [];
 }
 
-public sealed class ExecutionGraph
+public interface IExecutionPlanningGraph : IGraphBindingMetadata
+{
+    IReadOnlyList<GraphRegion> Regions { get; }
+    IReadOnlyList<ExecutionNode> Nodes { get; }
+    IReadOnlyDictionary<ResourceId, ExecutionNodeId> InternalResourceOwners { get; }
+}
+
+public sealed class ExecutionGraph : IExecutionPlanningGraph
 {
     public ExecutionGraph(
         GraphIdentity identity,

@@ -54,9 +54,9 @@ public static class GraphValidator
                     node.Resources, resourceMap, node.Attributes, node.Requirements));
     }
 
-    public static void Validate(ExecutionGraph graph) => Validate(graph, null);
+    public static void Validate(IExecutionPlanningGraph graph) => Validate(graph, null);
 
-    public static void Validate(ExecutionGraph graph, IGraphOperationValidator? operations)
+    public static void Validate(IExecutionPlanningGraph graph, IGraphOperationValidator? operations)
     {
         ArgumentNullException.ThrowIfNull(graph);
         ValidateCommon(graph.Identity, graph.Model, graph.Resources, graph.Regions, graph.Inputs, graph.Outputs, graph.GraphState);

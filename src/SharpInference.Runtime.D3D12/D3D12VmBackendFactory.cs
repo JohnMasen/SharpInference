@@ -1,6 +1,8 @@
 using SharpInference.Backends.D3D12Vm;
 using SharpInference.Instructions;
+using SharpInference.Graphs;
 using SharpInference.Vm;
+using SharpInference.Vm.Optimization;
 
 namespace SharpInference.Runtime.D3D12;
 
@@ -16,9 +18,17 @@ public static class D3D12VmBackendFactory
         var collections = instructionCollections?.ToArray() ?? D3D12InstructionCollections.Create();
         var compiler = new D3D12VmCompiler(collections);
         var options = configuration.EngineOptions();
+        var executionPlan = configuration.ExecutionPlanPath is { } planPath
+            ? ExecutionPlanXml.DeserializeTarget(File.ReadAllText(planPath)) : null;
         D3D12VmArtifact? compiled = configuration.ArtifactDirectory is { } directory ? Load(directory) : null;
         var loaded = compiled;
-        var program = loaded?.Program ?? (configuration.ProgramPath is { } path
+        if (loaded is { } artifact && configuration.ArtifactDirectory is { } artifactDirectory &&
+            File.Exists(Path.Combine(artifactDirectory, "execution-plan.xml")))
+        {
+            executionPlan = ExecutionPlanXml.DeserializeTarget(File.ReadAllText(Path.Combine(artifactDirectory, "execution-plan.xml")));
+            ExecutionPlanAssembler.ValidateArtifact(executionPlan, artifact.Program, new(collections));
+        }
+        var program = executionPlan is not null ? null : loaded?.Program ?? (configuration.ProgramPath is { } path
             ? VmProgramXml.Deserialize(File.ReadAllText(path)) : null);
         D3D12VmArtifact? prefillCompiled = configuration.PrefillArtifactDirectory is { } prefillDirectory ? Load(prefillDirectory) : null;
         var prefillLoaded = prefillCompiled;
@@ -50,7 +60,7 @@ public static class D3D12VmBackendFactory
                     new TargetInstructionCollection(provider, InstructionTarget.Direct3D12)),
                 diagnostics: new D3D12VmDiagnostics(() => resources.TaskStatistics),
                 executionCapabilities: new(options.InferenceInstances, 1, new HashSet<string> { "vm.d3d12.device" },
-                    requiresResidentSessionAdmission: true));
+                    requiresResidentSessionAdmission: true), suppliedExecutionPlan: executionPlan);
         }
         catch (Exception error)
         {

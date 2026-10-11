@@ -61,7 +61,8 @@ public sealed class CpuPrimitiveGraphExecutor
     /// </summary>
     public CpuPrimitiveGraphExecutor(PortableGraphModel model,
         IPrimitiveOperatorBackend? backend = null)
-        : this((model ?? throw new ArgumentNullException(nameof(model))).Graph, model.Tensors, backend,
+        : this((model ?? throw new ArgumentNullException(nameof(model))).Graph as ExecutionGraph ??
+            throw new ArgumentException("The primitive reference executor requires an execution graph.", nameof(model)), model.Tensors, backend,
             retainCatalogWeights: true)
     {
     }
