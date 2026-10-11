@@ -8,6 +8,7 @@ using SharpInference.Vm;
 
 namespace SharpInference.Architectures.Phi4.D3D12;
 
+/// <summary>Executes the Phi-4 audio graph on the CPU and exposes projected embeddings through host storage leases.</summary>
 public sealed class Phi4CpuAudioComponent : IDisposable
 {
     private const int TextWidth = 3072;
@@ -19,6 +20,7 @@ public sealed class Phi4CpuAudioComponent : IDisposable
     private readonly int outputSlot;
     private bool disposed;
 
+    /// <summary>Initializes CPU audio execution using the package weights, host storage adapter, and frame capacity.</summary>
     public Phi4CpuAudioComponent(
         Phi4ModelPackage package,
         HostMemoryStorageAdapter storage,
@@ -61,10 +63,14 @@ public sealed class Phi4CpuAudioComponent : IDisposable
         }
     }
 
+    /// <summary>Gets the allocated input feature-frame capacity.</summary>
     public int FrameBucket { get; }
+    /// <summary>Gets the allocated audio token capacity after eightfold temporal subsampling.</summary>
     public int TokenBucket { get; }
+    /// <summary>Gets the storage domain in which this component allocates its tensors.</summary>
     public StorageDomain Domain => storage.Domain;
 
+    /// <summary>Returns the FP32 token-major projected embedding output port descriptor.</summary>
     public ComponentPortDescriptor ProjectedEmbeddingsPort() =>
         new(
             "phi4.audio.projected_embeddings",
@@ -74,6 +80,7 @@ public sealed class Phi4CpuAudioComponent : IDisposable
             GraphResourceLifetime.Invocation,
             [Domain]);
 
+    /// <summary>Encodes audio features with the selected projection and returns a host storage lease for the projected embeddings.</summary>
     public IStorageLease Encode(
         Phi4AudioFeatures features,
         Phi4AudioProjector projector,
@@ -105,6 +112,7 @@ public sealed class Phi4CpuAudioComponent : IDisposable
         }
     }
 
+    /// <inheritdoc/>
     public void Dispose()
     {
         lock (gate)

@@ -8,8 +8,18 @@ using SharpInference.Instructions;
 
 namespace SharpInference.Vm.Optimization;
 
+/// <summary>Stores baseline and optimized timing samples for a specific implementation and launch domain.</summary>
 public sealed class TierOneCostMeasurement
 {
+    /// <summary>Snapshots at least seven positive finite timing samples per implementation and validates the launch domain.</summary>
+    /// <param name="operation">The instruction name whose baseline and optimized costs were measured.</param>
+    /// <param name="implementationFingerprint">The implementation identity used to match trusted measurements.</param>
+    /// <param name="shape">The serialized tensor-shape and element-type key identifying this measurement domain.</param>
+    /// <param name="inputAliases">The canonical input alias pattern used to match measurement domains.</param>
+    /// <param name="threadsPerGroup">The number of GPU threads in each dispatch group.</param>
+    /// <param name="reuseLocalStorage">Whether compatible non-overlapping temporary lifetimes share storage.</param>
+    /// <param name="referenceMicroseconds">The positive baseline execution-time samples in microseconds.</param>
+    /// <param name="optimizedMicroseconds">The positive optimized execution-time samples in microseconds.</param>
     [JsonConstructor]
     public TierOneCostMeasurement(string operation, string implementationFingerprint, string shape,
         string inputAliases, uint threadsPerGroup, bool reuseLocalStorage,
@@ -34,17 +44,27 @@ public sealed class TierOneCostMeasurement
         OptimizedMicroseconds = Array.AsReadOnly(optimizedMicroseconds.ToArray());
     }
 
+    /// <summary>Gets the instruction name whose baseline and optimized costs were measured.</summary>
     public string Operation { get; }
+    /// <summary>Gets the implementation identity used to match trusted measurements.</summary>
     public string ImplementationFingerprint { get; }
+    /// <summary>Gets the tensor-shape and element-type key for this measurement domain.</summary>
     public string Shape { get; }
+    /// <summary>Gets the canonical input alias pattern used to match measurement domains.</summary>
     public string InputAliases { get; }
+    /// <summary>Gets the number of GPU threads in each dispatch group.</summary>
     public uint ThreadsPerGroup { get; }
+    /// <summary>Gets whether compatible non-overlapping temporary lifetimes share storage.</summary>
     public bool ReuseLocalStorage { get; }
+    /// <summary>Gets the positive baseline execution-time samples in microseconds.</summary>
     public IReadOnlyList<double> ReferenceMicroseconds { get; }
+    /// <summary>Gets the positive optimized execution-time samples in microseconds.</summary>
     public IReadOnlyList<double> OptimizedMicroseconds { get; }
+    /// <summary>Gets the estimated savings in microseconds using pessimistic timing quantiles and margins.</summary>
     [JsonIgnore]
     public double ConservativeSavingMicroseconds =>
         Quantile(ReferenceMicroseconds, 0.25) * 0.98 - Quantile(OptimizedMicroseconds, 0.75) * 1.02;
+    /// <summary>Gets the composite implementation, shape, alias, launch, and storage measurement key.</summary>
     [JsonIgnore]
     public string Key => $"{Operation}|{ImplementationFingerprint}|{Shape}|{InputAliases}|{ThreadsPerGroup}|{ReuseLocalStorage}";
 
@@ -55,6 +75,7 @@ public sealed class TierOneCostMeasurement
     }
 }
 
+/// <summary>Stores timestamped offline optimization measurements for a particular environment.</summary>
 public sealed class TierOneCostProfile
 {
     private static readonly JsonSerializerOptions JsonOptions = new()
@@ -62,6 +83,10 @@ public sealed class TierOneCostProfile
         WriteIndented = true, UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow,
     };
 
+    /// <summary>Creates a timestamped profile with unique nonnull measurement keys.</summary>
+    /// <param name="environmentFingerprint">The current measurement environment identity required to trust offline costs.</param>
+    /// <param name="measuredAt">The timestamp at which the offline profile was measured.</param>
+    /// <param name="measurements">The measurements with unique implementation and launch-domain keys.</param>
     [JsonConstructor]
     public TierOneCostProfile(string environmentFingerprint, DateTimeOffset measuredAt,
         IReadOnlyList<TierOneCostMeasurement> measurements)
@@ -76,17 +101,26 @@ public sealed class TierOneCostProfile
         Measurements = Array.AsReadOnly(measurements.ToArray());
     }
 
+    /// <summary>Gets the current measurement environment identity required to trust offline costs.</summary>
     public string EnvironmentFingerprint { get; }
+    /// <summary>Gets the timestamp at which the offline profile was measured.</summary>
     public DateTimeOffset MeasuredAt { get; }
+    /// <summary>Gets the measurements with unique implementation and launch-domain keys.</summary>
     public IReadOnlyList<TierOneCostMeasurement> Measurements { get; }
+    /// <summary>Serializes the offline cost profile as indented JSON.</summary>
     public string Serialize() => JsonSerializer.Serialize(this, JsonOptions);
+    /// <summary>Parses an offline cost profile from JSON, rejecting unknown fields and invalid measurements.</summary>
+    /// <param name="json">The JSON containing an offline cost profile.</param>
     public static TierOneCostProfile Deserialize(string json) =>
         JsonSerializer.Deserialize<TierOneCostProfile>(json, JsonOptions) ??
         throw new InvalidDataException("Missing offline cost profile.");
 }
 
+/// <summary>Hashes hardware, runtime, build, and JIT settings that affect optimization measurements.</summary>
 public static class TierOneEnvironmentFingerprint
 {
+    /// <summary>Hashes hardware identity and current machine, runtime, module, SIMD, GC, and JIT settings.</summary>
+    /// <param name="hardwareIdentity">The nonempty hardware identity supplied by the caller.</param>
     public static string Create(string hardwareIdentity)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(hardwareIdentity);
@@ -104,8 +138,14 @@ public static class TierOneEnvironmentFingerprint
     }
 }
 
+/// <summary>Configures trusted offline costs, profile freshness, and a bounded fusion search.</summary>
 public sealed class TierOneOptimizationSettings
 {
+    /// <summary>Configures profile trust and a positive search budget, defaulting profile freshness to thirty days.</summary>
+    /// <param name="profile">The offline timing profile used for cost-driven selection.</param>
+    /// <param name="environmentFingerprint">The current measurement environment identity required to trust offline costs.</param>
+    /// <param name="maximumSearchStates">The maximum number of fusion selection states to explore.</param>
+    /// <param name="maximumProfileAge">The positive maximum trusted profile age; null selects thirty days.</param>
     public TierOneOptimizationSettings(TierOneCostProfile profile, string environmentFingerprint,
         int maximumSearchStates = 100_000, TimeSpan? maximumProfileAge = null)
     {
@@ -119,18 +159,46 @@ public sealed class TierOneOptimizationSettings
         if (MaximumProfileAge <= TimeSpan.Zero) throw new ArgumentOutOfRangeException(nameof(maximumProfileAge));
     }
 
+    /// <summary>Gets the offline timing profile used for cost-driven selection.</summary>
     public TierOneCostProfile Profile { get; }
+    /// <summary>Gets the current measurement environment identity required to trust offline costs.</summary>
     public string EnvironmentFingerprint { get; }
+    /// <summary>Gets the maximum number of fusion selection states to explore.</summary>
     public int MaximumSearchStates { get; }
+    /// <summary>Gets the maximum age of a trusted offline cost profile.</summary>
     public TimeSpan MaximumProfileAge { get; }
 }
 
-public enum TierOneSelectionStatus { BaselineRetained, ModelOptimal, BestFoundWithinBudget }
+/// <summary>Indicates whether the baseline or a cost-model-selected fusion plan was retained.</summary>
+public enum TierOneSelectionStatus
+{
+    /// <summary>Retains the unfused graph because no trusted beneficial selection was found.</summary>
+    BaselineRetained,
+    /// <summary>Completes the search and selects the optimum under the supplied cost model.</summary>
+    ModelOptimal,
+    /// <summary>Retains the best selection found before exhausting the search budget.</summary>
+    BestFoundWithinBudget
+}
 
+/// <summary>Reports fusion matching, cost-model trust, search effort, and estimated conservative savings.</summary>
+/// <param name="Status">The outcome of the bounded cost-model selection search.</param>
+/// <param name="CostModel">The identifier of the cost model used for selection.</param>
+/// <param name="Diagnostic">The selection or failure diagnostic.</param>
+/// <param name="MatchedCandidates">The number of structurally matching fusion candidates.</param>
+/// <param name="TrustedCandidates">The number of candidates with compatible trusted offline costs.</param>
+/// <param name="SelectedCandidates">The number of non-overlapping fusion candidates selected.</param>
+/// <param name="SearchStates">The number of fusion-selection states explored.</param>
+/// <param name="ConservativeSavingMicroseconds">The estimated savings in microseconds using pessimistic timing quantiles and margins.</param>
+/// <param name="OriginalNodeCount">The node count before fusion selection.</param>
+/// <param name="OptimizedNodeCount">The node count after fusion selection.</param>
 public sealed record TierOneOptimizationReport(
     TierOneSelectionStatus Status, string CostModel, string Diagnostic, int MatchedCandidates,
     int TrustedCandidates, int SelectedCandidates, int SearchStates, double ConservativeSavingMicroseconds,
     int OriginalNodeCount, int OptimizedNodeCount);
 
+/// <summary>Contains an optimized VM artifact and its fusion and matrix-vector selection reports.</summary>
+/// <param name="Program">The optimized and validated VM program.</param>
+/// <param name="Report">The tier-one fusion selection report.</param>
+/// <param name="MatVecReport">The GPU matrix-vector selection report.</param>
 public sealed record VmOptimizationResult(VmProgram Program, TierOneOptimizationReport Report,
     GpuMatVecOptimizationReport? MatVecReport = null);

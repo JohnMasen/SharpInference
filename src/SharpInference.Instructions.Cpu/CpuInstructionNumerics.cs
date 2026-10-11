@@ -5,6 +5,9 @@ namespace SharpInference.Instructions.Cpu;
 /// <summary>VM numerical kernels, including explicit FP16-weight/FP32-activation variants.</summary>
 public static class CpuInstructionNumerics
 {
+    /// <summary>Computes elementwise hyperbolic tangents while preserving the sign of exact zero inputs.</summary>
+    /// <param name="input">The dense input values.</param>
+    /// <param name="output">The destination span with the length required by the operation.</param>
     public static void Tanh(ReadOnlySpan<float> input, Span<float> output)
     {
         CpuPrimitiveOperatorBackend.Instance.Tanh(input, output);
@@ -13,6 +16,12 @@ public static class CpuInstructionNumerics
             if (input[i] == 0) output[i] = input[i];
     }
 
+    /// <summary>Multiplies a dense Float16 matrix by a Float32 vector and writes Float32 row results.</summary>
+    /// <param name="matrix">The dense row-major Float16 matrix.</param>
+    /// <param name="input">The dense input values.</param>
+    /// <param name="output">The destination span with the length required by the operation.</param>
+    /// <param name="rows">The number of matrix rows and output elements.</param>
+    /// <param name="columns">The number of matrix columns and input vector elements.</param>
     public static void MatVec(ReadOnlySpan<Half> matrix, ReadOnlySpan<float> input, Span<float> output,
         int rows, int columns)
     {
@@ -22,6 +31,11 @@ public static class CpuInstructionNumerics
         CpuHalfMatrixOperators.MatVec(matrix, input, output);
     }
 
+    /// <summary>Copies a row from a dense Float16 table into a Float32 output vector.</summary>
+    /// <param name="table">The dense row-major Float16 lookup table.</param>
+    /// <param name="index">The zero-based table row to copy.</param>
+    /// <param name="rowLength">The number of elements in each table row and in the output.</param>
+    /// <param name="output">The destination span with the length required by the operation.</param>
     public static void GatherRow(ReadOnlySpan<Half> table, int index, int rowLength, Span<float> output)
     {
         if (rowLength <= 0 || output.Length != rowLength || table.Length % rowLength != 0)
@@ -29,6 +43,16 @@ public static class CpuInstructionNumerics
         CpuHalfMatrixOperators.GatherRow(table, index, output);
     }
 
+    /// <summary>Multiplies dense matrices with optional transposition and Float32 accumulation into a row-major output.</summary>
+    /// <param name="left">The dense row-major left matrix before optional transposition.</param>
+    /// <param name="right">The dense row-major right matrix before optional transposition.</param>
+    /// <param name="output">The destination span with the length required by the operation.</param>
+    /// <param name="leftRows">The stored row count of the left matrix.</param>
+    /// <param name="leftColumns">The stored column count of the left matrix.</param>
+    /// <param name="rightRows">The stored row count of the right matrix.</param>
+    /// <param name="rightColumns">The stored column count of the right matrix.</param>
+    /// <param name="transposeLeft">Whether to transpose the left matrix logically before multiplication.</param>
+    /// <param name="transposeRight">Whether to transpose the right matrix logically before multiplication.</param>
     public static void MatrixMultiply(
         ReadOnlySpan<float> left,
         ReadOnlySpan<float> right,
@@ -58,6 +82,16 @@ public static class CpuInstructionNumerics
             rightRows, rightColumns, transposeLeft, transposeRight);
     }
 
+    /// <summary>Multiplies dense matrices with optional transposition and Float32 accumulation into a row-major output.</summary>
+    /// <param name="left">The dense row-major left matrix before optional transposition.</param>
+    /// <param name="right">The dense row-major right matrix before optional transposition.</param>
+    /// <param name="output">The destination span with the length required by the operation.</param>
+    /// <param name="leftRows">The stored row count of the left matrix.</param>
+    /// <param name="leftColumns">The stored column count of the left matrix.</param>
+    /// <param name="rightRows">The stored row count of the right matrix.</param>
+    /// <param name="rightColumns">The stored column count of the right matrix.</param>
+    /// <param name="transposeLeft">Whether to transpose the left matrix logically before multiplication.</param>
+    /// <param name="transposeRight">Whether to transpose the right matrix logically before multiplication.</param>
     public static void MatrixMultiply(
         ReadOnlySpan<float> left,
         ReadOnlySpan<Half> right,
@@ -105,6 +139,10 @@ public static class CpuInstructionNumerics
         }
     }
 
+    /// <summary>Adds a bias vector repeatedly along the final input dimension, writing Float32 output values.</summary>
+    /// <param name="input">The dense input values.</param>
+    /// <param name="bias">The bias vector matching the final input dimension.</param>
+    /// <param name="output">The destination span with the length required by the operation.</param>
     public static void BiasAdd(
         ReadOnlySpan<float> input,
         ReadOnlySpan<float> bias,
@@ -116,6 +154,10 @@ public static class CpuInstructionNumerics
             output[index] = input[index] + bias[index % bias.Length];
     }
 
+    /// <summary>Adds a bias vector repeatedly along the final input dimension, writing Float32 output values.</summary>
+    /// <param name="input">The dense input values.</param>
+    /// <param name="bias">The bias vector matching the final input dimension.</param>
+    /// <param name="output">The destination span with the length required by the operation.</param>
     public static void BiasAdd(
         ReadOnlySpan<float> input,
         ReadOnlySpan<Half> bias,

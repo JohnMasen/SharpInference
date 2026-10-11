@@ -3,8 +3,11 @@ using SharpInference.Instructions;
 
 namespace SharpInference.Vm.Optimization;
 
+/// <summary>Converts between target execution plans and VM artifacts and binds instruction contracts.</summary>
 public static class ExecutionPlanAssembler
 {
+    /// <summary>Validates a target execution plan and converts its contracts into a VM program.</summary>
+    /// <param name="plan">The target execution plan to validate, bind, or assemble.</param>
     public static VmProgram Assemble(TargetExecutionPlan plan)
     {
         TargetExecutionPlanValidator.Validate(plan);
@@ -31,6 +34,9 @@ public static class ExecutionPlanAssembler
             new(plan.StateSchema, plan.StateVersion, plan.State.Select(entry => new VmStateEntry(entry.Name, entry.Slot))));
     }
 
+    /// <summary>Resolves instruction contracts and rejects mismatches with the plan's precision and access requirements.</summary>
+    /// <param name="plan">The target execution plan to validate, bind, or assemble.</param>
+    /// <param name="registry">The registry resolving target-specific instruction implementations.</param>
     public static TargetExecutionPlan Bind(TargetExecutionPlan plan, InstructionRegistry registry)
     {
         TargetExecutionPlanValidator.Validate(plan);
@@ -84,6 +90,10 @@ public static class ExecutionPlanAssembler
         return changed ? result : plan;
     }
 
+    /// <summary>Checks that the bound VM artifact exactly matches the bound target execution plan.</summary>
+    /// <param name="plan">The target execution plan to validate, bind, or assemble.</param>
+    /// <param name="program">The VM artifact to compare with or capture as a target execution plan.</param>
+    /// <param name="registry">The registry resolving target-specific instruction implementations.</param>
     public static void ValidateArtifact(TargetExecutionPlan plan, VmProgram program, InstructionRegistry registry)
     {
         var assembled = Assemble(Bind(plan, registry));
@@ -91,6 +101,8 @@ public static class ExecutionPlanAssembler
             throw new InvalidDataException("The compiled artifact does not match its target execution plan.");
     }
 
+    /// <summary>Converts a validated VM program into an equivalent target execution plan.</summary>
+    /// <param name="program">The VM artifact to compare with or capture as a target execution plan.</param>
     public static TargetExecutionPlan Capture(VmProgram program)
     {
         VmProgramValidator.Validate(program);

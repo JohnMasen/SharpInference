@@ -2,19 +2,30 @@ using SharpInference.Graphs;
 
 namespace SharpInference.Instructions;
 
+/// <summary>Defines validated primitive instruction signatures and parameter contracts for a tier-zero collection.</summary>
+/// <param name="collectionId">The tier-zero collection identifier selecting Float32 or Float16 storage.</param>
+/// <param name="name">The primitive operation name provided by this instruction.</param>
+/// <param name="target">The execution architecture targeted by this instruction.</param>
 public abstract class TierZeroInstruction(Guid collectionId, string name, InstructionTarget target) : Instruction
 {
+    /// <inheritdoc/>
     public override Guid CollectionId { get; } = collectionId;
+    /// <inheritdoc/>
     public override string Name { get; } = name;
+    /// <inheritdoc/>
     public override InstructionTarget Target { get; } = target;
+    /// <inheritdoc/>
     public override bool RequiresDispatchIsolation => Name is not (
         "core.copy" or "core.add" or "core.subtract" or "core.multiply" or "core.divide" or "core.maximum" or
         "core.exp" or "core.tanh" or "core.sigmoid" or "core.rsqrt" or "core.square" or "core.relu" or
         "core.tensor.fill" or "core.tensor.cast-f16-f32" or "core.tensor.reshape");
+    /// <inheritdoc/>
     public override IReadOnlyList<InstructionSignature> Signatures { get; } = CreateSignatures(collectionId, name);
+    /// <inheritdoc/>
     public override IReadOnlyList<InstructionIndexBound> IndexBounds { get; } =
         name == "core.gather-row" ? Array.AsReadOnly<InstructionIndexBound>([new("index", "table", 0)]) : [];
 
+    /// <inheritdoc/>
     protected sealed override void Validate(InstructionParameter[] parameters)
     {
         try

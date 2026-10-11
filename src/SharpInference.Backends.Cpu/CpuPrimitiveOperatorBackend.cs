@@ -4,16 +4,20 @@ using SharpInference.Graphs;
 
 namespace SharpInference.Backends.Cpu;
 
+/// <summary>Implements dense CPU primitive operators for Float32 and Float16 tensor storage.</summary>
 public sealed class CpuPrimitiveOperatorBackend : IPrimitiveOperatorBackend
 {
+    /// <summary>Gets the shared CPU primitive operator implementation.</summary>
     public static CpuPrimitiveOperatorBackend Instance { get; } = new();
 
     private CpuPrimitiveOperatorBackend()
     {
     }
 
+    /// <inheritdoc/>
     public IReadOnlyList<PrimitiveOperatorDescription> PrimitiveOperators { get; } =
         PrimitiveGraphOperations.CreateStandardDescriptions();
+    /// <inheritdoc/>
     public IReadOnlyList<OperatorImplementationDescription> OperatorImplementations { get; } =
         PrimitiveGraphOperations.CreateStandardImplementations(
             "cpu",
@@ -22,121 +26,146 @@ public sealed class CpuPrimitiveOperatorBackend : IPrimitiveOperatorBackend
             new KernelPrecisionProfile(GraphElementType.Float32, GraphElementType.Float32),
             new KernelPrecisionProfile(GraphElementType.Float32, GraphElementType.Float32));
 
+    /// <inheritdoc/>
     public void Copy(ReadOnlySpan<float> input, Span<float> output) => CopyCore(input, output);
+    /// <inheritdoc/>
     public void Add(ReadOnlySpan<float> left, ReadOnlySpan<float> right, Span<float> output)
     {
         RequireBinary(left.Length, right.Length, output.Length);
         TensorPrimitives.Add(left, right, output);
     }
 
+    /// <inheritdoc/>
     public void Subtract(ReadOnlySpan<float> left, ReadOnlySpan<float> right, Span<float> output)
     {
         RequireBinary(left.Length, right.Length, output.Length);
         TensorPrimitives.Subtract(left, right, output);
     }
 
+    /// <inheritdoc/>
     public void Multiply(ReadOnlySpan<float> left, ReadOnlySpan<float> right, Span<float> output)
     {
         RequireBinary(left.Length, right.Length, output.Length);
         TensorPrimitives.Multiply(left, right, output);
     }
 
+    /// <inheritdoc/>
     public void Divide(ReadOnlySpan<float> left, ReadOnlySpan<float> right, Span<float> output)
     {
         RequireBinary(left.Length, right.Length, output.Length);
         TensorPrimitives.Divide(left, right, output);
     }
 
+    /// <inheritdoc/>
     public void Maximum(ReadOnlySpan<float> left, ReadOnlySpan<float> right, Span<float> output)
     {
         RequireBinary(left.Length, right.Length, output.Length);
         TensorPrimitives.Max(left, right, output);
     }
 
+    /// <inheritdoc/>
     public void Exp(ReadOnlySpan<float> input, Span<float> output)
     {
         RequireOutput(input.Length, output.Length);
         TensorPrimitives.Exp(input, output);
     }
 
+    /// <inheritdoc/>
     public void Tanh(ReadOnlySpan<float> input, Span<float> output)
     {
         RequireOutput(input.Length, output.Length);
         TensorPrimitives.Tanh(input, output);
     }
 
+    /// <inheritdoc/>
     public void Sigmoid(ReadOnlySpan<float> input, Span<float> output)
     {
         RequireOutput(input.Length, output.Length);
         if (!input.IsEmpty) TensorPrimitives.Sigmoid(input, output);
     }
 
+    /// <inheritdoc/>
     public void ReciprocalSquareRoot(ReadOnlySpan<float> input, Span<float> output)
     {
         RequireOutput(input.Length, output.Length);
         TensorPrimitives.ReciprocalSqrt(input, output);
     }
 
+    /// <inheritdoc/>
     public void Square(ReadOnlySpan<float> input, Span<float> output)
     {
         RequireOutput(input.Length, output.Length);
         TensorPrimitives.Multiply(input, input, output);
     }
 
+    /// <inheritdoc/>
     public void Relu(ReadOnlySpan<float> input, Span<float> output)
     {
         RequireOutput(input.Length, output.Length);
         TensorPrimitives.Max(input, 0f, output);
     }
 
+    /// <inheritdoc/>
     public float ReduceSum(ReadOnlySpan<float> input) => TensorPrimitives.Sum(input);
+    /// <inheritdoc/>
     public float ReduceMean(ReadOnlySpan<float> input) => input.IsEmpty ? throw new ArgumentException("The input cannot be empty.", nameof(input)) : TensorPrimitives.Sum(input) / input.Length;
+    /// <inheritdoc/>
     public void MatVec(ReadOnlySpan<float> matrix, ReadOnlySpan<float> input, Span<float> output, int rows, int columns) => MatVecFloat(matrix, input, output, rows, columns);
+    /// <inheritdoc/>
     public void GatherRow(ReadOnlySpan<float> table, int rowIndex, int rowLength, Span<float> output) => GatherRowCore(table, rowIndex, rowLength, output);
 
+    /// <inheritdoc/>
     public void Copy(ReadOnlySpan<Half> input, Span<Half> output) => CopyCore(input, output);
+    /// <inheritdoc/>
     public void Add(ReadOnlySpan<Half> left, ReadOnlySpan<Half> right, Span<Half> output)
     {
         RequireBinary(left.Length, right.Length, output.Length);
         TensorPrimitives.Add(left, right, output);
     }
 
+    /// <inheritdoc/>
     public void Subtract(ReadOnlySpan<Half> left, ReadOnlySpan<Half> right, Span<Half> output)
     {
         RequireBinary(left.Length, right.Length, output.Length);
         TensorPrimitives.Subtract(left, right, output);
     }
 
+    /// <inheritdoc/>
     public void Multiply(ReadOnlySpan<Half> left, ReadOnlySpan<Half> right, Span<Half> output)
     {
         RequireBinary(left.Length, right.Length, output.Length);
         TensorPrimitives.Multiply(left, right, output);
     }
 
+    /// <inheritdoc/>
     public void Divide(ReadOnlySpan<Half> left, ReadOnlySpan<Half> right, Span<Half> output)
     {
         RequireBinary(left.Length, right.Length, output.Length);
         TensorPrimitives.Divide(left, right, output);
     }
 
+    /// <inheritdoc/>
     public void Maximum(ReadOnlySpan<Half> left, ReadOnlySpan<Half> right, Span<Half> output)
     {
         RequireBinary(left.Length, right.Length, output.Length);
         TensorPrimitives.Max(left, right, output);
     }
 
+    /// <inheritdoc/>
     public void Exp(ReadOnlySpan<Half> input, Span<Half> output)
     {
         RequireOutput(input.Length, output.Length);
         TensorPrimitives.Exp(input, output);
     }
 
+    /// <inheritdoc/>
     public void Tanh(ReadOnlySpan<Half> input, Span<Half> output)
     {
         RequireOutput(input.Length, output.Length);
         TensorPrimitives.Tanh(input, output);
     }
 
+    /// <inheritdoc/>
     public void Sigmoid(ReadOnlySpan<Half> input, Span<Half> output)
     {
         RequireOutput(input.Length, output.Length);
@@ -146,6 +175,7 @@ public sealed class CpuPrimitiveOperatorBackend : IPrimitiveOperatorBackend
             PromotedHalfUnary(input, output, sigmoid: true);
     }
 
+    /// <inheritdoc/>
     public void ReciprocalSquareRoot(ReadOnlySpan<Half> input, Span<Half> output)
     {
         RequireOutput(input.Length, output.Length);
@@ -155,20 +185,26 @@ public sealed class CpuPrimitiveOperatorBackend : IPrimitiveOperatorBackend
             PromotedHalfUnary(input, output, sigmoid: false);
     }
 
+    /// <inheritdoc/>
     public void Square(ReadOnlySpan<Half> input, Span<Half> output)
     {
         RequireOutput(input.Length, output.Length);
         TensorPrimitives.Multiply(input, input, output);
     }
 
+    /// <inheritdoc/>
     public void Relu(ReadOnlySpan<Half> input, Span<Half> output)
     {
         RequireOutput(input.Length, output.Length);
         TensorPrimitives.Max(input, (Half)0, output);
     }
+    /// <inheritdoc/>
     public Half ReduceSum(ReadOnlySpan<Half> input) => (Half)ReduceSumHalf(input);
+    /// <inheritdoc/>
     public Half ReduceMean(ReadOnlySpan<Half> input) => input.IsEmpty ? throw new ArgumentException("The input cannot be empty.", nameof(input)) : (Half)(ReduceSumHalf(input) / input.Length);
+    /// <inheritdoc/>
     public void MatVec(ReadOnlySpan<Half> matrix, ReadOnlySpan<Half> input, Span<Half> output, int rows, int columns) => MatVecHalf(matrix, input, output, rows, columns);
+    /// <inheritdoc/>
     public void GatherRow(ReadOnlySpan<Half> table, int rowIndex, int rowLength, Span<Half> output) => GatherRowCore(table, rowIndex, rowLength, output);
 
     private static void CopyCore<T>(ReadOnlySpan<T> input, Span<T> output)

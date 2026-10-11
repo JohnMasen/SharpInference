@@ -1,7 +1,11 @@
 namespace SharpInference.Graphs;
 
+/// <summary>Describes a contiguous tensor view at a byte offset within a graph resource.</summary>
+/// <param name="ByteOffset">The byte offset into the backing source.</param>
+/// <param name="Tensor">The tensor element type, dimensions, and layout.</param>
 public sealed record GraphTensorView(ulong ByteOffset, TensorDescriptor Tensor)
 {
+    /// <summary>Gets the number of bytes occupied by the tensor view.</summary>
     public ulong ByteLength => ByteLengthOf(Tensor);
 
     internal static ulong ByteLengthOf(TensorDescriptor tensor)

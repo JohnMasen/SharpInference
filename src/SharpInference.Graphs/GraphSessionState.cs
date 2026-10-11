@@ -1,15 +1,30 @@
 namespace SharpInference.Graphs;
 
+/// <summary>Contains the dimensions and FP32 values of a named graph state entry.</summary>
+/// <param name="Name">The state entry name.</param>
+/// <param name="Dimensions">The tensor dimension sizes in axis order.</param>
+/// <param name="Values">The state tensor values.</param>
 public sealed record GraphStateValue(string Name, IReadOnlyList<int> Dimensions, float[] Values);
 
+/// <summary>Reads and restores named graph state values for a processor session.</summary>
 public interface IProcessorStateExecutor
 {
+    /// <summary>Reads the named graph state entries as dimensioned FP32 values.</summary>
+    /// <param name="graph">The ordered graph state entries and their compatibility schema.</param>
     IReadOnlyList<GraphStateValue> ReadState(GraphState graph);
+    /// <summary>Restores named graph state entries from dimensioned FP32 values.</summary>
+    /// <param name="graph">The ordered graph state entries and their compatibility schema.</param>
+    /// <param name="values">The state tensor values.</param>
     void WriteState(GraphState graph, IReadOnlyList<GraphStateValue> values);
 }
 
+/// <summary>Transfers named FP32 state between graph bindings and a model state object.</summary>
 public static class GraphSessionStateAccess
 {
+    /// <summary>Reads named graph state entries as dimensioned FP32 values.</summary>
+    /// <param name="graph">The ordered graph state entries and their compatibility schema.</param>
+    /// <param name="resources">The graph resource descriptors.</param>
+    /// <param name="state">The model state exposing named FP32 host views.</param>
     public static IReadOnlyList<GraphStateValue> Read(
         GraphState graph, IReadOnlyList<GraphResource> resources, INamedFloat32ModelState state)
     {
@@ -18,6 +33,11 @@ public static class GraphSessionStateAccess
             new GraphStateValue(view.Name, view.Dimensions.ToArray(), (float[])view.Values.Clone())).ToArray();
     }
 
+    /// <summary>Validates and restores named graph state entries from dimensioned FP32 values.</summary>
+    /// <param name="graph">The ordered graph state entries and their compatibility schema.</param>
+    /// <param name="resources">The graph resource descriptors.</param>
+    /// <param name="state">The model state exposing named FP32 host views.</param>
+    /// <param name="values">The state tensor values.</param>
     public static void Write(
         GraphState graph, IReadOnlyList<GraphResource> resources, INamedFloat32ModelState state,
         IReadOnlyList<GraphStateValue> values)

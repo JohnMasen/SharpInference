@@ -5,6 +5,9 @@ using SharpInference.Graphs;
 
 namespace SharpInference.Backends.Cpu;
 
+/// <summary>Contains output tensors and the state snapshot produced by one CPU graph invocation.</summary>
+/// <param name="Outputs">Owned output arrays keyed by graph resource identifier.</param>
+/// <param name="State">The ordered state tensors after graph execution.</param>
 public sealed record CpuPrimitiveGraphResult(
     IReadOnlyDictionary<ResourceId, Array> Outputs,
     IReadOnlyList<GraphStateValue> State);
@@ -53,6 +56,7 @@ public sealed class CpuPrimitiveGraphExecutor
         float FillValue, int SliceAxis, int SliceStart, int SliceLength, int SliceOuter, int SliceInner,
         FusedStep[]? Steps = null, bool StraightLine = false);
 
+    /// <summary>Gets the execution graph whose resources and nodes are bound to this executor.</summary>
     public ExecutionGraph Graph => graph;
 
     /// <summary>
@@ -67,6 +71,10 @@ public sealed class CpuPrimitiveGraphExecutor
     {
     }
 
+    /// <summary>Creates a CPU executor from a logical graph with rewriting disabled, copying catalog weights.</summary>
+    /// <param name="logical">The logical graph to optimize with rewriting disabled before execution.</param>
+    /// <param name="catalog">The model tensor catalog from which graph weights are copied.</param>
+    /// <param name="backend">The primitive operator backend, or null to use the standard CPU implementation.</param>
     public CpuPrimitiveGraphExecutor(LogicalGraph logical, IModelTensorCatalog catalog,
         IPrimitiveOperatorBackend? backend = null)
         : this(new GraphOptimizer().Optimize(logical,
@@ -75,6 +83,10 @@ public sealed class CpuPrimitiveGraphExecutor
     {
     }
 
+    /// <summary>Creates a CPU executor that copies catalog weights and validates the dense execution graph.</summary>
+    /// <param name="graph">The dense execution graph whose resources and nodes are prepared.</param>
+    /// <param name="catalog">The model tensor catalog from which graph weights are copied.</param>
+    /// <param name="backend">The primitive operator backend, or null to use the standard CPU implementation.</param>
     public CpuPrimitiveGraphExecutor(ExecutionGraph graph, IModelTensorCatalog catalog,
         IPrimitiveOperatorBackend? backend = null)
         : this(graph, catalog ?? throw new ArgumentNullException(nameof(catalog)), backend,
@@ -238,6 +250,9 @@ public sealed class CpuPrimitiveGraphExecutor
             borrowed[slots[id]] = tensor;
     }
 
+    /// <summary>Executes the graph with explicit inputs and state tensors, returning owned outputs and a new state snapshot.</summary>
+    /// <param name="inputs">Input tensor arrays keyed by their graph resource identifiers.</param>
+    /// <param name="state">The initial state tensors matching graph state order and dimensions.</param>
     public CpuPrimitiveGraphResult Execute(IReadOnlyDictionary<ResourceId, Array> inputs,
         IReadOnlyList<GraphStateValue>? state = null)
     {

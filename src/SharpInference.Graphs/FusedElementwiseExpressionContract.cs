@@ -2,32 +2,51 @@ using System.Text.Json;
 
 namespace SharpInference.Graphs;
 
+/// <summary>Provides implementations for fused elementwise expressions with a specified signature and tensor shape.</summary>
 public interface IFusedElementwiseExpressionProvider
 {
+    /// <summary>Returns backend implementations matching the fused expression signature and tensor descriptor.</summary>
+    /// <param name="signature">The ordered input and output element-type signature.</param>
+    /// <param name="tensor">The tensor element type, dimensions, and layout.</param>
     IReadOnlyList<OperatorImplementationDescription> GetExpressionImplementations(
         OperatorSignature signature, TensorDescriptor tensor);
 }
 
+/// <summary>References either an expression input or an earlier instruction result.</summary>
+/// <param name="InputIndex">The zero-based expression input index, or null when referencing a step.</param>
+/// <param name="StepIndex">The zero-based earlier instruction index, or null when referencing an input.</param>
 public sealed record ElementwiseOperand(int? InputIndex = null, int? StepIndex = null);
 
+/// <summary>Describes one primitive operation and its operands in a fused expression.</summary>
+/// <param name="Operation">The operation contract identifier.</param>
+/// <param name="Operands">The references to inputs or preceding step results.</param>
 public sealed record ElementwiseInstruction(
     GraphOperationId Operation, IReadOnlyList<ElementwiseOperand> Operands);
 
+/// <summary>Describes an ordered expression whose instruction results are materialized in FP32.</summary>
+/// <param name="InputCount">The number of external expression inputs.</param>
+/// <param name="Steps">The expression instructions in execution order.</param>
 public sealed record FusedElementwiseExpression(
     int InputCount, IReadOnlyList<ElementwiseInstruction> Steps);
 
 /// <summary>Steps execute in order, materializing each result as FP32 without reassociation.</summary>
 public static class FusedElementwiseExpressionContract
 {
+    /// <summary>The versioned operation identifier for an ordered fused elementwise expression.</summary>
     public static readonly GraphOperationId Operation = new("core.fused-elementwise-expression", 1);
+    /// <summary>The attribute key storing the serialized fused elementwise expression.</summary>
     public const string Attribute = "expression";
 
+    /// <summary>Validates the typed attribute value and encodes it as portable operation attributes.</summary>
+    /// <param name="expression">The ordered fused elementwise expression.</param>
     public static IReadOnlyDictionary<string, string> ToAttributes(FusedElementwiseExpression expression)
     {
         Validate(expression);
         return new Dictionary<string, string> { [Attribute] = JsonSerializer.Serialize(expression) };
     }
 
+    /// <summary>Reads and validates the fused elementwise expression and its node bindings.</summary>
+    /// <param name="node">The operation node to inspect.</param>
     public static FusedElementwiseExpression Read(ExecutionNode node)
     {
         ArgumentNullException.ThrowIfNull(node);
@@ -60,6 +79,9 @@ public static class FusedElementwiseExpressionContract
         return expression;
     }
 
+    /// <summary>Reads and validates the fused elementwise expression and its node bindings.</summary>
+    /// <param name="node">The operation node to inspect.</param>
+    /// <param name="resources">The graph resource descriptors.</param>
     public static FusedElementwiseExpression Read(
         ExecutionNode node, IReadOnlyDictionary<ResourceId, GraphResource> resources)
     {
@@ -83,6 +105,8 @@ public static class FusedElementwiseExpressionContract
         return expression;
     }
 
+    /// <summary>Returns the supported elementwise operation&apos;s operand count, or zero for an unsupported operation.</summary>
+    /// <param name="operation">The operation contract identifier.</param>
     public static int Arity(GraphOperationId operation)
     {
         if (operation == PrimitiveGraphOperations.Add ||

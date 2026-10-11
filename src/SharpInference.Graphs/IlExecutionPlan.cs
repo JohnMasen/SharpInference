@@ -3,8 +3,11 @@ using System.Xml.Linq;
 
 namespace SharpInference.Graphs;
 
+/// <summary>Represents an intermediate execution plan while retaining the original logical graph structure when possible.</summary>
 public sealed class IlExecutionPlan : IExecutionPlanningGraph
 {
+    /// <summary>Creates an intermediate execution plan from a validated logical graph.</summary>
+    /// <param name="graph">The graph supplying operations and resource binding metadata.</param>
     public IlExecutionPlan(LogicalGraph graph)
     {
         ArgumentNullException.ThrowIfNull(graph);
@@ -42,20 +45,34 @@ public sealed class IlExecutionPlan : IExecutionPlanningGraph
     }
 
     private LogicalGraph Graph { get; }
+    /// <summary>Gets the retained ordered graph structure, or null when only expanded nodes are available.</summary>
     public GraphStructure? Structure => PreservesStructure ? Graph.Structure : null;
     private bool PreservesStructure { get; }
+    /// <summary>Gets the graph&apos;s architecture identifier, IR version, and name.</summary>
     public GraphIdentity Identity => Graph.Identity;
+    /// <summary>Gets the model dimensions, attributes, and state ABI signature.</summary>
     public GraphModelSignature Model => Graph.Model;
+    /// <summary>Gets the graph resource descriptors.</summary>
     public IReadOnlyList<GraphResource> Resources { get; }
+    /// <summary>Gets the graph regions and their hierarchy metadata.</summary>
     public IReadOnlyList<GraphRegion> Regions => Graph.Regions;
+    /// <summary>Gets the operation nodes in execution order.</summary>
     public IReadOnlyList<ExecutionNode> Nodes { get; }
+    /// <summary>Gets the graph input resource identifiers.</summary>
     public IReadOnlyList<ResourceId> Inputs => Graph.Inputs;
+    /// <summary>Gets the graph output resource identifiers.</summary>
     public IReadOnlyList<ResourceId> Outputs => Graph.Outputs;
+    /// <summary>Gets the named state entries and their compatibility schema.</summary>
     public GraphState GraphState => Graph.GraphState;
+    /// <summary>Gets the execution node owning each private resource.</summary>
     public IReadOnlyDictionary<ResourceId, ExecutionNodeId> InternalResourceOwners { get; }
 
+    /// <summary>Creates an intermediate plan with replacement resources and execution nodes.</summary>
+    /// <param name="resources">The graph resource descriptors.</param>
+    /// <param name="nodes">The graph or plan operation nodes.</param>
     public IlExecutionPlan WithNodes(IEnumerable<GraphResource> resources, IEnumerable<ExecutionNode> nodes) => new(this, resources, nodes);
 
+    /// <summary>Serializes the graph or execution plan to XML.</summary>
     public string Serialize()
     {
         var graph = ToLogicalGraph();
@@ -66,11 +83,14 @@ public sealed class IlExecutionPlan : IExecutionPlanningGraph
             new XAttribute("kind", "il"), XElement.Parse(GraphXml.Serialize(graph))).ToString();
     }
 
+    /// <summary>Returns a logical graph corresponding to the current intermediate plan.</summary>
     public LogicalGraph ToLogicalGraph() => PreservesStructure ? Graph : new LogicalGraph(Identity, Model, Resources, Regions,
                 Nodes.Select(node => new LogicalNode(new(node.Id.Value), node.Operation, node.Region, node.Resources,
                     node.Dependencies.Select(dependency => new LogicalNodeId(dependency.Value)).ToArray(),
                     node.Attributes, node.Requirements)), Inputs, Outputs, GraphState);
 
+    /// <summary>Reads and validates an intermediate execution plan from XML.</summary>
+    /// <param name="xml">The serialized XML document.</param>
     public static IlExecutionPlan Deserialize(string xml)
     {
         try

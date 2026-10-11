@@ -2,10 +2,14 @@ using SharpInference.Backends.D3D12Vm;
 
 namespace SharpInference.Runtime.D3D12;
 
+/// <summary>Exposes Direct3D 12 VM task statistics as named backend counters and timings.</summary>
+/// <param name="readStatistics">The callback returning current Direct3D 12 task statistics.</param>
 public sealed class D3D12VmDiagnostics(Func<D3D12VmTaskStatistics> readStatistics) : IVmBackendDiagnostics
 {
+    /// <summary>Gets the current snapshot returned by the task-statistics reader.</summary>
     public D3D12VmTaskStatistics TaskStatistics => readStatistics();
 
+    /// <inheritdoc/>
     public IReadOnlyDictionary<string, double> ReadMetrics()
     {
         var value = TaskStatistics;

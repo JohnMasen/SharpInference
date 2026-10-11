@@ -3,8 +3,13 @@ using SharpInference.Vm;
 
 namespace SharpInference.Vm.Optimization;
 
+/// <summary>Copies model tensor data into compatible global VM storage.</summary>
 public static class VmModelBindings
 {
+    /// <summary>Copies a model tensor's bytes into a matching global slot's storage.</summary>
+    /// <param name="catalog">The model tensor catalog providing global tensor values.</param>
+    /// <param name="slot">The global slot whose descriptor must match the catalog tensor.</param>
+    /// <param name="storage">The storage receiving model tensor bytes.</param>
     public static void InitializeGlobal(IModelTensorCatalog catalog, VmSlot slot, IVmStorage storage)
     {
         ArgumentNullException.ThrowIfNull(catalog);

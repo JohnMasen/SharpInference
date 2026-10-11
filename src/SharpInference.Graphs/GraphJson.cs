@@ -3,6 +3,7 @@ using System.Text.Json.Serialization;
 
 namespace SharpInference.Graphs;
 
+/// <summary>Serializes and deserializes logical and execution graphs in JSON.</summary>
 public static class GraphJson
 {
     private static readonly JsonSerializerOptions Options = new()
@@ -16,6 +17,8 @@ public static class GraphJson
         UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow,
     };
 
+    /// <summary>Serializes the graph or execution plan to JSON.</summary>
+    /// <param name="graph">The graph supplying operations and resource binding metadata.</param>
     public static string Serialize(LogicalGraph graph)
     {
         ArgumentNullException.ThrowIfNull(graph);
@@ -33,6 +36,8 @@ public static class GraphJson
         return JsonSerializer.Serialize(ToDto(graph), Options);
     }
 
+    /// <summary>Serializes the graph or execution plan to JSON.</summary>
+    /// <param name="graph">The graph supplying operations and resource binding metadata.</param>
     public static string Serialize(ExecutionGraph graph)
     {
         ArgumentNullException.ThrowIfNull(graph);
@@ -148,8 +153,13 @@ public static class GraphJson
         View = binding.View is { } view ? new { view.ByteOffset, view.Tensor } : null,
     };
 
+    /// <summary>Reads and validates a logical graph from JSON.</summary>
+    /// <param name="json">The serialized graph JSON.</param>
     public static LogicalGraph DeserializeLogical(string json) => DeserializeLogical(json, null);
 
+    /// <summary>Reads and validates a logical graph from JSON.</summary>
+    /// <param name="json">The serialized graph JSON.</param>
+    /// <param name="legacyReader">The optional architecture-specific reader for legacy model signatures.</param>
     public static LogicalGraph DeserializeLogical(string json, IGraphModelSignatureReader? legacyReader)
     {
         using var document = JsonDocument.Parse(json);
@@ -181,8 +191,13 @@ public static class GraphJson
             nodes, parts.Inputs, parts.Outputs, parts.GraphState);
     }
 
+    /// <summary>Reads and validates a execution graph from JSON.</summary>
+    /// <param name="json">The serialized graph JSON.</param>
     public static ExecutionGraph DeserializeExecution(string json) => DeserializeExecution(json, null);
 
+    /// <summary>Reads and validates a execution graph from JSON.</summary>
+    /// <param name="json">The serialized graph JSON.</param>
+    /// <param name="legacyReader">The optional architecture-specific reader for legacy model signatures.</param>
     public static ExecutionGraph DeserializeExecution(string json, IGraphModelSignatureReader? legacyReader)
     {
         using var document = JsonDocument.Parse(json);

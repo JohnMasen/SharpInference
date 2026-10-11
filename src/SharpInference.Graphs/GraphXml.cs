@@ -4,6 +4,7 @@ using System.Xml.Linq;
 
 namespace SharpInference.Graphs;
 
+/// <summary>Serializes and deserializes logical and execution graphs in XML.</summary>
 public static partial class GraphXml
 {
     private const int SchemaVersion = 1;
@@ -11,6 +12,8 @@ public static partial class GraphXml
     private const int MaxElements = 100_000;
     private const int MaxDepth = 64;
 
+    /// <summary>Serializes the graph or execution plan to XML.</summary>
+    /// <param name="graph">The graph supplying operations and resource binding metadata.</param>
     public static string Serialize(LogicalGraph graph)
     {
         ArgumentNullException.ThrowIfNull(graph);
@@ -25,6 +28,8 @@ public static partial class GraphXml
         return Write(root);
     }
 
+    /// <summary>Serializes the graph or execution plan to XML.</summary>
+    /// <param name="graph">The graph supplying operations and resource binding metadata.</param>
     public static string Serialize(ExecutionGraph graph)
     {
         ArgumentNullException.ThrowIfNull(graph);
@@ -58,8 +63,13 @@ public static partial class GraphXml
         return Write(root);
     }
 
+    /// <summary>Reads and validates a logical graph from XML.</summary>
+    /// <param name="xml">The serialized XML document.</param>
     public static LogicalGraph DeserializeLogical(string xml) => DeserializeLogical(xml, null);
 
+    /// <summary>Reads and validates a logical graph from XML.</summary>
+    /// <param name="xml">The serialized XML document.</param>
+    /// <param name="legacyReader">The optional architecture-specific reader for legacy model signatures.</param>
     public static LogicalGraph DeserializeLogical(string xml, IGraphModelSignatureReader? legacyReader)
     {
         var root = Read(xml, "LogicalGraph");
@@ -83,8 +93,13 @@ public static partial class GraphXml
         }
     }
 
+    /// <summary>Reads and validates a execution graph from XML.</summary>
+    /// <param name="xml">The serialized XML document.</param>
     public static ExecutionGraph DeserializeExecution(string xml) => DeserializeExecution(xml, null);
 
+    /// <summary>Reads and validates a execution graph from XML.</summary>
+    /// <param name="xml">The serialized XML document.</param>
+    /// <param name="legacyReader">The optional architecture-specific reader for legacy model signatures.</param>
     public static ExecutionGraph DeserializeExecution(string xml, IGraphModelSignatureReader? legacyReader)
     {
         var root = Read(xml, "ExecutionGraph");

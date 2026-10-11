@@ -3,8 +3,13 @@ using SharpInference.Vm;
 
 namespace SharpInference.Vm.Optimization;
 
+/// <summary>Checks that VM slot and state contracts match model-owned graph binding metadata.</summary>
 public static class VmGraphBindingValidator
 {
+    /// <summary>Checks graph tensor slots and named state descriptors against the VM artifact.</summary>
+    /// <param name="program">The VM artifact whose slot and state descriptors must match graph metadata.</param>
+    /// <param name="graph">The graph or binding metadata to inspect.</param>
+    /// <param name="allowTokenPrefill">Whether a scalar graph token input may bind a larger prefill token slot.</param>
     public static void Validate(VmProgram program, IGraphBindingMetadata graph, bool allowTokenPrefill = false)
     {
         ArgumentNullException.ThrowIfNull(program);

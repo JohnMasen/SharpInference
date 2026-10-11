@@ -4,11 +4,14 @@ using SharpInference.Gguf;
 
 namespace SharpInference.Architectures.Phi4;
 
+/// <summary>Defines matrix-vector projection of a GGUF weight tensor into a caller-provided output buffer.</summary>
 public interface IPhi4MatrixProjector
 {
+    /// <summary>Projects the input vector through the GGUF weight matrix and writes the result into the supplied output span.</summary>
     void Project(GgufModelTensor weight, ReadOnlySpan<float> input, Span<float> output);
 }
 
+/// <summary>Provides host-side Phi-4 transformer inference with optional matrix projection acceleration and LoRA adapters.</summary>
 public sealed class Phi4TextModel
 {
     internal const int EmbeddingSize = 3072;
@@ -42,6 +45,7 @@ public sealed class Phi4TextModel
         ropeScale = text.GetMetadata<float>("phi3.rope.scaling.attn_factor");
     }
 
+    /// <summary>Creates a new text decoding session with independent key/value caches and the selected adapter.</summary>
     public Phi4TextSession CreateSession(Phi4Adapter adapter = Phi4Adapter.None) =>
         new(this, adapter);
 
@@ -307,6 +311,7 @@ public sealed class Phi4TextModel
     }
 }
 
+/// <summary>Maintains the position and per-layer key/value caches for host-side Phi-4 decoding.</summary>
 public sealed class Phi4TextSession
 {
     private readonly Phi4TextModel model;
@@ -323,15 +328,19 @@ public sealed class Phi4TextSession
             .ToArray();
     }
 
+    /// <summary>Gets the LoRA adapter applied during this decoding session.</summary>
     public Phi4Adapter Adapter { get; }
+    /// <summary>Gets the zero-based position at which the next input will be decoded.</summary>
     public int Position { get; private set; }
 
+    /// <summary>Decodes one token ID, updates the key/value caches and position, and returns the vocabulary logits.</summary>
     public float[] ForwardToken(int token)
     {
         model.Embed(token, hidden);
         return ForwardEmbedding(hidden);
     }
 
+    /// <summary>Decodes one embedding vector, updates the key/value caches and position, and returns the vocabulary logits.</summary>
     public float[] ForwardEmbedding(ReadOnlySpan<float> embedding)
     {
         if (embedding.Length != hidden.Length)

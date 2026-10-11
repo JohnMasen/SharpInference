@@ -1,13 +1,25 @@
 namespace SharpInference.Architectures.Phi4;
 
+/// <summary>Specifies the byte ordering of packed image pixels accepted by the Phi-4 image processor.</summary>
 public enum Phi4PixelFormat
 {
+    /// <summary>Three bytes per pixel in red, green, blue order.</summary>
     Rgb24,
+    /// <summary>Three bytes per pixel in blue, green, red order.</summary>
     Bgr24,
+    /// <summary>Four bytes per pixel in red, green, blue, alpha order; alpha is ignored.</summary>
     Rgba32,
+    /// <summary>Four bytes per pixel in blue, green, red, alpha order; alpha is ignored.</summary>
     Bgra32,
 }
 
+/// <summary>Contains normalized image crops, patch attention masks, and high-definition image layout information.</summary>
+/// <param name="PixelValues">The normalized planar RGB values for the global crop followed by local crops.</param>
+/// <param name="AttentionMask">The flattened per-crop patch masks; nonzero entries mark valid patches.</param>
+/// <param name="CropCount">The number of crops, including the global crop.</param>
+/// <param name="TargetHeight">The padded local tile-grid height in pixels.</param>
+/// <param name="TargetWidth">The padded local tile-grid width in pixels.</param>
+/// <param name="ImageTokenCount">The number of projected image tokens, including separator tokens.</param>
 public sealed record Phi4ImageFeatures(
     float[] PixelValues,
     float[] AttentionMask,
@@ -16,19 +28,25 @@ public sealed record Phi4ImageFeatures(
     int TargetWidth,
     int ImageTokenCount)
 {
+    /// <summary>The width and height, in pixels, of each global or local image crop.</summary>
     public const int CropSize = 448;
+    /// <summary>The width and height, in patches, of each crop's attention mask.</summary>
     public const int MaskSize = 32;
 }
 
+/// <summary>Resizes, normalizes, and tiles packed images into global and local crops for Phi-4 vision encoding.</summary>
+/// <param name="maximumTiles">The maximum number of local image tiles, from 1 through 36; the global crop is additional.</param>
 public sealed class Phi4ImageProcessor(int maximumTiles = 36)
 {
     private const int CropSize = Phi4ImageFeatures.CropSize;
     private const int MaskSize = Phi4ImageFeatures.MaskSize;
 
+    /// <summary>Gets the maximum number of local image tiles, excluding the global crop.</summary>
     public int MaximumTiles { get; } = maximumTiles is > 0 and <= 36
         ? maximumTiles
         : throw new ArgumentOutOfRangeException(nameof(maximumTiles));
 
+    /// <summary>Resizes and normalizes packed pixels and returns global and local RGB crops with their patch masks.</summary>
     public Phi4ImageFeatures Process(
         ReadOnlySpan<byte> pixels,
         int width,

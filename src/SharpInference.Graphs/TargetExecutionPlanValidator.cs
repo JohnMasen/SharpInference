@@ -1,7 +1,10 @@
 namespace SharpInference.Graphs;
 
+/// <summary>Validates target plan definitions, arguments, storage, scheduling, and binding contracts.</summary>
 public static class TargetExecutionPlanValidator
 {
+    /// <summary>Validates structural, binding, and operation contracts, throwing when a contract is violated.</summary>
+    /// <param name="plan">The prepared backend executable plan.</param>
     public static void Validate(TargetExecutionPlan plan)
     {
         ArgumentNullException.ThrowIfNull(plan);

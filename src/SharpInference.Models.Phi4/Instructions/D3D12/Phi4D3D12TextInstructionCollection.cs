@@ -3,18 +3,22 @@ using SharpInference.Instructions.D3D12;
 
 namespace SharpInference.Instructions.Phi4.D3D12;
 
+/// <summary>Adapts Direct3D 12 transformer instructions and dispatch bindings to the Phi-4 decoder collection.</summary>
 public sealed class Phi4D3D12TextInstructionCollection : IInstructionCollectionProvider, IGraphInstructionProvider
 {
     private readonly GpuTransformerInstructionCollection transformer = new();
+    /// <inheritdoc/>
     public IReadOnlyList<InstructionCollectionDescription> QueryInstructionCollection() =>
         [new(Phi4InstructionCollectionIds.TextFloat32, "Phi4 FP32 decoder operations", 1, InstructionTarget.Direct3D12)];
 
+    /// <inheritdoc/>
     public IReadOnlyList<Instruction> QueryInstruction(Guid collectionId, string instructionName) =>
         collectionId == Phi4InstructionCollectionIds.TextFloat32
             ? transformer.QueryInstruction(InstructionCollectionIds.TransformerFloat32, instructionName)
                 .Select(instruction => (Instruction)new TextInstruction(instruction)).ToArray()
             : [];
 
+    /// <inheritdoc/>
     public IReadOnlyList<GraphInstructionBinding> QueryGraphInstructionBindings() =>
         Phi4TextGraphOperations.Bindings(InstructionTarget.Direct3D12)
             .Where(binding => binding.Operation != Phi4TextGraphOperations.AdvancePosition)

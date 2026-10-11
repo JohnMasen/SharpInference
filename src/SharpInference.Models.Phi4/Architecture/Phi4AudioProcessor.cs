@@ -1,7 +1,13 @@
 namespace SharpInference.Architectures.Phi4;
 
+/// <summary>Contains frame-major log-mel features and the projected audio sequence length.</summary>
+/// <param name="Values">The flattened frame-major log-mel feature values.</param>
+/// <param name="FrameCount">The number of feature frames.</param>
+/// <param name="FeatureCount">The number of mel features per frame.</param>
+/// <param name="EmbedSize">The number of projected audio tokens after eightfold temporal subsampling.</param>
 public sealed record Phi4AudioFeatures(float[] Values, int FrameCount, int FeatureCount, int EmbedSize)
 {
+    /// <summary>Returns the log-mel feature slice for the specified zero-based frame index.</summary>
     public ReadOnlySpan<float> GetFrame(int index)
     {
         if ((uint)index >= (uint)FrameCount)
@@ -10,6 +16,7 @@ public sealed record Phi4AudioFeatures(float[] Values, int FrameCount, int Featu
     }
 }
 
+/// <summary>Extracts 80-bin log-mel features from interleaved PCM audio for the Phi-4 audio encoder.</summary>
 public sealed class Phi4AudioProcessor
 {
     private const int TargetSampleRate = 16000;
@@ -22,6 +29,11 @@ public sealed class Phi4AudioProcessor
     private readonly double[] hamming = CreateHamming(WindowLength);
     private readonly float[] mel = CreateMelBank();
 
+    /// <summary>Averages PCM channels and extracts windowed log-mel features with the projected audio token count.</summary>
+    /// <param name="interleavedSamples">The interleaved floating-point PCM samples.</param>
+    /// <param name="sampleRate">The source rate in Hz, from 16000 through 31999. Samples are not resampled before feature extraction.</param>
+    /// <param name="channels">The positive number of interleaved channels; multiple channels are averaged to mono.</param>
+    /// <returns>The frame-major 80-bin log-mel features and the audio token count after subsampling.</returns>
     public Phi4AudioFeatures Process(
         ReadOnlySpan<float> interleavedSamples,
         int sampleRate,

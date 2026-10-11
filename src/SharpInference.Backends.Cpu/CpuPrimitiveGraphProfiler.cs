@@ -18,6 +18,7 @@ public sealed class CpuPrimitiveGraphProfiler : IDisposable
         active = this;
     }
 
+    /// <summary>Starts profiling graph operations on the current thread, preserving any enclosing profiler.</summary>
     public static CpuPrimitiveGraphProfiler Start() => new();
 
     internal static CpuPrimitiveGraphProfiler? Active => active;
@@ -29,11 +30,13 @@ public sealed class CpuPrimitiveGraphProfiler : IDisposable
         timings[operation] = (current.Ticks + elapsed, current.Calls + 1);
     }
 
+    /// <summary>Returns recorded operation timings ordered by decreasing elapsed time.</summary>
     public IReadOnlyList<CpuGraphOperationTiming> Snapshot() => timings
         .Select(entry => new CpuGraphOperationTiming(entry.Key, entry.Value.Calls,
             entry.Value.Ticks * 1000.0 / Stopwatch.Frequency))
         .OrderByDescending(entry => entry.Milliseconds).ToArray();
 
+    /// <inheritdoc/>
     public void Dispose()
     {
         if (disposed) return;
@@ -44,4 +47,8 @@ public sealed class CpuPrimitiveGraphProfiler : IDisposable
     }
 }
 
+/// <summary>Reports cumulative call count and elapsed CPU time for one graph operation.</summary>
+/// <param name="Operation">The graph operation name.</param>
+/// <param name="Calls">The number of recorded invocations.</param>
+/// <param name="Milliseconds">The accumulated CPU elapsed time in milliseconds.</param>
 public sealed record CpuGraphOperationTiming(string Operation, int Calls, double Milliseconds);

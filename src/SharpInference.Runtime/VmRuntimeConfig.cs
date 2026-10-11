@@ -6,25 +6,45 @@ namespace SharpInference.Runtime;
 /// <summary>Configures VM queueing, compilation, storage, and optimization behavior.</summary>
 public sealed class VmRuntimeConfig
 {
+    /// <summary>Gets the number of reusable VM instances dedicated to prompt prefill.</summary>
     public int PrefillInstances { get; init; } = 2;
+    /// <summary>Gets the number of VM instances available for whole-generation inference.</summary>
     public int InferenceInstances { get; init; } = 2;
+    /// <summary>Gets the maximum number of queued prefill requests.</summary>
     public int PrefillQueueCapacity { get; init; } = 16;
+    /// <summary>Gets the maximum number of queued inference requests.</summary>
     public int InferenceQueueCapacity { get; init; } = 16;
+    /// <summary>Gets the maximum token count accepted by a prefill request.</summary>
     public int MaximumPrefillTokens { get; init; } = 65536;
+    /// <summary>Gets the compiled prefill capacity used by VM optimization.</summary>
     public int PrefillCapacity { get; init; } = 64;
+    /// <summary>Gets the thread-group size used by generated GPU dispatches.</summary>
     public uint ThreadsPerGroup { get; init; } = 64;
+    /// <summary>Gets whether optimization may reuse local storage across non-overlapping resource lifetimes.</summary>
     public bool ReuseLocalStorage { get; init; } = true;
+    /// <summary>Gets whether optimization may preserve weights in native half precision.</summary>
     public bool NativeHalfWeights { get; init; } = true;
+    /// <summary>Gets whether optimization may use views of weight storage instead of materialized copies.</summary>
     public bool WeightViews { get; init; } = true;
+    /// <summary>Gets whether optimization may represent eligible tensor transformations as storage views.</summary>
     public bool TensorViews { get; init; } = true;
+    /// <summary>Gets the GPU matrix-vector implementation selection mode.</summary>
     public GpuMatVecMode GpuMatVecMode { get; init; } = GpuMatVecMode.Default;
+    /// <summary>Gets the explicit cost profile required when GPU matrix-vector selection uses profile mode.</summary>
     public TierOneCostProfile? GpuMatVecCostProfile { get; init; }
+    /// <summary>Gets the optional measured cost profile enabling tier-one plan optimization.</summary>
     public TierOneCostProfile? TierOneCostProfile { get; init; }
+    /// <summary>Gets the maximum number of states explored during tier-one optimization.</summary>
     public int TierOneMaximumSearchStates { get; init; } = 100_000;
+    /// <summary>Gets the optional XML VM program path, mutually exclusive with an execution plan or artifact directory.</summary>
     public string? ProgramPath { get; init; }
+    /// <summary>Gets the optional offline target execution-plan XML path, mutually exclusive with a program or artifact.</summary>
     public string? ExecutionPlanPath { get; init; }
+    /// <summary>Gets the optional directory containing an existing compiled inference artifact.</summary>
     public string? ArtifactDirectory { get; init; }
+    /// <summary>Gets the optional XML prefill program path, mutually exclusive with a prefill artifact directory.</summary>
     public string? PrefillProgramPath { get; init; }
+    /// <summary>Gets the optional directory containing a separately compiled prefill artifact.</summary>
     public string? PrefillArtifactDirectory { get; init; }
 
     /// <summary>Builds and validates VM engine queue and capacity options.</summary>

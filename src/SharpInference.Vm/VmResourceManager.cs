@@ -1,5 +1,6 @@
 namespace SharpInference.Vm;
 
+/// <summary>Allocates program resources and manages shared global storage and session bindings.</summary>
 public sealed class VmResourceManager : IDisposable
 {
     private readonly object gate = new();
@@ -8,6 +9,9 @@ public sealed class VmResourceManager : IDisposable
     private readonly Func<VmSlot, IVmStorage> allocate;
     private bool disposed;
 
+    /// <summary>Creates a resource manager with a global initializer and an optional storage allocator.</summary>
+    /// <param name="initializeGlobal">The callback initializing newly allocated global slot storage.</param>
+    /// <param name="allocate">The optional slot storage allocator; null uses managed byte arrays.</param>
     public VmResourceManager(Action<VmSlot, IVmStorage> initializeGlobal,
         Func<VmSlot, IVmStorage>? allocate = null)
     {
@@ -15,6 +19,8 @@ public sealed class VmResourceManager : IDisposable
         this.allocate = allocate ?? (slot => new VmMemoryStorage(checked((int)slot.Tensor.ByteLength)));
     }
 
+    /// <summary>Allocates and initializes global resources not already cached by binding key.</summary>
+    /// <param name="program">The program declaring the global, local, and session resource contracts.</param>
     public void PrepareGlobals(VmProgram program)
     {
         ArgumentNullException.ThrowIfNull(program);
@@ -30,6 +36,8 @@ public sealed class VmResourceManager : IDisposable
         }
     }
 
+    /// <summary>Creates owned bindings for global and local slots, leaving session slots unbound.</summary>
+    /// <param name="program">The program declaring the global, local, and session resource contracts.</param>
     public VmBindings CreateBindings(VmProgram program)
     {
         lock (gate)
@@ -69,6 +77,8 @@ public sealed class VmResourceManager : IDisposable
         }
     }
 
+    /// <summary>Allocates compatible session-scoped resources for the supplied programs.</summary>
+    /// <param name="programs">The programs whose session storage and state schemas must be compatible.</param>
     public VmSessionResources CreateSession(params VmProgram[] programs)
     {
         lock (gate)
@@ -78,6 +88,9 @@ public sealed class VmResourceManager : IDisposable
         }
     }
 
+    /// <summary>Binds a session's shared storage to the program's session-scoped slots.</summary>
+    /// <param name="bindings">The idle program bindings receiving the session resources.</param>
+    /// <param name="session">The session resources to bind.</param>
     public void BindSession(VmBindings bindings, VmSessionResources session)
     {
         ArgumentNullException.ThrowIfNull(bindings);
@@ -109,6 +122,7 @@ public sealed class VmResourceManager : IDisposable
         }
     }
 
+    /// <summary>Releases the resources owned by this object.</summary>
     public void Dispose()
     {
         List<Exception>? errors = null;
@@ -127,6 +141,7 @@ public sealed class VmResourceManager : IDisposable
     }
 }
 
+/// <summary>Owns session-scoped storage shared by programs with compatible state contracts.</summary>
 public sealed class VmSessionResources : IDisposable
 {
     private readonly object gate = new();
@@ -178,6 +193,7 @@ public sealed class VmSessionResources : IDisposable
         }
     }
 
+    /// <summary>Gets the state-only program exposing canonical named session-state slots.</summary>
     public VmProgram StateProgram { get; }
 
     internal static void ValidateContracts(IReadOnlyList<VmProgram> programs)
@@ -214,6 +230,7 @@ public sealed class VmSessionResources : IDisposable
         }
     }
 
+    /// <summary>Creates bindings exposing the session's canonical named state resources.</summary>
     public VmBindings CreateStateBindings()
     {
         lock (gate)
@@ -244,6 +261,7 @@ public sealed class VmSessionResources : IDisposable
         return entry is not null ? $"state:{entry.Name}" : $"private:{program.Name}:{slot.Id}";
     }
 
+    /// <summary>Releases the resources owned by this object.</summary>
     public void Dispose()
     {
         List<Exception>? errors = null;

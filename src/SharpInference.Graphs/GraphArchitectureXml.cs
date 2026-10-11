@@ -2,6 +2,7 @@ using System.Xml.Linq;
 
 namespace SharpInference.Graphs;
 
+/// <summary>Serializes and deserializes logical and execution graphs in XML.</summary>
 public static partial class GraphXml
 {
     private static IEnumerable<XElement> RegionMetadataXml(GraphRegion region)

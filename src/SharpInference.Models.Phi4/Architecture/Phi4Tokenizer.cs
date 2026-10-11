@@ -5,6 +5,7 @@ using System.Text.RegularExpressions;
 
 namespace SharpInference.Architectures.Phi4;
 
+/// <summary>Loads and applies the Phi-4 byte-level BPE tokenizer, special tokens, and chat template.</summary>
 public sealed class Phi4Tokenizer
 {
     private const string PretokenizerPattern =
@@ -40,14 +41,22 @@ public sealed class Phi4Tokenizer
             .ToArray();
     }
 
+    /// <summary>The token ID marking the end of text.</summary>
     public const int EndOfTextTokenId = 199999;
+    /// <summary>The token ID used as an image embedding placeholder.</summary>
     public const int ImageTokenId = 200010;
+    /// <summary>The token ID used as an audio embedding placeholder.</summary>
     public const int AudioTokenId = 200011;
+    /// <summary>The token ID introducing an assistant chat message.</summary>
     public const int AssistantTokenId = 200019;
+    /// <summary>The token ID terminating a chat message.</summary>
     public const int EndTokenId = 200020;
+    /// <summary>The token ID introducing a user chat message.</summary>
     public const int UserTokenId = 200021;
+    /// <summary>The token ID introducing a system chat message.</summary>
     public const int SystemTokenId = 200022;
 
+    /// <summary>Loads the tokenizer vocabulary, merges, and added tokens from a tokenizer JSON file.</summary>
     public static Phi4Tokenizer Load(string tokenizerJsonPath)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(tokenizerJsonPath);
@@ -96,6 +105,7 @@ public sealed class Phi4Tokenizer
         return new Phi4Tokenizer(vocabulary, mergeRanks, addedTokens);
     }
 
+    /// <summary>Tokenizes text using special-token recognition and byte-level BPE.</summary>
     public int[] Encode(string text)
     {
         ArgumentNullException.ThrowIfNull(text);
@@ -118,6 +128,7 @@ public sealed class Phi4Tokenizer
         return result.ToArray();
     }
 
+    /// <summary>Decodes token IDs into text, optionally omitting special tokens.</summary>
     public string Decode(IEnumerable<int> tokenIds, bool skipSpecialTokens = false)
     {
         ArgumentNullException.ThrowIfNull(tokenIds);
@@ -154,6 +165,7 @@ public sealed class Phi4Tokenizer
         return text.ToString();
     }
 
+    /// <summary>Formats role-tagged chat messages using the Phi-4 template and optionally appends an assistant generation prompt.</summary>
     public string FormatChat(
         IEnumerable<Phi4ChatMessage> messages,
         bool addGenerationPrompt = true)
@@ -270,4 +282,7 @@ public sealed class Phi4Tokenizer
     }
 }
 
+/// <summary>Represents a chat role and its textual content for the Phi-4 chat template.</summary>
+/// <param name="Role">The chat role, such as system, user, or assistant.</param>
+/// <param name="Content">The message text.</param>
 public sealed record Phi4ChatMessage(string Role, string Content);

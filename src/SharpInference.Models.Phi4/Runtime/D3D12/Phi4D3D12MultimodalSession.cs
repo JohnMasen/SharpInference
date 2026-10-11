@@ -4,18 +4,27 @@ using Vortice.Direct3D12;
 
 namespace SharpInference.Architectures.Phi4.D3D12;
 
+/// <summary>Contains prompt and generated tokens, decoded text, and the decoder queue submission count.</summary>
+/// <param name="InputTokenIds">The prepared prompt token IDs.</param>
+/// <param name="GeneratedTokenIds">The newly generated token IDs.</param>
+/// <param name="Text">The decoded generated text.</param>
+/// <param name="DecoderSubmissions">The decoder queue submission count reported after generation.</param>
 public sealed record Phi4D3D12GenerationResult(
     IReadOnlyList<int> InputTokenIds,
     IReadOnlyList<int> GeneratedTokenIds,
     string Text,
     ulong DecoderSubmissions);
 
+/// <summary>Selects the execution backend for audio encoding in a multimodal session.</summary>
 public enum Phi4AudioExecutionBackend
 {
+    /// <summary>Executes audio encoding on Direct3D 12.</summary>
     D3D12,
+    /// <summary>Executes audio encoding on the CPU.</summary>
     Cpu,
 }
 
+/// <summary>Coordinates media encoding, resident embedding fusion, and Direct3D 12 text generation.</summary>
 public sealed class Phi4D3D12MultimodalSession : IDisposable
 {
     private readonly object gate = new();
@@ -32,6 +41,7 @@ public sealed class Phi4D3D12MultimodalSession : IDisposable
     private readonly int maximumContext;
     private bool disposed;
 
+    /// <summary>Initializes multimodal generation with the selected GPU adapter, context and audio capacities, and audio backend.</summary>
     public Phi4D3D12MultimodalSession(
         Phi4ModelPackage package,
         int maximumContext = 4096,
@@ -82,6 +92,7 @@ public sealed class Phi4D3D12MultimodalSession : IDisposable
         }
     }
 
+    /// <summary>Encodes prepared media, fuses prompt embeddings, and greedily generates text until a stop token or the requested token limit.</summary>
     public Phi4D3D12GenerationResult Generate(
         Phi4PreparedInput input,
         int maximumNewTokens,
@@ -201,6 +212,7 @@ public sealed class Phi4D3D12MultimodalSession : IDisposable
         }
     }
 
+    /// <inheritdoc/>
     public void Dispose()
     {
         lock (gate)

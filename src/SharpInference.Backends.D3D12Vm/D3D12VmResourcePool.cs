@@ -43,15 +43,22 @@ public sealed class D3D12VmResourcePool : IDisposable
     private double computeMilliseconds;
     private double commitMilliseconds;
 
+    /// <summary>Creates a shared VM resource allocator that borrows the supplied Direct3D12 device.</summary>
+    /// <param name="device">The caller-owned Direct3D12 device, which must outlive this object.</param>
     public D3D12VmResourcePool(ID3D12Device device) =>
         Device = device ?? throw new ArgumentNullException(nameof(device));
 
     /// <summary>Live, aligned buffer lengths; excludes committed-heap alignment and driver overhead.</summary>
     public ulong AllocatedGpuBytes { get { lock (Gate) return allocatedGpuBytes; } }
+    /// <summary>Gets the number of live CPU-shadow and GPU-resource allocation pairs.</summary>
     public int AllocationCount { get { lock (Gate) return storage.Count; } }
+    /// <summary>Gets the number of executors currently attached to this pool.</summary>
     public int ExecutorCount { get { lock (Gate) return executors; } }
+    /// <summary>Gets the cumulative number of read-only global resource uploads.</summary>
     public ulong GlobalUploadCount { get { lock (Gate) return globalUploadCount; } }
+    /// <summary>Gets the cumulative bytes uploaded for read-only global resources.</summary>
     public ulong GlobalUploadBytes { get { lock (Gate) return globalUploadBytes; } }
+    /// <summary>Gets a consistent snapshot of cumulative task recordings, transfers, and wall-clock timings.</summary>
     public D3D12VmTaskStatistics TaskStatistics
     {
         get
@@ -116,11 +123,15 @@ public sealed class D3D12VmResourcePool : IDisposable
         }
     }
 
+    /// <summary>Returns the GPU virtual address associated with a pool-owned CPU backing array.</summary>
+    /// <param name="buffer">The CPU backing array that identifies a live pool allocation.</param>
     public ulong GetGpuVirtualAddress(byte[] buffer)
     {
         lock (Gate) return Find(buffer).Resource.GPUVirtualAddress;
     }
 
+    /// <summary>Reports whether a CPU backing array identifies a live allocation in this pool.</summary>
+    /// <param name="buffer">The CPU backing array that identifies a live pool allocation.</param>
     public bool Contains(byte[] buffer)
     {
         ArgumentNullException.ThrowIfNull(buffer);
@@ -280,6 +291,7 @@ public sealed class D3D12VmResourcePool : IDisposable
     private static ulong Align(ulong bytes) => checked((bytes + 3UL) & ~3UL);
     private void ThrowIfDisposed() => ObjectDisposedException.ThrowIf(disposed, this);
 
+    /// <inheritdoc/>
     public void Dispose()
     {
         lock (Gate)

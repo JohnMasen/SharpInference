@@ -3,29 +3,53 @@ using System.Text.Json.Serialization;
 namespace SharpInference.Graphs;
 
 /// <summary>Computational structure, independent of backend patterns and fusion rules.</summary>
+/// <param name="Id">The element identifier within its enclosing structure scope.</param>
 [JsonPolymorphic(TypeDiscriminatorPropertyName = "Kind")]
 [JsonDerivedType(typeof(GraphNodeElement), "Node")]
 [JsonDerivedType(typeof(GraphRegionBody), "Region")]
 [JsonDerivedType(typeof(GraphCall), "Call")]
 public abstract record GraphElement(string Id)
 {
+    /// <summary>Gets the identifiers of graph elements that must complete before this element.</summary>
     public IReadOnlyList<string> DependsOn { get; init; } = [];
 }
 
+/// <summary>Wraps a logical node as an ordered graph structure element.</summary>
+/// <param name="Node">The operation node to inspect.</param>
 public sealed record GraphNodeElement(LogicalNode Node) : GraphElement(Node.Id.Value);
 
+/// <summary>Contains the ordered elements of a graph region.</summary>
+/// <param name="Region">The region containing the node.</param>
+/// <param name="Children">The child graph elements in execution order.</param>
 public sealed record GraphRegionBody(GraphRegion Region, IReadOnlyList<GraphElement> Children)
     : GraphElement(Region.Id.Value);
 
+/// <summary>Instantiates a reusable layer definition with resource bindings at a named call site.</summary>
+/// <param name="CallId">The identifier of this definition call site.</param>
+/// <param name="Definition">The reusable definition identifier.</param>
+/// <param name="Bindings">The node or call port resource bindings.</param>
 public sealed record GraphCall(string CallId, string Definition, IReadOnlyList<NodeResourceBinding> Bindings)
     : GraphElement(CallId);
 
+/// <summary>Describes the tensor and access contract of a reusable definition port.</summary>
+/// <param name="Id">The definition port identifier.</param>
+/// <param name="Access">The permitted read and write access.</param>
+/// <param name="Tensor">The tensor element type, dimensions, and layout.</param>
+/// <param name="ResourceKind">The optional required resource kind for this definition port.</param>
 public sealed record GraphDefinitionPort(string Id, GraphResourceAccess Access, TensorDescriptor Tensor,
     GraphResourceKind? ResourceKind = null);
 
+/// <summary>Describes a reusable layer body, its public ports, and its local resources.</summary>
+/// <param name="Id">The reusable layer definition identifier.</param>
+/// <param name="Ports">The public resource ports of the definition or architecture region.</param>
+/// <param name="Resources">The graph resource descriptors.</param>
+/// <param name="Body">The ordered body of the reusable definition.</param>
 public sealed record GraphLayerDefinition(string Id, IReadOnlyList<GraphDefinitionPort> Ports,
     IReadOnlyList<GraphResource> Resources, GraphRegionBody Body);
 
+/// <summary>Contains reusable layer definitions and an ordered root region body.</summary>
+/// <param name="LayerDefinitions">The reusable layer definitions.</param>
+/// <param name="Root">The ordered root graph region body.</param>
 public sealed record GraphStructure(IReadOnlyList<GraphLayerDefinition> LayerDefinitions, GraphRegionBody Root)
 {
     internal bool HasTensorViews => LayerDefinitions.Select(definition => definition.Body).Append(Root)
@@ -36,6 +60,9 @@ public sealed record GraphStructure(IReadOnlyList<GraphLayerDefinition> LayerDef
             _ => false,
         });
 
+    /// <summary>Builds ordered region structure from expanded regions and contiguous execution-ordered logical nodes.</summary>
+    /// <param name="regions">The graph regions in hierarchy order.</param>
+    /// <param name="nodes">The graph or plan operation nodes.</param>
     public static GraphStructure FromExpanded(IReadOnlyList<GraphRegion> regions, IReadOnlyList<LogicalNode> nodes)
     {
         var regionMap = Unique(regions, region => region.Id.Value, "region");

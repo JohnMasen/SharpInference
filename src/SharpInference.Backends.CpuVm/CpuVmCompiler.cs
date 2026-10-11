@@ -13,21 +13,33 @@ using SharpInference.Vm;
 
 namespace SharpInference.Backends.CpuVm;
 
+/// <summary>Defines the entry-point contract implemented by generated or statically published CPU VM code.</summary>
 public interface ICpuVmCode
 {
+    /// <summary>Gets the program-and-source-ABI hash used to verify compatibility with a compiled artifact.</summary>
     string ProgramHash { get; }
+    /// <summary>Invokes a compiled entry using the slot buffers and active call frames of the execution context.</summary>
+    /// <param name="entry">The name of the compiled entry to invoke or inspect.</param>
+    /// <param name="context">The execution context containing the bound slot buffers.</param>
     void Invoke(string entry, CpuVmContext context);
 }
 
+/// <summary>Configures CPU code optimization and numerical precision for VM compilation.</summary>
+/// <param name="Optimize">Whether Roslyn emits optimized release code instead of debug code.</param>
 public sealed record CpuVmCompilerOptions(bool Optimize = true)
 {
+    /// <summary>Gets the arithmetic precision requested for compilation; currently only Float32 is supported.</summary>
     public string Arithmetic { get; init; } = "Float32";
+    /// <summary>Gets the accumulation precision requested for compilation; currently only Float32 is supported.</summary>
     public string Accumulator { get; init; } = "Float32";
 }
 
+/// <summary>Reports errors emitted by Roslyn while compiling generated CPU VM source.</summary>
+/// <param name="diagnostics">The compilation error messages reported by Roslyn.</param>
 public sealed class CpuVmCompilationException(IEnumerable<string> diagnostics) :
     InvalidOperationException(string.Join(Environment.NewLine, diagnostics))
 {
+    /// <summary>Gets the compiler error messages that prevented generation of an executable assembly.</summary>
     public IReadOnlyList<string> Diagnostics { get; } = diagnostics.ToArray();
 }
 
@@ -36,10 +48,16 @@ public sealed class CpuVmCompiler
 {
     private readonly InstructionRegistry registry;
 
+    /// <summary>Creates a compiler with explicitly supplied CPU instruction collection providers.</summary>
+    /// <param name="providers">The instruction collection providers used to resolve program operators.</param>
     public CpuVmCompiler(IEnumerable<IInstructionCollectionProvider> providers) =>
         registry = new InstructionRegistry(providers);
+    /// <summary>Gets the registry of instruction collections supplied to this compiler.</summary>
     public IInstructionCollectionProvider InstructionCollections => registry;
 
+    /// <summary>Validates a CPU VM program and generates C# source and binding metadata without compiling an assembly.</summary>
+    /// <param name="program">The VM program whose definitions, slots, and entries are compiled or bound.</param>
+    /// <param name="options">Compilation settings, or null to use the default settings.</param>
     public CpuVmCompiledArtifact GenerateSource(VmProgram program, CpuVmCompilerOptions? options = null)
     {
         options ??= new();
@@ -52,6 +70,9 @@ public sealed class CpuVmCompiler
             generator.References, contracts);
     }
 
+    /// <summary>Generates and compiles CPU VM source into an in-memory assembly with portable debug symbols.</summary>
+    /// <param name="program">The VM program whose definitions, slots, and entries are compiled or bound.</param>
+    /// <param name="options">Compilation settings, or null to use the default settings.</param>
     [RequiresDynamicCode("Runtime compilation is unavailable under Native AOT. Publish generated source instead.")]
     [RequiresAssemblyFiles("Roslyn requires on-disk reference assemblies. Use static source publication in single-file applications.")]
     public CpuVmCompiledArtifact Compile(VmProgram program, CpuVmCompilerOptions? options = null)
@@ -81,8 +102,10 @@ public sealed class CpuVmCompiler
     }
 }
 
+/// <summary>Contains a CPU VM program, generated source, binding metadata, and optional compiled assembly.</summary>
 public sealed class CpuVmCompiledArtifact
 {
+    /// <summary>Identifies the generated CPU code contract included in program compatibility hashes.</summary>
     public const string SourceAbi = "cpu-vm-ic-precision-v4";
     internal IReadOnlyList<System.Reflection.Assembly> References { get; }
     private readonly VmProgram contracts;
@@ -106,12 +129,19 @@ public sealed class CpuVmCompiledArtifact
         this.contracts = contracts ?? program;
     }
 
+    /// <summary>Gets the VM program represented by this compilation artifact.</summary>
     public VmProgram Program { get; }
+    /// <summary>Gets the compilation options used to produce this artifact.</summary>
     public CpuVmCompilerOptions Options { get; }
+    /// <summary>Gets the generated C# source implementing the CPU VM entry points.</summary>
     public string Source { get; }
+    /// <summary>Gets the hash of the serialized program and generated-source ABI.</summary>
     public string ProgramHash => ComputeProgramHash(Program);
+    /// <summary>Gets whether this artifact contains a compiled assembly.</summary>
     public bool HasBinary => binary is not null;
+    /// <summary>Gets a defensive copy of the compiled assembly bytes, or empty memory for a source-only artifact.</summary>
     public ReadOnlyMemory<byte> Binary => binary is null ? ReadOnlyMemory<byte>.Empty : binary.ToArray();
+    /// <summary>Gets a defensive copy of the portable debug symbols, or empty memory when no symbols are present.</summary>
     public ReadOnlyMemory<byte> PortablePdb => symbols is null ? ReadOnlyMemory<byte>.Empty : symbols.ToArray();
 
     internal CpuVmCompiledArtifact WithBinary(byte[] dll, byte[] pdb) =>
@@ -126,12 +156,16 @@ public sealed class CpuVmCompiledArtifact
         return new CpuVmExecutable(this, code, accesses, frames, null);
     }
 
+    /// <summary>Creates an executable by registering static CPU code and verifying its program-and-source-ABI hash.</summary>
+    /// <param name="code">Statically registered CPU code whose program and source ABI must match this artifact.</param>
     public CpuVmExecutable CreateExecutor(ICpuVmCode code) => CreateExecutable(code);
 
+    /// <summary>Loads the artifact's compiled assembly into a collectible context and creates an executable.</summary>
     [RequiresDynamicCode("Binary loading is unavailable under Native AOT.")]
     [RequiresUnreferencedCode("Use static source registration for trimmed applications.")]
     public CpuVmExecutable CreateExecutor() => LoadExecutable();
 
+    /// <summary>Loads the compiled assembly into a collectible load context and verifies its program hash.</summary>
     [RequiresDynamicCode("Binary loading is unavailable under Native AOT.")]
     [RequiresUnreferencedCode("The generated entry class is resolved by name. Use static code registration for trimmed applications.")]
     public CpuVmExecutable LoadExecutable()
@@ -244,6 +278,7 @@ internal sealed record CpuVmPackageManifest(int Version, Dictionary<string, stri
 [JsonSerializable(typeof(string))]
 internal partial class CpuVmJsonContext : JsonSerializerContext;
 
+/// <summary>Executes compiled CPU VM entries with validated slot access and call-frame bindings.</summary>
 public sealed class CpuVmExecutable : IVmTaskExecutable
 {
     private readonly CpuVmCompiledArtifact artifact;
@@ -263,19 +298,25 @@ public sealed class CpuVmExecutable : IVmTaskExecutable
         this.loader = loader;
     }
 
+    /// <inheritdoc/>
     public VmProgram Program => artifact.Program;
+    /// <summary>Creates an execution context over caller-owned slot buffers without allocating tensor storage.</summary>
+    /// <param name="buffers">Caller-owned byte arrays in program slot order, each matching its slot&apos;s exact capacity.</param>
+    /// <param name="initializedLocalSlots">Names of local slots supplied with initialized contents; omitted local slots must be written before reading.</param>
     public CpuVmContext Prepare(byte[][] buffers, IEnumerable<string>? initializedLocalSlots = null) =>
         new(Program, buffers, initializedLocalSlots);
 
     /// <summary>Read-only local slots are supplied inputs; writable local scratch must initialize in the entry.</summary>
     public void Execute(string entryName, byte[][] slots) => Invoke(entryName, Prepare(slots, LocalInputs()));
 
+    /// <inheritdoc/>
     public void Execute(string entryName, VmExecutionLease execution)
     {
         ArgumentNullException.ThrowIfNull(execution);
         Invoke(entryName, new CpuVmContext(execution.Program, execution.GetBuffers(), LocalInputs()));
     }
 
+    /// <inheritdoc/>
     public void ExecuteTask(string entryName, VmExecutionLease execution, CancellationToken cancellation)
     {
         cancellation.ThrowIfCancellationRequested();
@@ -286,6 +327,9 @@ public sealed class CpuVmExecutable : IVmTaskExecutable
     private IEnumerable<string> LocalInputs() => Program.Slots
         .Where(slot => slot.Scope == VmSlotScope.Local && slot.Access == VmAccess.ReadOnly).Select(slot => slot.Id);
 
+    /// <summary>Runs a compiled entry after validating context compatibility, access permissions, and local initialization.</summary>
+    /// <param name="entry">The name of the compiled entry to invoke or inspect.</param>
+    /// <param name="context">The execution context containing the bound slot buffers.</param>
     public void Invoke(string entry, CpuVmContext context)
     {
         ArgumentNullException.ThrowIfNull(context);
@@ -294,6 +338,7 @@ public sealed class CpuVmExecutable : IVmTaskExecutable
         context.Run(Program, plan, frames, () => current.Invoke(entry, context));
     }
 
+    /// <inheritdoc/>
     public void Dispose()
     {
         if (Interlocked.Exchange(ref code, null) is not null) loader?.Unload();

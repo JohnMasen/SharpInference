@@ -6,8 +6,13 @@ using SharpInference.Vm.Optimization;
 
 namespace SharpInference.Runtime.Cpu;
 
+/// <summary>Creates CPU graph backends from runtime configuration or compiled VM artifacts.</summary>
 public static class CpuVmBackendFactory
 {
+    /// <summary>Creates a CPU backend with configured queues, optimization, instruction collections, and optional precompiled programs.</summary>
+    /// <param name="configuration">The runtime configuration; null selects default settings.</param>
+    /// <param name="instructionCollections">The optional instruction providers used by the backend compiler.</param>
+    /// <param name="generatorCollections">The optional instruction providers used for target execution-plan generation.</param>
     public static VmGraphBackend Create(VmRuntimeConfig? configuration = null,
         IEnumerable<IInstructionCollectionProvider>? instructionCollections = null,
         IEnumerable<IInstructionCollectionProvider>? generatorCollections = null)
@@ -56,6 +61,10 @@ public static class CpuVmBackendFactory
             suppliedExecutionPlan: executionPlan);
     }
 
+    /// <summary>Creates a CPU backend from an existing artifact and optional statically supplied VM code.</summary>
+    /// <param name="artifact">The existing compiled CPU VM artifact.</param>
+    /// <param name="options">The optional VM engine queue and instance settings.</param>
+    /// <param name="staticCode">The optional static CPU VM code implementation used instead of artifact-generated code.</param>
     public static VmGraphBackend CreateArtifact(CpuVmCompiledArtifact artifact, VmEngineOptions? options = null,
         ICpuVmCode? staticCode = null)
     {

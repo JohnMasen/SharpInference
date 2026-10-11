@@ -3,11 +3,17 @@ using System.Text;
 
 namespace SharpInference.Vm;
 
+/// <summary>Transfers versioned VM state with context matching and SHA-256 payload integrity checks.</summary>
 public static class VmStateStream
 {
     private static readonly byte[] Magic = "SIVMSTATE"u8.ToArray();
     private static readonly Encoding TextEncoding = new UTF8Encoding(false, true);
 
+    /// <summary>Writes compatible valid state, descriptors, and integrity hashes without closing the destination stream.</summary>
+    /// <param name="destination">The writable state stream; the caller retains ownership of the stream.</param>
+    /// <param name="program">The program declaring the state entries and tensor descriptors to transfer.</param>
+    /// <param name="access">The active state-access lease belonging to the supplied program.</param>
+    /// <param name="contextId">The nonempty context identifier embedded in or required by the state stream.</param>
     public static void Export(Stream destination, VmProgram program, VmExecutionLease access, string contextId)
     {
         ArgumentNullException.ThrowIfNull(destination);
@@ -48,6 +54,12 @@ public static class VmStateStream
         }
     }
 
+    /// <summary>Stages and validates a state stream within the byte budget before restoring registered state slots.</summary>
+    /// <param name="source">The readable state stream; the caller retains ownership of the stream.</param>
+    /// <param name="program">The program declaring the state entries and tensor descriptors to transfer.</param>
+    /// <param name="access">The active state-access lease belonging to the supplied program.</param>
+    /// <param name="contextId">The nonempty context identifier embedded in or required by the state stream.</param>
+    /// <param name="maximumStagingBytes">The maximum aggregate state payload size to stage in bytes.</param>
     public static void Import(Stream source, VmProgram program, VmExecutionLease access,
         string contextId, ulong maximumStagingBytes)
     {

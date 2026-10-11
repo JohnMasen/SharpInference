@@ -2,6 +2,22 @@ using SharpInference.Graphs;
 
 namespace SharpInference.Backends.Vortice;
 
+/// <summary>Describes one compiled primitive GPU dispatch and its tensor bindings, dimensions, and optional fused expression.</summary>
+/// <param name="Node">The originating execution node identifier.</param>
+/// <param name="Kernel">The GPU kernel name selected for this dispatch.</param>
+/// <param name="Input0">The primary input resource identifier.</param>
+/// <param name="Input1">The optional second input resource identifier.</param>
+/// <param name="Output">The destination resource identifier.</param>
+/// <param name="Index">The optional Int32 scalar resource used for row selection.</param>
+/// <param name="ElementCount">The number of output elements processed by the dispatch.</param>
+/// <param name="Rows">The kernel-specific row count, source rank, or slice axis.</param>
+/// <param name="Columns">The kernel-specific column count, reduction width, or destination rank.</param>
+/// <param name="DispatchX">The linear thread-group count, split across X and Y for kernels supporting large grids.</param>
+/// <param name="Parameter">The kernel-specific scalar, such as a fill value&apos;s Float32 bits or a slice offset.</param>
+/// <param name="SourceDimensions">Optional source dimensions used by portable tensor kernels.</param>
+/// <param name="OutputDimensions">Optional destination dimensions used by portable tensor kernels.</param>
+/// <param name="FusedInputs">The ordered input resources for an optional fused elementwise expression.</param>
+/// <param name="Expression">The optional fused elementwise expression evaluated by the dispatch.</param>
 public sealed record VorticePrimitiveGraphStep(
     ExecutionNodeId Node,
     string Kernel,
@@ -19,6 +35,7 @@ public sealed record VorticePrimitiveGraphStep(
     IReadOnlyList<ResourceId>? FusedInputs = null,
     FusedElementwiseExpression? Expression = null);
 
+/// <summary>Contains a validated execution graph and its ordered GPU dispatch steps.</summary>
 public sealed class VorticePrimitiveGraphPlan : IBackendExecutablePlan
 {
     private VorticePrimitiveGraphPlan(ExecutionGraph graph, IReadOnlyList<VorticePrimitiveGraphStep> steps)
@@ -27,9 +44,13 @@ public sealed class VorticePrimitiveGraphPlan : IBackendExecutablePlan
         Steps = steps;
     }
 
+    /// <inheritdoc/>
     public ExecutionGraph Graph { get; }
+    /// <summary>Gets the ordered dispatch steps produced by graph compilation.</summary>
     public IReadOnlyList<VorticePrimitiveGraphStep> Steps { get; }
 
+    /// <summary>Validates a dense primitive execution graph and resolves its nodes into GPU dispatch steps.</summary>
+    /// <param name="graph">The dense execution graph whose resources and nodes are prepared.</param>
     public static VorticePrimitiveGraphPlan Compile(ExecutionGraph graph)
     {
         ArgumentNullException.ThrowIfNull(graph);

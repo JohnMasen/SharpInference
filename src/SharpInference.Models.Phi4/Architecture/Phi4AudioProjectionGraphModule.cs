@@ -4,17 +4,22 @@ using SharpInference.Instructions.Phi4;
 
 namespace SharpInference.Architectures.Phi4;
 
+/// <summary>Selects the audio projection weights used to map encoder output into text embeddings.</summary>
 public enum Phi4AudioProjector
 {
+    /// <summary>Projects audio using the speech-mode weights.</summary>
     Speech,
+    /// <summary>Projects audio using the vision-mode weights.</summary>
     Vision,
 }
 
+/// <summary>Builds and validates the speech or vision audio projection graph.</summary>
 public sealed class Phi4AudioProjectionGraphModule : IModelGraphModule, IGraphOperationValidator
 {
     private readonly int tokens;
     private readonly string prefix;
 
+    /// <summary>Initializes an audio projection graph for the selected projection weights and token count.</summary>
     public Phi4AudioProjectionGraphModule(Phi4AudioProjector projector, int tokens)
     {
         if (tokens <= 0) throw new ArgumentOutOfRangeException(nameof(tokens));
@@ -29,13 +34,17 @@ public sealed class Phi4AudioProjectionGraphModule : IModelGraphModule, IGraphOp
             ? "phi4.audio.projection.speech" : "phi4.audio.projection.vision";
     }
 
+    /// <inheritdoc/>
     public string ArchitectureId { get; }
+    /// <inheritdoc/>
     public IGraphOperationValidator OperationValidator => this;
 
+    /// <inheritdoc/>
     public bool CanLoad(IModelTensorCatalog tensors) =>
         new[] { ".0.weight", ".0.bias", ".2.weight", ".2.bias" }
             .All(suffix => tensors.TryGet(prefix + suffix, out _));
 
+    /// <inheritdoc/>
     public ModelMetadata ReadMetadata(IModelTensorCatalog tensors)
     {
         ArgumentNullException.ThrowIfNull(tensors);
@@ -65,6 +74,7 @@ public sealed class Phi4AudioProjectionGraphModule : IModelGraphModule, IGraphOp
         }
     }
 
+    /// <inheritdoc/>
     public LogicalGraph Build(IModelTensorCatalog tensors)
     {
         var metadata = ReadMetadata(tensors);
@@ -138,6 +148,7 @@ public sealed class Phi4AudioProjectionGraphModule : IModelGraphModule, IGraphOp
         }
     }
 
+    /// <inheritdoc/>
     public void Validate(GraphOperationValidationContext context)
     {
         if (!context.Operation.Name.StartsWith("phi4.audio.", StringComparison.Ordinal)) return;

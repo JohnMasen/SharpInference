@@ -1,13 +1,18 @@
 namespace SharpInference.WebApi;
 
+/// <summary>Signals that no resident GPU session can be admitted at the configured capacity.</summary>
 public sealed class ResidentSessionLimitException : InvalidOperationException
 {
+    /// <summary>Creates an exception reporting that resident GPU session capacity has been reached.</summary>
     public ResidentSessionLimitException() : base("The maximum resident session capacity was reached.") { }
 }
 
+/// <summary>Configures resident GPU session admission and non-VM generation concurrency.</summary>
 public sealed class GpuBatchServiceOptions
 {
+    /// <summary>Gets the positive maximum number of admitted resident GPU sessions.</summary>
     public int MaxResidentGpuSessions { get; init; } = 64;
+    /// <summary>Gets the non-VM generation concurrency limit; zero uses backend capacity and is required for VM-managed queues.</summary>
     public int MaxInFlightGenerationBatches { get; init; }
 
     internal void Validate()
@@ -31,6 +36,10 @@ public sealed class GpuBatchScheduler
     private readonly FairAsyncGate? generationBatches;
     private readonly bool useVmQueues;
 
+    /// <summary>Creates generation admission gates from configured limits and backend execution capabilities.</summary>
+    /// <param name="options">The resident GPU session and generation admission limits.</param>
+    /// <param name="execution">The backend&apos;s concurrency and resident-session admission capabilities.</param>
+    /// <param name="useVmQueues">Whether VM engine queues own generation concurrency instead of this scheduler.</param>
     public GpuBatchScheduler(GpuBatchServiceOptions options, ProcessorExecutionCapabilities execution,
         bool useVmQueues = false)
     {
@@ -51,6 +60,8 @@ public sealed class GpuBatchScheduler
                 execution.MaximumConcurrentSessions));
     }
 
+    /// <summary>Acquires resident-session and generation permits and returns a lease that releases them when disposed.</summary>
+    /// <param name="cancellationToken">The token used to cancel the operation or admission wait.</param>
     public async ValueTask<IAsyncDisposable> AcquireAsync(CancellationToken cancellationToken)
     {
         var residentLease = residentSessions is null
@@ -82,18 +93,22 @@ public sealed class GpuBatchScheduler
     }
 }
 
+/// <summary>Provides disposable concurrency permits with first-come, first-served asynchronous admission.</summary>
 public sealed class FairAsyncGate
 {
     private readonly object sync = new();
     private readonly LinkedList<Waiter> waiters = [];
     private int availablePermits;
 
+    /// <summary>Creates an admission gate with a positive number of permits.</summary>
+    /// <param name="capacity">The positive number of concurrently available admission permits.</param>
     public FairAsyncGate(int capacity)
     {
         if (capacity <= 0) throw new ArgumentOutOfRangeException(nameof(capacity));
         availablePermits = capacity;
     }
 
+    /// <summary>Immediately acquires a permit only when one is available and no earlier waiter is queued.</summary>
     public IDisposable? TryAcquire()
     {
         lock (sync)
@@ -104,6 +119,8 @@ public sealed class FairAsyncGate
         }
     }
 
+    /// <summary>Acquires a disposable permit immediately or waits in arrival order until admission or cancellation.</summary>
+    /// <param name="cancellationToken">The token used to cancel the operation or admission wait.</param>
     public async ValueTask<IDisposable> AcquireAsync(CancellationToken cancellationToken = default)
     {
         Waiter? waiter;

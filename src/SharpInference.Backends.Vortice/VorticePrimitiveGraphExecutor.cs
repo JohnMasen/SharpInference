@@ -31,9 +31,15 @@ public sealed class VorticePrimitiveGraphExecutor : IModelWeightOwnershipPolicy,
     private bool enableCommandReplay;
     private bool disposed;
 
+    /// <summary>Creates GPU model buffers and command infrastructure on a caller-owned device for the supplied graph or plan.</summary>
+    /// <param name="device">The caller-owned Direct3D12 device, which must outlive this object.</param>
+    /// <param name="graph">The dense execution graph whose resources and nodes are prepared.</param>
     public VorticePrimitiveGraphExecutor(ID3D12Device device, ExecutionGraph graph)
         : this(device, VorticePrimitiveGraphPlan.Compile(graph)) { }
 
+    /// <summary>Creates GPU model buffers and command infrastructure on a caller-owned device for the supplied graph or plan.</summary>
+    /// <param name="device">The caller-owned Direct3D12 device, which must outlive this object.</param>
+    /// <param name="plan">The compiled graph plan describing ordered GPU dispatches and bindings.</param>
     public VorticePrimitiveGraphExecutor(ID3D12Device device, VorticePrimitiveGraphPlan plan)
     {
         this.device = device ?? throw new ArgumentNullException(nameof(device));
@@ -63,9 +69,13 @@ public sealed class VorticePrimitiveGraphExecutor : IModelWeightOwnershipPolicy,
         peakBufferBytes = modelBufferBytes;
     }
 
+    /// <summary>Gets the compiled primitive graph plan used by this executor.</summary>
     public VorticePrimitiveGraphPlan Plan { get; }
+    /// <summary>Gets the number of GPU dispatches per token after buffer-alias and cast elision.</summary>
     public int DispatchesPerToken => Plan.Steps.Count - localBuffers.ElidedSteps.Count;
+    /// <summary>Gets or sets whether token execution collects per-kernel CPU command-recording timings.</summary>
     public bool ProfileCommandRecording { get; set; }
+    /// <summary>Gets or sets whether supported scalar-token sessions replay closed command lists rather than recording each token.</summary>
     public bool EnableCommandReplay
     {
         get => enableCommandReplay;
@@ -79,14 +89,17 @@ public sealed class VorticePrimitiveGraphExecutor : IModelWeightOwnershipPolicy,
             }
         }
     }
+    /// <summary>Gets the optional CPU command-recording and submission profile for the most recent token.</summary>
     public VorticePrimitiveGraphExecutionProfile? LastExecutionProfile
     {
         get { lock (gate) return lastExecutionProfile; }
     }
+    /// <summary>Gets a consistent snapshot of cumulative GPU submissions and host-device transfers.</summary>
     public VorticePrimitiveGraphMetrics Metrics
     {
         get { lock (gate) return metrics; }
     }
+    /// <summary>Gets a consistent snapshot of model, session, and peak default-heap buffer sizes.</summary>
     public VorticePrimitiveGraphMemoryMetrics Memory
     {
         get
@@ -106,6 +119,8 @@ public sealed class VorticePrimitiveGraphExecutor : IModelWeightOwnershipPolicy,
     /// </summary>
     public bool RequiresCpuWeightCopy => false;
 
+    /// <summary>Checks that a plan has one Int32 token input used for gather operations and supports closed-list replay.</summary>
+    /// <param name="plan">The compiled graph plan describing ordered GPU dispatches and bindings.</param>
     public static void ValidateReplay(VorticePrimitiveGraphPlan plan)
     {
         ArgumentNullException.ThrowIfNull(plan);
@@ -159,6 +174,9 @@ public sealed class VorticePrimitiveGraphExecutor : IModelWeightOwnershipPolicy,
         }
     }
 
+    /// <summary>Uploads a complete Float32 or Float16 global weight tensor to its model buffer.</summary>
+    /// <param name="id">The global weight resource identifier.</param>
+    /// <param name="values">The complete tensor values matching the resource type and dimensions.</param>
     public void UploadWeight(ResourceId id, ReadOnlySpan<float> values)
     {
         lock (gate)
@@ -184,6 +202,9 @@ public sealed class VorticePrimitiveGraphExecutor : IModelWeightOwnershipPolicy,
         }
     }
 
+    /// <summary>Uploads a complete Float32 or Float16 global weight tensor to its model buffer.</summary>
+    /// <param name="id">The global weight resource identifier.</param>
+    /// <param name="values">The complete tensor values matching the resource type and dimensions.</param>
     public void UploadWeight(ResourceId id, ReadOnlySpan<Half> values)
     {
         lock (gate)
@@ -209,6 +230,7 @@ public sealed class VorticePrimitiveGraphExecutor : IModelWeightOwnershipPolicy,
         }
     }
 
+    /// <summary>Allocates independent session-state and reusable token-local GPU buffers for this graph.</summary>
     public VorticePrimitiveGraphSession CreateSession()
     {
         lock (gate)
@@ -716,6 +738,7 @@ public sealed class VorticePrimitiveGraphExecutor : IModelWeightOwnershipPolicy,
 
     private void ThrowIfDisposed() => ObjectDisposedException.ThrowIf(disposed, this);
 
+    /// <inheritdoc/>
     public void Dispose()
     {
         lock (gate)
@@ -753,24 +776,35 @@ public sealed class VorticePrimitiveGraphSession : IDisposable
     internal HashSet<ResourceId> InitializedState { get; } = [];
     internal bool IsDisposed => disposed;
     internal VorticePrimitiveGraphTokenMetrics? TokenMetrics { get; set; }
+    /// <summary>Gets the execution graph shared by this session and its owning executor.</summary>
     public ExecutionGraph Graph => executor.Plan.Graph;
+    /// <summary>Gets the total size of distinct default-heap buffers owned by this session.</summary>
     public ulong AllocatedBufferBytes => Buffers.Values
         .Distinct<ID3D12Resource>(ReferenceEqualityComparer.Instance)
         .Aggregate(0UL, (sum, buffer) => checked(sum + buffer.Description.Width));
+    /// <summary>Gets traffic and dispatch metrics for this session&apos;s most recent completed token.</summary>
     public VorticePrimitiveGraphTokenMetrics? LastTokenMetrics => executor.GetLastTokenMetrics(this);
 
+    /// <summary>Uploads a complete Float32 session-state tensor to the GPU.</summary>
+    /// <param name="id">The session-state resource identifier.</param>
+    /// <param name="values">The complete tensor values matching the resource type and dimensions.</param>
     public void UploadState(ResourceId id, ReadOnlySpan<float> values)
     {
         ObjectDisposedException.ThrowIf(disposed, this);
         executor.UploadState(this, id, values);
     }
 
+    /// <summary>Reads a session-state tensor into a newly allocated Float32 array.</summary>
+    /// <param name="id">The session-state resource identifier.</param>
     public float[] ReadState(ResourceId id)
     {
         ObjectDisposedException.ThrowIf(disposed, this);
         return executor.ReadState(this, id);
     }
 
+    /// <summary>Executes one token with explicit Float32 and optional Int32 scalar inputs, returning Float32 graph outputs.</summary>
+    /// <param name="inputs">Float32 graph input tensors keyed by resource identifier.</param>
+    /// <param name="scalarInputs">Optional Int32 scalar graph inputs keyed by resource identifier.</param>
     public IReadOnlyDictionary<ResourceId, float[]> ExecuteToken(
         IReadOnlyDictionary<ResourceId, float[]> inputs,
         IReadOnlyDictionary<ResourceId, int>? scalarInputs = null)
@@ -779,6 +813,7 @@ public sealed class VorticePrimitiveGraphSession : IDisposable
         return executor.ExecuteToken(this, inputs, scalarInputs);
     }
 
+    /// <inheritdoc/>
     public void Dispose()
     {
         if (disposed) return;

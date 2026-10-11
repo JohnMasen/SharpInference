@@ -4,8 +4,11 @@ using System.Xml.Linq;
 
 namespace SharpInference.Graphs;
 
+/// <summary>Serializes and deserializes intermediate and target execution plans in XML.</summary>
 public static class ExecutionPlanXml
 {
+    /// <summary>Serializes the graph or execution plan to XML.</summary>
+    /// <param name="plan">The prepared backend executable plan.</param>
     public static string Serialize(TargetExecutionPlan plan)
     {
         TargetExecutionPlanValidator.Validate(plan);
@@ -36,6 +39,8 @@ public static class ExecutionPlanXml
             .ToString();
     }
 
+    /// <summary>Reads and validates a target execution plan from XML.</summary>
+    /// <param name="xml">The serialized XML document.</param>
     public static TargetExecutionPlan DeserializeTarget(string xml)
     {
         try

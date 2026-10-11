@@ -2,6 +2,10 @@ using System.Globalization;
 
 namespace SharpInference.Graphs;
 
+/// <summary>Describes a portable tensor operation&apos;s signature and ordered input ports.</summary>
+/// <param name="Operation">The operation contract identifier.</param>
+/// <param name="Signature">The ordered input and output element-type signature.</param>
+/// <param name="InputPorts">The ordered input port names.</param>
 public sealed record PortableTensorOpContract(
     GraphOperationId Operation,
     OperatorSignature Signature,
@@ -10,8 +14,10 @@ public sealed record PortableTensorOpContract(
 /// <summary>
 /// Typed attribute value for a Float32 tensor fill. Non-finite values are not supported.
 /// </summary>
+/// <param name="Value">The finite FP32 scalar fill value.</param>
 public readonly record struct TensorFillValue(float Value)
 {
+    /// <summary>Validates the typed attribute value and encodes it as portable operation attributes.</summary>
     public IReadOnlyDictionary<string, string> ToAttributes()
     {
         if (!float.IsFinite(Value))
@@ -24,8 +30,12 @@ public readonly record struct TensorFillValue(float Value)
 /// Zero-based slice axis and start, with a strictly positive number of elements.
 /// A slice preserves rank and copies the selected elements in row-major order.
 /// </summary>
+/// <param name="Axis">The zero-based tensor axis.</param>
+/// <param name="Start">The zero-based start along the sliced axis.</param>
+/// <param name="Length">The strictly positive number of elements along the sliced axis.</param>
 public readonly record struct TensorSlice(int Axis, int Start, int Length)
 {
+    /// <summary>Validates the typed attribute value and encodes it as portable operation attributes.</summary>
     public IReadOnlyDictionary<string, string> ToAttributes()
     {
         if (Axis < 0 || Start < 0 || Length <= 0)
@@ -47,14 +57,23 @@ public readonly record struct TensorSlice(int Axis, int Start, int Length)
 /// </summary>
 public static class PortableTensorOperationContracts
 {
+    /// <summary>The operation identifier for a primitive that fills an FP32 tensor with a finite scalar value.</summary>
     public static readonly GraphOperationId Fill = new("core.tensor.fill", 1);
+    /// <summary>The operation identifier for a primitive that converts FP16 tensor elements to FP32.</summary>
     public static readonly GraphOperationId CastFp16ToFp32 = new("core.tensor.cast-f16-f32", 1);
+    /// <summary>The operation identifier for a primitive that changes tensor dimensions while preserving flat element order.</summary>
     public static readonly GraphOperationId Reshape = new("core.tensor.reshape", 1);
+    /// <summary>The operation identifier for a primitive that copies a contiguous axis slice while preserving tensor rank.</summary>
     public static readonly GraphOperationId Slice = new("core.tensor.slice", 1);
+    /// <summary>The operation identifier for a primitive that repeats singleton input axes with trailing-dimension alignment.</summary>
     public static readonly GraphOperationId Broadcast = new("core.tensor.broadcast", 1);
+    /// <summary>The operation identifier for a primitive that multiplies each batch matrix by its corresponding vector.</summary>
     public static readonly GraphOperationId BatchedMatVec = new("core.tensor.batched-mat-vec", 1);
+    /// <summary>The operation identifier for a primitive that sums and removes the final tensor axis.</summary>
     public static readonly GraphOperationId ReduceLastSum = new("core.tensor.reduce-last-sum", 1);
+    /// <summary>The operation identifier for a primitive that averages and removes the final tensor axis.</summary>
     public static readonly GraphOperationId ReduceLastMean = new("core.tensor.reduce-last-mean", 1);
+    /// <summary>The operation identifier for a primitive that computes an outer product for each head.</summary>
     public static readonly GraphOperationId HeadOuter = new("core.tensor.head-outer", 1);
 
     // Reshape preserves flat element order. Broadcast aligns trailing dimensions
@@ -64,6 +83,7 @@ public static class PortableTensorOperationContracts
     // or [heads,width,width] -> [heads,width]).
     // HeadOuter computes output[h,i,j] = left[h,i] * right[h,j].
 
+    /// <summary>Gets the supported versioned operation contracts.</summary>
     public static IReadOnlyList<PortableTensorOpContract> Contracts { get; } =
     [
         Description(Fill, [], [GraphElementType.Float32], []),
@@ -79,6 +99,8 @@ public static class PortableTensorOperationContracts
             [GraphElementType.Float32], ["left", "right"]),
     ];
 
+    /// <summary>Validates the supported operation contracts of the graph.</summary>
+    /// <param name="graph">The graph supplying operations and resource binding metadata.</param>
     public static void ValidateGraph(LogicalGraph graph)
     {
         ArgumentNullException.ThrowIfNull(graph);
@@ -88,6 +110,9 @@ public static class PortableTensorOperationContracts
             ValidateNode(node, resources);
     }
 
+    /// <summary>Validates an operation&apos;s version, ports, precision, element types, attributes, and tensor shapes.</summary>
+    /// <param name="node">The operation node to inspect.</param>
+    /// <param name="resources">The graph resource descriptors.</param>
     public static void ValidateNode(
         LogicalNode node, IReadOnlyDictionary<ResourceId, GraphResource> resources)
     {

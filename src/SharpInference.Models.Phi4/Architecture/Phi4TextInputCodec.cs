@@ -2,14 +2,19 @@ using System.Buffers.Binary;
 
 namespace SharpInference.Architectures.Phi4;
 
+/// <summary>Specifies whether a text decoder receives a token identifier or an explicit embedding vector.</summary>
 public enum Phi4TextInputKind
 {
+    /// <summary>Decodes a token ID using the model embedding table.</summary>
     Token,
+    /// <summary>Decodes a caller-supplied FP32 embedding vector.</summary>
     Embedding,
 }
 
+/// <summary>Encodes and validates little-endian token and embedding control payloads for the text graph.</summary>
 public static class Phi4TextInputCodec
 {
+    /// <summary>Validates a little-endian token and position payload and returns the corresponding graph input buffers.</summary>
     public static IReadOnlyDictionary<string, ReadOnlyMemory<byte>> DecodeTokenControl(ReadOnlySpan<byte> control,
         int vocabularySize, int maximumContext)
     {
@@ -26,6 +31,7 @@ public static class Phi4TextInputCodec
         };
     }
 
+    /// <summary>Validates a little-endian position and finite FP32 embedding payload and returns the corresponding graph input buffers.</summary>
     public static IReadOnlyDictionary<string, ReadOnlyMemory<byte>> DecodeEmbeddingControl(ReadOnlySpan<byte> control,
         int embeddingWidth, int maximumContext)
     {
@@ -44,6 +50,7 @@ public static class Phi4TextInputCodec
         };
     }
 
+    /// <summary>Validates and serializes a token ID followed by its position as two little-endian Int32 values.</summary>
     public static byte[] EncodeTokenControl(int token, int position, int vocabularySize, int maximumContext)
     {
         RequireLimit(vocabularySize, nameof(vocabularySize));
@@ -56,6 +63,7 @@ public static class Phi4TextInputCodec
         return bytes;
     }
 
+    /// <summary>Validates and serializes a little-endian Int32 position followed by a finite FP32 embedding vector.</summary>
     public static byte[] EncodeEmbeddingControl(ReadOnlySpan<float> embedding, int position, int maximumContext)
     {
         RequireLimit(embedding.Length, nameof(embedding));

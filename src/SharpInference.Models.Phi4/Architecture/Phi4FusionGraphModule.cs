@@ -2,13 +2,19 @@ using SharpInference.Graphs;
 
 namespace SharpInference.Architectures.Phi4;
 
+/// <summary>Describes a contiguous prompt range populated by token embeddings or a named media embedding input.</summary>
+/// <param name="Start">The zero-based starting prompt row.</param>
+/// <param name="TokenCount">The number of prompt rows in this segment.</param>
+/// <param name="EmbeddingPort">The media embedding input port name, or null to use text token embeddings.</param>
 public sealed record Phi4FusionSegment(int Start, int TokenCount, string? EmbeddingPort = null);
 
+/// <summary>Builds a dense prompt embedding graph that combines text tokens with image and audio embedding segments.</summary>
 public sealed class Phi4FusionGraphModule : IModelGraphModule
 {
     private readonly int tokenCount;
     private readonly Phi4FusionSegment[] segments;
 
+    /// <summary>Initializes embedding fusion for the specified prompt length and non-overlapping embedding segments.</summary>
     public Phi4FusionGraphModule(int tokenCount, IEnumerable<Phi4FusionSegment> segments)
     {
         if (tokenCount <= 0) throw new ArgumentOutOfRangeException(nameof(tokenCount));
@@ -28,8 +34,11 @@ public sealed class Phi4FusionGraphModule : IModelGraphModule
         if (end != tokenCount) throw new ArgumentException("Fusion segments do not cover the prompt.", nameof(segments));
     }
 
+    /// <inheritdoc/>
     public string ArchitectureId => "phi4.fusion";
+    /// <inheritdoc/>
     public bool CanLoad(IModelTensorCatalog tensors) => tensors is Phi4PackageTensorCatalog;
+    /// <inheritdoc/>
     public ModelMetadata ReadMetadata(IModelTensorCatalog tensors)
     {
         var embedding = tensors.GetRequired("text.token_embd.weight");
@@ -43,6 +52,7 @@ public sealed class Phi4FusionGraphModule : IModelGraphModule
         });
     }
 
+    /// <inheritdoc/>
     public LogicalGraph Build(IModelTensorCatalog tensors)
     {
         var dimensions = ReadMetadata(tensors).Dimensions.ToDictionary(pair => pair.Key, pair => checked((int)pair.Value));
@@ -98,6 +108,7 @@ public sealed class Phi4FusionGraphModule : IModelGraphModule
         }
     }
 
+    /// <summary>Converts a contiguous FP32 token-by-width descriptor into a dense embedding port descriptor.</summary>
     public static TensorDescriptor ToDenseEmbeddingPort(TensorDescriptor legacy)
     {
         ArgumentNullException.ThrowIfNull(legacy);

@@ -4,6 +4,7 @@ using SharpInference.Instructions.Phi4;
 
 namespace SharpInference.Architectures.Phi4;
 
+/// <summary>Builds and validates a stateful Phi-4 decoder graph with token or embedding input and optional LoRA adaptation.</summary>
 public sealed class Phi4TextGraphModule : IModelGraphModule, IGraphOperationValidator
 {
     private readonly int context;
@@ -11,6 +12,7 @@ public sealed class Phi4TextGraphModule : IModelGraphModule, IGraphOperationVali
     private readonly Phi4Adapter adapter;
     private readonly float? adapterScale;
 
+    /// <summary>Initializes a decoder graph with the specified context capacity, input mode, and optional adapter scaling.</summary>
     public Phi4TextGraphModule(int maximumContext = 4096, bool embeddingInput = false,
         Phi4Adapter adapter = Phi4Adapter.None, float? adapterScale = null)
     {
@@ -24,11 +26,15 @@ public sealed class Phi4TextGraphModule : IModelGraphModule, IGraphOperationVali
         this.adapterScale = adapterScale;
     }
 
+    /// <inheritdoc/>
     public string ArchitectureId => "phi4.text";
+    /// <inheritdoc/>
     public IGraphOperationValidator OperationValidator => this;
+    /// <inheritdoc/>
     public bool CanLoad(IModelTensorCatalog tensors) => tensors is Phi4PackageTensorCatalog &&
         tensors.TryGet("text.token_embd.weight", out _) && tensors.TryGet("text.output_norm.weight", out _);
 
+    /// <inheritdoc/>
     public ModelMetadata ReadMetadata(IModelTensorCatalog tensors)
     {
         if (tensors is not Phi4PackageTensorCatalog package)
@@ -89,6 +95,7 @@ public sealed class Phi4TextGraphModule : IModelGraphModule, IGraphOperationVali
         }
     }
 
+    /// <inheritdoc/>
     public LogicalGraph Build(IModelTensorCatalog tensors)
     {
         var dimensions = ReadMetadata(tensors).Dimensions.ToDictionary(value => value.Key, value => checked((int)value.Value));
@@ -279,6 +286,7 @@ public sealed class Phi4TextGraphModule : IModelGraphModule, IGraphOperationVali
         return float.IsFinite(scale) && scale > 0 ? scale : throw new InvalidDataException("Phi4 adapter alpha/rank scale is invalid.");
     }
     private string AdapterName(string textName) => (adapter == Phi4Adapter.Vision ? "vision-adapter." : "speech-adapter.") + textName[5..];
+    /// <inheritdoc/>
     public void Validate(GraphOperationValidationContext context) => Phi4TextOperationValidation.Validate(context);
     private static TensorDescriptor F(params int[] shape) => new(GraphElementType.Float32, shape);
     private static IReadOnlyDictionary<string, string> Attr(params (string Name, object Value)[] values) =>

@@ -14,6 +14,10 @@ public sealed class Rwkv7PortableElementwiseBuilder
     private readonly int width;
     private readonly HashSet<string> names = new(StringComparer.Ordinal);
 
+    /// <summary>Creates an elementwise composer for a graph region and fixed vector width.</summary>
+    /// <param name="builder">The graph builder containing the input resources.</param>
+    /// <param name="region">The existing region in which to place nodes.</param>
+    /// <param name="width">The positive number of elements in each vector.</param>
     public Rwkv7PortableElementwiseBuilder(LogicalGraphBuilder builder, string region, int width)
     {
         this.builder = builder ?? throw new ArgumentNullException(nameof(builder));
@@ -23,6 +27,12 @@ public sealed class Rwkv7PortableElementwiseBuilder
     }
 
     // x + (previous - x) * coefficient
+    /// <summary>Builds linear mixing of the current and previous vectors.</summary>
+    /// <param name="id">The unique node and resource prefix.</param>
+    /// <param name="x">The current vector resource.</param>
+    /// <param name="previous">The previous vector resource.</param>
+    /// <param name="coefficient">The per-element mixing coefficient resource.</param>
+    /// <returns>The mixed output resource identifier.</returns>
     public string Mix(string id, string x, string previous, string coefficient) =>
         Binary($"{id}.output", PrimitiveGraphOperations.Add, x,
             Binary($"{id}.scale", PrimitiveGraphOperations.Multiply,
@@ -30,6 +40,12 @@ public sealed class Rwkv7PortableElementwiseBuilder
                 coefficient));
 
     // value + (firstValue - value) * gate
+    /// <summary>Builds gated interpolation toward the first layer's value vector.</summary>
+    /// <param name="id">The unique node and resource prefix.</param>
+    /// <param name="value">The current value resource.</param>
+    /// <param name="firstValue">The first layer's value resource.</param>
+    /// <param name="gate">The interpolation gate resource.</param>
+    /// <returns>The interpolated output resource identifier.</returns>
     public string InterpolateValue(string id, string value, string firstValue, string gate) =>
         Binary($"{id}.output", PrimitiveGraphOperations.Add, value,
             Binary($"{id}.scale", PrimitiveGraphOperations.Multiply,
@@ -37,6 +53,12 @@ public sealed class Rwkv7PortableElementwiseBuilder
                 gate));
 
     // key + adaptation * (key * keyAdaptWeight) - key * keyAdaptWeight
+    /// <summary>Builds the elementwise RWKV-7 key adaptation expression.</summary>
+    /// <param name="id">The unique node and resource prefix.</param>
+    /// <param name="key">The key vector resource.</param>
+    /// <param name="adaptation">The adaptation coefficient resource.</param>
+    /// <param name="keyAdaptWeight">The key adaptation weight resource.</param>
+    /// <returns>The adapted key resource identifier.</returns>
     public string AdaptKey(string id, string key, string adaptation, string keyAdaptWeight)
     {
         var scaledKey = Binary($"{id}.scaled-key", PrimitiveGraphOperations.Multiply,
@@ -48,6 +70,10 @@ public sealed class Rwkv7PortableElementwiseBuilder
     }
 
     // max(0, input)^2
+    /// <summary>Builds rectification followed by elementwise squaring.</summary>
+    /// <param name="id">The unique node and resource prefix.</param>
+    /// <param name="input">The input vector resource.</param>
+    /// <returns>The squared rectified output resource identifier.</returns>
     public string ReluSquare(string id, string input) =>
         Unary($"{id}.output", PrimitiveGraphOperations.Square,
             Unary($"{id}.relu", PrimitiveGraphOperations.Relu, input));

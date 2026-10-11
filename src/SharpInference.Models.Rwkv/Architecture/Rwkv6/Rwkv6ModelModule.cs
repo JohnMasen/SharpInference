@@ -2,12 +2,16 @@ using SharpInference.Graphs;
 
 namespace SharpInference.Architectures.Rwkv6;
 
+/// <summary>Recognizes RWKV-6 tensor catalogs and supplies metadata and portable logical graphs.</summary>
 public sealed class Rwkv6ModelModule : IModelGraphModule
 {
     private readonly PortableRwkv6GraphProvider provider = new();
+    /// <inheritdoc/>
     public string ArchitectureId => provider.ArchitectureId;
+    /// <inheritdoc/>
     public IGraphModelSignatureReader LegacySignatureReader { get; } = new RwkvLegacyGraphSignatureReader();
 
+    /// <inheritdoc/>
     public bool CanLoad(IModelTensorCatalog tensors)
     {
         ArgumentNullException.ThrowIfNull(tensors);
@@ -17,6 +21,7 @@ public sealed class Rwkv6ModelModule : IModelGraphModule
             !tensors.TryGet("blocks.0.att.r_k", out _);
     }
 
+    /// <inheritdoc/>
     public ModelMetadata ReadMetadata(IModelTensorCatalog tensors)
     {
         if (!CanLoad(tensors)) throw new InvalidDataException("The tensor catalog does not match RWKV-6.");
@@ -29,5 +34,6 @@ public sealed class Rwkv6ModelModule : IModelGraphModule
             dimensions.LayerCount, heads[2], heads[1], ArchitectureId).ToModelMetadata();
     }
 
+    /// <inheritdoc/>
     public LogicalGraph Build(IModelTensorCatalog tensors) => provider.Build(tensors);
 }

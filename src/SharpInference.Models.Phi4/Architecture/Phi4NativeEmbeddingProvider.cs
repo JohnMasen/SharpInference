@@ -4,6 +4,7 @@ using SharpInference.Gguf;
 
 namespace SharpInference.Architectures.Phi4;
 
+/// <summary>Computes text, image, and audio embeddings on the host and assembles them into a prompt sequence.</summary>
 public sealed class Phi4NativeEmbeddingProvider : IPhi4EmbeddingProvider
 {
     private const int TextWidth = 3072;
@@ -17,6 +18,7 @@ public sealed class Phi4NativeEmbeddingProvider : IPhi4EmbeddingProvider
         ValidateModel();
     }
 
+    /// <summary>Creates one text-width embedding per prepared prompt token, replacing media placeholders with projected media embeddings.</summary>
     public async ValueTask<IReadOnlyList<ReadOnlyMemory<float>>> CreateFusedEmbeddingsAsync(
         Phi4PreparedInput input,
         CancellationToken cancellationToken = default)
@@ -338,6 +340,11 @@ public sealed class Phi4NativeEmbeddingProvider : IPhi4EmbeddingProvider
         return result.ToArray();
     }
 
+    /// <summary>Encodes audio features and projects them into text-width embeddings using the requested speech or vision projection.</summary>
+    /// <param name="audio">The frame-major log-mel features to encode.</param>
+    /// <param name="projectionMode">The projection weight selection: <c>speech</c> or <c>vision</c>.</param>
+    /// <param name="cancellationToken">The token used to cancel encoding and projection.</param>
+    /// <returns>A token-major array containing 3072 FP32 values per projected audio token.</returns>
     public float[] EncodeAudioProjected(
         Phi4AudioFeatures audio,
         string projectionMode,

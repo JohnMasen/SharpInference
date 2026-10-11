@@ -7,17 +7,25 @@ using Vortice.Direct3D12;
 
 namespace SharpInference.Backends.D3D12Vm;
 
+/// <summary>Creates a compiled GPU kernel, copying the supplied DXIL bytes.</summary>
 public sealed class D3D12VmKernel
 {
     private readonly byte[] dxil;
+    /// <summary>Creates a compiled GPU kernel, copying the supplied DXIL bytes.</summary>
+    /// <param name="definition">The identifier of the VM kernel definition implemented by the bytecode.</param>
+    /// <param name="source">The generated HLSL source implementing the kernel definition.</param>
+    /// <param name="dxil">The compiled kernel bytecode, copied to preserve artifact immutability.</param>
     public D3D12VmKernel(string definition, string source, byte[] dxil)
     {
         Definition = definition;
         Source = source;
         this.dxil = (byte[])dxil.Clone();
     }
+    /// <summary>Gets the VM kernel definition identifier implemented by this module.</summary>
     public string Definition { get; }
+    /// <summary>Gets the generated HLSL source for this kernel.</summary>
     public string Source { get; }
+    /// <summary>Returns a defensive copy of this kernel&apos;s compiled DXIL bytecode.</summary>
     public byte[] GetDxil() => (byte[])dxil.Clone();
     internal ReadOnlyMemory<byte> Bytecode => dxil;
 }
@@ -29,6 +37,7 @@ public sealed class D3D12VmKernel
 /// </summary>
 public sealed class D3D12VmArtifact
 {
+    /// <summary>Identifies the raw-UAV instruction and precision contract required by this artifact format.</summary>
     public const string Abi = "SharpInference.D3D12Vm.raw-uav.ic-precision.v3";
     internal D3D12VmArtifact(VmProgram program, D3D12VmCompilerOptions options, IEnumerable<D3D12VmKernel> kernels,
         VmProgram? contracts = null)
@@ -38,14 +47,19 @@ public sealed class D3D12VmArtifact
         Kernels = Array.AsReadOnly(kernels.ToArray());
         Contracts = contracts ?? program;
     }
+    /// <summary>Gets the Direct3D12 VM program packaged in this artifact.</summary>
     public VmProgram Program { get; }
+    /// <summary>Gets the compilation options used to produce this artifact.</summary>
     public D3D12VmCompilerOptions Options { get; }
+    /// <summary>Gets the compiled HLSL and DXIL modules for the program&apos;s kernel definitions.</summary>
     public IReadOnlyList<D3D12VmKernel> Kernels { get; }
     internal VmProgram Contracts { get; }
 
     /// <summary>Creates an independent VM and an owned hardware device. No source compilation occurs.</summary>
     public D3D12VmExecutor CreateExecutor() => CreateExecutor(0);
 
+    /// <summary>Creates an independent executor that owns a device selected from supported hardware adapters.</summary>
+    /// <param name="adapterIndex">The zero-based supported hardware adapter index in high-performance order.</param>
     public D3D12VmExecutor CreateExecutor(int adapterIndex)
     {
         var (device, _) = D3D12VmDeviceFactory.Create(adapterIndex);
@@ -87,6 +101,8 @@ public sealed class D3D12VmArtifact
         D3D12VmCompilerOptions Options, string ProgramHash, Module[] Modules, string ContractsHash);
     private sealed record Envelope(string Manifest, string Sha256);
 
+    /// <summary>Writes the program, resolved contracts, kernels, options, and integrity hashes to a ZIP stream, leaving it open.</summary>
+    /// <param name="destination">The writable ZIP archive stream, which remains open after export.</param>
     public void Export(Stream destination)
     {
         ArgumentNullException.ThrowIfNull(destination);
@@ -110,6 +126,8 @@ public sealed class D3D12VmArtifact
         Write(zip, "manifest.json", JsonSerializer.SerializeToUtf8Bytes(new Envelope(manifest, Hash(Encoding.UTF8.GetBytes(manifest)))));
     }
 
+    /// <summary>Reads and validates a ZIP artifact and its integrity hashes without invoking DXC or instruction providers.</summary>
+    /// <param name="source">The readable ZIP archive stream, which remains open after import.</param>
     public static D3D12VmArtifact Import(Stream source)
     {
         ArgumentNullException.ThrowIfNull(source);

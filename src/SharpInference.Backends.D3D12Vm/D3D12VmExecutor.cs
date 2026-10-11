@@ -51,9 +51,15 @@ public sealed class D3D12VmExecutor : IVmTaskExecutable
     private ulong computeRecordCount;
     private readonly IReadOnlyDictionary<string, VmDefinition> kernelDefinitions;
 
+    /// <summary>Creates an executor from a compiled artifact using a caller-owned device or shared resource pool.</summary>
+    /// <param name="device">The caller-owned Direct3D12 device, which must outlive this object.</param>
+    /// <param name="artifact">The compiled VM program and kernel modules to execute.</param>
     public D3D12VmExecutor(ID3D12Device device, D3D12VmArtifact artifact)
         : this(device, artifact, null, false) { }
 
+    /// <summary>Creates an executor from a compiled artifact using a caller-owned device or shared resource pool.</summary>
+    /// <param name="pool">The caller-owned shared resource pool used to bind manager-owned GPU allocations.</param>
+    /// <param name="artifact">The compiled VM program and kernel modules to execute.</param>
     public D3D12VmExecutor(D3D12VmResourcePool pool, D3D12VmArtifact artifact)
         : this((pool ?? throw new ArgumentNullException(nameof(pool))).Device, artifact, pool, false) { }
 
@@ -138,16 +144,23 @@ public sealed class D3D12VmExecutor : IVmTaskExecutable
         }
     }
 
+    /// <summary>Gets the compiled GPU program and kernel modules used by this executor.</summary>
     public D3D12VmArtifact Artifact { get; }
+    /// <inheritdoc/>
     public VmProgram Program => Artifact.Program;
+    /// <summary>Gets the shared resource pool, or null when the executor owns independent slot allocations.</summary>
     public D3D12VmResourcePool? ResourcePool => pool;
+    /// <summary>Gets whether disposing this executor also disposes its Direct3D12 device.</summary>
     public bool OwnsDevice => ownsDevice;
     /// <summary>Executor-owned slot bytes. Pooled allocations are counted only by ResourcePool.</summary>
     public ulong AllocatedGpuBytes => pool is null ?
         Artifact.Program.Slots.Aggregate(0UL, (sum, s) => checked(sum + Align(s.Tensor.ByteLength))) : 0;
+    /// <summary>Gets the cumulative number of complete entry-list recordings for slot resource bindings.</summary>
     public ulong BindingRecordCount { get { lock (gate) return bindingRecordCount; } }
+    /// <summary>Gets the cumulative number of compute entry recordings made for queued task execution.</summary>
     public ulong ComputeRecordCount { get { lock (gate) return computeRecordCount; } }
 
+    /// <inheritdoc/>
     public void ExecuteTask(string entryName, VmExecutionLease lease, CancellationToken cancellation)
     {
         lock (gate)
@@ -197,9 +210,14 @@ public sealed class D3D12VmExecutor : IVmTaskExecutable
         BindPooledContext(context, recordAll: false);
         foreach (var index in slots) UploadCore(index, context[index]);
     }
+    /// <summary>Gets the cumulative number of command-list submissions, including initialization and transfers.</summary>
     public ulong SubmissionCount { get { lock (gate) return submissionCount; } }
+    /// <summary>Returns the number of GPU dispatch commands in the named entry&apos;s expanded schedule.</summary>
+    /// <param name="entry">The name of the compiled entry to invoke or inspect.</param>
     public int DispatchCount(string entry) => D3D12VmSchedule.Create(Artifact.Program)[entry].Count(c => c is D3D12VmDispatch);
 
+    /// <summary>Returns the GPU virtual address of a slot, requiring an active binding for pooled execution.</summary>
+    /// <param name="slot">The slot index in program order or the slot identifier.</param>
     public ulong GetGpuVirtualAddress(string slot)
     {
         lock (gate)
@@ -596,7 +614,13 @@ public sealed class D3D12VmExecutor : IVmTaskExecutable
 
     /// <summary>Uploads an exact slot-sized CPU payload. CPU gather indices are range-checked before transfer.</summary>
     public void Upload(string slot, byte[] bytes) => Upload(SlotIndex(slot), bytes);
+    /// <summary>Copies an exact slot-sized payload to the GPU and waits for transfer completion.</summary>
+    /// <param name="slot">The slot index in program order or the slot identifier.</param>
+    /// <param name="bytes">The exact slot-sized CPU payload to upload.</param>
     public void Upload(string slot, ReadOnlySpan<byte> bytes) => Upload(SlotIndex(slot), bytes);
+    /// <summary>Copies an exact slot-sized payload to the GPU and waits for transfer completion.</summary>
+    /// <param name="slot">The slot index in program order or the slot identifier.</param>
+    /// <param name="bytes">The exact slot-sized CPU payload to upload.</param>
     public void Upload(int slot, byte[] bytes)
     {
         lock (gate)
@@ -608,6 +632,9 @@ public sealed class D3D12VmExecutor : IVmTaskExecutable
         }
     }
 
+    /// <summary>Copies an exact slot-sized payload to the GPU and waits for transfer completion.</summary>
+    /// <param name="slot">The slot index in program order or the slot identifier.</param>
+    /// <param name="bytes">The exact slot-sized CPU payload to upload.</param>
     public void Upload(int slot, ReadOnlySpan<byte> bytes)
     {
         lock (gate)
@@ -625,6 +652,9 @@ public sealed class D3D12VmExecutor : IVmTaskExecutable
         }
     }
 
+    /// <summary>Uploads the selected slot buffers, skipping pooled bindings that are already GPU-initialized.</summary>
+    /// <param name="buffers">Caller-owned byte arrays in program slot order, each matching its slot&apos;s exact capacity.</param>
+    /// <param name="slots">The zero-based slot indices to initialize.</param>
     public void InitializeSlots(IReadOnlyList<byte[]> buffers, IEnumerable<int> slots)
     {
         ArgumentNullException.ThrowIfNull(buffers);
@@ -683,6 +713,8 @@ public sealed class D3D12VmExecutor : IVmTaskExecutable
 
     /// <summary>Copies one persistent GPU slot back to an owned CPU byte array.</summary>
     public byte[] Readback(string slot) => Readback(SlotIndex(slot));
+    /// <summary>Copies a GPU slot to a newly allocated array or an exact-size destination and waits for completion.</summary>
+    /// <param name="slot">The slot index in program order or the slot identifier.</param>
     public byte[] Readback(int slot)
     {
         lock (gate)
@@ -695,7 +727,13 @@ public sealed class D3D12VmExecutor : IVmTaskExecutable
         }
     }
 
+    /// <summary>Copies a GPU slot to a newly allocated array or an exact-size destination and waits for completion.</summary>
+    /// <param name="slot">The slot index in program order or the slot identifier.</param>
+    /// <param name="destination">The exact slot-sized CPU destination array.</param>
     public void Readback(string slot, byte[] destination) => Readback(SlotIndex(slot), destination);
+    /// <summary>Copies a GPU slot to a newly allocated array or an exact-size destination and waits for completion.</summary>
+    /// <param name="slot">The slot index in program order or the slot identifier.</param>
+    /// <param name="destination">The exact slot-sized CPU destination array.</param>
     public void Readback(int slot, byte[] destination)
     {
         lock (gate)
@@ -899,6 +937,7 @@ public sealed class D3D12VmExecutor : IVmTaskExecutable
         device.DeviceRemovedReason.CheckError();
     }
     private void ThrowIfDisposed() => ObjectDisposedException.ThrowIf(disposed, this);
+    /// <inheritdoc/>
     public void Dispose()
     {
         lock (gate)

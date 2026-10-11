@@ -4,25 +4,79 @@ using SharpInference.Vm;
 
 namespace SharpInference.Vm.Optimization;
 
-public enum VmTuningWorkload { Prefill, Inference }
+/// <summary>Identifies the token-processing workload measured during VM tuning.</summary>
+public enum VmTuningWorkload
+{
+    /// <summary>Measures prefill of the supplied token batch.</summary>
+    Prefill,
+    /// <summary>Measures sequential single-token inference.</summary>
+    Inference
+}
 
+/// <summary>Configures warmup, measurement counts, and numerical acceptance tolerances for VM tuning.</summary>
+/// <param name="WarmupRuns">The number of warmup executions before collecting steady-state samples.</param>
+/// <param name="MeasuredRuns">The number of validated execution samples used to compute the median.</param>
+/// <param name="AbsoluteTolerance">The maximum absolute logits error accepted during validation.</param>
+/// <param name="RelativeTolerance">The maximum relative logits error accepted during validation.</param>
+/// <param name="Workload">The prefill or inference workload used for measurements.</param>
 public sealed record VmTuningOptions(
     int WarmupRuns = 2, int MeasuredRuns = 5,
     float AbsoluteTolerance = 0.0003f, float RelativeTolerance = 0.0003f,
     VmTuningWorkload Workload = VmTuningWorkload.Prefill);
 
+/// <summary>Identifies the hardware, driver, backend, and compiler used for a tuning run.</summary>
+/// <param name="Hardware">The hardware identity of the tuning target.</param>
+/// <param name="Driver">The driver identity of the tuning target.</param>
+/// <param name="Backend">The execution backend identity.</param>
+/// <param name="Compiler">The compiler identity used for candidate preparation.</param>
 public sealed record VmTuningTarget(string Hardware, string Driver, string Backend, string Compiler);
 
+/// <summary>Contains expected logits and state values used to validate tuning candidates.</summary>
+/// <param name="Logits">The expected output logits used for numerical validation.</param>
+/// <param name="State">The expected state payloads keyed by canonical state-entry name.</param>
 public sealed record VmTuningReference(float[] Logits, IReadOnlyDictionary<string, byte[]> State);
+/// <summary>Associates a unique candidate name with a VM program to compile and measure.</summary>
+/// <param name="Name">The unique name identifying this candidate in measurements and winner selection.</param>
+/// <param name="Program">The VM artifact compiled and measured for this candidate.</param>
 public sealed record VmTuningCandidate(string Name, VmProgram Program);
+/// <summary>Reports one candidate's acceptance, phase timings, and failure diagnostic.</summary>
+/// <param name="Name">The candidate name associated with these measurements.</param>
+/// <param name="Accepted">Whether execution, logits, and state validation succeeded for the candidate.</param>
+/// <param name="CompilationMilliseconds">The elapsed candidate compilation time in milliseconds.</param>
+/// <param name="InitializationMilliseconds">The elapsed engine and session initialization time in milliseconds.</param>
+/// <param name="FirstExecutionMilliseconds">The first execution latency in milliseconds.</param>
+/// <param name="WarmupMilliseconds">The total warmup and validation time in milliseconds.</param>
+/// <param name="MedianMilliseconds">The median validated steady-state execution latency in milliseconds.</param>
+/// <param name="Diagnostic">The failed phase and error, or null for an accepted candidate.</param>
 public sealed record VmTuningMeasurement(string Name, bool Accepted, double CompilationMilliseconds,
     double InitializationMilliseconds, double FirstExecutionMilliseconds, double WarmupMilliseconds, double MedianMilliseconds,
     string? Diagnostic);
+/// <summary>Records the fastest accepted candidate, execution environment, and all candidate measurements.</summary>
+/// <param name="Winner">The name of the fastest accepted candidate, or null if all candidates failed.</param>
+/// <param name="Target">The explicit hardware, driver, backend, and compiler identity for the run.</param>
+/// <param name="Options">The tuning options used for the run.</param>
+/// <param name="OperatingSystem">The operating system description recorded for the run.</param>
+/// <param name="Runtime">The .NET runtime description recorded for the run.</param>
+/// <param name="Candidates">The acceptance results and phase measurements for all candidates.</param>
 public sealed record VmTuningResult(string? Winner, VmTuningTarget Target, VmTuningOptions Options,
     string OperatingSystem, string Runtime, IReadOnlyList<VmTuningMeasurement> Candidates);
 
+/// <summary>Compiles, validates, and benchmarks candidate programs against reference logits and state.</summary>
 public static class VmProgramTuner
 {
+    /// <summary>Compiles and benchmarks candidates, validating logits and state before selecting the fastest accepted median.</summary>
+    /// <param name="candidates">The uniquely named VM programs to compile, validate, and measure.</param>
+    /// <param name="inputSlot">The Int32 slot receiving input token identifiers.</param>
+    /// <param name="outputSlot">The Float32 slot containing output logits.</param>
+    /// <param name="tokens">The nonempty vocabulary token sequence to process.</param>
+    /// <param name="initialState">The complete state snapshot restored before each workload execution.</param>
+    /// <param name="reference">The expected logits and exact state payloads used to accept candidates.</param>
+    /// <param name="compile">The asynchronous compiler returning a factory for newly owned executables.</param>
+    /// <param name="initializeGlobal">The callback initializing newly allocated global slot storage.</param>
+    /// <param name="target">The explicit hardware, driver, backend, and compiler identity for the tuning run.</param>
+    /// <param name="options">The workload, run counts, and numerical tolerances; null uses default tuning settings.</param>
+    /// <param name="cancellation">The token used to cancel the operation.</param>
+    /// <param name="allocate">The optional slot storage allocator; null uses managed byte arrays.</param>
     public static async ValueTask<VmTuningResult> TuneAsync(
         IReadOnlyList<VmTuningCandidate> candidates, string inputSlot, string outputSlot,
         ReadOnlyMemory<int> tokens, IReadOnlyDictionary<string, byte[]> initialState,

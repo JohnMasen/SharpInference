@@ -3,8 +3,12 @@ using SharpInference.Graphs;
 
 namespace SharpInference.Runtime;
 
+/// <summary>Declares a named orchestration resource and the access required by a node.</summary>
 public sealed record ProcessorResourceAccess
 {
+    /// <summary>Creates and validates a resource name and its orchestration access mode.</summary>
+    /// <param name="resource">The name of the orchestration resource.</param>
+    /// <param name="access">The required read or write access to the resource.</param>
     public ProcessorResourceAccess(string resource, GraphResourceAccess access)
     {
         Resource = string.IsNullOrWhiteSpace(resource)
@@ -14,15 +18,23 @@ public sealed record ProcessorResourceAccess
         Access = access;
     }
 
+    /// <summary>Gets the name of the orchestration resource.</summary>
     public string Resource { get; }
+    /// <summary>Gets the node&apos;s read or write access to the resource.</summary>
     public GraphResourceAccess Access { get; }
 }
 
+/// <summary>Defines a unit of orchestration work with explicit dependencies and resource access declarations.</summary>
 public sealed class ProcessorOrchestrationNode
 {
     private static readonly Func<ProcessorOrchestrationContext, CancellationToken, ValueTask> NoOperation =
         static (_, _) => ValueTask.CompletedTask;
 
+    /// <summary>Creates a named work node with unique dependencies, resource bindings, and an execution callback.</summary>
+    /// <param name="name">The unique orchestration node name used by dependency edges.</param>
+    /// <param name="dependencies">The names of nodes that must complete before this node runs.</param>
+    /// <param name="resources">The unique resource access declarations for the orchestration node.</param>
+    /// <param name="execute">The asynchronous callback that executes the node in the shared resource context.</param>
     public ProcessorOrchestrationNode(
         string name,
         IEnumerable<string>? dependencies,
@@ -42,17 +54,27 @@ public sealed class ProcessorOrchestrationNode
             throw new ArgumentException("A node may bind each orchestration resource only once.", nameof(resources));
     }
 
+    /// <summary>Gets the unique node name used by dependency edges.</summary>
     public string Name { get; }
+    /// <summary>Gets the names of nodes that must finish before this node starts.</summary>
     public IReadOnlyList<string> Dependencies { get; }
+    /// <summary>Gets the resource access declarations used to detect unordered conflicts.</summary>
     public IReadOnlyList<ProcessorResourceAccess> Resources { get; }
+    /// <summary>Gets the callback that performs this node&apos;s work within the shared orchestration context.</summary>
     public Func<ProcessorOrchestrationContext, CancellationToken, ValueTask> Execute { get; }
 
+    /// <summary>Creates a no-operation node that completes after all named dependencies finish.</summary>
+    /// <param name="name">The unique name of the dependency-join node.</param>
+    /// <param name="dependencies">The names of nodes that must complete before this node runs.</param>
     public static ProcessorOrchestrationNode Join(string name, IEnumerable<string> dependencies) =>
         new(name, dependencies, [], NoOperation);
 }
 
+/// <summary>Contains an acyclic orchestration graph whose conflicting resource accesses are explicitly ordered.</summary>
 public sealed class ProcessorOrchestrationGraph
 {
+    /// <summary>Creates a graph and validates dependency names, cycles, and unordered resource conflicts.</summary>
+    /// <param name="nodes">The orchestration nodes to validate and execute.</param>
     public ProcessorOrchestrationGraph(IEnumerable<ProcessorOrchestrationNode> nodes)
     {
         ArgumentNullException.ThrowIfNull(nodes);
@@ -77,6 +99,7 @@ public sealed class ProcessorOrchestrationGraph
         Nodes = Array.AsReadOnly(values);
     }
 
+    /// <summary>Gets the validated orchestration nodes.</summary>
     public IReadOnlyList<ProcessorOrchestrationNode> Nodes { get; }
 
     private static void ValidateAcyclic(
@@ -151,12 +174,16 @@ public sealed class ProcessorOrchestrationGraph
     }
 }
 
+/// <summary>Owns published storage leases and provides retained references to concurrent orchestration nodes.</summary>
 public sealed class ProcessorOrchestrationContext : IAsyncDisposable
 {
     private readonly object gate = new();
     private readonly Dictionary<string, IStorageLease> storage = new(StringComparer.Ordinal);
     private bool disposed;
 
+    /// <summary>Publishes a storage lease under a unique resource name and transfers its ownership to this context.</summary>
+    /// <param name="resource">The name of the orchestration resource.</param>
+    /// <param name="lease">The storage lease whose ownership is transferred to the orchestration context.</param>
     public void Publish(string resource, IStorageLease lease)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(resource);
@@ -169,6 +196,8 @@ public sealed class ProcessorOrchestrationContext : IAsyncDisposable
         }
     }
 
+    /// <summary>Returns a retained lease for a previously published orchestration resource.</summary>
+    /// <param name="resource">The name of the orchestration resource.</param>
     public IStorageLease Acquire(string resource)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(resource);
@@ -181,6 +210,7 @@ public sealed class ProcessorOrchestrationContext : IAsyncDisposable
         }
     }
 
+    /// <summary>Releases all distinct published leases and aggregates cleanup failures.</summary>
     public async ValueTask DisposeAsync()
     {
         IStorageLease[] leases;
@@ -205,16 +235,22 @@ public sealed class ProcessorOrchestrationContext : IAsyncDisposable
     }
 }
 
+/// <summary>Executes dependency-ordered processor nodes with bounded concurrency and shared leased resources.</summary>
 public sealed class ProcessorOrchestrator
 {
     private readonly int maximumConcurrency;
 
+    /// <summary>Creates an orchestrator with a positive limit on simultaneously executing nodes.</summary>
+    /// <param name="maximumConcurrency">The positive maximum number of nodes allowed to execute simultaneously.</param>
     public ProcessorOrchestrator(int maximumConcurrency = int.MaxValue)
     {
         if (maximumConcurrency <= 0) throw new ArgumentOutOfRangeException(nameof(maximumConcurrency));
         this.maximumConcurrency = maximumConcurrency;
     }
 
+    /// <summary>Executes all graph nodes and returns their resource context, or cancels remaining work and cleans up on failure.</summary>
+    /// <param name="graph">The validated dependency graph of orchestration work.</param>
+    /// <param name="cancellationToken">The token used to cancel the operation or admission wait.</param>
     public async ValueTask<ProcessorOrchestrationContext> ExecuteAsync(
         ProcessorOrchestrationGraph graph,
         CancellationToken cancellationToken = default)

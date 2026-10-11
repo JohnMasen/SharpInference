@@ -2,13 +2,18 @@ using SharpInference.Gguf;
 
 namespace SharpInference.Architectures.Phi4;
 
+/// <summary>Selects the LoRA adapter applied to the Phi-4 text backbone.</summary>
 public enum Phi4Adapter
 {
+    /// <summary>Uses the text backbone without a LoRA adapter.</summary>
     None,
+    /// <summary>Applies the vision LoRA adapter.</summary>
     Vision,
+    /// <summary>Applies the speech LoRA adapter.</summary>
     Speech,
 }
 
+/// <summary>Owns the text, multimodal, and adapter GGUF files and tokenizer of a Phi-4 model package.</summary>
 public sealed class Phi4ModelPackage : IDisposable
 {
     private bool disposed;
@@ -29,13 +34,20 @@ public sealed class Phi4ModelPackage : IDisposable
         Tokenizer = tokenizer;
     }
 
+    /// <summary>Gets the absolute directory containing the model package files.</summary>
     public string Directory { get; }
+    /// <summary>Gets the text backbone GGUF file.</summary>
     public GgufModelFile Text { get; }
+    /// <summary>Gets the GGUF file containing the vision and audio encoder weights.</summary>
     public GgufModelFile Omni { get; }
+    /// <summary>Gets the vision LoRA adapter GGUF file.</summary>
     public GgufModelFile VisionAdapter { get; }
+    /// <summary>Gets the speech LoRA adapter GGUF file.</summary>
     public GgufModelFile SpeechAdapter { get; }
+    /// <summary>Gets the tokenizer associated with the model package.</summary>
     public Phi4Tokenizer Tokenizer { get; }
 
+    /// <summary>Opens and validates the GGUF components and tokenizer in the specified Phi-4 package directory.</summary>
     public static Phi4ModelPackage Open(string directory)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(directory);
@@ -76,18 +88,21 @@ public sealed class Phi4ModelPackage : IDisposable
         }
     }
 
+    /// <summary>Creates a text model over the package weights with optional matrix projection acceleration.</summary>
     public Phi4TextModel CreateTextModel(IPhi4MatrixProjector? matrixProjector = null)
     {
         ObjectDisposedException.ThrowIf(disposed, this);
         return new Phi4TextModel(Text, VisionAdapter, SpeechAdapter, matrixProjector);
     }
 
+    /// <summary>Creates a host-side embedding provider over the package text and multimodal weights.</summary>
     public Phi4NativeEmbeddingProvider CreateEmbeddingProvider()
     {
         ObjectDisposedException.ThrowIf(disposed, this);
         return new Phi4NativeEmbeddingProvider(Text, Omni);
     }
 
+    /// <inheritdoc/>
     public void Dispose()
     {
         if (disposed)

@@ -61,11 +61,17 @@ public sealed class VorticePrimitiveGraphBackend : IGraphModelWeightBackend, IDi
         };
     }
 
+    /// <summary>Gets the selected adapter name, or null when the backend was constructed with a caller-supplied device.</summary>
     public string? DeviceName { get; }
+    /// <inheritdoc/>
     public bool RequiresCpuWeightCopy => false;
+    /// <summary>Gets cumulative executor traffic metrics, or null before an executor has been prepared.</summary>
     public VorticePrimitiveGraphMetrics? Metrics => executor?.Metrics;
+    /// <summary>Gets executor buffer allocation metrics, or null before an executor has been prepared.</summary>
     public VorticePrimitiveGraphMemoryMetrics? Memory => executor?.Memory;
+    /// <summary>Gets the number of non-elided dispatches per token, or null before preparation.</summary>
     public int? DispatchesPerToken => executor?.DispatchesPerToken;
+    /// <summary>Gets the latest optional CPU recording and fence-wait profile, or null when unavailable.</summary>
     public VorticePrimitiveGraphExecutionProfile? LastExecutionProfile => executor?.LastExecutionProfile;
     /// <summary>Opt-in per-session closed-list replay for scalar-token graphs; unsupported inputs fail preparation.</summary>
     public bool EnableCommandReplay
@@ -78,6 +84,7 @@ public sealed class VorticePrimitiveGraphBackend : IGraphModelWeightBackend, IDi
             enableCommandReplay = value;
         }
     }
+    /// <summary>Gets or sets whether token execution collects per-kernel CPU command-recording timings.</summary>
     public bool ProfileCommandRecording
     {
         get => profileCommandRecording;
@@ -88,8 +95,10 @@ public sealed class VorticePrimitiveGraphBackend : IGraphModelWeightBackend, IDi
             if (executor is not null) executor.ProfileCommandRecording = value;
         }
     }
+    /// <inheritdoc/>
     public IExecutionKernelCatalog KernelCatalog { get; } =
         new VorticeExpressionKernelCatalog(Operations);
+    /// <inheritdoc/>
     public IPrimitiveOperatorBackend PrimitiveOperators
     {
         get
@@ -99,6 +108,7 @@ public sealed class VorticePrimitiveGraphBackend : IGraphModelWeightBackend, IDi
         }
     }
 
+    /// <inheritdoc/>
     public IReadOnlyList<OperatorImplementationDescription> GetOperatorImplementations(
         ExecutionGraph graph, ExecutionNode node)
     {
@@ -124,6 +134,7 @@ public sealed class VorticePrimitiveGraphBackend : IGraphModelWeightBackend, IDi
         ];
     }
 
+    /// <inheritdoc/>
     public BackendPreparationResult Prepare(ExecutionGraph graph)
     {
         ObjectDisposedException.ThrowIf(disposed, this);
@@ -198,6 +209,7 @@ public sealed class VorticePrimitiveGraphBackend : IGraphModelWeightBackend, IDi
         }
     }
 
+    /// <inheritdoc/>
     public IProcessorSessionExecutor CreateSessionExecutor(
         IModel model, IModelState state, IBackendExecutablePlan plan)
     {
@@ -235,6 +247,7 @@ public sealed class VorticePrimitiveGraphBackend : IGraphModelWeightBackend, IDi
         }
     }
 
+    /// <inheritdoc/>
     public void Dispose()
     {
         if (disposed) return;

@@ -3,14 +3,22 @@ namespace SharpInference.Vm;
 /// <summary>Provides byte-addressable storage for VM resources.</summary>
 public interface IVmStorage : IDisposable
 {
+    /// <summary>Gets the total storage capacity in bytes.</summary>
     ulong ByteLength { get; }
+    /// <summary>Copies bytes from the bound storage at the specified byte offset.</summary>
+    /// <param name="offset">The byte offset from the start of the storage.</param>
+    /// <param name="destination">The span receiving bytes read from storage.</param>
     void Read(ulong offset, Span<byte> destination);
+    /// <summary>Copies bytes into writable bound storage at the specified byte offset.</summary>
+    /// <param name="offset">The byte offset from the start of the storage.</param>
+    /// <param name="source">The bytes to copy into storage.</param>
     void Write(ulong offset, ReadOnlySpan<byte> source);
 }
 
 /// <summary>Provides VM storage backed by a managed byte array.</summary>
 public interface IVmManagedStorage : IVmStorage
 {
+    /// <summary>Gets the managed backing array; access after disposal throws.</summary>
     byte[] Buffer { get; }
 }
 
@@ -28,7 +36,9 @@ public sealed class VmMemoryStorage : IVmManagedStorage
         ByteLength = (ulong)byteLength;
     }
 
+    /// <summary>Gets the total storage capacity in bytes.</summary>
     public ulong ByteLength { get; }
+    /// <summary>Gets the managed backing array; access after disposal throws.</summary>
     public byte[] Buffer => data ?? throw new ObjectDisposedException(nameof(VmMemoryStorage));
 
     /// <summary>Reads bytes from storage into the destination span.</summary>
@@ -85,8 +95,11 @@ public sealed class VmResource : IDisposable
         this.storage = storage;
     }
 
+    /// <summary>Gets the tensor descriptor defining element representation and shape.</summary>
     public VmTensor Tensor { get; }
+    /// <summary>Gets the resource sharing scope.</summary>
     public VmSlotScope Scope { get; }
+    /// <summary>Gets the permitted resource access.</summary>
     public VmAccess Access { get; }
     internal bool Valid { get { lock (gate) return valid; } }
     internal void SetValidity(bool value) { lock (gate) valid = value; }
@@ -224,11 +237,15 @@ public sealed class VmResourceLease : IDisposable
     internal byte[] GetManagedBuffer() { lock (gate) return Resource.GetManagedBuffer(); }
     internal IVmStorage Storage { get { lock (gate) return Resource.Storage; } }
 
+    /// <summary>Acquires an independent owning reference to the same resource while this lease is active.</summary>
     public VmResourceLease Retain()
     {
         lock (gate) return Resource.Retain();
     }
 
+    /// <summary>Copies bytes from the bound storage at the specified byte offset.</summary>
+    /// <param name="offset">The byte offset from the start of the storage.</param>
+    /// <param name="destination">The span receiving bytes read from storage.</param>
     public void Read(ulong offset, Span<byte> destination)
     {
         lock (gate)
@@ -238,6 +255,9 @@ public sealed class VmResourceLease : IDisposable
         }
     }
 
+    /// <summary>Copies bytes into writable bound storage at the specified byte offset.</summary>
+    /// <param name="offset">The byte offset from the start of the storage.</param>
+    /// <param name="source">The bytes to copy into storage.</param>
     public void Write(ulong offset, ReadOnlySpan<byte> source)
     {
         lock (gate)
@@ -259,6 +279,7 @@ public sealed class VmResourceLease : IDisposable
 
     private VmResource Resource => resource ?? throw new ObjectDisposedException(nameof(VmResourceLease));
 
+    /// <summary>Releases the resources owned by this object.</summary>
     public void Dispose()
     {
         VmResource? released;
@@ -277,6 +298,7 @@ internal sealed class VmResourceUse(VmResource resource, VmAccess access) : IDis
     public void Dispose() => Interlocked.Exchange(ref resource, null)?.ReleaseUse(access);
 }
 
+/// <summary>Owns resource bindings for a program and guards exclusive execution or state access.</summary>
 public sealed class VmBindings : IDisposable
 {
     private readonly object gate = new();
@@ -286,8 +308,11 @@ public sealed class VmBindings : IDisposable
     private bool disposed;
     private readonly List<VmResourceUse> activeUses = [];
 
+    /// <summary>Creates initially unbound resource bindings for a VM program.</summary>
+    /// <param name="program">The program whose slots will be bound to resources.</param>
     public VmBindings(VmProgram program) => this.program =
         program ?? throw new ArgumentNullException(nameof(program));
+    /// <summary>Gets the program whose slots these resource bindings satisfy.</summary>
     public VmProgram Program => program;
     internal bool StateValid
     {
@@ -298,6 +323,9 @@ public sealed class VmBindings : IDisposable
         }
     }
 
+    /// <summary>Retains a compatible resource binding and releases any previous binding while the program is idle.</summary>
+    /// <param name="slotId">The identifier of the bound program slot.</param>
+    /// <param name="resource">The compatible resource lease to retain for the slot.</param>
     public void Bind(string slotId, VmResourceLease resource)
     {
         ArgumentNullException.ThrowIfNull(resource);
@@ -320,8 +348,10 @@ public sealed class VmBindings : IDisposable
         }
     }
 
+    /// <summary>Acquires resource-use leases for execution, requiring all slots bound and state valid.</summary>
     public VmExecutionLease BeginExecution() => BeginAccess(allowInvalidState: false);
 
+    /// <summary>Acquires exclusive state-transfer access even when the bound state is invalid.</summary>
     public VmExecutionLease BeginStateAccess() => BeginAccess(allowInvalidState: true);
 
     private VmExecutionLease BeginAccess(bool allowInvalidState)
@@ -424,6 +454,7 @@ public sealed class VmBindings : IDisposable
         }
     }
 
+    /// <summary>Releases all session-scoped bindings while the program is idle.</summary>
     public void UnbindSession()
     {
         lock (gate)
@@ -441,6 +472,7 @@ public sealed class VmBindings : IDisposable
             throw new InvalidOperationException("An executing VM cannot be rebound, disposed or executed again.");
     }
 
+    /// <summary>Releases all owned bindings; disposal is rejected while execution or state transfer is active.</summary>
     public void Dispose()
     {
         List<Exception>? errors = null;
@@ -461,6 +493,7 @@ public sealed class VmBindings : IDisposable
     }
 }
 
+/// <summary>Grants scoped access to bound program resources while preventing rebinding.</summary>
 public sealed class VmExecutionLease : IDisposable
 {
     private readonly object gate = new();
@@ -471,6 +504,7 @@ public sealed class VmExecutionLease : IDisposable
         IsStateAccess = stateAccess;
     }
     internal bool IsStateAccess { get; }
+    /// <summary>Gets the program protected by the active resource-use leases.</summary>
     public VmProgram Program { get { lock (gate) return Bindings.Program; } }
     internal bool StateValid { get { lock (gate) return Bindings.StateValid; } }
     internal bool CanRestoreState(string slotId) { lock (gate) return Bindings.CanRestoreState(slotId); }
@@ -485,31 +519,45 @@ public sealed class VmExecutionLease : IDisposable
         }
     }
 
+    /// <summary>Copies bytes from the bound storage at the specified byte offset.</summary>
+    /// <param name="slotId">The identifier of the bound program slot.</param>
+    /// <param name="offset">The byte offset from the start of the storage.</param>
+    /// <param name="destination">The span receiving bytes read from storage.</param>
     public void Read(string slotId, ulong offset, Span<byte> destination)
     {
         lock (gate) Bindings.Read(slotId, offset, destination);
     }
 
+    /// <summary>Copies bytes into writable bound storage at the specified byte offset.</summary>
+    /// <param name="slotId">The identifier of the bound program slot.</param>
+    /// <param name="offset">The byte offset from the start of the storage.</param>
+    /// <param name="source">The bytes to copy into storage.</param>
     public void Write(string slotId, ulong offset, ReadOnlySpan<byte> source)
     {
         lock (gate) Bindings.Write(slotId, offset, source);
     }
 
+    /// <summary>Returns managed backing arrays in program-slot order while the execution lease is active.</summary>
     public byte[][] GetBuffers()
     {
         lock (gate) return Bindings.GetBuffers();
     }
 
+    /// <summary>Returns the storage backing a bound slot while the execution lease is active.</summary>
+    /// <param name="slotId">The identifier of the bound program slot.</param>
     public IVmStorage GetStorage(string slotId)
     {
         lock (gate) return Bindings.GetStorage(slotId);
     }
 
+    /// <summary>Marks registered state resources invalid so execution cannot resume until restoration.</summary>
     public void InvalidateState()
     {
         lock (gate) Bindings.SetStateValidity(false);
     }
 
+    /// <summary>Restores a complete validated state snapshot through a state-access lease.</summary>
+    /// <param name="values">The complete state payload map keyed by registered state slot name.</param>
     public void RestoreState(IReadOnlyDictionary<string, ReadOnlyMemory<byte>> values)
     {
         ArgumentNullException.ThrowIfNull(values);
@@ -548,6 +596,7 @@ public sealed class VmExecutionLease : IDisposable
 
     private VmBindings Bindings => bindings ?? throw new ObjectDisposedException(nameof(VmExecutionLease));
 
+    /// <summary>Releases resource-use leases and allows the owning bindings to be reused.</summary>
     public void Dispose()
     {
         lock (gate)

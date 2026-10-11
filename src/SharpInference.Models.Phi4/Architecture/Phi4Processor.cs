@@ -2,6 +2,13 @@ using System.Runtime.InteropServices;
 
 namespace SharpInference.Architectures.Phi4;
 
+/// <summary>Contains a tokenized prompt with expanded media placeholders, processed media features, and adapter selection.</summary>
+/// <param name="TokenIds">The prompt token IDs with media placeholders expanded to their embedding lengths.</param>
+/// <param name="AttentionMask">The validity mask corresponding to the prompt token IDs.</param>
+/// <param name="Images">The processed images in prompt order.</param>
+/// <param name="Audios">The processed audio clips in prompt order.</param>
+/// <param name="Adapter">The LoRA adapter selected for decoding.</param>
+/// <param name="AudioProjectionMode">The audio projection mode, either speech or vision.</param>
 public sealed record Phi4PreparedInput(
     int[] TokenIds,
     bool[] AttentionMask,
@@ -10,18 +17,25 @@ public sealed record Phi4PreparedInput(
     Phi4Adapter Adapter,
     string AudioProjectionMode);
 
+/// <summary>Contains the prompt tokens, newly generated tokens, and decoded generated text.</summary>
+/// <param name="InputTokenIds">The prepared prompt token IDs.</param>
+/// <param name="GeneratedTokenIds">The newly generated token IDs.</param>
+/// <param name="Text">The decoded generated text.</param>
 public sealed record Phi4GenerationResult(
     IReadOnlyList<int> InputTokenIds,
     IReadOnlyList<int> GeneratedTokenIds,
     string Text);
 
+/// <summary>Defines creation of a prompt embedding sequence with media embeddings replacing expanded placeholder tokens.</summary>
 public interface IPhi4EmbeddingProvider
 {
+    /// <summary>Creates one text-width embedding per prepared prompt token, replacing media placeholders with projected media embeddings.</summary>
     ValueTask<IReadOnlyList<ReadOnlyMemory<float>>> CreateFusedEmbeddingsAsync(
         Phi4PreparedInput input,
         CancellationToken cancellationToken);
 }
 
+/// <summary>Provides Phi-4 multimodal input capabilities and creates sessions for preprocessing and text generation.</summary>
 public sealed class Phi4Processor : IProcessor
 {
     private static readonly ProcessorCapabilities Phi4Capabilities = new(
@@ -60,15 +74,19 @@ public sealed class Phi4Processor : IProcessor
     private readonly IPhi4EmbeddingProvider? embeddingProvider;
     private bool disposed;
 
+    /// <summary>Initializes a processor for the supplied package, using its native embedding provider when none is supplied.</summary>
     public Phi4Processor(Phi4ModelPackage package, IPhi4EmbeddingProvider? embeddingProvider = null)
     {
         this.package = package ?? throw new ArgumentNullException(nameof(package));
         this.embeddingProvider = embeddingProvider ?? package.CreateEmbeddingProvider();
     }
 
+    /// <inheritdoc/>
     public ProcessorCapabilities Capabilities => Phi4Capabilities;
+    /// <summary>Gets the tokenizer associated with the model package.</summary>
     public Phi4Tokenizer Tokenizer => package.Tokenizer;
 
+    /// <summary>Creates a preprocessing and generation session over this processor's package.</summary>
     public Phi4ProcessorSession CreateSession()
     {
         ObjectDisposedException.ThrowIf(disposed, this);
@@ -77,6 +95,7 @@ public sealed class Phi4Processor : IProcessor
 
     IProcessorSession IProcessor.CreateSession() => CreateSession();
 
+    /// <inheritdoc/>
     public void Dispose()
     {
         if (disposed)
@@ -86,6 +105,7 @@ public sealed class Phi4Processor : IProcessor
     }
 }
 
+/// <summary>Prepares multimodal prompts and generates text using the associated Phi-4 processor.</summary>
 public sealed class Phi4ProcessorSession : IProcessorSession
 {
     private readonly Phi4Processor processor;
@@ -103,14 +123,17 @@ public sealed class Phi4ProcessorSession : IProcessorSession
         this.embeddingProvider = embeddingProvider;
     }
 
+    /// <summary>Gets the Phi-4 processor that created this session.</summary>
     public Phi4Processor Processor => processor;
     IProcessor IProcessorSession.Processor => processor;
 
+    /// <summary>Checks that the session is active; generation uses fresh decoder state for each request.</summary>
     public void Reset()
     {
         ObjectDisposedException.ThrowIf(disposed, this);
     }
 
+    /// <summary>Tokenizes the input prompt, preprocesses media, expands media placeholders, and selects the decoding adapter.</summary>
     public async ValueTask<Phi4PreparedInput> PrepareAsync(
         ProcessorInput input,
         CancellationToken cancellationToken = default)
@@ -148,6 +171,7 @@ public sealed class Phi4ProcessorSession : IProcessorSession
             images.Length != 0 ? "vision" : "speech");
     }
 
+    /// <summary>Prepares the input and greedily generates up to the requested number of new tokens.</summary>
     public async ValueTask<Phi4GenerationResult> GenerateAsync(
         ProcessorInput input,
         int maximumNewTokens,
@@ -197,6 +221,7 @@ public sealed class Phi4ProcessorSession : IProcessorSession
             processor.Tokenizer.Decode(generated, skipSpecialTokens: true));
     }
 
+    /// <inheritdoc/>
     public void Dispose()
     {
         disposed = true;

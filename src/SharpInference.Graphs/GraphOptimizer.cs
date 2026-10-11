@@ -1,36 +1,61 @@
 namespace SharpInference.Graphs;
 
+/// <summary>Limits which region boundaries an optimization may cross.</summary>
 public enum OptimizationBoundary
 {
+    /// <summary>Disables graph fusion optimizations.</summary>
     Off,
+    /// <summary>Allows fusion only within the same stage boundary.</summary>
     WithinStage,
+    /// <summary>Allows fusion only within the same layer boundary.</summary>
     WithinLayer,
+    /// <summary>Allows fusion across stage and layer boundaries.</summary>
     Unrestricted,
 }
 
+/// <summary>Controls whether optimization canonicalizes reusable definitions or retains expanded structure.</summary>
 public enum GraphDefinitionPolicy
 {
+    /// <summary>Extracts canonical reusable definitions when optimizing graph structure.</summary>
     Canonicalize,
+    /// <summary>Keeps expanded node structure rather than canonicalizing reusable definitions.</summary>
     PreserveExpanded,
 }
 
+/// <summary>Controls optimization scope, pass limits, and reusable-definition handling.</summary>
+/// <param name="Boundary">The region boundaries that optimization may cross.</param>
+/// <param name="MaximumPasses">The maximum number of optimization passes.</param>
+/// <param name="DefinitionPolicy">The policy for retaining or canonicalizing reusable definitions.</param>
 public sealed record GraphOptimizationOptions(
     OptimizationBoundary Boundary = OptimizationBoundary.WithinStage,
     int MaximumPasses = 16,
     GraphDefinitionPolicy DefinitionPolicy = GraphDefinitionPolicy.Canonicalize);
 
+/// <summary>Reports whether an execution target supports a graph operation.</summary>
 public interface IExecutionCapabilityProvider
 {
+    /// <summary>Determines whether this execution target supports the operation contract.</summary>
+    /// <param name="operation">The operation contract identifier.</param>
     bool Supports(GraphOperationId operation);
 }
 
+/// <summary>Accepts all operation identifiers when no target-specific capability restrictions are required.</summary>
 public sealed class PortableExecutionCapabilities : IExecutionCapabilityProvider
 {
+    /// <summary>Gets the shared unrestricted portable capability provider.</summary>
     public static PortableExecutionCapabilities Instance { get; } = new();
     private PortableExecutionCapabilities() { }
+    /// <summary>Determines whether this execution target supports the operation contract.</summary>
+    /// <param name="operation">The operation contract identifier.</param>
     public bool Supports(GraphOperationId operation) => true;
 }
 
+/// <summary>Describes an operation sequence that can be replaced by a fused operation.</summary>
+/// <param name="Id">The fusion rule identifier.</param>
+/// <param name="Pattern">The ordered operation sequence matched by the fusion rule.</param>
+/// <param name="Replacement">The operation replacing the matched sequence.</param>
+/// <param name="Scope">The region boundaries this fusion may cross.</param>
+/// <param name="Arguments">The optional mappings from fused arguments to matched node ports.</param>
 public sealed record SequenceFusionRule(
     string Id,
     IReadOnlyList<GraphOperationId> Pattern,
@@ -38,8 +63,18 @@ public sealed record SequenceFusionRule(
     OptimizationBoundary Scope = OptimizationBoundary.Unrestricted,
     IReadOnlyList<FusionArgumentBinding>? Arguments = null);
 
+/// <summary>Maps a fused argument to a port on a matched sequence node.</summary>
+/// <param name="Name">The fused operator argument name.</param>
+/// <param name="NodeIndex">The zero-based index of the matched sequence node.</param>
+/// <param name="SourcePort">The source node port used as the fused argument.</param>
 public sealed record FusionArgumentBinding(string Name, int NodeIndex, string SourcePort);
 
+/// <summary>Describes a backend node definition, its primitive body, and fusion argument mapping.</summary>
+/// <param name="Id">The backend node definition identifier.</param>
+/// <param name="Operation">The operation contract identifier.</param>
+/// <param name="Body">The ordered primitive operation sequence implementing this definition.</param>
+/// <param name="Scope">The region boundaries this fusion may cross.</param>
+/// <param name="Arguments">The optional mappings from fused arguments to matched node ports.</param>
 public sealed record GraphNodeDefinition(
     string Id,
     GraphOperationId Operation,
@@ -50,15 +85,25 @@ public sealed record GraphNodeDefinition(
     internal SequenceFusionRule ToFusionRule() => new(Id, Body, Operation, Scope, Arguments);
 }
 
+/// <summary>Exposes a backend&apos;s supported operations and reusable execution node definitions.</summary>
 public interface IExecutionKernelCatalog : IExecutionCapabilityProvider
 {
+    /// <summary>Gets the backend identifier.</summary>
     string BackendId { get; }
+    /// <summary>Gets the operation contracts supported by this backend.</summary>
     IReadOnlySet<GraphOperationId> SupportedOperations { get; }
+    /// <summary>Gets the backend&apos;s reusable execution node definitions.</summary>
     IReadOnlyList<GraphNodeDefinition> NodeDefinitions { get; }
 }
 
+/// <summary>Stores backend operation capabilities, node definitions, and fused operators.</summary>
 public sealed class ExecutionKernelCatalog : IExecutionKernelCatalog, IFusedOperatorProvider
 {
+    /// <summary>Creates a backend catalog from supported operations, node definitions, and fused operators.</summary>
+    /// <param name="backendId">The backend identifier.</param>
+    /// <param name="supportedOperations">The operation contracts supported by the backend.</param>
+    /// <param name="nodeDefinitions">The reusable execution node definitions.</param>
+    /// <param name="fusedOperators">The backend fused operator descriptions.</param>
     public ExecutionKernelCatalog(
         string backendId,
         IEnumerable<GraphOperationId> supportedOperations,
@@ -74,13 +119,20 @@ public sealed class ExecutionKernelCatalog : IExecutionKernelCatalog, IFusedOper
         FusedOperators = fusedOperators?.ToArray() ?? [];
     }
 
+    /// <summary>Gets the backend identifier.</summary>
     public string BackendId { get; }
+    /// <summary>Gets the operation contracts supported by this backend.</summary>
     public IReadOnlySet<GraphOperationId> SupportedOperations { get; }
+    /// <summary>Gets the backend&apos;s reusable execution node definitions.</summary>
     public IReadOnlyList<GraphNodeDefinition> NodeDefinitions { get; }
+    /// <summary>Gets the backend-supported fused operator descriptions.</summary>
     public IReadOnlyList<FusedOperatorDescription> FusedOperators { get; }
+    /// <summary>Determines whether this execution target supports the operation contract.</summary>
+    /// <param name="operation">The operation contract identifier.</param>
     public bool Supports(GraphOperationId operation) => SupportedOperations.Contains(operation);
 }
 
+/// <summary>Optimizes logical graphs into execution graphs using supported sequence fusion and region boundaries.</summary>
 public sealed class GraphOptimizer
 {
     private static readonly IReadOnlySet<GraphOperationId> PureOperations = new HashSet<GraphOperationId>
@@ -112,6 +164,10 @@ public sealed class GraphOptimizer
         PortableTensorOperationContracts.HeadOuter,
     };
 
+    /// <summary>Creates an optimized execution graph using the supplied graph context and target capabilities.</summary>
+    /// <param name="graph">The graph supplying operations and resource binding metadata.</param>
+    /// <param name="options">The optimization settings.</param>
+    /// <param name="kernelCatalog">The target backend&apos;s operation and node-definition catalog.</param>
     public ExecutionGraph Optimize(
         LogicalGraph graph,
         GraphOptimizationOptions options,
@@ -124,6 +180,11 @@ public sealed class GraphOptimizer
             kernelCatalog as IFusedOperatorProvider);
     }
 
+    /// <summary>Creates an optimized execution graph using the supplied graph context and target capabilities.</summary>
+    /// <param name="graph">The graph supplying operations and resource binding metadata.</param>
+    /// <param name="options">The optimization settings.</param>
+    /// <param name="kernelCatalog">The target backend&apos;s operation and node-definition catalog.</param>
+    /// <param name="fusedOperatorProvider">The optional provider of backend fused operators.</param>
     public ExecutionGraph Optimize(
         LogicalGraph graph,
         GraphOptimizationOptions options,
@@ -169,6 +230,11 @@ public sealed class GraphOptimizer
                 kernelCatalog as IFusedElementwiseExpressionProvider);
     }
 
+    /// <summary>Creates an optimized execution graph using the supplied graph context and target capabilities.</summary>
+    /// <param name="graph">The graph supplying operations and resource binding metadata.</param>
+    /// <param name="options">The optimization settings.</param>
+    /// <param name="rules">The optional sequence fusion rules.</param>
+    /// <param name="capabilities">The optional target operation capability provider.</param>
     public ExecutionGraph Optimize(
         LogicalGraph graph,
         GraphOptimizationOptions? options = null,

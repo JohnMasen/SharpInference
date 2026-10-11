@@ -5,6 +5,7 @@ using static Vortice.Direct3D12.D3D12;
 
 namespace SharpInference.Backends.D3D12Vm;
 
+/// <summary>Selects supported Direct3D12 hardware adapters without falling back to software rendering.</summary>
 public static class D3D12VmDeviceFactory
 {
     /// <summary>Creates a caller-owned hardware device; never falls back to WARP.</summary>
@@ -14,6 +15,8 @@ public static class D3D12VmDeviceFactory
             (D3D12CreateDevice<ID3D12Device>(adapter, FeatureLevel.Level_11_0), adapter.Description1.Description));
     }
 
+    /// <summary>Returns the adapter hardware identifiers and driver version for cache compatibility checks.</summary>
+    /// <param name="adapterIndex">The zero-based supported hardware adapter index in high-performance order.</param>
     public static string HardwareIdentity(int adapterIndex = 0)
     {
         return WithAdapter(adapterIndex, adapter =>

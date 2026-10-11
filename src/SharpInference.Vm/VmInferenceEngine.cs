@@ -2,15 +2,26 @@ using System.Runtime.InteropServices;
 
 namespace SharpInference.Vm;
 
+/// <summary>Executes named VM entry points against program-ordered managed slot buffers.</summary>
 public interface IVmExecutable : IDisposable
 {
+    /// <summary>Gets the program whose entry points and slot order this executable implements.</summary>
     VmProgram Program { get; }
+    /// <summary>Executes a named entry point against managed buffers in program-slot order.</summary>
+    /// <param name="entryName">The name of the program entry point to execute.</param>
+    /// <param name="slots">The resource buffers in program-slot order.</param>
     void Execute(string entryName, byte[][] slots);
 }
 
+/// <summary>Combines an inference VM program, its token and logits slots, and an executable factory.</summary>
+/// <param name="Program">The program executed by the factory-produced executable.</param>
+/// <param name="InputSlot">The Int32 slot receiving input token identifiers.</param>
+/// <param name="OutputSlot">The Float32 slot containing output logits.</param>
+/// <param name="CreateExecutable">The factory returning a newly owned executable for the program.</param>
 public sealed record VmInferenceProgram(VmProgram Program, string InputSlot, string OutputSlot,
     Func<IVmExecutable> CreateExecutable);
 
+/// <summary>Coordinates shared model resources, worker pools, and stateful inference sessions.</summary>
 public sealed class VmInferenceEngine : IAsyncDisposable
 {
     private readonly VmResourceManager manager;
@@ -30,16 +41,34 @@ public sealed class VmInferenceEngine : IAsyncDisposable
         VocabularySize = checked((int)inference.Program.Slots.Single(slot => slot.Id == inference.OutputSlot).Tensor.ElementCount);
     }
 
+    /// <summary>Gets the program used for single-token inference.</summary>
     public VmProgram Program { get; }
+    /// <summary>Gets the program used to process prefill token batches.</summary>
     public VmProgram PrefillProgram { get; }
+    /// <summary>Gets the number of logits produced per inference step.</summary>
     public int VocabularySize { get; }
+    /// <summary>Gets the maximum token count accepted by a single prefill request.</summary>
     public int MaximumPrefillTokens { get; }
 
+    /// <summary>Creates owned resources and worker pools, releasing partially created resources on failure.</summary>
+    /// <param name="program">The program used for both prefill and single-token inference.</param>
+    /// <param name="inputSlot">The Int32 slot receiving input token identifiers.</param>
+    /// <param name="outputSlot">The Float32 slot containing output logits.</param>
+    /// <param name="initializeGlobal">The callback initializing newly allocated global slot storage.</param>
+    /// <param name="factory">The factory returning a distinct newly owned executable for each worker.</param>
+    /// <param name="options">The prefill and inference worker counts, queue capacities, and token limit.</param>
+    /// <param name="allocate">The optional slot storage allocator; null uses managed byte arrays.</param>
     public static ValueTask<VmInferenceEngine> CreateAsync(VmProgram program, string inputSlot,
         string outputSlot, Action<VmSlot, IVmStorage> initializeGlobal, Func<IVmExecutable> factory,
         VmEngineOptions options, Func<VmSlot, IVmStorage>? allocate = null) => CreateAsync(new(program, inputSlot, outputSlot, factory),
             new(program, inputSlot, outputSlot, factory), initializeGlobal, options, allocate);
 
+    /// <summary>Creates owned resources and worker pools, releasing partially created resources on failure.</summary>
+    /// <param name="prefill">The prefill program, token/logits slot mapping, and executable factory.</param>
+    /// <param name="inference">The inference program, token/logits slot mapping, and executable factory.</param>
+    /// <param name="initializeGlobal">The callback initializing newly allocated global slot storage.</param>
+    /// <param name="options">The prefill and inference worker counts, queue capacities, and token limit.</param>
+    /// <param name="allocate">The optional slot storage allocator; null uses managed byte arrays.</param>
     public static async ValueTask<VmInferenceEngine> CreateAsync(VmInferenceProgram prefill,
         VmInferenceProgram inference, Action<VmSlot, IVmStorage> initializeGlobal, VmEngineOptions options,
         Func<VmSlot, IVmStorage>? allocate = null)
@@ -114,6 +143,7 @@ public sealed class VmInferenceEngine : IAsyncDisposable
         }
     }
 
+    /// <summary>Allocates an independent session with state storage compatible with the engine's programs.</summary>
     public VmInferenceSession CreateSession()
     {
         lock (gate)
@@ -215,6 +245,7 @@ public sealed class VmInferenceEngine : IAsyncDisposable
         }
     }
 
+    /// <summary>Stops accepting work, waits for active operations, and releases owned resources.</summary>
     public ValueTask DisposeAsync()
     {
         lock (gate)
@@ -276,6 +307,7 @@ public sealed class VmInferenceEngine : IAsyncDisposable
     }
 }
 
+/// <summary>Serializes token processing and state transfers for a single inference context.</summary>
 public sealed class VmInferenceSession : IAsyncDisposable
 {
     private readonly VmInferenceEngine engine;
@@ -293,6 +325,9 @@ public sealed class VmInferenceSession : IAsyncDisposable
         this.state = state;
     }
 
+    /// <summary>Processes a nonempty bounded token batch and returns the final output logits.</summary>
+    /// <param name="tokens">The nonempty vocabulary token sequence to process.</param>
+    /// <param name="cancellation">The token used to cancel the operation.</param>
     public async ValueTask<float[]> PrefillAsync(ReadOnlyMemory<int> tokens, CancellationToken cancellation = default)
     {
         if (tokens.IsEmpty) throw new ArgumentException("At least one token is required.", nameof(tokens));
@@ -307,6 +342,8 @@ public sealed class VmInferenceSession : IAsyncDisposable
         finally { operations.Release(); }
     }
 
+    /// <summary>Reserves exclusive session access for a sequence of token-generation operations.</summary>
+    /// <param name="cancellation">The token used to cancel the operation.</param>
     public async ValueTask<VmGenerationLease> BeginGenerationAsync(CancellationToken cancellation = default)
     {
         var linked = Link(cancellation);
@@ -345,6 +382,9 @@ public sealed class VmInferenceSession : IAsyncDisposable
         }
     }
 
+    /// <summary>Processes one vocabulary token and returns the resulting logits.</summary>
+    /// <param name="token">The vocabulary token identifier to process.</param>
+    /// <param name="cancellation">The token used to cancel the operation.</param>
     public async ValueTask<float[]> ForwardAsync(int token, CancellationToken cancellation = default)
     {
         engine.ValidateToken(token);
@@ -352,6 +392,10 @@ public sealed class VmInferenceSession : IAsyncDisposable
         return await generation.ForwardTokenAsync(token).ConfigureAwait(false);
     }
 
+    /// <summary>Exports valid session state with a context identifier and payload integrity hashes.</summary>
+    /// <param name="destination">The writable state stream; the caller retains ownership of the stream.</param>
+    /// <param name="contextId">The nonempty context identifier embedded in or required by the state stream.</param>
+    /// <param name="cancellation">The token used to cancel the operation.</param>
     public async ValueTask ExportStateAsync(Stream destination, string contextId, CancellationToken cancellation = default)
     {
         using var linked = Link(cancellation);
@@ -365,6 +409,11 @@ public sealed class VmInferenceSession : IAsyncDisposable
         finally { operations.Release(); }
     }
 
+    /// <summary>Validates and stages a context-compatible state stream before restoring session state.</summary>
+    /// <param name="source">The readable state stream; the caller retains ownership of the stream.</param>
+    /// <param name="contextId">The nonempty context identifier embedded in or required by the state stream.</param>
+    /// <param name="budget">The maximum aggregate state payload size to stage in bytes.</param>
+    /// <param name="cancellation">The token used to cancel the operation.</param>
     public async ValueTask ImportStateAsync(Stream source, string contextId, ulong budget,
         CancellationToken cancellation = default)
     {
@@ -379,6 +428,8 @@ public sealed class VmInferenceSession : IAsyncDisposable
         finally { operations.Release(); }
     }
 
+    /// <summary>Zeroes all registered state slots and marks the session state valid.</summary>
+    /// <param name="cancellation">The token used to cancel the operation.</param>
     public async ValueTask ResetAsync(CancellationToken cancellation = default)
     {
         using var linked = Link(cancellation);
@@ -394,8 +445,11 @@ public sealed class VmInferenceSession : IAsyncDisposable
         finally { operations.Release(); }
     }
 
+    /// <summary>Gets the state-only program exposing canonical named session-state slots.</summary>
     public VmProgram StateProgram => state.StateProgram;
 
+    /// <summary>Copies valid session-state payloads into arrays keyed by canonical state-entry name.</summary>
+    /// <param name="cancellation">The token used to cancel the operation.</param>
     public async ValueTask<IReadOnlyDictionary<string, byte[]>> ReadStateAsync(CancellationToken cancellation = default)
     {
         using var linked = Link(cancellation);
@@ -417,6 +471,9 @@ public sealed class VmInferenceSession : IAsyncDisposable
         finally { operations.Release(); }
     }
 
+    /// <summary>Validates a complete state snapshot and restores it while holding exclusive session access.</summary>
+    /// <param name="values">The complete state payload map keyed by registered state slot name.</param>
+    /// <param name="cancellation">The token used to cancel the operation.</param>
     public async ValueTask WriteStateAsync(IReadOnlyDictionary<string, byte[]> values,
         CancellationToken cancellation = default)
     {
@@ -464,6 +521,7 @@ public sealed class VmInferenceSession : IAsyncDisposable
         }
     }
 
+    /// <summary>Stops accepting work, waits for active operations, and releases owned resources.</summary>
     public ValueTask DisposeAsync()
     {
         lock (gate)
@@ -499,6 +557,7 @@ public sealed class VmInferenceSession : IAsyncDisposable
     }
 }
 
+/// <summary>Reserves a session for a sequence of token-generation operations until released.</summary>
 public sealed class VmGenerationLease : IAsyncDisposable
 {
     private readonly VmInferenceSession session;
@@ -514,8 +573,13 @@ public sealed class VmGenerationLease : IAsyncDisposable
         this.cancellation = cancellation;
     }
 
+    /// <summary>Synchronously processes one token within the reserved generation scope and returns logits.</summary>
+    /// <param name="token">The vocabulary token identifier to process.</param>
     public float[] ForwardToken(int token) => ForwardTokenAsync(token).AsTask().GetAwaiter().GetResult();
 
+    /// <summary>Processes one token within the reserved generation scope and returns logits.</summary>
+    /// <param name="token">The vocabulary token identifier to process.</param>
+    /// <param name="cancellationToken">The token used to cancel queued or active work.</param>
     public ValueTask<float[]> ForwardTokenAsync(int token, CancellationToken cancellationToken = default)
     {
         lock (gate)
@@ -539,6 +603,7 @@ public sealed class VmGenerationLease : IAsyncDisposable
         finally { steps.Release(); }
     }
 
+    /// <summary>Cancels active token work, waits for completion, and releases the session's generation reservation.</summary>
     public ValueTask DisposeAsync()
     {
         lock (gate) return new ValueTask(shutdown ??= DisposeCoreAsync());

@@ -6,31 +6,49 @@ namespace SharpInference;
 /// <summary>Provides synchronous prefill and single-token forward operations for generation.</summary>
 public interface ITokenGenerationSession
 {
+    /// <summary>Processes prompt tokens and returns the logits for the next token.</summary>
+    /// <param name="tokens">The ordered prompt tokens.</param>
+    /// <returns>The next-token logits.</returns>
     ReadOnlyMemory<float> Prefill(ReadOnlySpan<int> tokens);
+    /// <summary>Updates the session with one token and returns next-token logits.</summary>
+    /// <param name="token">The token identifier to process.</param>
+    /// <returns>The next-token logits.</returns>
     ReadOnlyMemory<float> ForwardToken(int token);
 }
 
 /// <summary>Owns a scoped generation session until asynchronously disposed.</summary>
 public interface ITokenGenerationScope : IAsyncDisposable
 {
+    /// <summary>Gets the session reserved for this generation scope.</summary>
     ITokenGenerationSession Session { get; }
 }
 
 /// <summary>Provides generation sessions that can be isolated for a generation operation.</summary>
 public interface IScopedTokenGenerationSession : ITokenGenerationSession
 {
+    /// <summary>Acquires a generation scope that isolates access to session resources.</summary>
+    /// <param name="cancellationToken">A token used to cancel scope acquisition.</param>
+    /// <returns>A scope that the caller must asynchronously dispose.</returns>
     ValueTask<ITokenGenerationScope> BeginGenerationAsync(CancellationToken cancellationToken = default);
 }
 
 /// <summary>Adds asynchronous prompt prefill to a generation session.</summary>
 public interface IAsyncTokenPrefillSession : ITokenGenerationSession
 {
+    /// <summary>Asynchronously processes prompt tokens and returns next-token logits.</summary>
+    /// <param name="tokens">The ordered prompt tokens.</param>
+    /// <param name="cancellationToken">A token used to cancel prefill.</param>
+    /// <returns>The next-token logits after prefill completes.</returns>
     ValueTask<ReadOnlyMemory<float>> PrefillAsync(ReadOnlyMemory<int> tokens, CancellationToken cancellationToken = default);
 }
 
 /// <summary>Adds asynchronous single-token forwarding to a generation session.</summary>
 public interface IAsyncTokenGenerationSession : ITokenGenerationSession
 {
+    /// <summary>Asynchronously processes one token and returns next-token logits.</summary>
+    /// <param name="token">The token identifier to process.</param>
+    /// <param name="cancellationToken">A token used to cancel execution.</param>
+    /// <returns>The next-token logits after execution completes.</returns>
     ValueTask<ReadOnlyMemory<float>> ForwardTokenAsync(int token, CancellationToken cancellationToken = default);
 }
 

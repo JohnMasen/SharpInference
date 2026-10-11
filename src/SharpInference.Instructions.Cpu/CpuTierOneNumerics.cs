@@ -3,10 +3,16 @@ using System.Numerics.Tensors;
 
 namespace SharpInference.Instructions.Cpu;
 
+/// <summary>Implements optimized Float32 pointwise expressions with equal-length, non-overlapping input and output spans.</summary>
 public static class CpuTierOneNumerics
 {
     private const int BlockLength = 256;
 
+    /// <summary>Computes a * b + c elementwise.</summary>
+    /// <param name="a">The first operand span, with the same positive length as the output.</param>
+    /// <param name="b">The second operand span, with the same positive length as the output.</param>
+    /// <param name="c">The third operand span, with the same positive length as the output.</param>
+    /// <param name="output">The destination span with the length required by the operation.</param>
     public static void MultiplyAdd(ReadOnlySpan<float> a, ReadOnlySpan<float> b, ReadOnlySpan<float> c, Span<float> output)
     {
         Validate(a, output);
@@ -14,17 +20,48 @@ public static class CpuTierOneNumerics
         Validate(c, output);
         TensorPrimitives.MultiplyAdd(a, b, c, output);
     }
+    /// <summary>Computes b + (a - b) * c elementwise.</summary>
+    /// <param name="a">The first operand span, with the same positive length as the output.</param>
+    /// <param name="b">The second operand span, with the same positive length as the output.</param>
+    /// <param name="c">The third operand span, with the same positive length as the output.</param>
+    /// <param name="output">The destination span with the length required by the operation.</param>
     public static void DifferenceMix(ReadOnlySpan<float> a, ReadOnlySpan<float> b, ReadOnlySpan<float> c, Span<float> output) =>
         Ternary<DifferenceMixOperator>(a, b, c, output);
+    /// <summary>Computes (a * b + c) - b elementwise.</summary>
+    /// <param name="a">The first operand span, with the same positive length as the output.</param>
+    /// <param name="b">The second operand span, with the same positive length as the output.</param>
+    /// <param name="c">The third operand span, with the same positive length as the output.</param>
+    /// <param name="output">The destination span with the length required by the operation.</param>
     public static void MultiplyAddSubtract(ReadOnlySpan<float> a, ReadOnlySpan<float> b, ReadOnlySpan<float> c, Span<float> output) =>
         Ternary<MultiplyAddSubtractOperator>(a, b, c, output);
+    /// <summary>Computes (a + b) * c + d elementwise.</summary>
+    /// <param name="a">The first operand span, with the same positive length as the output.</param>
+    /// <param name="b">The second operand span, with the same positive length as the output.</param>
+    /// <param name="c">The third operand span, with the same positive length as the output.</param>
+    /// <param name="d">The fourth operand span, with the same positive length as the output.</param>
+    /// <param name="output">The destination span with the length required by the operation.</param>
     public static void AddMultiplyAdd(ReadOnlySpan<float> a, ReadOnlySpan<float> b, ReadOnlySpan<float> c, ReadOnlySpan<float> d, Span<float> output) =>
         Quaternary<AddMultiplyAddOperator>(a, b, c, d, output);
+    /// <summary>Computes (a * b) * c + d elementwise.</summary>
+    /// <param name="a">The first operand span, with the same positive length as the output.</param>
+    /// <param name="b">The second operand span, with the same positive length as the output.</param>
+    /// <param name="c">The third operand span, with the same positive length as the output.</param>
+    /// <param name="d">The fourth operand span, with the same positive length as the output.</param>
+    /// <param name="output">The destination span with the length required by the operation.</param>
     public static void MultiplyMultiplyAdd(ReadOnlySpan<float> a, ReadOnlySpan<float> b, ReadOnlySpan<float> c, ReadOnlySpan<float> d, Span<float> output) =>
         Quaternary<MultiplyMultiplyAddOperator>(a, b, c, d, output);
+    /// <summary>Computes (a * b + c) * d elementwise.</summary>
+    /// <param name="a">The first operand span, with the same positive length as the output.</param>
+    /// <param name="b">The second operand span, with the same positive length as the output.</param>
+    /// <param name="c">The third operand span, with the same positive length as the output.</param>
+    /// <param name="d">The fourth operand span, with the same positive length as the output.</param>
+    /// <param name="output">The destination span with the length required by the operation.</param>
     public static void MultiplyAddMultiply(ReadOnlySpan<float> a, ReadOnlySpan<float> b, ReadOnlySpan<float> c, ReadOnlySpan<float> d, Span<float> output) =>
         Quaternary<MultiplyAddMultiplyOperator>(a, b, c, d, output);
 
+    /// <summary>Computes the square of max(a, 0) elementwise, preserving NaN values.</summary>
+    /// <param name="a">The first operand span, with the same positive length as the output.</param>
+    /// <param name="output">The destination span with the length required by the operation.</param>
     public static void ReluSquare(ReadOnlySpan<float> a, Span<float> output)
     {
         Validate(a, output);
@@ -44,6 +81,10 @@ public static class CpuTierOneNumerics
         }
     }
 
+    /// <summary>Computes 1 / sqrt(a + b) elementwise.</summary>
+    /// <param name="a">The first operand span, with the same positive length as the output.</param>
+    /// <param name="b">The second operand span, with the same positive length as the output.</param>
+    /// <param name="output">The destination span with the length required by the operation.</param>
     public static void AddRsqrt(ReadOnlySpan<float> a, ReadOnlySpan<float> b, Span<float> output)
     {
         Validate(a, output);
@@ -57,6 +98,10 @@ public static class CpuTierOneNumerics
         }
     }
 
+    /// <summary>Computes 1 / sqrt(max(a, b)) elementwise.</summary>
+    /// <param name="a">The first operand span, with the same positive length as the output.</param>
+    /// <param name="b">The second operand span, with the same positive length as the output.</param>
+    /// <param name="output">The destination span with the length required by the operation.</param>
     public static void MaximumRsqrt(ReadOnlySpan<float> a, ReadOnlySpan<float> b, Span<float> output)
     {
         Validate(a, output);
@@ -70,6 +115,9 @@ public static class CpuTierOneNumerics
         }
     }
 
+    /// <summary>Computes a * sigmoid(a) elementwise.</summary>
+    /// <param name="a">The first operand span, with the same positive length as the output.</param>
+    /// <param name="output">The destination span with the length required by the operation.</param>
     public static void MultiplySelfSigmoid(ReadOnlySpan<float> a, Span<float> output)
     {
         Validate(a, output);
@@ -83,6 +131,10 @@ public static class CpuTierOneNumerics
         }
     }
 
+    /// <summary>Computes sigmoid(a + b) elementwise.</summary>
+    /// <param name="a">The first operand span, with the same positive length as the output.</param>
+    /// <param name="b">The second operand span, with the same positive length as the output.</param>
+    /// <param name="output">The destination span with the length required by the operation.</param>
     public static void AddSigmoid(ReadOnlySpan<float> a, ReadOnlySpan<float> b, Span<float> output)
     {
         Validate(a, output);
@@ -96,6 +148,10 @@ public static class CpuTierOneNumerics
         }
     }
 
+    /// <summary>Computes exp(exp(a) - b) elementwise.</summary>
+    /// <param name="a">The first operand span, with the same positive length as the output.</param>
+    /// <param name="b">The second operand span, with the same positive length as the output.</param>
+    /// <param name="output">The destination span with the length required by the operation.</param>
     public static void ExpSubtractExp(ReadOnlySpan<float> a, ReadOnlySpan<float> b, Span<float> output)
     {
         Validate(a, output);
@@ -110,6 +166,10 @@ public static class CpuTierOneNumerics
         }
     }
 
+    /// <summary>Computes exp(sigmoid(a) * b) elementwise.</summary>
+    /// <param name="a">The first operand span, with the same positive length as the output.</param>
+    /// <param name="b">The second operand span, with the same positive length as the output.</param>
+    /// <param name="output">The destination span with the length required by the operation.</param>
     public static void SigmoidMultiplyExp(ReadOnlySpan<float> a, ReadOnlySpan<float> b, Span<float> output)
     {
         Validate(a, output);

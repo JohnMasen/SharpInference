@@ -12,26 +12,40 @@ public interface IDebugBackendExecutablePlan : IBackendExecutablePlan
 /// </summary>
 public interface IDebuggableBackend
 {
+    /// <summary>Prepares a separately instrumented execution graph plan or returns failure diagnostics.</summary>
+    /// <param name="graph">The graph supplying operations and resource binding metadata.</param>
     BackendPreparationResult PrepareDebug(ExecutionGraph graph);
 }
 
+/// <summary>Describes the lifecycle state of a graph debugging invocation.</summary>
 public enum GraphDebugSessionState
 {
+    /// <summary>No debug invocation is active.</summary>
     Idle,
+    /// <summary>A debug invocation is executing.</summary>
     Running,
+    /// <summary>Execution is paused at a debug node boundary.</summary>
     Paused,
+    /// <summary>The debug invocation has completed.</summary>
     Completed,
+    /// <summary>The debug session has been cancelled.</summary>
     Stopped,
 }
 
+/// <summary>Describes a node port&apos;s resource and access for debug notifications.</summary>
+/// <param name="Resource">The graph resource descriptor.</param>
+/// <param name="Port">The node port name.</param>
+/// <param name="Access">The permitted read and write access.</param>
 public sealed record GraphDebugResourceDescriptor(
     GraphResource Resource,
     string Port,
     GraphResourceAccess Access)
 {
+    /// <summary>Gets the identifier of the resource described by this debug port.</summary>
     public ResourceId ResourceId => Resource.Id;
 }
 
+/// <summary>Provides the current execution node, input descriptors, and a callback pause request.</summary>
 public abstract class GraphDebugNodeEventArgs : EventArgs
 {
     private protected GraphDebugNodeEventArgs(
@@ -42,11 +56,15 @@ public abstract class GraphDebugNodeEventArgs : EventArgs
         Inputs = inputs;
     }
 
+    /// <summary>Gets the execution node associated with this notification.</summary>
     public ExecutionNodeId ExecutionNodeId { get; }
+    /// <summary>Gets the node&apos;s inputs resource descriptors.</summary>
     public IReadOnlyList<GraphDebugResourceDescriptor> Inputs { get; }
+    /// <summary>Gets or sets whether the callback requests a pause at this node boundary.</summary>
     public bool PauseRequested { get; set; }
 }
 
+/// <summary>Provides information for a notification raised before executing a graph node.</summary>
 public sealed class GraphDebugBeforeNodeEventArgs : GraphDebugNodeEventArgs
 {
     internal GraphDebugBeforeNodeEventArgs(
@@ -56,6 +74,7 @@ public sealed class GraphDebugBeforeNodeEventArgs : GraphDebugNodeEventArgs
     }
 }
 
+/// <summary>Provides input and output information after executing a graph node.</summary>
 public sealed class GraphDebugAfterNodeEventArgs : GraphDebugNodeEventArgs
 {
     internal GraphDebugAfterNodeEventArgs(
@@ -66,6 +85,7 @@ public sealed class GraphDebugAfterNodeEventArgs : GraphDebugNodeEventArgs
         Outputs = outputs;
     }
 
+    /// <summary>Gets the node&apos;s outputs resource descriptors.</summary>
     public IReadOnlyList<GraphDebugResourceDescriptor> Outputs { get; }
 }
 
@@ -85,24 +105,32 @@ public sealed class GraphDebugSession : IDisposable
     private bool _cancellationInProgress;
     private bool _disposed;
 
+    /// <summary>Occurs synchronously on the inference thread before a node executes.</summary>
     public event EventHandler<GraphDebugBeforeNodeEventArgs>? BeforeNode;
+    /// <summary>Occurs synchronously on the inference thread after a node executes.</summary>
     public event EventHandler<GraphDebugAfterNodeEventArgs>? AfterNode;
 
+    /// <summary>Gets the current debug invocation lifecycle state.</summary>
     public GraphDebugSessionState State
     {
         get { lock (_gate) { ThrowIfDisposed(); return _state; } }
     }
 
+    /// <summary>Gets whether a pause has been requested at a debug node boundary.</summary>
     public bool PauseRequested
     {
         get { lock (_gate) { ThrowIfDisposed(); return _pauseRequested; } }
     }
 
+    /// <summary>Gets the cancellation token signalled when the debug session stops.</summary>
     public CancellationToken StopToken
     {
         get { lock (_gate) { ThrowIfDisposed(); return _stopSource.Token; } }
     }
 
+    /// <summary>Prepares an instrumented plan and rejects unsupported backends, preparation failures, or ordinary plans.</summary>
+    /// <param name="backend">The backend that prepares the execution graph.</param>
+    /// <param name="graph">The graph supplying operations and resource binding metadata.</param>
     public static IDebugBackendExecutablePlan PrepareDebugPlan(
         IExecutionGraphBackend backend,
         ExecutionGraph graph)
@@ -123,6 +151,7 @@ public sealed class GraphDebugSession : IDisposable
                 $"Backend '{backend.GetType().Name}' returned an ordinary plan instead of a debug execution plan.");
     }
 
+    /// <summary>Begins a debug invocation on the current inference thread.</summary>
     public void BeginInvocation()
     {
         lock (_gate)
@@ -141,6 +170,7 @@ public sealed class GraphDebugSession : IDisposable
         }
     }
 
+    /// <summary>Requests a pause at the next debug node boundary during a running invocation.</summary>
     public void RequestPause()
     {
         lock (_gate)
@@ -155,6 +185,7 @@ public sealed class GraphDebugSession : IDisposable
         }
     }
 
+    /// <summary>Resumes a paused debug invocation.</summary>
     public void Resume()
     {
         lock (_gate)
@@ -171,6 +202,7 @@ public sealed class GraphDebugSession : IDisposable
         }
     }
 
+    /// <summary>Cancels the debug session and releases a paused inference thread.</summary>
     public void Stop()
     {
         lock (_gate)
@@ -190,6 +222,7 @@ public sealed class GraphDebugSession : IDisposable
         CancelStopSource();
     }
 
+    /// <inheritdoc/>
     public void Dispose()
     {
         bool cancel;
@@ -225,6 +258,9 @@ public sealed class GraphDebugSession : IDisposable
         }
     }
 
+    /// <summary>Raises the synchronous before-node notification and honors debug pause and stop requests.</summary>
+    /// <param name="executionNodeId">The execution node identifier.</param>
+    /// <param name="inputs">The node input resource descriptors.</param>
     public void NotifyBeforeNode(
         ExecutionNodeId executionNodeId,
         IEnumerable<GraphDebugResourceDescriptor> inputs)
@@ -262,6 +298,10 @@ public sealed class GraphDebugSession : IDisposable
         }
     }
 
+    /// <summary>Raises the synchronous after-node notification and honors debug pause and stop requests.</summary>
+    /// <param name="executionNodeId">The execution node identifier.</param>
+    /// <param name="inputs">The node input resource descriptors.</param>
+    /// <param name="outputs">The node output resource descriptors.</param>
     public void NotifyAfterNode(
         ExecutionNodeId executionNodeId,
         IEnumerable<GraphDebugResourceDescriptor> inputs,
@@ -315,6 +355,7 @@ public sealed class GraphDebugSession : IDisposable
         }
     }
 
+    /// <summary>Ends the current debug invocation and updates its completion state.</summary>
     public void EndInvocation()
     {
         lock (_gate)

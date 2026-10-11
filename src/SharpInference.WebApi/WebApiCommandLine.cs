@@ -1,7 +1,12 @@
 namespace SharpInference.WebApi;
 
+/// <summary>Stores an optional JSON configuration path and parsed command-line configuration overrides.</summary>
+/// <param name="ConfigurationPath">The optional absolute path of an additional JSON configuration file.</param>
+/// <param name="Overrides">Configuration keys and values supplied by command-line options.</param>
 public sealed record WebApiCommandLine(string? ConfigurationPath, IReadOnlyDictionary<string, string?> Overrides)
 {
+    /// <summary>Parses supported server options, validates required model configuration, and rejects unknown or obsolete switches.</summary>
+    /// <param name="args">The command-line arguments supplied to the server.</param>
     public static WebApiCommandLine Parse(string[] args)
     {
         ArgumentNullException.ThrowIfNull(args);
@@ -96,6 +101,7 @@ public sealed record WebApiCommandLine(string? ConfigurationPath, IReadOnlyDicti
         return new WebApiCommandLine(configurationPath, overrides);
     }
 
+    /// <summary>Contains command-line usage text and supported server options.</summary>
     public const string Usage = """
         Usage:
           SharpInference.WebApi --model-path <ggml-path> [options]

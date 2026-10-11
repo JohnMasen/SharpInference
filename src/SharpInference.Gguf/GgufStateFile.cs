@@ -5,12 +5,19 @@ namespace SharpInference.Gguf;
 /// <summary>Unquantized GGML tensor types supported by state files.</summary>
 public enum GgufTensorType : uint
 {
+    /// <summary>IEEE 754 single-precision elements.</summary>
     Float32 = 0,
+    /// <summary>IEEE 754 half-precision elements.</summary>
     Float16 = 1,
+    /// <summary>Signed 8-bit integer elements.</summary>
     Int8 = 24,
+    /// <summary>Signed 16-bit integer elements.</summary>
     Int16 = 25,
+    /// <summary>Signed 32-bit integer elements.</summary>
     Int32 = 26,
+    /// <summary>Signed 64-bit integer elements.</summary>
     Int64 = 27,
+    /// <summary>IEEE 754 double-precision elements.</summary>
     Float64 = 28,
 }
 

@@ -11,6 +11,10 @@ public sealed class CpuVmContext
     private int executing;
     private IReadOnlyDictionary<string, CpuVmCallFrame>? frames;
 
+    /// <summary>Binds caller-owned buffers to program slots and records explicitly initialized local slots.</summary>
+    /// <param name="program">The VM program whose definitions, slots, and entries are compiled or bound.</param>
+    /// <param name="buffers">Caller-owned byte arrays in program slot order, each matching its slot&apos;s exact capacity.</param>
+    /// <param name="initializedLocalSlots">Names of local slots supplied with initialized contents; omitted local slots must be written before reading.</param>
     public CpuVmContext(VmProgram program, byte[][] buffers, IEnumerable<string>? initializedLocalSlots = null)
     {
         ArgumentNullException.ThrowIfNull(program);
@@ -38,8 +42,16 @@ public sealed class CpuVmContext
         }
     }
 
+    /// <summary>Returns a read-only byte view of a slot in the bound buffer array.</summary>
+    /// <param name="slot">The zero-based slot index in program order.</param>
+    /// <param name="offset">The zero-based byte offset of the requested view.</param>
+    /// <param name="length">The number of bytes in the requested view.</param>
     public ReadOnlySpan<byte> Read(int slot, int offset, int length) => buffers[slot].AsSpan(offset, length);
 
+    /// <summary>Returns a writable byte view of a slot, rejecting slots declared read-only.</summary>
+    /// <param name="slot">The zero-based slot index in program order.</param>
+    /// <param name="offset">The zero-based byte offset of the requested view.</param>
+    /// <param name="length">The number of bytes in the requested view.</param>
     public Span<byte> Write(int slot, int offset, int length)
     {
         if (program.Slots[slot].Access != VmAccess.ReadWrite)
@@ -47,6 +59,8 @@ public sealed class CpuVmContext
         return buffers[slot].AsSpan(offset, length);
     }
 
+    /// <summary>Gets the compiled root call frame for an entry during an active CPU VM invocation.</summary>
+    /// <param name="entry">The name of the compiled entry to invoke or inspect.</param>
     public CpuVmCallFrame GetFrame(string entry)
     {
         var active = frames ?? throw new InvalidOperationException("Compiled frames require an active CPU VM execution.");

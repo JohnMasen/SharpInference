@@ -9,6 +9,7 @@ using SharpInference.Vm;
 
 namespace SharpInference.Architectures.Phi4.D3D12;
 
+/// <summary>Maintains GPU decoder state and performs token, embedding, or resident prompt decoding on Direct3D 12.</summary>
 public sealed class Phi4D3D12TextSession : IDisposable
 {
     private const int EmbeddingSize = 3072;
@@ -36,6 +37,7 @@ public sealed class Phi4D3D12TextSession : IDisposable
     private readonly int fusedTokenCount;
     private bool disposed;
 
+    /// <summary>Initializes stateful GPU text decoding with the package, context capacity, and selected LoRA adapter. Creates GPU resources on the selected adapter.</summary>
     public Phi4D3D12TextSession(
         Phi4ModelPackage package,
         int maximumContext = 4096,
@@ -64,6 +66,7 @@ public sealed class Phi4D3D12TextSession : IDisposable
         }
     }
 
+    /// <summary>Initializes stateful GPU text decoding with the package, context capacity, and selected LoRA adapter. Uses the supplied shared GPU resource pool. Reads prompt embeddings from the supplied resident buffer.</summary>
     public Phi4D3D12TextSession(
         Phi4ModelPackage package,
         D3D12VmResourcePool pool,
@@ -82,6 +85,7 @@ public sealed class Phi4D3D12TextSession : IDisposable
         ArgumentNullException.ThrowIfNull(fusion);
     }
 
+    /// <summary>Initializes stateful GPU text decoding with the package, context capacity, and selected LoRA adapter. Uses the supplied shared GPU resource pool. Reads prompt embeddings from the supplied resident buffer.</summary>
     public Phi4D3D12TextSession(
         Phi4ModelPackage package,
         D3D12VmResourcePool pool,
@@ -205,10 +209,14 @@ public sealed class Phi4D3D12TextSession : IDisposable
                 "A Phi-4 fused embedding resource is required.", nameof(fusedEmbeddings));
     }
 
+    /// <summary>Gets the maximum token capacity of the decoder key/value cache.</summary>
     public int MaximumContext { get; }
+    /// <summary>Gets the zero-based position at which the next input will be decoded.</summary>
     public int Position { get; private set; }
+    /// <summary>Gets the cumulative number of GPU queue submissions issued by the text decoder executor.</summary>
     public ulong QueueSubmissionCount => executor.SubmissionCount;
 
+    /// <summary>Decodes one token ID, updates the key/value caches and position, and returns the greedy next-token ID.</summary>
     public int ForwardToken(int token)
     {
         ObjectDisposedException.ThrowIf(disposed, this);
@@ -225,6 +233,7 @@ public sealed class Phi4D3D12TextSession : IDisposable
         return BinaryPrimitives.ReadInt32LittleEndian(tokenOutput);
     }
 
+    /// <summary>Decodes one embedding vector, updates the key/value caches and position, and returns the greedy next-token ID.</summary>
     public int ForwardEmbedding(ReadOnlySpan<float> embedding)
     {
         ObjectDisposedException.ThrowIf(disposed, this);
@@ -247,6 +256,7 @@ public sealed class Phi4D3D12TextSession : IDisposable
         return BinaryPrimitives.ReadInt32LittleEndian(tokenOutput);
     }
 
+    /// <summary>Decodes the next resident fused prompt row, advances the position, and returns the greedy next-token ID.</summary>
     public int ForwardFusedEmbedding()
     {
         ObjectDisposedException.ThrowIf(disposed, this);
@@ -264,6 +274,7 @@ public sealed class Phi4D3D12TextSession : IDisposable
         return BinaryPrimitives.ReadInt32LittleEndian(tokenOutput);
     }
 
+    /// <summary>Processes all remaining fused prompt rows in batches and returns the final greedy next-token ID.</summary>
     public int PrefillFusedEmbeddings()
     {
         ObjectDisposedException.ThrowIf(disposed, this);
@@ -286,12 +297,14 @@ public sealed class Phi4D3D12TextSession : IDisposable
         return BinaryPrimitives.ReadInt32LittleEndian(tokenOutput);
     }
 
+    /// <summary>Resets the next decoding position to zero so subsequent inputs overwrite the existing cache.</summary>
     public void Reset()
     {
         ObjectDisposedException.ThrowIf(disposed, this);
         Position = 0;
     }
 
+    /// <inheritdoc/>
     public void Dispose()
     {
         if (disposed)

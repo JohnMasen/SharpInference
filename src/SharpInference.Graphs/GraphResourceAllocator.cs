@@ -3,10 +3,14 @@ using System.Collections.ObjectModel;
 namespace SharpInference.Graphs;
 
 /// <summary>A physical scratch slot description. Allocate its backing separately for each active invocation.</summary>
+/// <param name="Id">The zero-based backing slot identifier.</param>
+/// <param name="Lifetime">The required backing-storage lifetime.</param>
+/// <param name="Tensor">The tensor element type, dimensions, and layout.</param>
+/// <param name="DeviceId">The optional device identifier for the backing storage.</param>
 public sealed record GraphResourceSlot(int Id, GraphResourceLifetime Lifetime, TensorDescriptor Tensor, string? DeviceId = null);
 
 /// <summary>
-/// Plans private local scratch by default, or all local resources via <see cref="PlanLocal"/>.
+/// Plans private local scratch by default, or all local resources via <see cref="PlanLocal(IExecutionPlanningGraph, Func{ResourceId, bool})"/>.
 /// The plan contains no backing storage, and a buffer's contents are never assumed to be zero.
 /// </summary>
 public static class GraphResourceAllocator
@@ -20,11 +24,13 @@ public static class GraphResourceAllocator
         return leftStart < checked(rightStart + rightLength) && rightStart < checked(leftStart + leftLength);
     }
 
+    /// <summary>Plans reusable storage for private local scratch resources.</summary>
     /// <remarks>
     /// Private ReadWrite bindings require a durable first-write proof from the graph optimizer,
     /// or an explicit backend guarantee supplied via <paramref name="initializedBeforeRead"/>.
     /// A Read binding cannot establish this; scratch is never implicitly initialized.
     /// </remarks>
+    /// <param name="graph">The execution graph supplying resource access and ownership metadata.</param>
     /// <param name="initializedBeforeRead">
     /// Backend-specific proof for ReadWrite scratch without graph metadata. Return true only when
     /// the concrete kernel writes the entire resource before its first read on every invocation.
@@ -239,7 +245,9 @@ public sealed class GraphResourceAllocationPlan
         SlotByResource = new ReadOnlyDictionary<ResourceId, int>(new Dictionary<ResourceId, int>(assignments));
     }
 
+    /// <summary>Gets the ordered storage slots.</summary>
     public IReadOnlyList<GraphResourceSlot> Slots { get; }
+    /// <summary>Gets the backing slot identifier assigned to each planned resource.</summary>
     public IReadOnlyDictionary<ResourceId, int> SlotByResource { get; }
 
     /// <summary>
@@ -345,12 +353,15 @@ public sealed class GraphInvocationScratch<T> : IDisposable where T : class
         this.release = release;
     }
 
+    /// <summary>Returns the invocation buffer assigned to a resource&apos;s planned slot.</summary>
+    /// <param name="resource">The referenced graph resource identifier.</param>
     public T GetBuffer(ResourceId resource)
     {
         if (Volatile.Read(ref disposed) != 0) throw new ObjectDisposedException(nameof(GraphInvocationScratch<T>));
         return buffers[plan.SlotByResource[resource]];
     }
 
+    /// <inheritdoc/>
     public void Dispose()
     {
         if (Interlocked.Exchange(ref disposed, 1) != 0) return;

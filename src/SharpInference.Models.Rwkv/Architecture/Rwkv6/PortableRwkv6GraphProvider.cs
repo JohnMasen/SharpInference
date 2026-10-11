@@ -9,8 +9,10 @@ namespace SharpInference.Architectures.Rwkv6;
 /// </summary>
 public sealed class PortableRwkv6GraphProvider : ILogicalGraphProvider
 {
+    /// <inheritdoc/>
     public string ArchitectureId => "rwkv-6";
 
+    /// <inheritdoc/>
     public LogicalGraph Build(IModelTensorCatalog tensors)
     {
         ArgumentNullException.ThrowIfNull(tensors);

@@ -6,26 +6,39 @@ using SharpInference.Vm.Optimization;
 
 namespace SharpInference.Runtime;
 
+/// <summary>Acquires exclusive VM execution scopes for token generation.</summary>
 public interface IVmGenerationScopeExecutor
 {
+    /// <summary>Acquires an asynchronously disposable scope for exclusive token generation.</summary>
+    /// <param name="cancellationToken">The token used to cancel the operation or admission wait.</param>
     ValueTask<ITokenGenerationScope> BeginGenerationAsync(CancellationToken cancellationToken);
 }
 
+/// <summary>Executes asynchronous prompt prefill on a VM session.</summary>
 public interface IVmPrefillExecutor
 {
+    /// <summary>Processes prompt tokens and returns the final token&apos;s logits.</summary>
+    /// <param name="tokens">The ordered prompt token identifiers to prefill.</param>
+    /// <param name="cancellationToken">The token used to cancel the operation or admission wait.</param>
     ValueTask<float[]> PrefillAsync(ReadOnlyMemory<int> tokens, CancellationToken cancellationToken);
 }
 
+/// <summary>Executes asynchronous single-token inference on a VM session.</summary>
 public interface IVmAsyncInferenceExecutor
 {
+    /// <summary>Processes one token and returns its output logits.</summary>
+    /// <param name="token">The input token identifier to process.</param>
+    /// <param name="cancellationToken">The token used to cancel the operation or admission wait.</param>
     ValueTask<float[]> ForwardTokenAsync(int token, CancellationToken cancellationToken);
 }
 
+/// <summary>Combines VM token inference, prefill, generation scopes, state access, and session disposal.</summary>
 public interface IVmSessionExecutor : IProcessorSessionExecutor, IProcessorStateExecutor,
     IVmGenerationScopeExecutor, IVmPrefillExecutor, IVmAsyncInferenceExecutor
 {
 }
 
+/// <summary>Stores a VM program, executable factory, optional exports, and associated prefill and target plans.</summary>
 public sealed class VmCompiledPlan
 {
     internal VmCompiledPlan(LogicalGraph bindingGraph, VmProgram program,
@@ -41,13 +54,19 @@ public sealed class VmCompiledPlan
     }
 
     internal LogicalGraph BindingGraph { get; }
+    /// <summary>Gets the compiled VM program.</summary>
     public VmProgram Program { get; }
+    /// <summary>Gets the factory that creates an executable instance for this program.</summary>
     public Func<IVmExecutable> CreateExecutable { get; }
+    /// <summary>Gets the optional callback that exports the compiled artifact into a directory.</summary>
     public Action<string>? ExportArtifact { get; }
+    /// <summary>Gets the optional separately compiled prefill plan.</summary>
     public VmCompiledPlan? PrefillPlan { get; }
+    /// <summary>Gets the authoritative target plan when compilation started from an execution plan.</summary>
     public TargetExecutionPlan? ExecutionPlan { get; }
 }
 
+/// <summary>Prepares portable graphs for a VM target and owns their compiled programs, model resources, and execution sessions.</summary>
 public sealed class VmGraphBackend : IDisposable
 {
     private readonly VmTarget target;
@@ -72,6 +91,24 @@ public sealed class VmGraphBackend : IDisposable
     private readonly IGraphOperationLowerer? operationLowerer;
     private readonly HashSet<VmTensorGraphSession> graphSessions = [];
 
+    /// <summary>Creates a VM graph backend with compilation, resource allocation, optimization, and optional precompiled inputs.</summary>
+    /// <param name="target">The VM execution target for the backend or optimization.</param>
+    /// <param name="compile">The compiler callback that returns an executable factory for a VM program.</param>
+    /// <param name="options">The optional VM engine queue capacities, instance counts, and prefill token limit.</param>
+    /// <param name="optimization">The optional VM optimization settings.</param>
+    /// <param name="disposeCompiler">The optional callback that releases compiler-owned resources.</param>
+    /// <param name="suppliedProgram">The optional pre-generated inference program, mutually exclusive with an execution plan.</param>
+    /// <param name="exportArtifact">The optional callback that exports the compiled inference artifact to a directory.</param>
+    /// <param name="suppliedPrefillProgram">The optional pre-generated VM program for prompt prefill.</param>
+    /// <param name="compilePrefill">The optional separate compiler callback for the prefill program.</param>
+    /// <param name="exportPrefillArtifact">The optional callback that exports the compiled prefill artifact to a directory.</param>
+    /// <param name="allocate">The optional factory for allocating storage for VM slots.</param>
+    /// <param name="deviceName">The optional display name of the execution device.</param>
+    /// <param name="generatorCollections">The optional instruction providers used for target execution-plan generation.</param>
+    /// <param name="diagnostics">The optional source of named backend measurements.</param>
+    /// <param name="operationLowerer">The optional backend-specific graph operation lowerer.</param>
+    /// <param name="executionCapabilities">The optional declared concurrency and storage-domain capabilities.</param>
+    /// <param name="suppliedExecutionPlan">The optional authoritative target execution plan to use instead of generating one.</param>
     public VmGraphBackend(VmTarget target, Func<VmProgram, Func<IVmExecutable>> compile,
         VmEngineOptions? options = null, VmOptimizationOptions? optimization = null, Action? disposeCompiler = null,
         VmProgram? suppliedProgram = null, Action<string>? exportArtifact = null,
@@ -108,16 +145,25 @@ public sealed class VmGraphBackend : IDisposable
         generator = generatorCollections is null ? null : new VmExecutionGraphGenerator(architecture, generatorCollections);
     }
 
+    /// <summary>Gets the VM execution target selected for this backend.</summary>
     public VmTarget Target => target;
+    /// <summary>Gets the display name of the execution device.</summary>
     public string DeviceName { get; }
+    /// <summary>Gets the tier-one report when the active execution plan was generated by this backend.</summary>
     public TierOneOptimizationReport? OptimizationReport =>
         generator?.LastPlan is { } generated && ReferenceEquals(generated, plan?.ExecutionPlan) ? generator.LastOptimizationReport : null;
+    /// <summary>Gets the GPU matrix-vector optimization report for the active generated plan.</summary>
     public GpuMatVecOptimizationReport? MatVecOptimizationReport =>
         generator?.LastPlan is { } generated && ReferenceEquals(generated, plan?.ExecutionPlan) ? generator.LastMatVecOptimizationReport : null;
+    /// <summary>Gets the optional provider of backend counters and timings.</summary>
     public IVmBackendDiagnostics? Diagnostics { get; }
+    /// <summary>Gets the backend&apos;s session concurrency and storage-domain capabilities.</summary>
     public ProcessorExecutionCapabilities ExecutionCapabilities { get; }
+    /// <summary>Gets the prepared inference program, or null before preparation.</summary>
     public VmProgram? Program => plan?.Program;
+    /// <summary>Gets the prepared prefill program or its inference fallback, or null before preparation.</summary>
     public VmProgram? PrefillProgram => plan?.PrefillPlan?.Program ?? plan?.Program;
+    /// <summary>Gets whether the prepared graph declares compatible token input, logits output, float32 state, and prefill entry points.</summary>
     public bool SupportsTokenSessions => plan is { } prepared &&
         prepared.BindingGraph.Model.Attributes.GetValueOrDefault("execution.token-prefill") == "true" &&
         prepared.BindingGraph.Inputs.Count == 1 && prepared.BindingGraph.Outputs.Count == 1 &&
@@ -130,6 +176,10 @@ public sealed class VmGraphBackend : IDisposable
             .All(resource => resource.Tensor.ElementType == GraphElementType.Float32 && resource.Tensor.Layout == "dense") &&
         (prepared.PrefillPlan ?? prepared).Program.Entries.Any(entry => entry.Name == "prefill.1");
 
+    /// <summary>Validates and compiles a logical graph or target execution plan before model resources or sessions are bound.</summary>
+    /// <param name="logical">The logical graph to validate, lower, and compile.</param>
+    /// <param name="options">The optional graph optimization settings; target planning owns optimizations beyond the off boundary.</param>
+    /// <param name="modelModule">The optional model module supplying operation validation and lowering.</param>
     public VmCompiledPlan Prepare(LogicalGraph logical, GraphOptimizationOptions? options = null,
         IModelGraphModule? modelModule = null)
     {
@@ -160,6 +210,8 @@ public sealed class VmGraphBackend : IDisposable
         }
     }
 
+    /// <summary>Validates and compiles a logical graph or target execution plan before model resources or sessions are bound.</summary>
+    /// <param name="executionPlan">The target execution plan with authoritative input, output, and state binding metadata.</param>
     public VmCompiledPlan Prepare(TargetExecutionPlan executionPlan)
     {
         ArgumentNullException.ThrowIfNull(executionPlan);
@@ -211,6 +263,8 @@ public sealed class VmGraphBackend : IDisposable
             throw new InvalidDataException("The supplied VM program has no graph forward entry.");
     }
 
+    /// <summary>Binds model weights and initializes either shared tensor resources or the token-session engine.</summary>
+    /// <param name="model">The model bound to the prepared graph and backend.</param>
     public void PrepareModelWeights(PortableGraphModel model)
     {
         ArgumentNullException.ThrowIfNull(model);
@@ -250,6 +304,10 @@ public sealed class VmGraphBackend : IDisposable
         modelBound = true;
     }
 
+    /// <summary>Creates a token-session executor for the model, state, and plan bound to this backend.</summary>
+    /// <param name="model">The model bound to the prepared graph and backend.</param>
+    /// <param name="state">The portable model state attached to the new token-session executor.</param>
+    /// <param name="prepared">The compiled plan already prepared and bound on this backend.</param>
     public IVmSessionExecutor CreateSessionExecutor(IModel model, IModelState state, VmCompiledPlan prepared)
     {
         ObjectDisposedException.ThrowIf(disposed, this);
@@ -261,6 +319,9 @@ public sealed class VmGraphBackend : IDisposable
         return new Session(initialized.CreateSession(), graphState, prepared.BindingGraph);
     }
 
+    /// <summary>Creates a descriptor-bound tensor session using this backend&apos;s prepared plan and optional state.</summary>
+    /// <param name="tensors">The tensor catalog supplying model weights and their descriptors.</param>
+    /// <param name="state">The optional existing graph state; null creates fresh state.</param>
     public VmTensorGraphSession CreateGraphSession(IModelTensorCatalog tensors, GraphTensorState? state = null)
     {
         ArgumentNullException.ThrowIfNull(tensors);
@@ -407,6 +468,7 @@ public sealed class VmGraphBackend : IDisposable
         }
     }
 
+    /// <summary>Releases active graph sessions, shared resources, the inference engine, and compiler-owned resources.</summary>
     public void Dispose()
     {
         VmTensorGraphSession[] sessions;

@@ -6,10 +6,13 @@ using SharpInference.Graphs;
 
 namespace SharpInference.Vm;
 
+/// <summary>Serializes and parses the versioned XML representation of a VM program.</summary>
 public static class VmProgramXml
 {
     private const int MaximumCharacters = 16 * 1024 * 1024;
 
+    /// <summary>Produces the versioned XML representation of the supplied VM program.</summary>
+    /// <param name="program">The VM artifact to serialize.</param>
     public static string Serialize(VmProgram program)
     {
         VmProgramValidator.Validate(program);
@@ -41,6 +44,8 @@ public static class VmProgramXml
         return root.ToString();
     }
 
+    /// <summary>Parses versioned VM XML and constructs a structurally validated program.</summary>
+    /// <param name="xml">The versioned XML representation of a VM program.</param>
     public static VmProgram Deserialize(string xml)
     {
         ArgumentNullException.ThrowIfNull(xml);

@@ -1,14 +1,26 @@
 namespace SharpInference.Graphs;
 
+/// <summary>Recognizes tensor catalogs and supplies architecture-specific metadata, graphs, validation, and lowering.</summary>
 public interface IModelGraphModule : ILogicalGraphProvider
 {
+    /// <summary>Determines whether this module recognizes the supplied model tensor catalog.</summary>
+    /// <param name="tensors">The model tensor catalog.</param>
     bool CanLoad(IModelTensorCatalog tensors);
+    /// <summary>Reads architecture-specific model metadata from a recognized tensor catalog.</summary>
+    /// <param name="tensors">The model tensor catalog.</param>
     ModelMetadata ReadMetadata(IModelTensorCatalog tensors);
+    /// <summary>Gets the optional architecture-specific operation validator.</summary>
     IGraphOperationValidator? OperationValidator => null;
+    /// <summary>Gets the optional architecture-specific operation lowerer.</summary>
     IGraphOperationLowerer? OperationLowerer => null;
+    /// <summary>Gets the optional architecture-specific legacy model signature reader.</summary>
     IGraphModelSignatureReader? LegacySignatureReader => null;
 }
 
+/// <summary>Contains the selected architecture module, model metadata, and validated logical graph.</summary>
+/// <param name="Module">The architecture-specific graph module.</param>
+/// <param name="Metadata">The model metadata.</param>
+/// <param name="Graph">The graph supplying operations and resource binding metadata.</param>
 public sealed record ModelGraphSelection(IModelGraphModule Module, ModelMetadata Metadata, LogicalGraph Graph);
 
 /// <summary>Resolves explicitly registered modules without assuming a model family or backend.</summary>
@@ -16,6 +28,8 @@ public sealed class ModelGraphModuleRegistry
 {
     private readonly Dictionary<string, IModelGraphModule> modules = new(StringComparer.Ordinal);
 
+    /// <summary>Registers a module under its architecture identifier, rejecting duplicate registrations.</summary>
+    /// <param name="module">The architecture-specific graph module.</param>
     public void Register(IModelGraphModule module)
     {
         ArgumentNullException.ThrowIfNull(module);
@@ -24,6 +38,8 @@ public sealed class ModelGraphModuleRegistry
             throw new InvalidOperationException($"Model module '{module.ArchitectureId}' is already registered.");
     }
 
+    /// <summary>Returns the registered module for an architecture, rejecting unknown identifiers.</summary>
+    /// <param name="architectureId">The model architecture identifier.</param>
     public IModelGraphModule GetRequired(string architectureId)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(architectureId);
@@ -31,6 +47,8 @@ public sealed class ModelGraphModuleRegistry
             throw new NotSupportedException($"No model module is registered for '{architectureId}'.");
     }
 
+    /// <summary>Resolves the single registered module recognizing the tensor catalog, rejecting missing or ambiguous matches.</summary>
+    /// <param name="tensors">The model tensor catalog.</param>
     public IModelGraphModule Resolve(IModelTensorCatalog tensors)
     {
         ArgumentNullException.ThrowIfNull(tensors);
@@ -43,6 +61,8 @@ public sealed class ModelGraphModuleRegistry
         };
     }
 
+    /// <summary>Resolves a module, builds its graph, and validates model metadata and operation contracts.</summary>
+    /// <param name="tensors">The model tensor catalog.</param>
     public ModelGraphSelection Build(IModelTensorCatalog tensors)
     {
         var module = Resolve(tensors);

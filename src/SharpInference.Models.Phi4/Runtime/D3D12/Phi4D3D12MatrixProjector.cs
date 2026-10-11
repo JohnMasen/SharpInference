@@ -8,6 +8,7 @@ using SharpInference.Vm;
 
 namespace SharpInference.Architectures.Phi4.D3D12;
 
+/// <summary>Accelerates Phi-4 GGUF matrix-vector projections using Direct3D 12 compute execution.</summary>
 public sealed class Phi4D3D12MatrixProjector : IPhi4MatrixProjector, IDisposable
 {
     private readonly D3D12VmExecutor executor;
@@ -16,6 +17,7 @@ public sealed class Phi4D3D12MatrixProjector : IPhi4MatrixProjector, IDisposable
     private readonly object gate = new();
     private bool disposed;
 
+    /// <summary>Initializes matrix projection kernels for the package on the selected Direct3D 12 adapter. Creates GPU resources on the selected adapter.</summary>
     public Phi4D3D12MatrixProjector(Phi4ModelPackage package, int adapterIndex = 0)
     {
         ArgumentNullException.ThrowIfNull(package);
@@ -54,6 +56,7 @@ public sealed class Phi4D3D12MatrixProjector : IPhi4MatrixProjector, IDisposable
                     new byte[shape.Output * sizeof(float)]));
     }
 
+    /// <summary>Projects the input vector through the GGUF weight matrix and writes the result into the supplied output span.</summary>
     public void Project(GgufModelTensor weight, ReadOnlySpan<float> input, Span<float> output)
     {
         ObjectDisposedException.ThrowIf(disposed, this);
@@ -76,6 +79,7 @@ public sealed class Phi4D3D12MatrixProjector : IPhi4MatrixProjector, IDisposable
         }
     }
 
+    /// <inheritdoc/>
     public void Dispose()
     {
         if (disposed)

@@ -5,8 +5,10 @@ using SharpInference.Graphs;
 
 namespace SharpInference;
 
+/// <summary>Validates and imports legacy RWKV JSON and XML model signatures.</summary>
 public sealed class RwkvLegacyGraphSignatureReader : IGraphModelSignatureReader
 {
+    /// <inheritdoc/>
     public GraphModelSignature ReadJson(JsonElement model)
     {
         string[] allowed = ["VocabularySize", "EmbeddingSize", "LayerCount", "HeadCount", "HeadSize", "StateAbiId"];
@@ -27,6 +29,7 @@ public sealed class RwkvLegacyGraphSignatureReader : IGraphModelSignatureReader
             Number("LayerCount"), Number("HeadCount"), Number("HeadSize"), abi.GetString()!);
     }
 
+    /// <inheritdoc/>
     public GraphModelSignature ReadXml(XElement model)
     {
         string[] allowed = ["vocabularySize", "embeddingSize", "layerCount", "headCount", "headSize", "stateAbiId"];

@@ -3,6 +3,10 @@ namespace SharpInference.Graphs;
 /// <summary>Extracts model-owned regions as reusable, concrete-signature definitions. This is not fusion.</summary>
 public static class GraphLayerReuse
 {
+    /// <summary>Replaces equivalent region bodies with reusable layer definitions and bound call sites.</summary>
+    /// <param name="graph">The graph supplying operations and resource binding metadata.</param>
+    /// <param name="definitionFamily">Selects the reusable-definition family for each region, or null to skip extraction.</param>
+    /// <param name="portName">Selects a definition port name for each exposed resource and access.</param>
     public static LogicalGraph Extract(LogicalGraph graph, Func<GraphRegion, string?> definitionFamily,
         Func<GraphRegion, GraphResource, GraphResourceAccess, string?>? portName = null)
     {

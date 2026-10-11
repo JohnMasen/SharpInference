@@ -2,12 +2,14 @@ using SharpInference.Graphs;
 
 namespace SharpInference.Architectures.Phi4;
 
+/// <summary>Composes optional media encoders and embedding fusion with the stateful Phi-4 text decoder.</summary>
 public sealed class Phi4ModelGraphModule : IModelGraphModule, IGraphOperationValidator
 {
     private readonly Phi4TextGraphModule text;
     private readonly Phi4FusionGraphModule? fusion;
     private readonly IReadOnlyDictionary<string, IModelGraphModule> encoders;
 
+    /// <summary>Initializes the decoder and optional fusion and media encoder composition with the selected adapter.</summary>
     public Phi4ModelGraphModule(int maximumContext = 4096, Phi4Adapter adapter = Phi4Adapter.None,
         float? adapterScale = null, Phi4FusionGraphModule? fusion = null,
         IReadOnlyDictionary<string, IModelGraphModule>? encoders = null)
@@ -21,9 +23,13 @@ public sealed class Phi4ModelGraphModule : IModelGraphModule, IGraphOperationVal
         text = new(maximumContext, embeddingInput: fusion is not null, adapter, adapterScale);
     }
 
+    /// <inheritdoc/>
     public string ArchitectureId => "phi4";
+    /// <inheritdoc/>
     public IGraphOperationValidator OperationValidator => this;
+    /// <inheritdoc/>
     public bool CanLoad(IModelTensorCatalog tensors) => text.CanLoad(tensors) && encoders.Values.All(module => module.CanLoad(tensors));
+    /// <inheritdoc/>
     public ModelMetadata ReadMetadata(IModelTensorCatalog tensors)
     {
         var metadata = text.ReadMetadata(tensors);
@@ -32,6 +38,7 @@ public sealed class Phi4ModelGraphModule : IModelGraphModule, IGraphOperationVal
         return new(ArchitectureId, metadata.Dimensions, metadata.Attributes);
     }
 
+    /// <inheritdoc/>
     public LogicalGraph Build(IModelTensorCatalog tensors)
     {
         var decoder = text.Build(tensors);
@@ -119,6 +126,7 @@ public sealed class Phi4ModelGraphModule : IModelGraphModule, IGraphOperationVal
 
     private static bool Same(TensorDescriptor left, TensorDescriptor right) => left.ElementType == right.ElementType &&
         left.Layout == right.Layout && left.Dimensions.SequenceEqual(right.Dimensions);
+    /// <inheritdoc/>
     public void Validate(GraphOperationValidationContext context)
     {
         Phi4TextOperationValidation.Validate(context);

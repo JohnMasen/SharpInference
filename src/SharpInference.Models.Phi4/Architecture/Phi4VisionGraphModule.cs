@@ -4,6 +4,7 @@ using SharpInference.Instructions.Phi4;
 
 namespace SharpInference.Architectures.Phi4;
 
+/// <summary>Builds and validates the Phi-4 vision transformer and high-definition embedding projection graph.</summary>
 public sealed class Phi4VisionGraphModule : IModelGraphModule, IGraphOperationValidator
 {
     private readonly int crops;
@@ -11,6 +12,7 @@ public sealed class Phi4VisionGraphModule : IModelGraphModule, IGraphOperationVa
     private readonly int heads;
     private readonly int layers;
 
+    /// <summary>Initializes a vision graph for the specified crop count, projected token count, attention heads, and layers.</summary>
     public Phi4VisionGraphModule(int crops, int imageTokens, int heads = 16, int layers = 26)
     {
         if (crops <= 0) throw new ArgumentOutOfRangeException(nameof(crops));
@@ -23,12 +25,16 @@ public sealed class Phi4VisionGraphModule : IModelGraphModule, IGraphOperationVa
         this.layers = layers;
     }
 
+    /// <inheritdoc/>
     public string ArchitectureId => "phi4.vision";
+    /// <inheritdoc/>
     public IGraphOperationValidator OperationValidator => this;
+    /// <inheritdoc/>
     public bool CanLoad(IModelTensorCatalog tensors) => tensors.TryGet("v.patch_embd.weight", out _) &&
         tensors.TryGet("v.position_embd.weight", out _) && tensors.TryGet($"v.blk.{layers - 1}.ln2.weight", out _) &&
         tensors.TryGet("mm.2.weight", out _);
 
+    /// <inheritdoc/>
     public ModelMetadata ReadMetadata(IModelTensorCatalog tensors)
     {
         ArgumentNullException.ThrowIfNull(tensors);
@@ -96,6 +102,7 @@ public sealed class Phi4VisionGraphModule : IModelGraphModule, IGraphOperationVa
         }
     }
 
+    /// <inheritdoc/>
     public LogicalGraph Build(IModelTensorCatalog tensors)
     {
         var metadata = ReadMetadata(tensors);
@@ -278,6 +285,7 @@ public sealed class Phi4VisionGraphModule : IModelGraphModule, IGraphOperationVa
         }
     }
 
+    /// <inheritdoc/>
     public void Validate(GraphOperationValidationContext context) => Phi4VisionOperationValidation.Validate(context);
     private static TensorDescriptor F(params int[] dimensions) => new(GraphElementType.Float32, dimensions);
     private static NodeResourceBinding View(string port, string source, GraphResourceAccess access, params int[] dimensions) =>

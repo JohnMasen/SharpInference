@@ -3,6 +3,7 @@ using SharpInference.Graphs;
 
 namespace SharpInference.Instructions.D3D12;
 
+/// <summary>Provides Float32 Direct3D12 transformer kernels, including batched attention and cache operations.</summary>
 public sealed class GpuTransformerInstructionCollection : IInstructionCollectionProvider
 {
     private readonly IReadOnlyDictionary<string, Instruction> instructions =
@@ -32,10 +33,12 @@ public sealed class GpuTransformerInstructionCollection : IInstructionCollection
             new GpuBatchGatherRowsInstruction(),
         }.ToDictionary(instruction => instruction.Name, StringComparer.Ordinal);
 
+    /// <inheritdoc/>
     public IReadOnlyList<InstructionCollectionDescription> QueryInstructionCollection() =>
         [new(InstructionCollectionIds.TransformerFloat32,
             "FP32 transformer operations", 1, InstructionTarget.Direct3D12)];
 
+    /// <inheritdoc/>
     public IReadOnlyList<Instruction> QueryInstruction(Guid collectionId, string instructionName) =>
         collectionId == InstructionCollectionIds.TransformerFloat32 &&
         instructions.TryGetValue(instructionName, out var instruction)

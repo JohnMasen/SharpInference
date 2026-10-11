@@ -1,5 +1,9 @@
 namespace SharpInference.Graphs;
 
+/// <summary>Contains the tensor descriptor and byte storage of a named graph state entry.</summary>
+/// <param name="Name">The state entry name.</param>
+/// <param name="Tensor">The tensor element type, dimensions, and layout.</param>
+/// <param name="Data">The byte storage containing the state tensor.</param>
 public sealed record GraphStateBuffer(string Name, TensorDescriptor Tensor, Memory<byte> Data);
 
 /// <summary>Stores graph state using declared tensor descriptors and architecture-supplied initial bytes.</summary>
@@ -8,6 +12,9 @@ public sealed class GraphTensorState : IModelState
     private readonly GraphStateBuffer[] buffers;
     private readonly byte[][] initial;
 
+    /// <summary>Allocates graph state byte buffers and optionally initializes them from named state bytes.</summary>
+    /// <param name="graph">The graph supplying operations and resource binding metadata.</param>
+    /// <param name="initialState">The optional initial bytes keyed by state entry name; omitted state starts at zero.</param>
     public GraphTensorState(LogicalGraph graph,
         IReadOnlyDictionary<string, ReadOnlyMemory<byte>>? initialState = null)
         : this(graph?.Identity ?? throw new ArgumentNullException(nameof(graph)), graph.Model,
@@ -16,6 +23,9 @@ public sealed class GraphTensorState : IModelState
         GraphValidator.Validate(graph);
     }
 
+    /// <summary>Allocates graph state byte buffers and optionally initializes them from named state bytes.</summary>
+    /// <param name="graph">The graph supplying operations and resource binding metadata.</param>
+    /// <param name="initialState">The optional initial bytes keyed by state entry name; omitted state starts at zero.</param>
     public GraphTensorState(ExecutionGraph graph,
         IReadOnlyDictionary<string, ReadOnlyMemory<byte>>? initialState = null)
         : this(graph?.Identity ?? throw new ArgumentNullException(nameof(graph)), graph.Model,
@@ -75,14 +85,20 @@ public sealed class GraphTensorState : IModelState
         Buffers = Array.AsReadOnly(buffers);
     }
 
+    /// <summary>Gets the model architecture identifier.</summary>
     public string ArchitectureId { get; }
+    /// <summary>Gets the graph state ABI identifier.</summary>
     public string StateAbiId { get; }
+    /// <summary>Gets the state ABI compatibility schema.</summary>
     public StateSchema Schema { get; }
+    /// <summary>Gets the named byte buffers containing graph session state.</summary>
     public IReadOnlyList<GraphStateBuffer> Buffers { get; }
 
     IModelState IModelState.Clone() => Clone();
+    /// <summary>Creates an independent copy of the graph state.</summary>
     public GraphTensorState Clone() => new(this);
 
+    /// <summary>Restores every state buffer to its architecture-supplied initial bytes, or zero when no initial state was supplied.</summary>
     public void Reset()
     {
         for (var index = 0; index < buffers.Length; index++)

@@ -56,11 +56,18 @@ public sealed class GraphResourceMap<TResource> : IResourceMapBase<TResource> wh
         privateOwners = graph.InternalResourceOwners;
     }
 
+    /// <summary>Gets the graph resource descriptors.</summary>
     public IReadOnlyList<GraphResource> Resources { get; }
 
+    /// <summary>Attempts to find the metadata describing a graph resource identifier.</summary>
+    /// <param name="id">The identifier of the graph element or resource.</param>
+    /// <param name="metadata">The model metadata.</param>
     public bool TryGetMetadata(ResourceId id, out GraphResource metadata) =>
         this.metadata.TryGetValue(id, out metadata!);
 
+    /// <summary>Attempts to find the backend object currently bound to a resource identifier.</summary>
+    /// <param name="id">The identifier of the graph element or resource.</param>
+    /// <param name="resource">The resource descriptor or identifier to bind.</param>
     public bool TryGetResource(ResourceId id, out TResource? resource)
     {
         if (!metadata.ContainsKey(id))

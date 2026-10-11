@@ -3,10 +3,26 @@ using SharpInference.Vm;
 
 namespace SharpInference.Vm.Optimization;
 
-public enum GpuMatVecMode { Serial, Cooperative, Profile, Default }
+/// <summary>Selects the policy used to choose a GPU matrix-vector implementation.</summary>
+public enum GpuMatVecMode
+{
+    /// <summary>Forces one GPU thread per output reduction.</summary>
+    Serial,
+    /// <summary>Forces cooperative group reduction without claiming measured benefit.</summary>
+    Cooperative,
+    /// <summary>Uses compatible trusted offline measurements and otherwise retains serial execution.</summary>
+    Profile,
+    /// <summary>Selects the default cooperative GPU matrix-vector implementation.</summary>
+    Default
+}
 
+/// <summary>Configures explicit or offline-profile-based GPU matrix-vector selection.</summary>
 public sealed class GpuMatVecOptimizationSettings
 {
+    /// <summary>Creates a selection policy, requiring offline costs and environment identity only in profile mode.</summary>
+    /// <param name="mode">The policy used to select a matrix-vector implementation.</param>
+    /// <param name="profile">The offline timing profile used for cost-driven selection.</param>
+    /// <param name="environmentFingerprint">The current measurement environment identity required to trust offline costs.</param>
     public GpuMatVecOptimizationSettings(GpuMatVecMode mode, TierOneCostProfile? profile = null,
         string? environmentFingerprint = null)
     {
@@ -21,10 +37,15 @@ public sealed class GpuMatVecOptimizationSettings
         EnvironmentFingerprint = environmentFingerprint;
     }
 
+    /// <summary>Gets the policy used to select a matrix-vector implementation.</summary>
     public GpuMatVecMode Mode { get; }
+    /// <summary>Gets the offline timing profile used for cost-driven selection.</summary>
     public TierOneCostProfile? Profile { get; }
+    /// <summary>Gets the current measurement environment identity required to trust offline costs.</summary>
     public string? EnvironmentFingerprint { get; }
 
+    /// <summary>Builds a matrix-shape and operand-element-type key for offline cost matching.</summary>
+    /// <param name="parameters">The matrix or weight, input, and output tensor parameters of the matrix-vector call.</param>
     public static string Shape(IReadOnlyList<VmParameter> parameters)
     {
         var matrix = parameters.Single(parameter => parameter.Name is "matrix" or "weight");
@@ -59,4 +80,8 @@ public sealed class GpuMatVecOptimizationSettings
     }
 }
 
+/// <summary>Reports the number of matrix-vector calls and their implementation-selection diagnostics.</summary>
+/// <param name="Calls">The total number of matrix-vector calls considered.</param>
+/// <param name="CooperativeCalls">The number of calls assigned to the cooperative implementation.</param>
+/// <param name="Diagnostics">The selection diagnostics for the considered calls.</param>
 public sealed record GpuMatVecOptimizationReport(int Calls, int CooperativeCalls, IReadOnlyList<string> Diagnostics);

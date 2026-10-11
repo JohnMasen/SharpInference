@@ -4,12 +4,14 @@ using SharpInference.Instructions.Phi4;
 
 namespace SharpInference.Architectures.Phi4;
 
+/// <summary>Builds and validates the Phi-4 audio encoder graph, including subsampling, conformer layers, and projection.</summary>
 public sealed class Phi4AudioGraphModule : IModelGraphModule, IGraphOperationValidator
 {
     private readonly int layers;
     private readonly Phi4AudioSubsamplingGraphModule subsampling;
     private readonly Phi4AudioProjectionGraphModule projection;
 
+    /// <summary>Initializes an audio encoder graph with the specified projector, frame capacity, and conformer layer count.</summary>
     public Phi4AudioGraphModule(Phi4AudioProjector projector = Phi4AudioProjector.Speech, int frames = 352, int layers = 24)
     {
         if (layers is <= 0 or > 24) throw new ArgumentOutOfRangeException(nameof(layers));
@@ -19,13 +21,17 @@ public sealed class Phi4AudioGraphModule : IModelGraphModule, IGraphOperationVal
         ArchitectureId = projector == Phi4AudioProjector.Speech ? "phi4.audio.speech" : "phi4.audio.vision";
     }
 
+    /// <inheritdoc/>
     public string ArchitectureId { get; }
+    /// <inheritdoc/>
     public IGraphOperationValidator OperationValidator => this;
 
+    /// <inheritdoc/>
     public bool CanLoad(IModelTensorCatalog tensors) => subsampling.CanLoad(tensors) && projection.CanLoad(tensors) &&
         tensors.TryGet("a.conv1d.out.weight", out _) && tensors.TryGet("a.rel_attn_bias", out _) &&
         tensors.TryGet($"a.blk.{layers - 1}.ln.weight", out _);
 
+    /// <inheritdoc/>
     public ModelMetadata ReadMetadata(IModelTensorCatalog tensors)
     {
         var sub = subsampling.ReadMetadata(tensors);
@@ -93,6 +99,7 @@ public sealed class Phi4AudioGraphModule : IModelGraphModule, IGraphOperationVal
         }
     }
 
+    /// <inheritdoc/>
     public LogicalGraph Build(IModelTensorCatalog tensors)
     {
         var metadata = ReadMetadata(tensors);
@@ -358,6 +365,7 @@ public sealed class Phi4AudioGraphModule : IModelGraphModule, IGraphOperationVal
         }
     }
 
+    /// <inheritdoc/>
     public void Validate(GraphOperationValidationContext context) => Phi4AudioOperationValidation.Validate(context);
 
     private static NodeResourceBinding Flat(string port, string id, GraphResourceAccess access, int count) =>

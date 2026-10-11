@@ -8,9 +8,12 @@ public sealed class CpuPrimitiveGraphBackend : IGraphModelWeightBackend
 {
     private readonly ConditionalWeakTable<PortableGraphModel, CpuPrimitiveGraphExecutor> models = new();
 
+    /// <summary>Gets the shared CPU backend for portable primitive graphs.</summary>
     public static CpuPrimitiveGraphBackend Instance { get; } = new();
 
+    /// <inheritdoc/>
     public IPrimitiveOperatorBackend PrimitiveOperators => CpuPrimitiveOperatorBackend.Instance;
+    /// <inheritdoc/>
     public IExecutionKernelCatalog KernelCatalog { get; } = new CpuExpressionKernelCatalog();
 
     private static readonly IReadOnlyList<OperatorImplementationDescription> TensorImplementations =
@@ -22,8 +25,10 @@ public sealed class CpuPrimitiveGraphBackend : IGraphModelWeightBackend
 
     // The Processor must own the catalog after its reader is released. The executor retains
     // tensor references, not a second copy of each weight.
+    /// <inheritdoc/>
     public bool RequiresCpuWeightCopy => true;
 
+    /// <inheritdoc/>
     public IReadOnlyList<OperatorImplementationDescription> GetOperatorImplementations(
         ExecutionGraph graph, ExecutionNode node)
     {
@@ -41,6 +46,7 @@ public sealed class CpuPrimitiveGraphBackend : IGraphModelWeightBackend
             .Where(implementation => implementation.Operation == node.Operation).ToArray();
     }
 
+    /// <inheritdoc/>
     public BackendPreparationResult Prepare(ExecutionGraph graph)
     {
         ArgumentNullException.ThrowIfNull(graph);
@@ -69,12 +75,14 @@ public sealed class CpuPrimitiveGraphBackend : IGraphModelWeightBackend
         }
     }
 
+    /// <inheritdoc/>
     public void PrepareModelWeights(PortableGraphModel model)
     {
         ArgumentNullException.ThrowIfNull(model);
         models.GetValue(model, bound => new CpuPrimitiveGraphExecutor(bound, PrimitiveOperators));
     }
 
+    /// <inheritdoc/>
     public IProcessorSessionExecutor CreateSessionExecutor(
         IModel model, IModelState state, IBackendExecutablePlan plan)
     {
@@ -131,6 +139,8 @@ public sealed class CpuPrimitiveGraphBackend : IGraphModelWeightBackend
     }
 }
 
+/// <summary>Represents a validated CPU execution graph ready for processor sessions.</summary>
+/// <param name="Graph">The execution graph represented by the prepared plan.</param>
 public sealed record CpuPrimitiveGraphPlan(ExecutionGraph Graph) : IBackendExecutablePlan;
 
 internal sealed class CpuExpressionKernelCatalog : IExecutionKernelCatalog,

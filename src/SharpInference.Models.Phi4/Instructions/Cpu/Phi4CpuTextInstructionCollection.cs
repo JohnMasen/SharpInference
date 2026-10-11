@@ -4,15 +4,19 @@ using SharpInference.Graphs;
 
 namespace SharpInference.Instructions.Phi4.Cpu;
 
+/// <summary>Provides CPU instructions and graph bindings for Phi-4 FP32 decoder operations.</summary>
 public sealed class Phi4CpuTextInstructionCollection : IInstructionCollectionProvider, IGraphInstructionProvider
 {
     private readonly IReadOnlyList<GraphInstructionBinding> bindings = Phi4TextGraphOperations.Bindings(InstructionTarget.Cpu)
         .Where(binding => binding.Operation != Phi4TextGraphOperations.AdvancePosition).ToArray();
+    /// <inheritdoc/>
     public IReadOnlyList<InstructionCollectionDescription> QueryInstructionCollection() =>
         [new(Phi4InstructionCollectionIds.TextFloat32, "Phi4 FP32 decoder operations", 1, InstructionTarget.Cpu)];
+    /// <inheritdoc/>
     public IReadOnlyList<Instruction> QueryInstruction(Guid collectionId, string instructionName) =>
         collectionId == Phi4InstructionCollectionIds.TextFloat32 && bindings.Any(binding => binding.InstructionName == instructionName)
             ? [new TextInstruction(instructionName)] : [];
+    /// <inheritdoc/>
     public IReadOnlyList<GraphInstructionBinding> QueryGraphInstructionBindings() => bindings;
 
     private sealed class TextInstruction(string name) : Instruction
@@ -81,8 +85,10 @@ public sealed class Phi4CpuTextInstructionCollection : IInstructionCollectionPro
     }
 }
 
+/// <summary>Implements host-side normalization, rotary embedding, and attention kernels for generated Phi-4 decoder instructions.</summary>
 public static class Phi4CpuTextNumerics
 {
+    /// <summary>Applies root-mean-square normalization and learned channel scaling to the input vector.</summary>
     public static void RmsNorm(ReadOnlySpan<float> input, ReadOnlySpan<float> weight, Span<float> output, float epsilon)
     {
         var sum = 0f;
@@ -90,14 +96,17 @@ public static class Phi4CpuTextNumerics
         var scale = 1f / MathF.Sqrt(sum / input.Length + epsilon);
         for (var i = 0; i < output.Length; i++) output[i] = input[i] * scale * weight[i];
     }
+    /// <summary>Multiplies the swish-activated gate half by the up-projection half of the input.</summary>
     public static void SwiGlu(ReadOnlySpan<float> gateUp, Span<float> output)
     {
         for (var i = 0; i < output.Length; i++) output[i] = gateUp[i] / (1 + MathF.Exp(-gateUp[i])) * gateUp[output.Length + i];
     }
+    /// <summary>Writes the input vector plus a scaled update into the output span.</summary>
     public static void ScaledAdd(ReadOnlySpan<float> input, ReadOnlySpan<float> update, Span<float> output, float scale)
     {
         for (var i = 0; i < output.Length; i++) output[i] = input[i] + scale * update[i];
     }
+    /// <summary>Applies rotary position encoding to queries and keys and writes keys and values into the current cache position.</summary>
     public static void Rope(ReadOnlySpan<float> qkv, int position, ReadOnlySpan<float> frequencies, Span<float> query,
         Span<float> keys, Span<float> values, int kvHeads, int headSize, int rotary, float scale)
     {
@@ -118,6 +127,7 @@ public static class Phi4CpuTextNumerics
         var other = qkv[left ? index + half : index - half];
         return scale * (qkv[index] * MathF.Cos(angle) + (left ? -other : other) * MathF.Sin(angle));
     }
+    /// <summary>Computes scaled grouped-query attention scores through the current position and masks future positions.</summary>
     public static void Scores(ReadOnlySpan<float> query, ReadOnlySpan<float> keys, int position, Span<float> scores,
         int heads, int kvHeads, int headSize, int context)
     {
@@ -130,6 +140,7 @@ public static class Phi4CpuTextNumerics
             scores[h * context + t] = sum / MathF.Sqrt(headSize);
         }
     }
+    /// <summary>Computes per-head causal softmax probabilities through the current position and clears future positions.</summary>
     public static void Softmax(ReadOnlySpan<float> scores, int position, Span<float> probabilities, int heads, int context)
     {
         probabilities.Clear();
@@ -142,6 +153,7 @@ public static class Phi4CpuTextNumerics
             for (var t = 0; t <= position; t++) probabilities[h * context + t] /= sum;
         }
     }
+    /// <summary>Combines cached value vectors using grouped-query attention probabilities through the current position.</summary>
     public static void Values(ReadOnlySpan<float> probabilities, ReadOnlySpan<float> values, int position, Span<float> output,
         int heads, int kvHeads, int headSize, int context)
     {

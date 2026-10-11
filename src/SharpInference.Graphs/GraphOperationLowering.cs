@@ -3,11 +3,17 @@ namespace SharpInference.Graphs;
 /// <summary>Expands model-owned operators into a graph accepted by an explicitly selected execution target.</summary>
 public interface IGraphOperationLowerer
 {
+    /// <summary>Expands model-owned operations into a graph accepted by the selected execution target.</summary>
+    /// <param name="graph">The graph supplying operations and resource binding metadata.</param>
     LogicalGraph Lower(LogicalGraph graph);
 }
 
+/// <summary>Applies model-owned operation lowering while preserving graph identity and external binding contracts.</summary>
 public static class GraphOperationLowering
 {
+    /// <summary>Lowers model-owned operations and validates preservation of identity, IO, state, and external resources.</summary>
+    /// <param name="graph">The graph supplying operations and resource binding metadata.</param>
+    /// <param name="lowerer">The optional model operation lowerer.</param>
     public static LogicalGraph Apply(LogicalGraph graph, IGraphOperationLowerer? lowerer)
     {
         ArgumentNullException.ThrowIfNull(graph);

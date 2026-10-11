@@ -3,8 +3,12 @@ using SharpInference.Instructions;
 
 namespace SharpInference.Vm.Optimization;
 
+/// <summary>Creates unfused graph and fused VM versions of catalog pointwise operations.</summary>
 public static class TierOneReferencePrograms
 {
+    /// <summary>Expands a catalog fusion into a baseline logical graph of FP32 primitive operations.</summary>
+    /// <param name="operation">The registered operation name.</param>
+    /// <param name="dimensions">The ordered positive dimensions of the tensor.</param>
     public static LogicalGraph CreateGraph(string operation, IReadOnlyList<int> dimensions)
     {
         var definition = TierOnePointwiseCatalog.Get(operation);
@@ -38,6 +42,11 @@ public static class TierOneReferencePrograms
             new GraphState(new("t1-reference"), []));
     }
 
+    /// <summary>Creates a VM program invoking one configured catalog pointwise fusion.</summary>
+    /// <param name="operation">The registered operation name.</param>
+    /// <param name="target">The CPU or Direct3D12 VM execution backend.</param>
+    /// <param name="dimensions">The ordered positive dimensions of the tensor.</param>
+    /// <param name="threadsPerGroup">The number of GPU threads in each dispatch group.</param>
     public static VmProgram CreateFused(string operation, VmTarget target, IReadOnlyList<int> dimensions,
         uint threadsPerGroup = 64)
     {

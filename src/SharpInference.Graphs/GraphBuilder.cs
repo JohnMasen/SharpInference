@@ -1,5 +1,8 @@
 namespace SharpInference.Graphs;
 
+/// <summary>Builds graph regions, resources, operations, and state bindings through a fluent API.</summary>
+/// <param name="identity">The graph architecture, IR version, and name.</param>
+/// <param name="model">The model dimensions, attributes, and state ABI signature.</param>
 public sealed class LogicalGraphBuilder(GraphIdentity identity, GraphModelSignature model)
 {
     private readonly List<GraphResource> resources = [];
@@ -11,9 +14,19 @@ public sealed class LogicalGraphBuilder(GraphIdentity identity, GraphModelSignat
     private StateSchema? stateSchema;
     private string? currentRegion;
 
+    /// <summary>Gets the graph&apos;s architecture identifier, IR version, and name.</summary>
     public GraphIdentity Identity { get; } = identity ?? throw new ArgumentNullException(nameof(identity));
+    /// <summary>Gets the model dimensions, attributes, and state ABI signature.</summary>
     public GraphModelSignature Model { get; } = model ?? throw new ArgumentNullException(nameof(model));
 
+    /// <summary>Adds a named graph region with optional parent and architecture metadata.</summary>
+    /// <param name="id">The identifier of the graph element or resource.</param>
+    /// <param name="type">The graph region type or numeric element type.</param>
+    /// <param name="name">The name identifying this graph element.</param>
+    /// <param name="parentId">The parent region identifier, or null for the graph root.</param>
+    /// <param name="role">The optional semantic role of the region.</param>
+    /// <param name="attributes">The operation or model attributes keyed by name.</param>
+    /// <param name="architecture">The optional architecture presentation metadata.</param>
     public LogicalGraphBuilder AddRegion(
         string id,
         string type,
@@ -34,6 +47,15 @@ public sealed class LogicalGraphBuilder(GraphIdentity identity, GraphModelSignat
         return this;
     }
 
+    /// <summary>Adds a region, executes the callback in its scope, and restores the previous active region.</summary>
+    /// <param name="id">The identifier of the graph element or resource.</param>
+    /// <param name="type">The graph region type or numeric element type.</param>
+    /// <param name="name">The name identifying this graph element.</param>
+    /// <param name="build">The callback executed while the new region is active.</param>
+    /// <param name="parentId">The parent region identifier, or null for the graph root.</param>
+    /// <param name="role">The optional semantic role of the region.</param>
+    /// <param name="attributes">The operation or model attributes keyed by name.</param>
+    /// <param name="architecture">The optional architecture presentation metadata.</param>
     public LogicalGraphBuilder WithRegion(
         string id,
         string type,
@@ -53,6 +75,16 @@ public sealed class LogicalGraphBuilder(GraphIdentity identity, GraphModelSignat
         return this;
     }
 
+    /// <summary>Adds a region, executes the callback in its scope, and restores the previous active region.</summary>
+    /// <param name="id">The identifier of the graph element or resource.</param>
+    /// <param name="type">The graph region type or numeric element type.</param>
+    /// <param name="name">The name identifying this graph element.</param>
+    /// <param name="build">The callback executed while the new region is active.</param>
+    /// <param name="parentId">The parent region identifier, or null for the graph root.</param>
+    /// <param name="role">The optional semantic role of the region.</param>
+    /// <param name="attributes">The operation or model attributes keyed by name.</param>
+    /// <param name="architecture">The optional architecture presentation metadata.</param>
+    /// <typeparam name="T">The region callback result type.</typeparam>
     public T WithRegion<T>(
         string id,
         string type,
@@ -77,6 +109,16 @@ public sealed class LogicalGraphBuilder(GraphIdentity identity, GraphModelSignat
         }
     }
 
+    /// <summary>Adds a tensor resource and optionally exposes it as a graph input or output.</summary>
+    /// <param name="id">The identifier of the graph element or resource.</param>
+    /// <param name="name">The name identifying this graph element.</param>
+    /// <param name="kind">The resource role or execution definition category.</param>
+    /// <param name="lifetime">The required backing-storage lifetime.</param>
+    /// <param name="tensor">The tensor element type, dimensions, and layout.</param>
+    /// <param name="bindingKey">The external resource binding key, or null for an unbound resource.</param>
+    /// <param name="graphInput">Whether the resource is exposed as a graph input.</param>
+    /// <param name="graphOutput">Whether the resource is exposed as a graph output.</param>
+    /// <param name="scope">The resource sharing scope.</param>
     public LogicalGraphBuilder AddResource(
         string id,
         string name,
@@ -102,6 +144,13 @@ public sealed class LogicalGraphBuilder(GraphIdentity identity, GraphModelSignat
         return this;
     }
 
+    /// <summary>Adds a logical operation node with bindings, dependencies, attributes, and precision requirements.</summary>
+    /// <param name="id">The identifier of the graph element or resource.</param>
+    /// <param name="operation">The operation contract identifier.</param>
+    /// <param name="bindings">The node or call port resource bindings.</param>
+    /// <param name="dependencies">The predecessor node identifiers.</param>
+    /// <param name="attributes">The operation or model attributes keyed by name.</param>
+    /// <param name="requirements">The operation precision requirements.</param>
     public LogicalGraphBuilder AddNode(
         string id,
         GraphOperationId operation,
@@ -113,6 +162,14 @@ public sealed class LogicalGraphBuilder(GraphIdentity identity, GraphModelSignat
             throw new InvalidOperationException("A region scope is required when the node's region is omitted."),
             bindings, dependencies, attributes, requirements);
 
+    /// <summary>Adds a logical operation node with bindings, dependencies, attributes, and precision requirements.</summary>
+    /// <param name="id">The identifier of the graph element or resource.</param>
+    /// <param name="operation">The operation contract identifier.</param>
+    /// <param name="regionId">The containing region identifier, or null to use the active builder region.</param>
+    /// <param name="bindings">The node or call port resource bindings.</param>
+    /// <param name="dependencies">The predecessor node identifiers.</param>
+    /// <param name="attributes">The operation or model attributes keyed by name.</param>
+    /// <param name="requirements">The operation precision requirements.</param>
     public LogicalGraphBuilder AddNode(
         string id,
         GraphOperationId operation,
@@ -134,12 +191,17 @@ public sealed class LogicalGraphBuilder(GraphIdentity identity, GraphModelSignat
         return this;
     }
 
+    /// <summary>Sets the schema governing the graph&apos;s named state entries.</summary>
+    /// <param name="schema">The state ABI schema.</param>
     public LogicalGraphBuilder SetStateSchema(StateSchema schema)
     {
         stateSchema = schema ?? throw new ArgumentNullException(nameof(schema));
         return this;
     }
 
+    /// <summary>Adds a named resource to the graph&apos;s state schema.</summary>
+    /// <param name="name">The name identifying this graph element.</param>
+    /// <param name="resourceId">The graph resource identifier.</param>
     public LogicalGraphBuilder AddStateSlot(string name, string resourceId)
     {
         stateSlots.Add(new GraphStateSlot(RequireId(name, nameof(name)),
@@ -147,9 +209,13 @@ public sealed class LogicalGraphBuilder(GraphIdentity identity, GraphModelSignat
         return this;
     }
 
+    /// <summary>Adds a named resource to the graph&apos;s state schema.</summary>
+    /// <param name="name">The name identifying this graph element.</param>
+    /// <param name="resourceId">The graph resource identifier.</param>
     public LogicalGraphBuilder AddGraphState(string name, string resourceId) =>
         AddStateSlot(name, resourceId);
 
+    /// <summary>Builds and validates the logical graph from the accumulated resources, regions, and nodes.</summary>
     public LogicalGraph Build()
     {
         if (nodes.All(node => node.Dependencies.Count == 0)) return BuildSequential();
@@ -161,6 +227,8 @@ public sealed class LogicalGraphBuilder(GraphIdentity identity, GraphModelSignat
         return new LogicalGraph(Identity, Model, resources, regions, nodes, inputs, outputs, state);
     }
 
+    /// <summary>Builds and validates the logical graph from the accumulated resources, regions, and nodes.</summary>
+    /// <param name="structure">The ordered graph structure and reusable definitions.</param>
     public LogicalGraph Build(GraphStructure structure)
     {
         GraphState? state = stateSchema is null && stateSlots.Count == 0 ? null :
@@ -168,6 +236,7 @@ public sealed class LogicalGraphBuilder(GraphIdentity identity, GraphModelSignat
         return new LogicalGraph(Identity, Model, resources, structure, inputs, outputs, state);
     }
 
+    /// <summary>Builds and validates a graph with each node depending on its immediate predecessor.</summary>
     public LogicalGraph BuildSequential()
     {
         // Compatibility migration for model providers which previously emitted serial predecessor chains.
@@ -213,14 +282,24 @@ public sealed class LogicalGraphBuilder(GraphIdentity identity, GraphModelSignat
     }
 }
 
+/// <summary>Creates read, write, and read-write bindings between node ports and graph resources.</summary>
 public static class GraphBindings
 {
+    /// <summary>Creates a read-only binding from a node port to a graph resource.</summary>
+    /// <param name="port">The node port name.</param>
+    /// <param name="resource">The graph resource identifier.</param>
     public static NodeResourceBinding Read(string port, string resource) =>
         Create(port, resource, GraphResourceAccess.Read);
 
+    /// <summary>Creates a write-only binding from a node port to a graph resource.</summary>
+    /// <param name="port">The node port name.</param>
+    /// <param name="resource">The graph resource identifier.</param>
     public static NodeResourceBinding Write(string port, string resource) =>
         Create(port, resource, GraphResourceAccess.Write);
 
+    /// <summary>Creates a binding that reads and updates a graph resource.</summary>
+    /// <param name="port">The node port name.</param>
+    /// <param name="resource">The graph resource identifier.</param>
     public static NodeResourceBinding ReadWrite(string port, string resource) =>
         Create(port, resource, GraphResourceAccess.ReadWrite);
 

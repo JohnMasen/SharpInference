@@ -2,9 +2,18 @@ using SharpInference.Gguf;
 
 namespace SharpInference.Architectures.Phi4;
 
+/// <summary>Defines transformer dimensions and rotary and normalization constants for the Phi-4 text graph.</summary>
+/// <param name="Layers">The number of transformer layers to include.</param>
+/// <param name="QueryHeads">The number of query attention heads.</param>
+/// <param name="KeyValueHeads">The number of key/value attention heads.</param>
+/// <param name="RotarySize">The even number of rotary channels per attention head.</param>
+/// <param name="RopeBase">The positive base used to generate rotary frequencies.</param>
+/// <param name="RmsEpsilon">The positive stabilizing epsilon for RMS normalization.</param>
+/// <param name="RopeScale">The positive scaling factor applied to rotary-transformed channels.</param>
 public sealed record Phi4TextGraphParameters(int Layers, int QueryHeads, int KeyValueHeads, int RotarySize,
     float RopeBase, float RmsEpsilon, float RopeScale = 1)
 {
+    /// <summary>Validates that the transformer parameters are compatible with the supplied embedding width.</summary>
     public void Validate(int embeddingWidth)
     {
         if (Layers is <= 0 or > 32 || QueryHeads <= 0 || KeyValueHeads <= 0 || QueryHeads % KeyValueHeads != 0 ||
@@ -15,6 +24,7 @@ public sealed record Phi4TextGraphParameters(int Layers, int QueryHeads, int Key
     }
 }
 
+/// <summary>Exposes scoped tensors from the Phi-4 package together with generated rotary frequencies.</summary>
 public sealed class Phi4PackageTensorCatalog : IModelFile
 {
     private readonly Dictionary<string, IModelTensor> tensors = new(StringComparer.Ordinal);
@@ -70,16 +80,25 @@ public sealed class Phi4PackageTensorCatalog : IModelFile
         }
     }
 
+    /// <inheritdoc/>
     public string Path { get; }
+    /// <summary>Gets the dimensions and normalization and rotary constants used by the text graph.</summary>
     public Phi4TextGraphParameters TextParameters { get; }
+    /// <summary>Gets the tokenizer associated with the model package.</summary>
     public Phi4Tokenizer? Tokenizer { get; }
+    /// <summary>Gets the optional vision LoRA alpha used to determine adapter scaling.</summary>
     public float? VisionAdapterAlpha { get; }
+    /// <summary>Gets the optional speech LoRA alpha used to determine adapter scaling.</summary>
     public float? SpeechAdapterAlpha { get; }
+    /// <inheritdoc/>
     public IReadOnlyCollection<string> Names { get; }
+    /// <inheritdoc/>
     public bool TryGet(string name, out IModelTensor tensor) => tensors.TryGetValue(name, out tensor!);
+    /// <inheritdoc/>
     public IModelTensor GetRequired(string name) => tensors.TryGetValue(name, out var tensor) ? tensor :
         throw new InvalidDataException($"Phi4 package tensor '{name}' was not found.");
 
+    /// <inheritdoc/>
     public void Dispose()
     {
         if (disposed) return;
@@ -123,8 +142,10 @@ public sealed class Phi4PackageTensorCatalog : IModelFile
     }
 }
 
+/// <summary>Opens a Phi-4 package directory as a graph-compatible model tensor catalog.</summary>
 public sealed class Phi4PackageGraphReader : IModelReader
 {
+    /// <summary>Opens and validates the GGUF components and tokenizer in the specified Phi-4 package directory.</summary>
     public IModelFile Open(string path)
     {
         var package = Phi4ModelPackage.Open(path);

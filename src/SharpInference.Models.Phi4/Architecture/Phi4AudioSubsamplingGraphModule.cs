@@ -4,24 +4,30 @@ using SharpInference.Instructions.Phi4;
 
 namespace SharpInference.Architectures.Phi4;
 
+/// <summary>Builds and validates the convolutional subsampling stage of the Phi-4 audio encoder.</summary>
 public sealed class Phi4AudioSubsamplingGraphModule : IModelGraphModule, IGraphOperationValidator
 {
     private static readonly string[] Prefixes = ["a.conv1d.0", "a.conv1d.2", "a.conv1d.3", "a.conv1d.5", "a.conv1d.6"];
     private readonly int frames;
 
+    /// <summary>Initializes the audio subsampling graph with the specified input frame capacity.</summary>
     public Phi4AudioSubsamplingGraphModule(int frames = 352)
     {
         if (frames <= 0) throw new ArgumentOutOfRangeException(nameof(frames));
         this.frames = frames;
     }
 
+    /// <inheritdoc/>
     public string ArchitectureId => "phi4.audio.subsampling";
+    /// <inheritdoc/>
     public IGraphOperationValidator OperationValidator => this;
 
+    /// <inheritdoc/>
     public bool CanLoad(IModelTensorCatalog tensors) =>
         tensors.TryGet("a.global_mean", out _) && tensors.TryGet("a.global_invstd", out _) &&
         Prefixes.All(prefix => tensors.TryGet(prefix + ".weight", out _) && tensors.TryGet(prefix + ".bias", out _));
 
+    /// <inheritdoc/>
     public ModelMetadata ReadMetadata(IModelTensorCatalog tensors)
     {
         ArgumentNullException.ThrowIfNull(tensors);
@@ -58,6 +64,7 @@ public sealed class Phi4AudioSubsamplingGraphModule : IModelGraphModule, IGraphO
         }
     }
 
+    /// <inheritdoc/>
     public LogicalGraph Build(IModelTensorCatalog tensors)
     {
         var metadata = ReadMetadata(tensors);
@@ -149,6 +156,7 @@ public sealed class Phi4AudioSubsamplingGraphModule : IModelGraphModule, IGraphO
         }
     }
 
+    /// <inheritdoc/>
     public void Validate(GraphOperationValidationContext context) => Phi4AudioSubsamplingValidation.Validate(context);
 
     private static TensorDescriptor F(params int[] dimensions) => new(GraphElementType.Float32, dimensions);

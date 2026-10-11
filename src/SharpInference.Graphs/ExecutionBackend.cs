@@ -3,22 +3,37 @@ namespace SharpInference.Graphs;
 /// <summary>Represents an executable backend plan for an execution graph.</summary>
 public interface IBackendExecutablePlan
 {
+    /// <summary>Gets the graph represented by this model or plan.</summary>
     ExecutionGraph Graph { get; }
 }
 
 /// <summary>Identifies why a backend could not prepare an execution node.</summary>
 public enum BackendPreparationFailureReason
 {
+    /// <summary>The backend does not support the operation.</summary>
     UnsupportedOperation,
+    /// <summary>No implementation matches the input and output element types.</summary>
     SignatureMismatch,
+    /// <summary>No matching implementation meets the required precision.</summary>
     PrecisionRequirementNotMet,
+    /// <summary>The backend does not support the tensor shape.</summary>
     ShapeNotSupported,
+    /// <summary>The required hardware capability is unavailable.</summary>
     HardwareCapabilityMissing,
+    /// <summary>Runtime compilation of an implementation failed.</summary>
     DynamicCompilationFailed,
+    /// <summary>The preparation exceeded a backend resource limit.</summary>
     ResourceLimitExceeded,
 }
 
 /// <summary>Describes one backend preparation failure and the implementations considered.</summary>
+/// <param name="NodeId">The failing execution node identifier, or null for a graph-level failure.</param>
+/// <param name="Operation">The operation contract identifier.</param>
+/// <param name="SourceNodes">The logical nodes associated with the preparation failure.</param>
+/// <param name="Reason">The category of backend preparation failure.</param>
+/// <param name="Message">The human-readable failure description.</param>
+/// <param name="RequiredPrecision">The required operator precision, or null for a graph-level failure.</param>
+/// <param name="AvailableImplementations">The backend implementations considered for the operation.</param>
 public sealed record BackendPreparationDiagnostic(
     ExecutionNodeId? NodeId,
     GraphOperationId? Operation,
@@ -35,6 +50,7 @@ public abstract record BackendPreparationResult
     {
     }
 
+    /// <summary>Contains an executable plan produced by successful backend preparation.</summary>
     public sealed record Success : BackendPreparationResult
     {
         /// <summary>Creates a successful result containing an executable plan.</summary>
@@ -44,9 +60,11 @@ public abstract record BackendPreparationResult
             Plan = plan ?? throw new ArgumentNullException(nameof(plan));
         }
 
+        /// <summary>Gets the successfully prepared backend executable plan.</summary>
         public IBackendExecutablePlan Plan { get; }
     }
 
+    /// <summary>Contains diagnostics produced by unsuccessful backend preparation.</summary>
     public sealed record Failure : BackendPreparationResult
     {
         /// <summary>Creates a failed result containing one or more diagnostics.</summary>
@@ -60,6 +78,7 @@ public abstract record BackendPreparationResult
             }
         }
 
+        /// <summary>Gets the diagnostics describing backend preparation failures.</summary>
         public IReadOnlyList<BackendPreparationDiagnostic> Diagnostics { get; }
     }
 
@@ -77,6 +96,9 @@ public abstract record BackendPreparationResult
 /// <summary>Reports that a backend could not prepare one or more execution nodes.</summary>
 public sealed class BackendPreparationException : InvalidOperationException
 {
+    /// <summary>Creates an exception identifying the backend and its preparation failures.</summary>
+    /// <param name="backendId">The backend identifier.</param>
+    /// <param name="diagnostics">The diagnostics explaining backend preparation failures.</param>
     public BackendPreparationException(
         string backendId,
         IEnumerable<BackendPreparationDiagnostic> diagnostics)
@@ -86,7 +108,9 @@ public sealed class BackendPreparationException : InvalidOperationException
         Diagnostics = values;
     }
 
+    /// <summary>Gets the backend identifier.</summary>
     public string BackendId { get; }
+    /// <summary>Gets the diagnostics describing backend preparation failures.</summary>
     public IReadOnlyList<BackendPreparationDiagnostic> Diagnostics { get; }
 
     private static string CreateMessage(
@@ -122,8 +146,11 @@ public sealed class BackendPreflightResult
         Diagnostics = diagnostics;
     }
 
+    /// <summary>Gets the compatible implementation selected for each execution node.</summary>
     public IReadOnlyDictionary<ExecutionNodeId, OperatorImplementationDescription> Selections { get; }
+    /// <summary>Gets the diagnostics describing backend preparation failures.</summary>
     public IReadOnlyList<BackendPreparationDiagnostic> Diagnostics { get; }
+    /// <summary>Gets whether preflight completed without preparation diagnostics.</summary>
     public bool Succeeded => Diagnostics.Count == 0;
 }
 
@@ -193,6 +220,9 @@ public static class BackendPreparation
         return new BackendPreflightResult(selections, diagnostics);
     }
 
+    /// <summary>Builds an ordered input and output element-type signature from an execution node&apos;s resource accesses.</summary>
+    /// <param name="node">The operation node to inspect.</param>
+    /// <param name="resources">The graph resource descriptors.</param>
     public static OperatorSignature CreateSignature(
         ExecutionNode node,
         IReadOnlyDictionary<ResourceId, GraphResource> resources)
@@ -209,27 +239,46 @@ public static class BackendPreparation
     }
 }
 
+/// <summary>Prepares execution graphs and exposes primitive operators and kernel capabilities.</summary>
 public interface IExecutionGraphBackend : IProcessorSessionBackend
 {
+    /// <summary>Gets the primitive operation descriptions supported by this backend.</summary>
     IPrimitiveOperatorBackend PrimitiveOperators { get; }
+    /// <summary>Gets the backend&apos;s operation capabilities and node definitions.</summary>
     IExecutionKernelCatalog KernelCatalog { get; }
+    /// <summary>Returns candidate backend implementations for an execution node.</summary>
+    /// <param name="graph">The graph supplying operations and resource binding metadata.</param>
+    /// <param name="node">The operation node to inspect.</param>
     IReadOnlyList<OperatorImplementationDescription> GetOperatorImplementations(
         ExecutionGraph graph,
         ExecutionNode node);
+    /// <summary>Prepares an executable graph plan or returns diagnostics describing preparation failures.</summary>
+    /// <param name="graph">The graph supplying operations and resource binding metadata.</param>
     BackendPreparationResult Prepare(ExecutionGraph graph);
 }
 
+/// <summary>Prepares model weights for a graph backend and declares CPU-copy requirements.</summary>
 public interface IGraphModelWeightBackend : IExecutionGraphBackend
 {
+    /// <summary>Gets whether model weights must remain available in CPU memory.</summary>
     bool RequiresCpuWeightCopy { get; }
+    /// <summary>Prepares the model&apos;s weight resources for execution by this backend.</summary>
+    /// <param name="model">The model instance or graph model signature.</param>
     void PrepareModelWeights(PortableGraphModel model);
 }
 
 /// <summary>Optional session backend accepting a separately prepared prefill plan.</summary>
 public interface IProcessorPrefillBackend : IExecutionGraphBackend
 {
+    /// <summary>Determines whether the backend can prepare a separate prefill plan for the inference graph.</summary>
+    /// <param name="inferenceGraph">The execution graph used for single-token inference.</param>
     bool CanPreparePrefill(ExecutionGraph inferenceGraph) => true;
 
+    /// <summary>Creates a processor executor using the supplied model, state, and prepared plans.</summary>
+    /// <param name="model">The model executed by the processor session.</param>
+    /// <param name="state">The model session state.</param>
+    /// <param name="inferencePlan">The prepared single-token inference plan.</param>
+    /// <param name="prefillPlan">The separately prepared multi-token prefill plan.</param>
     IProcessorSessionExecutor CreateSessionExecutor(
         IModel model,
         IModelState state,

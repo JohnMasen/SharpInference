@@ -17,6 +17,10 @@ public sealed class VorticePrimitiveGraphStateBridge : IProcessorStateExecutor, 
     private long uploadedRevision = -1;
     private bool disposed;
 
+    /// <summary>Connects a matching portable host state and GPU session for revision-based uploads and lazy state readback.</summary>
+    /// <param name="session">The GPU session whose graph and state resources match the host state.</param>
+    /// <param name="state">The portable host state to synchronize with the GPU session.</param>
+    /// <param name="graph">The dense execution graph whose resources and nodes are prepared.</param>
     public VorticePrimitiveGraphStateBridge(
         VorticePrimitiveGraphSession session,
         PortableGraphState state,
@@ -61,6 +65,7 @@ public sealed class VorticePrimitiveGraphStateBridge : IProcessorStateExecutor, 
         if (writesState) state.MarkDeviceModified();
     }
 
+    /// <inheritdoc/>
     public IReadOnlyList<GraphStateValue> ReadState(GraphState requested)
     {
         ThrowIfDisposed();
@@ -68,6 +73,7 @@ public sealed class VorticePrimitiveGraphStateBridge : IProcessorStateExecutor, 
         return GraphSessionStateAccess.Read(requested, graph.Resources, state);
     }
 
+    /// <inheritdoc/>
     public void WriteState(GraphState requested, IReadOnlyList<GraphStateValue> values)
     {
         ThrowIfDisposed();
@@ -111,6 +117,7 @@ public sealed class VorticePrimitiveGraphStateBridge : IProcessorStateExecutor, 
 
     private void ThrowIfDisposed() => ObjectDisposedException.ThrowIf(disposed, this);
 
+    /// <inheritdoc/>
     public void Dispose()
     {
         if (disposed) return;

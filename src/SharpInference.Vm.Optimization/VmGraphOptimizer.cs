@@ -4,19 +4,43 @@ using SharpInference.Instructions;
 
 namespace SharpInference.Vm.Optimization;
 
+/// <summary>Configures resource reuse, tensor views, GPU launch sizes, and optional profile-driven selection.</summary>
+/// <param name="ReuseLocalStorage">Whether compatible non-overlapping temporary lifetimes share storage.</param>
+/// <param name="ThreadsPerGroup">The number of GPU threads in each dispatch group.</param>
+/// <param name="PrefillCapacity">The token capacity used for prefill lowering.</param>
+/// <param name="NativeHalfWeights">Whether native half-precision weight storage is retained during lowering.</param>
+/// <param name="WeightViews">Whether eligible weight conversion and slicing operations are lowered to views.</param>
+/// <param name="TierOne">The optional trusted-profile settings for pointwise fusion selection.</param>
+/// <param name="GpuMatVec">The optional GPU matrix-vector implementation-selection settings.</param>
+/// <param name="TensorViews">Whether eligible general tensor operations are lowered to storage views.</param>
 public sealed record VmOptimizationOptions(
     bool ReuseLocalStorage = true, uint ThreadsPerGroup = 64, int PrefillCapacity = 64,
     bool NativeHalfWeights = true, bool WeightViews = true, TierOneOptimizationSettings? TierOne = null,
     GpuMatVecOptimizationSettings? GpuMatVec = null, bool TensorViews = true);
 
+/// <summary>Contains a target execution plan and its optimization-selection reports.</summary>
+/// <param name="Plan">The optimized target execution plan.</param>
+/// <param name="Report">The tier-one fusion selection report.</param>
+/// <param name="MatVecReport">The GPU matrix-vector selection report.</param>
 public sealed record ExecutionPlanOptimizationResult(TargetExecutionPlan Plan,
     TierOneOptimizationReport Report, GpuMatVecOptimizationReport MatVecReport);
 
+/// <summary>Lowers logical or IL graphs into resource-allocated target execution plans and VM programs.</summary>
 public static class VmGraphOptimizer
 {
+    /// <summary>Lowers and optimizes a logical graph into a VM program for the specified target.</summary>
+    /// <param name="logical">The logical graph to lower and optimize.</param>
+    /// <param name="target">The CPU or Direct3D12 VM execution backend.</param>
+    /// <param name="options">The lowering, resource reuse, launch, and optional offline-selection settings; null uses defaults.</param>
     public static VmProgram Optimize(LogicalGraph logical, VmTarget target, VmOptimizationOptions? options = null)
         => OptimizeWithReport(logical, target, options).Program;
 
+    /// <summary>Builds an optimized VM program together with fusion and matrix-vector selection reports.</summary>
+    /// <param name="logical">The logical graph to lower and optimize.</param>
+    /// <param name="target">The CPU or Direct3D12 VM execution backend.</param>
+    /// <param name="options">The lowering, resource reuse, launch, and optional offline-selection settings; null uses defaults.</param>
+    /// <param name="capabilities">The registered target-specific instruction optimization capabilities.</param>
+    /// <param name="operationBindings">The optional model-owned graph-operation instruction mappings.</param>
     public static VmOptimizationResult OptimizeWithReport(LogicalGraph logical, VmTarget target,
         VmOptimizationOptions? options = null, IReadOnlyList<InstructionOptimizationCapability>? capabilities = null,
         IReadOnlyList<GraphInstructionBinding>? operationBindings = null)
@@ -25,11 +49,23 @@ public static class VmGraphOptimizer
         return new(ExecutionPlanAssembler.Assemble(result.Plan), result.Report, result.MatVecReport);
     }
 
+    /// <summary>Lowers a graph into a target execution plan with resource allocation and optional instruction selection.</summary>
+    /// <param name="logical">The logical graph to lower and optimize.</param>
+    /// <param name="target">The CPU or Direct3D12 VM execution backend.</param>
+    /// <param name="options">The lowering, resource reuse, launch, and optional offline-selection settings; null uses defaults.</param>
+    /// <param name="capabilities">The registered target-specific instruction optimization capabilities.</param>
+    /// <param name="operationBindings">The optional model-owned graph-operation instruction mappings.</param>
     public static ExecutionPlanOptimizationResult BuildPlan(LogicalGraph logical, VmTarget target,
         VmOptimizationOptions? options = null, IReadOnlyList<InstructionOptimizationCapability>? capabilities = null,
         IReadOnlyList<GraphInstructionBinding>? operationBindings = null)
         => BuildPlan(new IlExecutionPlan(logical), target, options, capabilities, operationBindings);
 
+    /// <summary>Lowers a graph into a target execution plan with resource allocation and optional instruction selection.</summary>
+    /// <param name="il">The intermediate execution graph to lower and optimize.</param>
+    /// <param name="target">The CPU or Direct3D12 VM execution backend.</param>
+    /// <param name="options">The lowering, resource reuse, launch, and optional offline-selection settings; null uses defaults.</param>
+    /// <param name="capabilities">The registered target-specific instruction optimization capabilities.</param>
+    /// <param name="operationBindings">The optional model-owned graph-operation instruction mappings.</param>
     public static ExecutionPlanOptimizationResult BuildPlan(IlExecutionPlan il, VmTarget target,
         VmOptimizationOptions? options = null, IReadOnlyList<InstructionOptimizationCapability>? capabilities = null,
         IReadOnlyList<GraphInstructionBinding>? operationBindings = null)

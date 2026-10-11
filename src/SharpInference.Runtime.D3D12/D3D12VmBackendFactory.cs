@@ -6,8 +6,14 @@ using SharpInference.Vm.Optimization;
 
 namespace SharpInference.Runtime.D3D12;
 
+/// <summary>Creates Direct3D 12 graph backends with device resource pooling and compiled artifact support.</summary>
 public static class D3D12VmBackendFactory
 {
+    /// <summary>Creates a Direct3D 12 backend on the selected adapter with configured compilation, optimization, queues, and pooled storage.</summary>
+    /// <param name="configuration">The runtime configuration; null selects default settings.</param>
+    /// <param name="adapterIndex">The zero-based Direct3D 12 adapter index.</param>
+    /// <param name="instructionCollections">The optional instruction providers used by the backend compiler.</param>
+    /// <param name="generatorCollections">The optional instruction providers used for target execution-plan generation.</param>
     public static VmGraphBackend Create(VmRuntimeConfig? configuration = null, int adapterIndex = 0,
         IEnumerable<IInstructionCollectionProvider>? instructionCollections = null,
         IEnumerable<IInstructionCollectionProvider>? generatorCollections = null)

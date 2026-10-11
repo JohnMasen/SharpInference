@@ -11,6 +11,13 @@ using Vortice.Direct3D12;
 
 namespace SharpInference.Architectures.Phi4.D3D12;
 
+/// <summary>Describes the fixed crop and useful pooled-patch dimensions used to compile a Phi-4 vision graph.</summary>
+/// <param name="CropCount">The number of global and local image crops.</param>
+/// <param name="TargetHeight">The padded local tile-grid height in pixels.</param>
+/// <param name="TargetWidth">The padded local tile-grid width in pixels.</param>
+/// <param name="UsefulHeight">The valid high-definition grid height after two-by-two patch pooling.</param>
+/// <param name="UsefulWidth">The valid high-definition grid width after two-by-two patch pooling.</param>
+/// <param name="ImageTokenCount">The projected image sequence length, including separator tokens.</param>
 public readonly record struct Phi4VisionBucket(
     int CropCount,
     int TargetHeight,
@@ -19,6 +26,7 @@ public readonly record struct Phi4VisionBucket(
     int UsefulWidth,
     int ImageTokenCount)
 {
+    /// <summary>Validates the processed image layout and derives its fixed crop and useful pooled-patch bucket dimensions.</summary>
     public static Phi4VisionBucket FromFeatures(Phi4ImageFeatures image)
     {
         ArgumentNullException.ThrowIfNull(image);
@@ -70,8 +78,10 @@ public readonly record struct Phi4VisionBucket(
     }
 }
 
+/// <summary>Compiles and executes bucket-specific Phi-4 vision graphs with resident input and output storage.</summary>
 public sealed class Phi4D3D12VisionComponent : IDisposable
 {
+    /// <summary>The ABI version of this component's exposed tensor ports.</summary>
     public const int PortAbiVersion = 1;
     private const int CropSize = 448;
     private const int PatchSize = 14;
@@ -93,6 +103,7 @@ public sealed class Phi4D3D12VisionComponent : IDisposable
     private readonly Guid componentId = Guid.NewGuid();
     private bool disposed;
 
+    /// <summary>Initializes GPU vision execution using the supplied Phi-4 package. Creates GPU resources on the selected adapter.</summary>
     public Phi4D3D12VisionComponent(Phi4ModelPackage package, int adapterIndex = 0)
     {
         ArgumentNullException.ThrowIfNull(package);
@@ -115,6 +126,7 @@ public sealed class Phi4D3D12VisionComponent : IDisposable
         }
     }
 
+    /// <summary>Initializes GPU vision execution using the supplied Phi-4 package. Uses the supplied shared GPU resource pool.</summary>
     public Phi4D3D12VisionComponent(
         Phi4ModelPackage package,
         D3D12VmResourcePool pool,
@@ -128,7 +140,9 @@ public sealed class Phi4D3D12VisionComponent : IDisposable
         resources = new VmResourceManager(InitializeGlobal, pool.Allocate);
     }
 
+    /// <summary>Gets the storage domain in which this component allocates its tensors.</summary>
     public StorageDomain Domain { get; }
+    /// <summary>Gets the number of cached, compiled vision bucket runtimes.</summary>
     public int CompiledBucketCount
     {
         get
@@ -141,6 +155,7 @@ public sealed class Phi4D3D12VisionComponent : IDisposable
         }
     }
 
+    /// <summary>Returns the normalized planar RGB input port descriptor for the specified vision bucket.</summary>
     public ComponentPortDescriptor PixelValuesPort(Phi4VisionBucket bucket)
     {
         ValidateBucket(bucket);
@@ -153,6 +168,7 @@ public sealed class Phi4D3D12VisionComponent : IDisposable
             [Domain]);
     }
 
+    /// <summary>Returns the per-crop patch attention mask input port descriptor for the specified vision bucket.</summary>
     public ComponentPortDescriptor AttentionMaskPort(Phi4VisionBucket bucket)
     {
         ValidateBucket(bucket);
@@ -165,6 +181,7 @@ public sealed class Phi4D3D12VisionComponent : IDisposable
             [Domain]);
     }
 
+    /// <summary>Returns the FP32 token-major projected embedding output port descriptor.</summary>
     public ComponentPortDescriptor ProjectedEmbeddingsPort(Phi4VisionBucket bucket)
     {
         ValidateBucket(bucket);
@@ -177,6 +194,7 @@ public sealed class Phi4D3D12VisionComponent : IDisposable
             [Domain]);
     }
 
+    /// <summary>Uploads FP32 values into a storage lease conforming to the specified component input port.</summary>
     public IStorageLease Upload(
         ComponentPortDescriptor port,
         ReadOnlySpan<float> values)
@@ -210,6 +228,7 @@ public sealed class Phi4D3D12VisionComponent : IDisposable
         }
     }
 
+    /// <summary>Encodes image crops and patch masks and returns a lease for the resident projected image embeddings.</summary>
     public IStorageLease Encode(Phi4ImageFeatures image)
     {
         ArgumentNullException.ThrowIfNull(image);
@@ -219,6 +238,7 @@ public sealed class Phi4D3D12VisionComponent : IDisposable
         return Encode(bucket, pixels, mask);
     }
 
+    /// <summary>Encodes image crops and patch masks and returns a lease for the resident projected image embeddings.</summary>
     public IStorageLease Encode(
         Phi4VisionBucket bucket,
         IStorageLease pixelValues,
@@ -250,6 +270,7 @@ public sealed class Phi4D3D12VisionComponent : IDisposable
         }
     }
 
+    /// <summary>Downloads the component's resident embedding output into a host FP32 array.</summary>
     public float[] Readback(IStorageLease output)
     {
         ArgumentNullException.ThrowIfNull(output);
@@ -271,6 +292,7 @@ public sealed class Phi4D3D12VisionComponent : IDisposable
         }
     }
 
+    /// <summary>Binds a compatible resident output lease to the specified VM resource slot.</summary>
     public void BindOutput(VmBindings bindings, string slotId, IStorageLease output)
     {
         ArgumentNullException.ThrowIfNull(bindings);
@@ -288,6 +310,7 @@ public sealed class Phi4D3D12VisionComponent : IDisposable
         }
     }
 
+    /// <summary>Creates a VM executor for the artifact using this component's GPU device and resource pool.</summary>
     public D3D12VmExecutor CreateExecutor(D3D12VmArtifact artifact)
     {
         ArgumentNullException.ThrowIfNull(artifact);
@@ -298,6 +321,7 @@ public sealed class Phi4D3D12VisionComponent : IDisposable
         }
     }
 
+    /// <inheritdoc/>
     public void Dispose()
     {
         lock (gate)

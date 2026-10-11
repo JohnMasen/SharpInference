@@ -3,22 +3,32 @@ using SharpInference.Vm;
 
 namespace SharpInference.Runtime;
 
+/// <summary>Distinguishes component input ports from output ports.</summary>
 public enum VmPortDirection
 {
+    /// <summary>Identifies a read-only port supplied by another component.</summary>
     Input,
+    /// <summary>Identifies a writable port that publishes a component&apos;s result.</summary>
     Output,
 }
 
+/// <summary>Identifies a named port within a VM component.</summary>
 public readonly record struct VmPortId
 {
+    /// <summary>Creates a port identifier with non-empty component and port names.</summary>
+    /// <param name="component">The non-empty name of the owning VM component.</param>
+    /// <param name="port">The non-empty port name within its component.</param>
     public VmPortId(string component, string port)
     {
         Component = Required(component, nameof(component));
         Port = Required(port, nameof(port));
     }
 
+    /// <summary>Gets the name of the owning VM component.</summary>
     public string Component { get; }
+    /// <summary>Gets the port name within the component.</summary>
     public string Port { get; }
+    /// <summary>Returns the component and port names separated by a period.</summary>
     public override string ToString() => $"{Component}.{Port}";
 
     private static string Required(string value, string parameter) =>
@@ -27,8 +37,14 @@ public readonly record struct VmPortId
             : value;
 }
 
+/// <summary>Maps a component port&apos;s ABI and direction to a VM program slot.</summary>
 public sealed record VmProgramPort
 {
+    /// <summary>Creates and validates a VM slot mapping with direction-compatible resource access.</summary>
+    /// <param name="id">The component-qualified identifier of the port.</param>
+    /// <param name="slotId">The identifier of the VM slot to bind.</param>
+    /// <param name="direction">Whether the port consumes input or publishes output.</param>
+    /// <param name="descriptor">The semantic ABI and tensor access requirements of the port.</param>
     public VmProgramPort(
         VmPortId id,
         string slotId,
@@ -48,14 +64,24 @@ public sealed record VmProgramPort
         Direction = direction;
     }
 
+    /// <summary>Gets the component-qualified port identifier.</summary>
     public VmPortId Id { get; }
+    /// <summary>Gets the VM program slot bound to this port.</summary>
     public string SlotId { get; }
+    /// <summary>Gets whether this port consumes input or publishes output.</summary>
     public VmPortDirection Direction { get; }
+    /// <summary>Gets the semantic ABI and tensor requirements of this port.</summary>
     public ComponentPortDescriptor Descriptor { get; }
 }
 
+/// <summary>Groups a VM program with its storage domain and validated component port mappings.</summary>
 public sealed class VmComponentProgram
 {
+    /// <summary>Creates a component and validates that its unique ports match existing program slots and tensor shapes.</summary>
+    /// <param name="name">The unique component name used to qualify all of its ports.</param>
+    /// <param name="program">The VM program executed by the component.</param>
+    /// <param name="storageDomain">The backend and device storage domain used by the component.</param>
+    /// <param name="ports">The unique component port mappings to validate against program slots.</param>
     public VmComponentProgram(
         string name,
         VmProgram program,
@@ -86,12 +112,18 @@ public sealed class VmComponentProgram
         Ports = Array.AsReadOnly(values);
     }
 
+    /// <summary>Gets the component name used by its port identifiers.</summary>
     public string Name { get; }
+    /// <summary>Gets the VM program executed by this component.</summary>
     public VmProgram Program { get; }
+    /// <summary>Gets the storage domain used to bind the component&apos;s inputs.</summary>
     public StorageDomain StorageDomain { get; }
+    /// <summary>Gets all validated component ports.</summary>
     public IReadOnlyList<VmProgramPort> Ports { get; }
+    /// <summary>Gets the component&apos;s read-only input ports.</summary>
     public IReadOnlyList<VmProgramPort> Inputs =>
         Ports.Where(port => port.Direction == VmPortDirection.Input).ToArray();
+    /// <summary>Gets the component&apos;s writable output ports.</summary>
     public IReadOnlyList<VmProgramPort> Outputs =>
         Ports.Where(port => port.Direction == VmPortDirection.Output).ToArray();
 
@@ -107,18 +139,24 @@ public sealed class VmComponentProgram
         }) && slot.Dimensions.SequenceEqual(port.Dimensions);
 }
 
+/// <summary>Registers ABI-compatible, acyclic producer-to-consumer connections between VM components.</summary>
 public sealed class VmConnectionRegistry
 {
     private readonly IReadOnlyDictionary<string, VmComponentProgram> components;
     private readonly Dictionary<VmPortId, VmPortId> producers = [];
     private readonly Dictionary<VmPortId, List<VmPortId>> consumers = [];
 
+    /// <summary>Registers the named VM components available for port connections.</summary>
+    /// <param name="components">The named VM components available for connections.</param>
     public VmConnectionRegistry(IEnumerable<VmComponentProgram> components)
     {
         ArgumentNullException.ThrowIfNull(components);
         this.components = components.ToDictionary(component => component.Name, StringComparer.Ordinal);
     }
 
+    /// <summary>Connects an output to an unconnected input after checking ABI compatibility and component cycles.</summary>
+    /// <param name="source">The component output port publishing the resource.</param>
+    /// <param name="target">The unconnected component input port consuming the output.</param>
     public void Connect(VmPortId source, VmPortId target)
     {
         var sourcePort = GetPort(source, VmPortDirection.Output);
@@ -146,11 +184,15 @@ public sealed class VmConnectionRegistry
         }
     }
 
+    /// <summary>Returns the output port connected to the specified input, or throws if it is unconnected.</summary>
+    /// <param name="input">The connected component input port whose producer is requested.</param>
     public VmPortId GetProducer(VmPortId input) =>
         producers.TryGetValue(input, out var producer)
             ? producer
             : throw new KeyNotFoundException($"Input port '{input}' is not connected.");
 
+    /// <summary>Returns the input ports connected to the specified output.</summary>
+    /// <param name="output">The output port whose connected consumer ports are requested.</param>
     public IReadOnlyList<VmPortId> GetConsumers(VmPortId output) =>
         consumers.TryGetValue(output, out var values)
             ? values.AsReadOnly()
@@ -186,8 +228,12 @@ public sealed class VmConnectionRegistry
     }
 }
 
+/// <summary>Describes a positive tensor extent and non-negative origin in each dimension.</summary>
 public sealed record TensorView
 {
+    /// <summary>Creates a tensor view with positive dimensions and a matching origin, defaulting to zero.</summary>
+    /// <param name="dimensions">The positive extent of the tensor view in each dimension.</param>
+    /// <param name="origin">The optional non-negative origin coordinates; omitted coordinates default to zero.</param>
     public TensorView(IEnumerable<int> dimensions, IEnumerable<int>? origin = null)
     {
         Dimensions = Array.AsReadOnly(dimensions?.ToArray() ??
@@ -199,22 +245,34 @@ public sealed record TensorView
             throw new ArgumentException("Tensor view origin must match the non-negative dimensions.", nameof(origin));
     }
 
+    /// <summary>Gets the ordered extents of the tensor view.</summary>
     public IReadOnlyList<int> Dimensions { get; }
+    /// <summary>Gets the non-negative starting coordinate of the view along each dimension.</summary>
     public IReadOnlyList<int> Origin { get; }
 }
 
+/// <summary>Identifies a logical VM resource independently of its physical storage replicas.</summary>
+/// <param name="Value">The GUID identifying the logical resource.</param>
 public readonly record struct VmResourceId(Guid Value)
 {
+    /// <summary>Creates a new logical resource identifier using a random GUID.</summary>
     public static VmResourceId Create() => new(Guid.NewGuid());
+    /// <summary>Returns the resource GUID as hexadecimal digits without separators.</summary>
     public override string ToString() => Value.ToString("N");
 }
 
+/// <summary>References a versioned logical tensor resource with its output-port ABI and tensor view.</summary>
+/// <param name="ResourceId">The identity of the logical resource.</param>
+/// <param name="Version">The version of the logical resource referenced by this value.</param>
+/// <param name="Port">The output-port ABI describing the logical resource.</param>
+/// <param name="View">The full-tensor view represented by this reference.</param>
 public sealed record VmDataReference(
     VmResourceId ResourceId,
     long Version,
     ComponentPortDescriptor Port,
     TensorView View);
 
+/// <summary>Owns logical tensor resources, coalesces cross-domain transfers, and binds compatible replicas to VM inputs.</summary>
 public sealed class LogicalVmResourceManager : IAsyncDisposable
 {
     private sealed class ResourceState(
@@ -234,9 +292,15 @@ public sealed class LogicalVmResourceManager : IAsyncDisposable
     private readonly CancellationTokenSource lifetime = new();
     private bool disposed;
 
+    /// <summary>Creates a logical resource manager using the supplied storage transfer service.</summary>
+    /// <param name="transfers">The service used to transfer tensor storage between domains.</param>
     public LogicalVmResourceManager(IStorageTransferService transfers) =>
         this.transfers = transfers ?? throw new ArgumentNullException(nameof(transfers));
 
+    /// <summary>Validates and retains output storage, then returns a versioned logical reference to its full tensor view.</summary>
+    /// <param name="outputPort">The writable port whose ABI describes the published tensor.</param>
+    /// <param name="storage">The storage lease to retain for the published output.</param>
+    /// <param name="view">The optional full-tensor view; omitted dimensions are taken from the output port.</param>
     public VmDataReference Publish(
         ComponentPortDescriptor outputPort,
         IStorageLease storage,
@@ -264,6 +328,11 @@ public sealed class LogicalVmResourceManager : IAsyncDisposable
         return reference;
     }
 
+    /// <summary>Acquires a retained replica in the target domain, sharing any in-progress transfer for the resource.</summary>
+    /// <param name="reference">The versioned logical resource reference to acquire and bind.</param>
+    /// <param name="targetDomain">The storage domain in which a compatible replica is required.</param>
+    /// <param name="targetPort">The readable consumer port whose ABI and domain requirements must be satisfied.</param>
+    /// <param name="cancellationToken">The token used to cancel the operation or admission wait.</param>
     public async ValueTask<IStorageLease> AcquireAsync(
         VmDataReference reference,
         StorageDomain targetDomain,
@@ -299,6 +368,12 @@ public sealed class LogicalVmResourceManager : IAsyncDisposable
         return replica.Retain();
     }
 
+    /// <summary>Resolves connected producers and binds their published resources to every component input slot.</summary>
+    /// <param name="component">The component whose connected input resources are being prepared.</param>
+    /// <param name="connections">The registry mapping component inputs to producer outputs.</param>
+    /// <param name="publishedOutputs">Producer output ports mapped to their published logical resources.</param>
+    /// <param name="bindings">The VM binding set receiving the storage handle.</param>
+    /// <param name="cancellationToken">The token used to cancel the operation or admission wait.</param>
     public async ValueTask PrepareBindingsAsync(
         VmComponentProgram component,
         VmConnectionRegistry connections,
@@ -327,6 +402,13 @@ public sealed class LogicalVmResourceManager : IAsyncDisposable
         }
     }
 
+    /// <summary>Acquires compatible target-domain storage and binds its handle to a VM slot.</summary>
+    /// <param name="reference">The versioned logical resource reference to acquire and bind.</param>
+    /// <param name="targetDomain">The storage domain in which a compatible replica is required.</param>
+    /// <param name="targetPort">The readable consumer port whose ABI and domain requirements must be satisfied.</param>
+    /// <param name="bindings">The VM binding set receiving the storage handle.</param>
+    /// <param name="slotId">The identifier of the VM slot to bind.</param>
+    /// <param name="cancellationToken">The token used to cancel the operation or admission wait.</param>
     public async ValueTask BindAsync(
         VmDataReference reference,
         StorageDomain targetDomain,
@@ -345,6 +427,7 @@ public sealed class LogicalVmResourceManager : IAsyncDisposable
         bindable.Bind(bindings, slotId);
     }
 
+    /// <summary>Cancels outstanding transfers, waits for them to finish, and releases all retained storage replicas.</summary>
     public async ValueTask DisposeAsync()
     {
         Task<IStorageLease>[] pending;

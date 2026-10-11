@@ -2,6 +2,7 @@ using System.Collections.Frozen;
 
 namespace SharpInference.Graphs;
 
+/// <summary>Describes a tier-zero operation&apos;s ports, signatures, base-profile requirement, and FP32 precision.</summary>
 public sealed class TierZeroOperationContract
 {
     internal TierZeroOperationContract(GraphOperationId operation, IEnumerable<string> inputPorts,
@@ -13,13 +14,20 @@ public sealed class TierZeroOperationContract
         RequiredByBaseProfile = required;
     }
 
+    /// <summary>Gets the versioned operation contract identifier.</summary>
     public GraphOperationId Operation { get; }
+    /// <summary>Gets the ordered input port names.</summary>
     public IReadOnlyList<string> InputPorts { get; }
+    /// <summary>Gets the supported operator signatures.</summary>
     public IReadOnlyList<OperatorSignature> Signatures { get; }
+    /// <summary>Gets whether this operation is required by the base tier-zero profile.</summary>
     public bool RequiredByBaseProfile { get; }
+    /// <summary>Gets the FP32 arithmetic and accumulation profile required by this operation.</summary>
     public KernelPrecisionProfile Precision { get; } =
         new(GraphElementType.Float32, GraphElementType.Float32);
 
+    /// <summary>Returns canonical input ports, preserving the legacy weight port alias for matrix-vector operations.</summary>
+    /// <param name="ports">The public resource ports of the definition or architecture region.</param>
     public IReadOnlyList<string> ResolveInputPorts(IEnumerable<string> ports)
     {
         ArgumentNullException.ThrowIfNull(ports);
@@ -29,21 +37,29 @@ public sealed class TierZeroOperationContract
     }
 }
 
+/// <summary>Defines and validates the versioned FP32 tier-zero operation profile.</summary>
 public static class TierZeroOperationContracts
 {
+    /// <summary>The versioned identifier of the base FP32 tier-zero profile.</summary>
     public const string Profile = "core.t0.fp32@1";
 
+    /// <summary>Gets the supported versioned operation contracts.</summary>
     public static IReadOnlyList<TierZeroOperationContract> Contracts { get; } = CreateContracts();
+    /// <summary>Gets the operations required by the base tier-zero profile.</summary>
     public static IReadOnlyList<TierZeroOperationContract> RequiredContracts { get; } =
         Array.AsReadOnly(Contracts.Where(contract => contract.RequiredByBaseProfile).ToArray());
 
     private static readonly FrozenDictionary<GraphOperationId, TierZeroOperationContract> ByOperation =
         Contracts.ToFrozenDictionary(contract => contract.Operation);
 
+    /// <summary>Returns the tier-zero contract for an operation, rejecting unsupported names or versions.</summary>
+    /// <param name="operation">The operation contract identifier.</param>
     public static TierZeroOperationContract Get(GraphOperationId operation) =>
         ByOperation.TryGetValue(operation, out var contract) ? contract :
             throw new NotSupportedException($"Unsupported T0 operation or version '{operation}'.");
 
+    /// <summary>Validates the supported operation contracts of the graph.</summary>
+    /// <param name="graph">The graph supplying operations and resource binding metadata.</param>
     public static void ValidateGraph(LogicalGraph graph)
     {
         ArgumentNullException.ThrowIfNull(graph);
@@ -52,6 +68,10 @@ public static class TierZeroOperationContracts
             ValidateNode(node, resources);
     }
 
+    /// <summary>Validates an operation&apos;s version, ports, precision, element types, attributes, and tensor shapes.</summary>
+    /// <param name="node">The operation node to inspect.</param>
+    /// <param name="resources">The graph resource descriptors.</param>
+    /// <param name="allowLegacyFloat16">Whether legacy same-type FP16 signatures are accepted.</param>
     public static void ValidateNode(LogicalNode node,
         IReadOnlyDictionary<ResourceId, GraphResource> resources, bool allowLegacyFloat16 = false)
     {

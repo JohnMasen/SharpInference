@@ -17,10 +17,13 @@ public sealed class PortableGraphArchitecture : IModelArchitecture, IModelWeight
         this.plan = plan ?? throw new ArgumentNullException(nameof(plan));
     }
 
+    /// <inheritdoc/>
     public string Id => plan.BindingGraph.Identity.ArchitectureId;
+    /// <summary>Gets a value indicating that this adapter does not require a separate CPU copy of model weights.</summary>
     public bool RequiresCpuWeightCopy => false;
 
     /// <summary>Checks model dimensions and weight tensor descriptors against the binding graph.</summary>
+    /// <param name="tensors">The tensor catalog supplying model weights and their descriptors.</param>
     public bool CanLoad(IModelTensorCatalog tensors)
     {
         ArgumentNullException.ThrowIfNull(tensors);
@@ -37,6 +40,7 @@ public sealed class PortableGraphArchitecture : IModelArchitecture, IModelWeight
     }
 
     /// <summary>Binds a compatible tensor catalog to a portable graph model and prepares its weights.</summary>
+    /// <param name="tensors">The tensor catalog supplying model weights and their descriptors.</param>
     public IModel Bind(IModelTensorCatalog tensors)
     {
         if (!CanLoad(tensors))
@@ -52,6 +56,7 @@ public sealed class PortableGraphArchitecture : IModelArchitecture, IModelWeight
     }
 
     /// <summary>Creates state for a model bound to this adapter's graph.</summary>
+    /// <param name="model">The model bound to the prepared graph and backend.</param>
     public IModelState CreateState(IModel model)
     {
         if (model is not PortableGraphModel portable || !ReferenceEquals(portable.Graph, plan.BindingGraph))
@@ -62,6 +67,10 @@ public sealed class PortableGraphArchitecture : IModelArchitecture, IModelWeight
     }
 
     /// <summary>Executes one token through a temporary session and writes its logits.</summary>
+    /// <param name="model">The model bound to the prepared graph and backend.</param>
+    /// <param name="token">The input token identifier to process.</param>
+    /// <param name="state">The compatible model state updated by the temporary VM session.</param>
+    /// <param name="logits">The destination span receiving output logits for the token.</param>
     public void ForwardToken(IModel model, int token, IModelState state, Span<float> logits)
     {
         using var session = backend.CreateSessionExecutor(model, state, plan);

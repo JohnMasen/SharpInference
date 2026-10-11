@@ -12,15 +12,21 @@ using Vortice.Direct3D12;
 
 namespace SharpInference.Architectures.Phi4.D3D12;
 
+/// <summary>Describes resident audio embeddings, including valid token length, allocation bucket, and projection choice.</summary>
 public interface IPhi4AudioEmbeddingHandle : IStorageHandle
 {
+    /// <summary>Gets the number of valid audio token rows, excluding bucket padding.</summary>
     int ValidTokenCount { get; }
+    /// <summary>Gets the allocated audio token capacity after eightfold temporal subsampling.</summary>
     int TokenBucket { get; }
+    /// <summary>Gets the audio projection weights used to produce this embedding.</summary>
     Phi4AudioProjector Projector { get; }
 }
 
+/// <summary>Executes the Phi-4 audio encoder on Direct3D 12 with bucketed frame capacity and resident embedding outputs.</summary>
 public sealed class Phi4D3D12AudioComponent : IDisposable
 {
+    /// <summary>The ABI version of this component's exposed tensor ports.</summary>
     public const int PortAbiVersion = 1;
     private const int FeatureCount = 80;
     private const int AudioWidth = 1024;
@@ -36,6 +42,7 @@ public sealed class Phi4D3D12AudioComponent : IDisposable
     private readonly Guid componentId = Guid.NewGuid();
     private bool disposed;
 
+    /// <summary>Initializes GPU audio execution using the package weights and the specified frame capacity. Creates GPU resources on the selected adapter.</summary>
     public Phi4D3D12AudioComponent(
         Phi4ModelPackage package,
         int maximumFrames = 352,
@@ -66,6 +73,7 @@ public sealed class Phi4D3D12AudioComponent : IDisposable
         }
     }
 
+    /// <summary>Initializes GPU audio execution using the package weights and the specified frame capacity. Uses the supplied shared GPU resource pool.</summary>
     public Phi4D3D12AudioComponent(
         Phi4ModelPackage package,
         D3D12VmResourcePool pool,
@@ -93,12 +101,17 @@ public sealed class Phi4D3D12AudioComponent : IDisposable
         }
     }
 
+    /// <summary>Gets the supported input frame capacities in ascending order.</summary>
     public static IReadOnlyList<int> SupportedFrameBuckets { get; } =
         Array.AsReadOnly(FrameBuckets);
 
+    /// <summary>Gets the allocated input feature-frame capacity.</summary>
     public int FrameBucket { get; }
+    /// <summary>Gets the allocated audio token capacity after eightfold temporal subsampling.</summary>
     public int TokenBucket { get; }
+    /// <summary>Gets the storage domain in which this component allocates its tensors.</summary>
     public StorageDomain Domain { get; }
+    /// <summary>Gets the cumulative number of GPU queue submissions issued by the audio encoder executor.</summary>
     public ulong QueueSubmissionCount
     {
         get
@@ -111,6 +124,7 @@ public sealed class Phi4D3D12AudioComponent : IDisposable
         }
     }
 
+    /// <summary>Returns the smallest supported frame capacity that can hold the requested positive frame count.</summary>
     public static int GetFrameBucket(int frameCount)
     {
         if (frameCount <= 0)
@@ -123,6 +137,7 @@ public sealed class Phi4D3D12AudioComponent : IDisposable
             $"Phi-4 D3D12 audio supports at most {FrameBuckets[^1]} feature frames.");
     }
 
+    /// <summary>Encodes audio features with the selected projection and downloads the projected embeddings to a host FP32 array.</summary>
     public float[] Encode(Phi4AudioFeatures features, Phi4AudioProjector projector)
     {
         lock (gate)
@@ -133,6 +148,7 @@ public sealed class Phi4D3D12AudioComponent : IDisposable
         }
     }
 
+    /// <summary>Encodes audio features using the selected projector and returns a lease for the resident GPU embeddings.</summary>
     public IStorageLease EncodeResident(
         Phi4AudioFeatures features,
         Phi4AudioProjector projector)
@@ -163,6 +179,7 @@ public sealed class Phi4D3D12AudioComponent : IDisposable
         }
     }
 
+    /// <summary>Returns the FP32 token-major projected embedding output port descriptor.</summary>
     public ComponentPortDescriptor ProjectedEmbeddingsPort() =>
         new(
             "phi4.audio.projected_embeddings",
@@ -172,6 +189,7 @@ public sealed class Phi4D3D12AudioComponent : IDisposable
             GraphResourceLifetime.Invocation,
             [Domain]);
 
+    /// <summary>Downloads the component's resident embedding output into a host FP32 array.</summary>
     public float[] Readback(IStorageLease output)
     {
         ArgumentNullException.ThrowIfNull(output);
@@ -185,6 +203,7 @@ public sealed class Phi4D3D12AudioComponent : IDisposable
         }
     }
 
+    /// <summary>Binds a compatible resident output lease to the specified VM resource slot.</summary>
     public void BindOutput(VmBindings bindings, string slotId, IStorageLease output)
     {
         ArgumentNullException.ThrowIfNull(bindings);
@@ -198,6 +217,7 @@ public sealed class Phi4D3D12AudioComponent : IDisposable
         }
     }
 
+    /// <summary>Creates a VM executor for the artifact using this component's GPU device and resource pool.</summary>
     public D3D12VmExecutor CreateExecutor(D3D12VmArtifact artifact)
     {
         ArgumentNullException.ThrowIfNull(artifact);
@@ -208,6 +228,7 @@ public sealed class Phi4D3D12AudioComponent : IDisposable
         }
     }
 
+    /// <inheritdoc/>
     public void Dispose()
     {
         lock (gate)

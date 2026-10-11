@@ -3,9 +3,16 @@ using System.Runtime.CompilerServices;
 
 namespace SharpInference.Vm;
 
+/// <summary>Configures bounded prefill and inference queues and their worker counts.</summary>
+/// <param name="PrefillQueueCapacity">The maximum number of pending prefill requests.</param>
+/// <param name="InferenceQueueCapacity">The maximum number of pending inference requests.</param>
+/// <param name="PrefillInstances">The number of independently owned prefill workers.</param>
+/// <param name="InferenceInstances">The number of independently owned inference workers.</param>
+/// <param name="MaximumPrefillTokens">The maximum token count accepted by a single prefill request.</param>
 public sealed record VmEngineOptions(int PrefillQueueCapacity, int InferenceQueueCapacity,
     int PrefillInstances = 2, int InferenceInstances = 2, int MaximumPrefillTokens = 65536)
 {
+    /// <summary>Rejects nonpositive queue capacities, worker counts, and prefill token limits.</summary>
     public void Validate()
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(PrefillQueueCapacity);
@@ -16,12 +23,17 @@ public sealed record VmEngineOptions(int PrefillQueueCapacity, int InferenceQueu
     }
 }
 
+/// <summary>Indicates that a bounded VM work queue cannot accept another request.</summary>
+/// <param name="queue">The name of the queue that rejected the request.</param>
 public sealed class VmQueueFullException(string queue) :
     InvalidOperationException($"The '{queue}' VM queue is full.")
 {
+    /// <summary>Gets the name of the queue that rejected the request.</summary>
     public string Queue { get; } = queue;
 }
 
+/// <summary>Owns separate bounded worker pools for prefill and inference operations.</summary>
+/// <typeparam name="TVm">The disposable, independently owned worker type.</typeparam>
 public sealed class VmEngine<TVm> : IAsyncDisposable where TVm : class, IDisposable
 {
     private readonly VmWorkQueue<TVm> prefill;
@@ -33,6 +45,10 @@ public sealed class VmEngine<TVm> : IAsyncDisposable where TVm : class, IDisposa
         this.inference = inference;
     }
 
+    /// <summary>Creates owned resources and worker pools, releasing partially created resources on failure.</summary>
+    /// <param name="options">The positive capacities, worker counts, and prefill token limit.</param>
+    /// <param name="prefillFactory">The factory creating a distinct owned prefill worker for each worker index.</param>
+    /// <param name="inferenceFactory">The factory creating a distinct owned inference worker for each worker index.</param>
     public static async ValueTask<VmEngine<TVm>> CreateAsync(VmEngineOptions options,
         Func<int, TVm> prefillFactory, Func<int, TVm> inferenceFactory)
     {
@@ -72,13 +88,26 @@ public sealed class VmEngine<TVm> : IAsyncDisposable where TVm : class, IDisposa
         }
     }
 
+    /// <summary>Processes prefill work through the dedicated worker pool.</summary>
+    /// <param name="operation">The asynchronous callback owning the reserved worker until completion.</param>
+    /// <param name="cancellationToken">The token used to cancel queued or active work.</param>
+    /// <typeparam name="TResult">The result returned by the queued callback.</typeparam>
+    /// <returns>The callback result after execution on an exclusively reserved prefill worker.</returns>
+    /// <exception cref="VmQueueFullException">The bounded prefill queue cannot accept the request.</exception>
     public ValueTask<TResult> PrefillAsync<TResult>(Func<TVm, CancellationToken, ValueTask<TResult>> operation,
         CancellationToken cancellationToken = default) => prefill.Submit(operation, cancellationToken);
 
     // Each queued callback owns its instance until execution and cleanup complete.
+    /// <summary>Submits generation work to the inference queue while reserving its worker until the callback completes.</summary>
+    /// <param name="generation">The asynchronous generation callback owning a worker until it completes.</param>
+    /// <param name="cancellationToken">The token used to cancel queued or active work.</param>
+    /// <typeparam name="TResult">The result returned by the queued callback.</typeparam>
+    /// <returns>The callback result after execution on an exclusively reserved inference worker.</returns>
+    /// <exception cref="VmQueueFullException">The bounded inference queue cannot accept the request.</exception>
     public ValueTask<TResult> InferenceAsync<TResult>(Func<TVm, CancellationToken, ValueTask<TResult>> generation,
         CancellationToken cancellationToken = default) => inference.Submit(generation, cancellationToken);
 
+    /// <summary>Stops accepting work, waits for active operations, and releases owned resources.</summary>
     public async ValueTask DisposeAsync() =>
         await Task.WhenAll(prefill.DisposeAsync().AsTask(), inference.DisposeAsync().AsTask()).ConfigureAwait(false);
 }

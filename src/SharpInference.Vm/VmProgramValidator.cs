@@ -2,8 +2,11 @@ using System.Diagnostics.CodeAnalysis;
 
 namespace SharpInference.Vm;
 
+/// <summary>Checks VM program structure, resource bindings, dependencies, and launch contracts.</summary>
 public static class VmProgramValidator
 {
+    /// <summary>Validates program identifiers, tensor bindings, dependency graphs, and target launch contracts.</summary>
+    /// <param name="program">The artifact to validate before binding or execution.</param>
     public static void Validate(VmProgram program)
     {
         ArgumentNullException.ThrowIfNull(program);

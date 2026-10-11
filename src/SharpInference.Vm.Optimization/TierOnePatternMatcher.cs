@@ -3,6 +3,7 @@ using SharpInference.Instructions;
 
 namespace SharpInference.Vm.Optimization;
 
+/// <summary>Describes graph nodes and resource identities eligible for a registered pointwise fusion.</summary>
 public sealed class TierOneFusionCandidate
 {
     internal TierOneFusionCandidate(InstructionOptimizationCapability capability, IReadOnlyList<int> nodes,
@@ -22,16 +23,28 @@ public sealed class TierOneFusionCandidate
         }));
     }
 
+    /// <summary>Gets the registered implementation that can replace the matched nodes.</summary>
     public InstructionOptimizationCapability Capability { get; }
+    /// <summary>Gets the sorted graph-node indices consumed by the fusion.</summary>
     public IReadOnlyList<int> Nodes { get; }
+    /// <summary>Gets the ordered external inputs to the fusion.</summary>
     public IReadOnlyList<ResourceId> Inputs { get; }
+    /// <summary>Gets the final output resource produced by the fusion.</summary>
     public ResourceId Output { get; }
+    /// <summary>Gets the temporary resources eliminated by the fusion.</summary>
     public IReadOnlyList<ResourceId> Intermediates { get; }
+    /// <summary>Gets the canonical input alias pattern used to match measurement domains.</summary>
     public string InputAliases { get; }
 }
 
+/// <summary>Finds legal pointwise fusion candidates while respecting dataflow, aliases, and observable resources.</summary>
 public static class TierOnePatternMatcher
 {
+    /// <summary>Finds target-compatible, dataflow-safe pointwise fusion candidates using canonical resource aliases.</summary>
+    /// <param name="graph">The graph or binding metadata to inspect.</param>
+    /// <param name="capabilities">The registered target-specific instruction optimization capabilities.</param>
+    /// <param name="target">The CPU or Direct3D12 VM execution backend.</param>
+    /// <param name="aliases">The optional mapping from resource views to canonical backing identities.</param>
     public static IReadOnlyList<TierOneFusionCandidate> Find(IExecutionPlanningGraph graph,
         IReadOnlyList<InstructionOptimizationCapability> capabilities, VmTarget target,
         IReadOnlyDictionary<ResourceId, ResourceId>? aliases = null)

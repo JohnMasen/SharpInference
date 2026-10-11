@@ -6,6 +6,7 @@ using SharpInference.Instructions;
 
 namespace SharpInference.Instructions.Phi4.Cpu;
 
+/// <summary>Provides CPU instructions and graph bindings for Phi-4 FP32 audio operations.</summary>
 public sealed class Phi4CpuAudioInstructionCollection : IInstructionCollectionProvider, IGraphInstructionProvider
 {
     private static readonly string[] Names =
@@ -25,16 +26,19 @@ public sealed class Phi4CpuAudioInstructionCollection : IInstructionCollectionPr
         Names.ToDictionary(name => name, name => (Instruction)new CpuAudioInstruction(name),
             StringComparer.Ordinal);
 
+    /// <inheritdoc/>
     public IReadOnlyList<InstructionCollectionDescription> QueryInstructionCollection() =>
         [new(Phi4InstructionCollectionIds.AudioFloat32,
             "Phi-4 FP32 Audio operations", 2, InstructionTarget.Cpu)];
 
+    /// <inheritdoc/>
     public IReadOnlyList<Instruction> QueryInstruction(Guid collectionId, string instructionName) =>
         collectionId == Phi4InstructionCollectionIds.AudioFloat32 &&
         instructions.TryGetValue(instructionName, out var instruction)
             ? [instruction]
             : [];
 
+    /// <inheritdoc/>
     public IReadOnlyList<GraphInstructionBinding> QueryGraphInstructionBindings() =>
         Phi4AudioGraphOperations.Bindings(InstructionTarget.Cpu);
 }
@@ -173,8 +177,10 @@ internal sealed class CpuAudioInstruction : Instruction
     }
 }
 
+/// <summary>Implements host-side numerical kernels used by generated Phi-4 audio instructions.</summary>
 public static class Phi4CpuAudioNumerics
 {
+    /// <summary>Normalizes valid log-mel frames with per-feature means and inverse standard deviations and clears padded frames.</summary>
     public static void NormalizeFeatures(
         ReadOnlySpan<float> input,
         ReadOnlySpan<float> mean,
@@ -193,6 +199,7 @@ public static class Phi4CpuAudioNumerics
         output[(Math.Min(frameCount, frames) * features)..].Clear();
     }
 
+    /// <summary>Applies grouped one-dimensional convolution, bias, and the selected activation to position-major audio data with contiguous channels.</summary>
     public static void Conv1D(
         ReadOnlySpan<float> input,
         ReadOnlySpan<float> weight,
@@ -229,6 +236,7 @@ public static class Phi4CpuAudioNumerics
         }
     }
 
+    /// <summary>Applies grouped two-dimensional convolution, bias, and the selected activation to height-width-channel audio features.</summary>
     public static void Conv2D(
         ReadOnlySpan<float> input,
         ReadOnlySpan<float> weight,
@@ -276,6 +284,7 @@ public static class Phi4CpuAudioNumerics
         }
     }
 
+    /// <summary>Reorders subsampled token-frequency-channel data into token-major flattened channel-frequency rows.</summary>
     public static void FlattenSubsampling(
         ReadOnlySpan<float> input,
         Span<float> output,
@@ -290,6 +299,7 @@ public static class Phi4CpuAudioNumerics
                 input[(token * frequency + bin) * channels + channel];
     }
 
+    /// <summary>Applies per-row mean and variance normalization followed by learned scale and bias.</summary>
     public static void LayerNorm(
         ReadOnlySpan<float> input,
         ReadOnlySpan<float> weight,
@@ -318,6 +328,7 @@ public static class Phi4CpuAudioNumerics
         }
     }
 
+    /// <summary>Adds channel-wise bias and applies the selected activation to the requested element count.</summary>
     public static void BiasActivation(
         ReadOnlySpan<float> input,
         ReadOnlySpan<float> bias,
@@ -330,6 +341,7 @@ public static class Phi4CpuAudioNumerics
             output[index] = Activate(input[index] + bias[index % width], activation);
     }
 
+    /// <summary>Applies the biased audio feed-forward gate, multiplying the first half by the swish-activated second half.</summary>
     public static void SwiGlu(
         ReadOnlySpan<float> input,
         ReadOnlySpan<float> biasFirst,
@@ -348,6 +360,7 @@ public static class Phi4CpuAudioNumerics
         }
     }
 
+    /// <summary>Writes hidden values plus a scaled update into the output buffer.</summary>
     public static void Residual(
         ReadOnlySpan<float> hidden,
         ReadOnlySpan<float> update,
@@ -365,6 +378,7 @@ public static class Phi4CpuAudioNumerics
             output[index] = hidden[index] + scale * update[index];
     }
 
+    /// <summary>Computes multi-head audio attention with relative-position bias, masks padded tokens, and clears padded output rows.</summary>
     public static void RelativeAttention(
         ReadOnlySpan<float> query,
         ReadOnlySpan<float> key,

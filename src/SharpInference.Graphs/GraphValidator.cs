@@ -1,9 +1,15 @@
 namespace SharpInference.Graphs;
 
+/// <summary>Validates graph structure, resource bindings, state contracts, and optional operation-specific requirements.</summary>
 public static class GraphValidator
 {
+    /// <summary>Validates structural, binding, and operation contracts, throwing when a contract is violated.</summary>
+    /// <param name="graph">The graph supplying operations and resource binding metadata.</param>
     public static void Validate(LogicalGraph graph) => Validate(graph, null);
 
+    /// <summary>Validates structural, binding, and operation contracts, throwing when a contract is violated.</summary>
+    /// <param name="graph">The graph supplying operations and resource binding metadata.</param>
+    /// <param name="operations">The optional model-specific operation validator.</param>
     public static void Validate(LogicalGraph graph, IGraphOperationValidator? operations)
     {
         ArgumentNullException.ThrowIfNull(graph);
@@ -54,8 +60,13 @@ public static class GraphValidator
                     node.Resources, resourceMap, node.Attributes, node.Requirements));
     }
 
+    /// <summary>Validates structural, binding, and operation contracts, throwing when a contract is violated.</summary>
+    /// <param name="graph">The graph supplying operations and resource binding metadata.</param>
     public static void Validate(IExecutionPlanningGraph graph) => Validate(graph, null);
 
+    /// <summary>Validates structural, binding, and operation contracts, throwing when a contract is violated.</summary>
+    /// <param name="graph">The graph supplying operations and resource binding metadata.</param>
+    /// <param name="operations">The optional model-specific operation validator.</param>
     public static void Validate(IExecutionPlanningGraph graph, IGraphOperationValidator? operations)
     {
         ArgumentNullException.ThrowIfNull(graph);

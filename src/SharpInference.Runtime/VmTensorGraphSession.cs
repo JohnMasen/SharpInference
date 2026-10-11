@@ -59,6 +59,9 @@ public sealed class VmTensorGraphSession : IDisposable
         }
     }
 
+    /// <summary>Runs the forward entry with exact descriptor-bound input buffers and commits graph state only after successful execution.</summary>
+    /// <param name="inputs">Input resource identifiers mapped to descriptor-sized tensor byte buffers.</param>
+    /// <param name="cancellationToken">The token used to cancel the operation or admission wait.</param>
     public IReadOnlyDictionary<ResourceId, byte[]> Execute(
         IReadOnlyDictionary<ResourceId, ReadOnlyMemory<byte>> inputs, CancellationToken cancellationToken = default)
     {
@@ -120,6 +123,7 @@ public sealed class VmTensorGraphSession : IDisposable
             buffer => (ReadOnlyMemory<byte>)buffer.Data, StringComparer.Ordinal));
     }
 
+    /// <summary>Resets the graph&apos;s host state for the next execution.</summary>
     public void Reset()
     {
         lock (gate)
@@ -129,6 +133,7 @@ public sealed class VmTensorGraphSession : IDisposable
         }
     }
 
+    /// <summary>Releases the executable, bindings, session resources, and any resource manager owned by this session.</summary>
     public void Dispose()
     {
         lock (gate)

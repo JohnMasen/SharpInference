@@ -7,43 +7,76 @@ namespace SharpInference.Gguf;
 /// <summary>Identifies the GGUF metadata value representation.</summary>
 public enum GgufMetadataType : uint
 {
+    /// <summary>An unsigned 8-bit integer.</summary>
     UInt8 = 0,
+    /// <summary>A signed 8-bit integer.</summary>
     Int8 = 1,
+    /// <summary>An unsigned 16-bit integer.</summary>
     UInt16 = 2,
+    /// <summary>A signed 16-bit integer.</summary>
     Int16 = 3,
+    /// <summary>An unsigned 32-bit integer.</summary>
     UInt32 = 4,
+    /// <summary>A signed 32-bit integer.</summary>
     Int32 = 5,
+    /// <summary>An IEEE 754 single-precision value.</summary>
     Float32 = 6,
+    /// <summary>A Boolean value.</summary>
     Bool = 7,
+    /// <summary>A length-prefixed UTF-8 string.</summary>
     String = 8,
+    /// <summary>An array of values with a common metadata type.</summary>
     Array = 9,
+    /// <summary>An unsigned 64-bit integer.</summary>
     UInt64 = 10,
+    /// <summary>A signed 64-bit integer.</summary>
     Int64 = 11,
+    /// <summary>An IEEE 754 double-precision value.</summary>
     Float64 = 12,
 }
 
 /// <summary>Identifies the storage type of a tensor in a GGUF model file.</summary>
 public enum GgufModelTensorType : uint
 {
+    /// <summary>IEEE 754 single-precision elements.</summary>
     Float32 = 0,
+    /// <summary>IEEE 754 half-precision elements.</summary>
     Float16 = 1,
+    /// <summary>GGML Q4_0 blocks with 4-bit quantized values.</summary>
     Q4_0 = 2,
+    /// <summary>GGML Q4_1 blocks with 4-bit quantized values.</summary>
     Q4_1 = 3,
+    /// <summary>GGML Q5_0 blocks with 5-bit quantized values.</summary>
     Q5_0 = 6,
+    /// <summary>GGML Q5_1 blocks with 5-bit quantized values.</summary>
     Q5_1 = 7,
+    /// <summary>GGML Q8_0 blocks with 8-bit quantized values.</summary>
     Q8_0 = 8,
+    /// <summary>GGML Q8_1 blocks with 8-bit quantized values.</summary>
     Q8_1 = 9,
+    /// <summary>GGML 2-bit K-quant superblocks.</summary>
     Q2_K = 10,
+    /// <summary>GGML 3-bit K-quant superblocks.</summary>
     Q3_K = 11,
+    /// <summary>GGML 4-bit K-quant superblocks.</summary>
     Q4_K = 12,
+    /// <summary>GGML 5-bit K-quant superblocks.</summary>
     Q5_K = 13,
+    /// <summary>GGML 6-bit K-quant superblocks.</summary>
     Q6_K = 14,
+    /// <summary>GGML 8-bit K-quant superblocks.</summary>
     Q8_K = 15,
+    /// <summary>Signed 8-bit integer elements.</summary>
     Int8 = 24,
+    /// <summary>Signed 16-bit integer elements.</summary>
     Int16 = 25,
+    /// <summary>Signed 32-bit integer elements.</summary>
     Int32 = 26,
+    /// <summary>Signed 64-bit integer elements.</summary>
     Int64 = 27,
+    /// <summary>IEEE 754 double-precision elements.</summary>
     Float64 = 28,
+    /// <summary>Brain floating-point 16-bit elements.</summary>
     BFloat16 = 30,
 }
 
@@ -179,6 +212,11 @@ public sealed unsafe class GgufModelFile : IDisposable
         }
     }
 
+    /// <summary>Reads a required metadata value, converting compatible scalar values when necessary.</summary>
+    /// <typeparam name="T">The requested metadata value type.</typeparam>
+    /// <param name="key">The metadata key.</param>
+    /// <returns>The metadata value in the requested type.</returns>
+    /// <exception cref="InvalidDataException">The key is absent or its value cannot be converted.</exception>
     public T GetMetadata<T>(string key)
     {
         ObjectDisposedException.ThrowIf(disposed, this);
@@ -196,6 +234,9 @@ public sealed unsafe class GgufModelFile : IDisposable
         }
     }
 
+    /// <summary>Retrieves a required memory-mapped tensor by name.</summary>
+    /// <param name="name">The tensor name.</param>
+    /// <returns>The tensor descriptor and mapped data view.</returns>
     public GgufModelTensor GetTensor(string name)
     {
         ObjectDisposedException.ThrowIf(disposed, this);
@@ -204,6 +245,7 @@ public sealed unsafe class GgufModelFile : IDisposable
             : throw new InvalidDataException($"GGUF tensor '{name}' is missing.");
     }
 
+    /// <summary>Releases the file mapping and invalidates all tensor views obtained from it.</summary>
     public void Dispose()
     {
         if (disposed)
@@ -348,6 +390,7 @@ public sealed unsafe class GgufModelFile : IDisposable
         ulong Offset);
 }
 
+/// <summary>Provides a read-only tensor view valid only while its owning model file remains open.</summary>
 public sealed unsafe class GgufModelTensor
 {
     private readonly byte* filePointer;
@@ -370,28 +413,39 @@ public sealed unsafe class GgufModelTensor
         this.filePointer = filePointer;
     }
 
+    /// <summary>Gets the tensor name in the model file.</summary>
     public string Name { get; }
+    /// <summary>Gets the stored element or quantization type.</summary>
     public GgufModelTensorType Type { get; }
+    /// <summary>Gets dimensions in GGUF order, with the fastest-varying dimension first.</summary>
     public IReadOnlyList<ulong> Dimensions { get; }
+    /// <summary>Gets the stored tensor length in bytes, including quantization metadata.</summary>
     public long ByteLength => byteLength;
+    /// <summary>Gets the address of mapped tensor storage; the owning file must remain open.</summary>
     public nint DataAddress => (nint)(filePointer + offset);
 
+    /// <summary>Gets a zero-copy byte view, rejecting tensors larger than a .NET span can represent.</summary>
     public ReadOnlySpan<byte> Bytes =>
         byteLength <= int.MaxValue
             ? new ReadOnlySpan<byte>(filePointer + offset, checked((int)byteLength))
             : throw new NotSupportedException(
                 $"Tensor '{Name}' is larger than the maximum .NET span length.");
 
+    /// <summary>Gets a zero-copy half-precision view; requires Float16 storage.</summary>
     public ReadOnlySpan<Half> HalfValues =>
         Type == GgufModelTensorType.Float16
             ? System.Runtime.InteropServices.MemoryMarshal.Cast<byte, Half>(Bytes)
             : throw new InvalidOperationException($"Tensor '{Name}' is not Float16.");
 
+    /// <summary>Gets a zero-copy single-precision view; requires Float32 storage.</summary>
     public ReadOnlySpan<float> FloatValues =>
         Type == GgufModelTensorType.Float32
             ? System.Runtime.InteropServices.MemoryMarshal.Cast<byte, float>(Bytes)
             : throw new InvalidOperationException($"Tensor '{Name}' is not Float32.");
 
+    /// <summary>Reads one Float16 element and converts it to single precision.</summary>
+    /// <param name="index">The zero-based linear element index.</param>
+    /// <returns>The selected value as a single-precision number.</returns>
     public float GetHalfValue(int index)
     {
         if (Type != GgufModelTensorType.Float16)
@@ -402,6 +456,9 @@ public sealed unsafe class GgufModelTensor
         return (float)((Half*)(filePointer + offset))[index];
     }
 
+    /// <summary>Reads one Float32 element without creating a span for the entire tensor.</summary>
+    /// <param name="index">The zero-based linear element index.</param>
+    /// <returns>The selected single-precision value.</returns>
     public float GetFloatValue(int index)
     {
         if (Type != GgufModelTensorType.Float32)

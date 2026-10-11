@@ -8,25 +8,38 @@ using SharpInference.Vm;
 
 namespace SharpInference.Architectures.Phi4.D3D12;
 
+/// <summary>Pairs a resident vision embedding lease with the component that produced it.</summary>
+/// <param name="Component">The vision component that owns the embedding.</param>
+/// <param name="Lease">The lease for the resident projected image embeddings.</param>
 public sealed record Phi4D3D12VisionEmbedding(
     Phi4D3D12VisionComponent Component,
     IStorageLease Lease);
 
+/// <summary>Pairs a resident audio embedding lease with the component that produced it.</summary>
+/// <param name="Component">The audio component that owns the embedding.</param>
+/// <param name="Lease">The lease for the resident projected audio embeddings.</param>
 public sealed record Phi4D3D12AudioEmbedding(
     Phi4D3D12AudioComponent Component,
     IStorageLease Lease);
 
+/// <summary>Identifies a logical VM media embedding resource and the number of valid token rows it contains.</summary>
+/// <param name="Resource">The logical VM reference to the resident embedding buffer.</param>
+/// <param name="ValidTokenCount">The number of valid token rows, excluding bucket padding.</param>
 public sealed record Phi4ResourceEmbedding(
     VmDataReference Resource,
     int ValidTokenCount);
 
+/// <summary>Describes a resident prompt embedding sequence assembled from text and media.</summary>
 public interface IPhi4FusedEmbeddingHandle : IStorageHandle
 {
+    /// <summary>Gets the number of token rows in the fused prompt embedding sequence.</summary>
     int TokenCount { get; }
 }
 
+/// <summary>Combines text token embeddings and resident media embeddings into a Direct3D 12 prompt buffer.</summary>
 public sealed class Phi4D3D12FusionComponent : IDisposable
 {
+    /// <summary>The ABI version of this component's exposed tensor ports.</summary>
     public const int PortAbiVersion = 1;
     private const int EmbeddingSize = 3072;
     private const int VocabularySize = 200064;
@@ -38,6 +51,7 @@ public sealed class Phi4D3D12FusionComponent : IDisposable
     private bool tokenEmbeddingUploaded;
     private bool disposed;
 
+    /// <summary>Initializes embedding fusion using the package token weights and the supplied GPU resource pool and storage domain. Uses the supplied shared GPU resource pool.</summary>
     public Phi4D3D12FusionComponent(
         Phi4ModelPackage package,
         D3D12VmResourcePool pool,
@@ -50,8 +64,10 @@ public sealed class Phi4D3D12FusionComponent : IDisposable
         manager = new VmResourceManager(InitializeGlobal, pool.Allocate);
     }
 
+    /// <summary>Gets the storage domain in which this component allocates its tensors.</summary>
     public StorageDomain Domain { get; }
 
+    /// <summary>Returns the FP32 token-major fused prompt output port descriptor for the specified token count.</summary>
     public ComponentPortDescriptor FusedEmbeddingsPort(int tokenCount) =>
         new(
             "phi4.fused_embeddings",
@@ -61,6 +77,7 @@ public sealed class Phi4D3D12FusionComponent : IDisposable
             GraphResourceLifetime.Invocation,
             [Domain]);
 
+    /// <summary>Replaces expanded media placeholders with resident image and audio embeddings and gathers text token embeddings into one GPU buffer.</summary>
     public IStorageLease Fuse(
         IReadOnlyList<int> tokenIds,
         IReadOnlyList<Phi4D3D12VisionEmbedding>? images = null,
@@ -79,6 +96,7 @@ public sealed class Phi4D3D12FusionComponent : IDisposable
         }
     }
 
+    /// <summary>Replaces expanded media placeholders with resident image and audio embeddings and gathers text token embeddings into one GPU buffer.</summary>
     public IStorageLease Fuse(
         IReadOnlyList<int> tokenIds,
         LogicalVmResourceManager resources,
@@ -165,6 +183,7 @@ public sealed class Phi4D3D12FusionComponent : IDisposable
             }
     }
 
+    /// <summary>Downloads the component's resident embedding output into a host FP32 array.</summary>
     public float[] Readback(IStorageLease output)
     {
         lock (gate)
@@ -175,6 +194,7 @@ public sealed class Phi4D3D12FusionComponent : IDisposable
         }
     }
 
+    /// <summary>Binds a compatible resident output lease to the specified VM resource slot.</summary>
     public void BindOutput(
         VmBindings bindings,
         string slotId,
@@ -186,6 +206,7 @@ public sealed class Phi4D3D12FusionComponent : IDisposable
             RequireOutput(output).Bind(bindings, slotId);
     }
 
+    /// <summary>Creates a VM executor for the artifact using this component's GPU device and resource pool.</summary>
     public D3D12VmExecutor CreateExecutor(D3D12VmArtifact artifact)
     {
         ArgumentNullException.ThrowIfNull(artifact);
@@ -196,6 +217,7 @@ public sealed class Phi4D3D12FusionComponent : IDisposable
         }
     }
 
+    /// <inheritdoc/>
     public void Dispose()
     {
         lock (gate)

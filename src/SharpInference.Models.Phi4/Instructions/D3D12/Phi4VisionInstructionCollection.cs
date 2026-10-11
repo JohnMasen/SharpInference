@@ -5,6 +5,7 @@ using SharpInference.Instructions.Phi4;
 
 namespace SharpInference.Instructions.Phi4.D3D12;
 
+/// <summary>Provides Direct3D 12 shader instructions and graph bindings for Phi-4 FP32 vision operations.</summary>
 public sealed class Phi4D3D12VisionInstructionCollection : IInstructionCollectionProvider, IGraphInstructionProvider
 {
     private readonly IReadOnlyDictionary<string, Instruction> instructions =
@@ -18,16 +19,19 @@ public sealed class Phi4D3D12VisionInstructionCollection : IInstructionCollectio
             new VisionHdGatherInstruction(),
         }.ToDictionary(instruction => instruction.Name, StringComparer.Ordinal);
 
+    /// <inheritdoc/>
     public IReadOnlyList<InstructionCollectionDescription> QueryInstructionCollection() =>
         [new(Phi4InstructionCollectionIds.VisionFloat32,
             "Phi-4 FP32 Vision operations", 1, InstructionTarget.Direct3D12)];
 
+    /// <inheritdoc/>
     public IReadOnlyList<Instruction> QueryInstruction(Guid collectionId, string instructionName) =>
         collectionId == Phi4InstructionCollectionIds.VisionFloat32 &&
         instructions.TryGetValue(instructionName, out var instruction)
             ? [instruction]
             : [];
 
+    /// <inheritdoc/>
     public IReadOnlyList<GraphInstructionBinding> QueryGraphInstructionBindings() =>
         Phi4VisionGraphOperations.Bindings(InstructionTarget.Direct3D12)
             .Select(binding => binding with

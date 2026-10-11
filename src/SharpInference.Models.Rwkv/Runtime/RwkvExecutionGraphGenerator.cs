@@ -19,8 +19,11 @@ public sealed class RwkvExecutionGraphGenerator
         generator = new(target, collections);
     }
 
+    /// <summary>Gets the detected RWKV model architecture identifier.</summary>
     public string ModelArchitecture { get; }
+    /// <summary>Gets the target instruction architecture used to generate VM programs.</summary>
     public InstructionTarget Architecture => generator.Architecture;
+    /// <summary>Gets the instruction collection available for the selected target.</summary>
     public IInstructionCollectionProvider InstructionCollections => generator.InstructionCollections;
 
     /// <summary>Builds and generates a VM program for a model tensor catalog.</summary>

@@ -6,6 +6,9 @@ using Vortice.Dxc;
 
 namespace SharpInference.Backends.D3D12Vm;
 
+/// <summary>Configures the compute shader target and debug information emitted by DXC.</summary>
+/// <param name="ShaderModel">The DXC compute shader target; currently only cs_6_0 is supported.</param>
+/// <param name="EnableDebug">Whether to include debug information in the compiled shader.</param>
 public sealed record D3D12VmCompilerOptions(string ShaderModel = "cs_6_0", bool EnableDebug = false);
 
 /// <summary>
@@ -18,9 +21,15 @@ public sealed record D3D12VmCompilerOptions(string ShaderModel = "cs_6_0", bool 
 public sealed class D3D12VmCompiler
 {
     private readonly InstructionRegistry registry;
+    /// <summary>Creates a compiler with explicitly supplied Direct3D12 instruction collection providers.</summary>
+    /// <param name="providers">The instruction collection providers used to resolve program operators.</param>
     public D3D12VmCompiler(IEnumerable<IInstructionCollectionProvider> providers) => registry=new(providers);
+    /// <summary>Gets the registry of instruction collections supplied to this compiler.</summary>
     public IInstructionCollectionProvider InstructionCollections => registry;
 
+    /// <summary>Validates a Direct3D12 VM program and compiles one HLSL and DXIL module per explicit kernel.</summary>
+    /// <param name="program">The VM program whose definitions, slots, and entries are compiled or bound.</param>
+    /// <param name="options">Compilation settings, or null to use the default settings.</param>
     public D3D12VmArtifact Compile(VmProgram program, D3D12VmCompilerOptions? options = null)
     {
         options ??= new();

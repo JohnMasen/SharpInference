@@ -5,6 +5,7 @@ using SharpInference.Instructions.Phi4;
 
 namespace SharpInference.Instructions.Phi4.D3D12;
 
+/// <summary>Provides Direct3D 12 shader instructions and graph bindings for Phi-4 FP32 audio operations.</summary>
 public sealed class Phi4D3D12AudioInstructionCollection : IInstructionCollectionProvider, IGraphInstructionProvider
 {
     private readonly IReadOnlyDictionary<string, Instruction> instructions =
@@ -21,16 +22,19 @@ public sealed class Phi4D3D12AudioInstructionCollection : IInstructionCollection
             new RelativeAttentionInstruction(),
         }.ToDictionary(value => value.Name, StringComparer.Ordinal);
 
+    /// <inheritdoc/>
     public IReadOnlyList<InstructionCollectionDescription> QueryInstructionCollection() =>
         [new(Phi4InstructionCollectionIds.AudioFloat32,
             "Phi-4 FP32 Audio operations", 2, InstructionTarget.Direct3D12)];
 
+    /// <inheritdoc/>
     public IReadOnlyList<Instruction> QueryInstruction(Guid collectionId, string instructionName) =>
         collectionId == Phi4InstructionCollectionIds.AudioFloat32 &&
         instructions.TryGetValue(instructionName, out var instruction)
             ? [instruction]
             : [];
 
+    /// <inheritdoc/>
     public IReadOnlyList<GraphInstructionBinding> QueryGraphInstructionBindings() =>
         Phi4AudioGraphOperations.Bindings(InstructionTarget.Direct3D12)
             .Select(binding => binding with
