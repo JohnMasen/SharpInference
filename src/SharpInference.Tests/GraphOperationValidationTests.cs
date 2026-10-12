@@ -27,12 +27,12 @@ public sealed class GraphOperationValidationTests
     {
         var graph = new LogicalGraphBuilder(new GraphIdentity("external-model", 1, "custom-op"),
                 new GraphModelSignature("external", "external.empty@1", new Dictionary<string, int>()))
-            .AddRegion("graph", GraphRegionTypes.Graph, "Graph")
+            .Root("graph", GraphRegionTypes.Graph, "Graph")
             .AddResource("input", "Input", GraphResourceKind.Input, GraphResourceLifetime.External,
                 new TensorDescriptor(GraphElementType.Float32, [width]), graphInput: true)
             .AddResource("output", "Output", GraphResourceKind.Output, GraphResourceLifetime.External,
                 new TensorDescriptor(GraphElementType.Float32, [width]), graphOutput: true)
-            .AddNode("op", new GraphOperationId("external.scale", 2), "graph",
+            .Node("op", new GraphOperationId("external.scale", 2),
                 [GraphBindings.Read("input", "input"), GraphBindings.Write("output", "output")],
                 attributes: new Dictionary<string, string> { ["scale"] = "2" })
             .Build();

@@ -14,7 +14,7 @@ public enum Phi4AudioProjector
 }
 
 /// <summary>Builds and validates the speech or vision audio projection graph.</summary>
-public sealed class Phi4AudioProjectionGraphModule : IModelGraphModule, IGraphOperationValidator
+public sealed class Phi4AudioProjectionGraphModule : IPhi4GraphModule
 {
     private readonly int tokens;
     private readonly string prefix;
@@ -37,7 +37,6 @@ public sealed class Phi4AudioProjectionGraphModule : IModelGraphModule, IGraphOp
     /// <inheritdoc/>
     public string ArchitectureId { get; }
     /// <inheritdoc/>
-    public IGraphOperationValidator OperationValidator => this;
 
     /// <inheritdoc/>
     public bool CanLoad(IModelTensorCatalog tensors) =>
@@ -75,7 +74,7 @@ public sealed class Phi4AudioProjectionGraphModule : IModelGraphModule, IGraphOp
     }
 
     /// <inheritdoc/>
-    public LogicalGraph Build(IModelTensorCatalog tensors)
+    public LogicalGraphDefinition Build(IModelTensorCatalog tensors)
     {
         var metadata = ReadMetadata(tensors);
         var dimensions = metadata.Dimensions.ToDictionary(value => value.Key,
@@ -83,9 +82,9 @@ public sealed class Phi4AudioProjectionGraphModule : IModelGraphModule, IGraphOp
         var inputWidth = dimensions["audio_width"];
         var hiddenWidth = dimensions["hidden_width"];
         var outputWidth = dimensions["embedding_width"];
-        var builder = new LogicalGraphBuilder(new(ArchitectureId, 2, "forward"),
+        var builder = new Phi4GraphDefinitionBuilder(new(ArchitectureId, 2, "forward"),
                 new GraphModelSignature(ArchitectureId, ArchitectureId + ".empty@1", dimensions))
-            .AddRegion("root", GraphRegionTypes.Graph, "Audio projection", architecture: new(
+            .Root("root", GraphSectionTypes.Graph, "Audio projection", architecture: new(
                 Description: "Two-layer audio-to-decoder projector with biased GELU.",
                 DefaultView: GraphArchitectureView.Architecture))
             .AddResource("audio_hidden", "Conformer output", GraphResourceKind.Input, GraphResourceLifetime.External,
@@ -94,21 +93,21 @@ public sealed class Phi4AudioProjectionGraphModule : IModelGraphModule, IGraphOp
                 F(tokens, outputWidth), graphOutput: true);
         Temporary("projector_up_output", tokens, hiddenWidth);
         Temporary("projector_gelu_output", tokens, hiddenWidth);
-        var (firstWeight, firstBias, secondWeight, secondBias) = builder.WithRegion(
-            "weights", GraphRegionTypes.Architecture, "Weight Preparation", _ =>
+        var (firstWeight, firstBias, secondWeight, secondBias) = builder.SectionValue(
+            "weights", GraphSectionTypes.Architecture, "Weight Preparation", scope =>
             {
-                var upWeight = Weight(prefix + ".0.weight");
-                var upBias = Weight(prefix + ".0.bias");
-                var downWeight = Weight(prefix + ".2.weight");
-                var downBias = Weight(prefix + ".2.bias");
+                var upWeight = Weight(scope, prefix + ".0.weight");
+                var upBias = Weight(scope, prefix + ".0.bias");
+                var downWeight = Weight(scope, prefix + ".2.weight");
+                var downBias = Weight(scope, prefix + ".2.bias");
                 return (upWeight, upBias, downWeight, downBias);
-            }, parentId: "root", architecture: new(Description: "Converts projector weights to FP32 when required."));
-        builder.WithRegion("up", GraphRegionTypes.Architecture, "Up Projection",
+            }, architecture: new(Description: "Converts projector weights to FP32 when required."));
+        builder.SectionValue("up", GraphSectionTypes.Architecture, "Up Projection",
             scoped => scoped.MatrixMultiply("projector_up", "audio_hidden", firstWeight, "projector_up_output", transposeRight: true),
-            parentId: "root", architecture: new(Description: "Projects Conformer features to the projector hidden width."));
-        builder.WithRegion("activation", GraphRegionTypes.Architecture, "Bias / GELU", _ =>
+            architecture: new(Description: "Projects Conformer features to the projector hidden width."));
+        builder.Section("activation", GraphSectionTypes.Architecture, "Bias / GELU", scope =>
         {
-            Emit("projector_gelu", Phi4AudioGraphOperations.BiasActivation,
+            Emit(scope, "projector_gelu", Phi4AudioGraphOperations.BiasActivation,
                 [new("input", new("projector_up_output"), GraphResourceAccess.Read, View: new(0, F(checked(tokens * hiddenWidth)))),
                  GraphBindings.Read("bias", firstBias),
                  new("output", new("projector_gelu_output"), GraphResourceAccess.Write, View: new(0, F(checked(tokens * hiddenWidth))))],
@@ -118,17 +117,15 @@ public sealed class Phi4AudioProjectionGraphModule : IModelGraphModule, IGraphOp
                     ["width"] = hiddenWidth.ToString(CultureInfo.InvariantCulture),
                     ["activation"] = "gelu",
                 });
-        }, parentId: "root", architecture: new(Description: "Adds the hidden bias and applies GELU.", Formula: "h = gelu(x W_up^T + b_up)"));
-        builder.WithRegion("down", GraphRegionTypes.Architecture, "Down Projection",
+        }, architecture: new(Description: "Adds the hidden bias and applies GELU.", Formula: "h = gelu(x W_up^T + b_up)"));
+        builder.SectionValue("down", GraphSectionTypes.Architecture, "Down Projection",
             scoped => scoped.Affine("projector_down", "projector_gelu_output", secondWeight, secondBias, "output", transposeRight: true),
-            parentId: "root", architecture: new(Description: "Projects activated features to decoder embeddings.", Formula: "output = h W_down^T + b_down"));
-        var graph = builder.BuildSequential();
-        GraphValidator.Validate(graph, this);
-        return graph;
+            architecture: new(Description: "Projects activated features to decoder embeddings.", Formula: "output = h W_down^T + b_down"));
+        return builder.Build();
 
         void Temporary(string id, params int[] shape) => builder.AddResource(id, id,
             GraphResourceKind.Temporary, GraphResourceLifetime.Invocation, F(shape));
-        string Weight(string name)
+        string Weight(Phi4GraphDefinitionBuilder.Phi4DefinitionScope scope, string name)
         {
             var tensor = tensors.GetRequired(name);
             var id = "weight." + name;
@@ -138,37 +135,13 @@ public sealed class Phi4AudioProjectionGraphModule : IModelGraphModule, IGraphOp
             if (tensor.DataType == TensorDataType.Float32) return id;
             var converted = "cast." + name + "_output";
             Temporary(converted, tensor.Dimensions.ToArray());
-            Emit("cast." + name, PortableTensorOperationContracts.CastFp16ToFp32,
+            Emit(scope, "cast." + name, PortableTensorOperationContracts.CastFp16ToFp32,
                 [GraphBindings.Read("input", id), GraphBindings.Write("output", converted)], new Dictionary<string, string>());
             return converted;
         }
-        void Emit(string id, GraphOperationId operation, NodeResourceBinding[] bindings, IReadOnlyDictionary<string, string> attributes)
+        static void Emit(Phi4GraphDefinitionBuilder.Phi4DefinitionScope scope, string id, GraphOperationId operation, NodeResourceBinding[] bindings, IReadOnlyDictionary<string, string> attributes)
         {
-            builder.AddNode(id, operation, bindings, null, attributes);
-        }
-    }
-
-    /// <inheritdoc/>
-    public void Validate(GraphOperationValidationContext context)
-    {
-        if (!context.Operation.Name.StartsWith("phi4.audio.", StringComparison.Ordinal)) return;
-        if (context.Operation != Phi4AudioGraphOperations.BiasActivation)
-            throw new NotSupportedException($"No Phi4 audio projection contract is registered for '{context.Operation}'.");
-        if (!NumericTypeCompatibility.Satisfies(new(GraphElementType.Float32, GraphElementType.Float32), context.Requirements) ||
-            !new[] { "count", "width", "activation" }.ToHashSet(StringComparer.Ordinal).SetEquals(context.Attributes.Keys) ||
-            !int.TryParse(context.Attributes["count"], NumberStyles.None, CultureInfo.InvariantCulture, out var count) || count <= 0 ||
-            !int.TryParse(context.Attributes["width"], NumberStyles.None, CultureInfo.InvariantCulture, out var width) || width <= 0 ||
-            count % width != 0 || context.Attributes["activation"] != "gelu" ||
-            context.Bindings.Count != 3 ||
-            !new[] { "input", "bias", "output" }.ToHashSet(StringComparer.Ordinal).SetEquals(context.Bindings.Select(binding => binding.Port)) ||
-            context.Bindings.Any(binding => binding.Access != (binding.Port == "output" ? GraphResourceAccess.Write : GraphResourceAccess.Read)))
-            throw new InvalidDataException($"Phi4 audio projection node '{context.NodeId}' has incompatible precision, ports or attributes.");
-        foreach (var port in new[] { "input", "bias", "output" })
-        {
-            var tensor = context.Tensor(port);
-            if (tensor.ElementType != GraphElementType.Float32 || tensor.Layout != "dense" ||
-                !tensor.Dimensions.SequenceEqual([port == "bias" ? width : count]))
-                throw new InvalidDataException($"Phi4 audio projection node '{context.NodeId}' has an incompatible '{port}' tensor.");
+            scope.AddNode(id, operation, bindings, null, attributes);
         }
     }
 

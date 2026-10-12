@@ -32,7 +32,7 @@ public sealed class CpuPrimitiveGraphAuditTests
         var reduction = operation == PrimitiveGraphOperations.ReduceSum ||
             operation == PrimitiveGraphOperations.ReduceMean;
         var builder = new LogicalGraphBuilder(new GraphIdentity("audit", 1, name), Model)
-            .AddRegion("root", GraphRegionTypes.Graph, "root")
+            .Root("root", GraphRegionTypes.Graph, "root")
             .AddResource("x", "x", GraphResourceKind.Input, GraphResourceLifetime.External,
                 new TensorDescriptor(GraphElementType.Float16, [2]), graphInput: true)
             .AddResource("y", "y", GraphResourceKind.Output, GraphResourceLifetime.External,
@@ -40,7 +40,7 @@ public sealed class CpuPrimitiveGraphAuditTests
         if (binary)
             builder.AddResource("rhs", "rhs", GraphResourceKind.Input, GraphResourceLifetime.External,
                 new TensorDescriptor(GraphElementType.Float16, [2]), graphInput: true);
-        builder.AddNode("operation", operation, "root",
+        builder.Node("operation", operation,
             binary
                 ? [GraphBindings.Read("left", "x"), GraphBindings.Read("right", "rhs"),
                     GraphBindings.Write("output", "y")]
@@ -76,7 +76,7 @@ public sealed class CpuPrimitiveGraphAuditTests
     public void HalfGatherFeedsHalfMatVecThroughGraphResources()
     {
         var logical = new LogicalGraphBuilder(new GraphIdentity("audit", 1, "half-projection"), Model)
-            .AddRegion("root", GraphRegionTypes.Graph, "root")
+            .Root("root", GraphRegionTypes.Graph, "root")
             .AddResource("index", "index", GraphResourceKind.Input, GraphResourceLifetime.External,
                 new TensorDescriptor(GraphElementType.Int32, [1]), graphInput: true)
             .AddResource("table", "table", GraphResourceKind.Weight, GraphResourceLifetime.Model,
@@ -87,10 +87,10 @@ public sealed class CpuPrimitiveGraphAuditTests
                 new TensorDescriptor(GraphElementType.Float16, [2]))
             .AddResource("result", "result", GraphResourceKind.Output, GraphResourceLifetime.External,
                 new TensorDescriptor(GraphElementType.Float16, [2]), graphOutput: true)
-            .AddNode("gather", PrimitiveGraphOperations.GatherRow, "root",
+            .Node("gather", PrimitiveGraphOperations.GatherRow,
                 [GraphBindings.Read("table", "table"), GraphBindings.Read("index", "index"),
                     GraphBindings.Write("output", "row")])
-            .AddNode("matvec", PrimitiveGraphOperations.MatVec, "root",
+            .Node("matvec", PrimitiveGraphOperations.MatVec,
                 [GraphBindings.Read("matrix", "matrix"), GraphBindings.Read("input", "row"),
                     GraphBindings.Write("output", "result")], ["gather"])
             .Build();
@@ -115,14 +115,14 @@ public sealed class CpuPrimitiveGraphAuditTests
         Assert.Contains("scalar output [1]", diagnostic.Message, StringComparison.Ordinal);
 
         var logical = new LogicalGraphBuilder(new GraphIdentity("audit", 1, "gather"), Model)
-            .AddRegion("root", GraphRegionTypes.Graph, "root")
+            .Root("root", GraphRegionTypes.Graph, "root")
             .AddResource("table", "table", GraphResourceKind.Weight, GraphResourceLifetime.Model,
                 new TensorDescriptor(GraphElementType.Float32, [2, 2]), bindingKey: "table")
             .AddResource("index", "index", GraphResourceKind.Input, GraphResourceLifetime.External,
                 new TensorDescriptor(GraphElementType.Int32, [1, 1]), graphInput: true)
             .AddResource("result", "result", GraphResourceKind.Output, GraphResourceLifetime.External,
                 new TensorDescriptor(GraphElementType.Float32, [2]), graphOutput: true)
-            .AddNode("gather", PrimitiveGraphOperations.GatherRow, "root",
+            .Node("gather", PrimitiveGraphOperations.GatherRow,
                 [GraphBindings.Read("table", "table"), GraphBindings.Read("index", "index"),
                     GraphBindings.Write("output", "result")])
             .Build();
@@ -156,7 +156,7 @@ public sealed class CpuPrimitiveGraphAuditTests
     {
         var graph = new GraphOptimizer().Optimize(
             new LogicalGraphBuilder(new GraphIdentity("audit", 1, "sessions"), Model)
-                .AddRegion("root", GraphRegionTypes.Graph, "root")
+                .Root("root", GraphRegionTypes.Graph, "root")
                 .AddResource("input", "input", GraphResourceKind.Input, GraphResourceLifetime.External,
                     new TensorDescriptor(GraphElementType.Float32, [2]), graphInput: true)
                 .AddResource("state", "state", GraphResourceKind.SessionState, GraphResourceLifetime.Session,
@@ -164,10 +164,10 @@ public sealed class CpuPrimitiveGraphAuditTests
                 .AddResource("result", "result", GraphResourceKind.Output, GraphResourceLifetime.External,
                     new TensorDescriptor(GraphElementType.Float32, [2]), graphOutput: true)
                 .AddStateSlot("memory", "state")
-                .AddNode("add", PrimitiveGraphOperations.Add, "root",
+                .Node("add", PrimitiveGraphOperations.Add,
                     [GraphBindings.Read("left", "state"), GraphBindings.Read("right", "input"),
                         GraphBindings.Write("output", "result")])
-                .AddNode("store", PrimitiveGraphOperations.Copy, "root",
+                .Node("store", PrimitiveGraphOperations.Copy,
                     [GraphBindings.Read("input", "result"), GraphBindings.Write("output", "state")],
                     ["add"])
                 .Build());
@@ -189,7 +189,7 @@ public sealed class CpuPrimitiveGraphAuditTests
     public void WarmGraphDoesNotAllocateOneBufferPerNodePerToken()
     {
         var builder = new LogicalGraphBuilder(new GraphIdentity("audit", 1, "reuse"), Model)
-            .AddRegion("root", GraphRegionTypes.Graph, "root")
+            .Root("root", GraphRegionTypes.Graph, "root")
             .AddResource("input", "input", GraphResourceKind.Input, GraphResourceLifetime.External,
                 new TensorDescriptor(GraphElementType.Float32, [4]), graphInput: true)
             .AddResource("output", "output", GraphResourceKind.Output, GraphResourceLifetime.External,
@@ -201,7 +201,7 @@ public sealed class CpuPrimitiveGraphAuditTests
             if (index != 127)
                 builder.AddResource(next, next, GraphResourceKind.Temporary, GraphResourceLifetime.Invocation,
                     new TensorDescriptor(GraphElementType.Float32, [4]));
-            builder.AddNode($"copy.{index}", PrimitiveGraphOperations.Copy, "root",
+            builder.Node($"copy.{index}", PrimitiveGraphOperations.Copy,
                 [GraphBindings.Read("input", previous), GraphBindings.Write("output", next)],
                 index == 0 ? null : [$"copy.{index - 1}"]);
             previous = next;
@@ -219,12 +219,12 @@ public sealed class CpuPrimitiveGraphAuditTests
     private static ExecutionGraph Graph(GraphOperationId operation, int[] input, int[] output)
     {
         var logical = new LogicalGraphBuilder(new GraphIdentity("audit", 1, "primitive"), Model)
-            .AddRegion("root", GraphRegionTypes.Graph, "root")
+            .Root("root", GraphRegionTypes.Graph, "root")
             .AddResource("input", "input", GraphResourceKind.Input, GraphResourceLifetime.External,
                 new TensorDescriptor(GraphElementType.Float32, input), graphInput: true)
             .AddResource("output", "output", GraphResourceKind.Output, GraphResourceLifetime.External,
                 new TensorDescriptor(GraphElementType.Float32, output), graphOutput: true)
-            .AddNode("operation", operation, "root",
+            .Node("operation", operation,
                 [GraphBindings.Read("input", "input"), GraphBindings.Write("output", "output")])
             .Build();
         return new GraphOptimizer().Optimize(logical);

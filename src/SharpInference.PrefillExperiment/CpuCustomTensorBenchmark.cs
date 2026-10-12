@@ -127,14 +127,14 @@ internal static class CpuCustomTensorBenchmark
     {
         var builder = new LogicalGraphBuilder(new GraphIdentity("synthetic", 1, "cpu-tensor-benchmark"),
                 new GraphModelSignature("benchmark", "synthetic.state", new Dictionary<string, int>()))
-            .AddRegion("root", GraphRegionTypes.Graph, "root")
+            .Root("root", GraphRegionTypes.Graph, "root")
             .AddResource("output", "output", GraphResourceKind.Output, GraphResourceLifetime.External,
                 new TensorDescriptor(GraphElementType.Float32, shape), graphOutput: true);
         foreach (var source in sources)
             builder.AddResource(source.Port, source.Port, GraphResourceKind.Input, GraphResourceLifetime.External,
                 new TensorDescriptor(source.Data is Half[] ? GraphElementType.Float16 : GraphElementType.Float32,
                     source.Shape), graphInput: true);
-        builder.AddNode("operation", operation, "root",
+        builder.Node("operation", operation,
             sources.Select(source => GraphBindings.Read(source.Port, source.Port))
                 .Append(GraphBindings.Write("output", "output")), attributes: attributes);
         var graph = new GraphOptimizer().Optimize(builder.Build(),

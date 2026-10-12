@@ -41,7 +41,8 @@ public sealed class GraphBuilderExtensionsTests
                 .AddResource("index", "Index", GraphResourceKind.Input, GraphResourceLifetime.External, new(GraphElementType.Int32, [1]), graphInput: true)
                 .AddResource("output", "Output", GraphResourceKind.Output, GraphResourceLifetime.External, new(GraphElementType.Float32, output), graphOutput: true);
         }
-        var typed = Builder().WithRegion("root", GraphRegionTypes.Graph, "Root", scoped =>
+        var typedBuilder = Builder();
+        var scoped = typedBuilder.Root("root", GraphRegionTypes.Graph, "Root");
         {
             switch (operation)
             {
@@ -64,28 +65,28 @@ public sealed class GraphBuilderExtensionsTests
                 case "MatrixMultiply": scoped.MatrixMultiply("node", "input", "matrix", "output", transposeRight: true); break;
                 case "Affine": scoped.Affine("node", "input", "matrix", "bias", "output", transposeRight: true); break;
             }
-        }).Build();
+        }
+        var typed = typedBuilder.Build();
         TierZeroOperationContracts.ValidateGraph(typed);
         var node = Assert.Single(typed.Nodes);
-        var explicitGraph = Builder().AddRegion("root", GraphRegionTypes.Graph, "Root")
-            .AddNode("node", node.Operation, "root", node.Resources, attributes: node.Attributes).Build();
+        var explicitGraph = Builder().Root("root", GraphRegionTypes.Graph, "Root")
+            .Node("node", node.Operation, node.Resources, attributes: node.Attributes).Build();
         Assert.Equal(GraphXml.Serialize(explicitGraph), GraphXml.Serialize(typed));
         Assert.All(node.Resources, binding => Assert.Equal(binding.Port == "output" ?
             GraphResourceAccess.Write : GraphResourceAccess.Read, binding.Access));
     }
 
     [Fact]
-    public void TypedOperationsSupportExplicitRegionsAndRejectMissingScope()
+    public void TypedOperationsBelongToTheirRegionScope()
     {
         var builder = new LogicalGraphBuilder(new("test", 1, "explicit"),
             new("test", "test.empty@1", new Dictionary<string, int>()))
-            .AddRegion("root", GraphRegionTypes.Graph, "Root")
+            .Root("root", GraphRegionTypes.Graph, "Root")
             .AddResource("input", "Input", GraphResourceKind.Input, GraphResourceLifetime.External, new(GraphElementType.Float32, [2]), graphInput: true)
             .AddResource("output", "Output", GraphResourceKind.Output, GraphResourceLifetime.External, new(GraphElementType.Float32, [2]), graphOutput: true);
-        Assert.Throws<InvalidOperationException>(() => builder.Copy("invalid", "input", "output"));
-        builder.Copy("copy", "input", "output", regionId: "root");
+        builder.Copy("copy", "input", "output");
         Assert.Equal("root", Assert.Single(builder.Build().Nodes).Region.Value);
         Assert.Throws<ArgumentNullException>(() => GraphBuilderExtensions.Copy(null!, "copy", "input", "output"));
-        Assert.Throws<ArgumentException>(() => builder.Copy("bad", "", "output", regionId: "root"));
+        Assert.Throws<ArgumentException>(() => builder.Copy("bad", "", "output"));
     }
 }

@@ -24,17 +24,6 @@ public static class Phi4AudioGraphOperations
     /// <summary>The versioned graph operation identifier for relative-position audio attention.</summary>
     public static readonly GraphOperationId RelativeAttention = new(Phi4AudioInstructionNames.RelativeAttention, 1);
 
-    /// <summary>Returns the operation-to-instruction bindings for the specified execution target.</summary>
-    public static IReadOnlyList<GraphInstructionBinding> Bindings(InstructionTarget target) =>
-        [new(NormalizeFeatures, Phi4InstructionCollectionIds.AudioFloat32, Phi4AudioInstructionNames.NormalizeFeatures, target),
-         new(Conv2D, Phi4InstructionCollectionIds.AudioFloat32, Phi4AudioInstructionNames.Conv2D, target),
-         new(FlattenSubsampling, Phi4InstructionCollectionIds.AudioFloat32, Phi4AudioInstructionNames.FlattenSubsampling, target),
-         new(BiasActivation, Phi4InstructionCollectionIds.AudioFloat32, Phi4AudioInstructionNames.BiasActivation, target),
-         new(Conv1D, Phi4InstructionCollectionIds.AudioFloat32, Phi4AudioInstructionNames.Conv1D, target),
-         new(LayerNorm, Phi4InstructionCollectionIds.AudioFloat32, Phi4AudioInstructionNames.LayerNorm, target),
-         new(SwiGlu, Phi4InstructionCollectionIds.AudioFloat32, Phi4AudioInstructionNames.SwiGlu, target),
-         new(Residual, Phi4InstructionCollectionIds.AudioFloat32, Phi4AudioInstructionNames.Residual, target),
-         new(RelativeAttention, Phi4InstructionCollectionIds.AudioFloat32, Phi4AudioInstructionNames.RelativeAttention, target)];
 }
 
 /// <summary>Defines versioned graph operation identifiers and instruction bindings for Phi-4 vision processing.</summary>
@@ -53,14 +42,6 @@ public static class Phi4VisionGraphOperations
     /// <summary>The versioned graph operation identifier for high-definition image embedding gathering.</summary>
     public static readonly GraphOperationId HdGather = new(Phi4VisionInstructionNames.HdGather, 1);
 
-    /// <summary>Returns the operation-to-instruction bindings for the specified execution target.</summary>
-    public static IReadOnlyList<GraphInstructionBinding> Bindings(InstructionTarget target) =>
-        [new(PatchEmbedding, Phi4InstructionCollectionIds.VisionFloat32, Phi4VisionInstructionNames.PatchEmbedding, target),
-         new(LayerNorm, Phi4InstructionCollectionIds.VisionFloat32, Phi4VisionInstructionNames.LayerNorm, target),
-         new(Attention, Phi4InstructionCollectionIds.VisionFloat32, Phi4VisionInstructionNames.Attention, target),
-         new(Gelu, Phi4InstructionCollectionIds.VisionFloat32, Phi4VisionInstructionNames.Gelu, target),
-         new(Pool2x2, Phi4InstructionCollectionIds.VisionFloat32, Phi4VisionInstructionNames.Pool2x2, target),
-         new(HdGather, Phi4InstructionCollectionIds.VisionFloat32, Phi4VisionInstructionNames.HdGather, target)];
 }
 
 /// <summary>Defines versioned graph operation identifiers and instruction bindings for Phi-4 text decoding.</summary>
@@ -83,17 +64,6 @@ public static class Phi4TextGraphOperations
     /// <summary>The versioned graph operation identifier for decoder position advancement.</summary>
     public static readonly GraphOperationId AdvancePosition = new("phi4.text.advance-position", 1);
 
-    /// <summary>Returns the operation-to-instruction bindings for the specified execution target.</summary>
-    public static IReadOnlyList<GraphInstructionBinding> Bindings(InstructionTarget target) =>
-        [new(RmsNorm, Phi4InstructionCollectionIds.TextFloat32, "transformer.rms-norm", target),
-         new(SwiGlu, Phi4InstructionCollectionIds.TextFloat32, "transformer.swiglu", target),
-         new(RopeKeyValueWrite, Phi4InstructionCollectionIds.TextFloat32, "transformer.rope-kv-write", target,
-             ReadWritePorts: ["key_cache", "value_cache"]),
-         new(GroupedQueryScores, Phi4InstructionCollectionIds.TextFloat32, "transformer.gqa-scores", target),
-         new(CausalSoftmax, Phi4InstructionCollectionIds.TextFloat32, "transformer.causal-softmax", target),
-         new(GroupedQueryValues, Phi4InstructionCollectionIds.TextFloat32, "transformer.gqa-values", target),
-         new(ScaledAdd, Phi4InstructionCollectionIds.TextFloat32, "transformer.scaled-add", target),
-         new(AdvancePosition, Phi4InstructionCollectionIds.TextFloat32, "phi4.text.advance-position", target)];
 }
 
 /// <summary>Defines stable identifiers for the Phi-4 FP32 audio, vision, and text instruction collections.</summary>

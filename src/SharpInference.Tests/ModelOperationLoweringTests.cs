@@ -73,12 +73,12 @@ public sealed class ModelOperationLoweringTests
     private static LogicalGraph CreateGraph() =>
         new LogicalGraphBuilder(new("external", 1, "double"),
                 new GraphModelSignature("external", "external.empty@1", new Dictionary<string, int>()))
-            .AddRegion("root", GraphRegionTypes.Graph, "Root")
+            .Root("root", GraphRegionTypes.Graph, "Root")
             .AddResource("input", "Input", GraphResourceKind.Input, GraphResourceLifetime.External,
                 new TensorDescriptor(GraphElementType.Float32, [3]), graphInput: true)
             .AddResource("output", "Output", GraphResourceKind.Output, GraphResourceLifetime.External,
                 new TensorDescriptor(GraphElementType.Float32, [3]), graphOutput: true)
-            .AddNode("double", new GraphOperationId("external.double", 2), "root",
+            .Node("double", new GraphOperationId("external.double", 2),
                 [GraphBindings.Read("input", "input"), GraphBindings.Write("output", "output")])
             .Build();
 

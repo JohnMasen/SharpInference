@@ -8,21 +8,14 @@
   <ItemGroup>
     <ProjectReference Include="..\SharpInference.Abstractions\SharpInference.Abstractions.csproj" />
     <ProjectReference Include="..\SharpInference.Graphs\SharpInference.Graphs.csproj" />
-    <ProjectReference Include="..\SharpInference.Instructions\SharpInference.Instructions.csproj" />
     <ProjectReference Include="..\SharpInference.Gguf\SharpInference.Gguf.csproj" />
     <PackageReference Include="System.Numerics.Tensors" Version="10.0.0" />
   </ItemGroup>
-  <ItemGroup Condition="'$(TargetFramework)' == 'net10.0-windows10.0.19041.0'">
-    <ProjectReference Include="..\SharpInference.Backends.D3D12Vm\SharpInference.Backends.D3D12Vm.csproj" />
-    <ProjectReference Include="..\SharpInference.Backends.CpuVm\SharpInference.Backends.CpuVm.csproj" />
-    <ProjectReference Include="..\SharpInference.Runtime\SharpInference.Runtime.csproj" />
-    <ProjectReference Include="..\SharpInference.Runtime.Cpu\SharpInference.Runtime.Cpu.csproj" />
-    <ProjectReference Include="..\SharpInference.Runtime.D3D12\SharpInference.Runtime.D3D12.csproj" />
-    <ProjectReference Include="..\SharpInference.Vm.Optimization\SharpInference.Vm.Optimization.csproj" />
-    <ProjectReference Include="..\SharpInference.Instructions.D3D12\SharpInference.Instructions.D3D12.csproj" />
-  </ItemGroup>
-  <ItemGroup Condition="'$(TargetFramework)' == 'net10.0'">
+  <ItemGroup>
+    <!-- Runtime consumers are deferred until the execution IR is redesigned. -->
     <Compile Remove="Runtime\D3D12\**\*.cs" />
+    <Compile Remove="Instructions\Cpu\**\*.cs" />
     <Compile Remove="Instructions\D3D12\**\*.cs" />
+    <Compile Remove="Architecture\*Validation.cs" />
   </ItemGroup>
 </Project>

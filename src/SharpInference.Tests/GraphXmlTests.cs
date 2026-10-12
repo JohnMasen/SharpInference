@@ -9,12 +9,12 @@ public sealed class GraphXmlTests
     {
         var graph = new LogicalGraphBuilder(new("custom", 1, "shared-id"),
                 new GraphModelSignature("custom", "custom.empty@1", new Dictionary<string, int>()))
-            .AddRegion("root", GraphRegionTypes.Graph, "Root")
+            .Root("root", GraphRegionTypes.Graph, "Root")
             .AddResource("input", "Input", GraphResourceKind.Input, GraphResourceLifetime.External,
                 new TensorDescriptor(GraphElementType.Float32, [3]), graphInput: true)
             .AddResource("output", "Output", GraphResourceKind.Output, GraphResourceLifetime.External,
                 new TensorDescriptor(GraphElementType.Float32, [3]), graphOutput: true)
-            .AddNode("output", PrimitiveGraphOperations.Copy, "root",
+            .Node("output", PrimitiveGraphOperations.Copy,
                 [GraphBindings.Read("input", "input"), GraphBindings.Write("output", "output")])
             .Build();
         Assert.Same(graph, GraphOperationLowering.Apply(graph, null));

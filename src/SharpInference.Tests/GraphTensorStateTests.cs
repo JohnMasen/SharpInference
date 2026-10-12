@@ -60,7 +60,7 @@ public sealed class GraphTensorStateTests
         new LogicalGraphBuilder(new GraphIdentity("external-model", 1, "counter-state"),
                 new GraphModelSignature(modelType, "external.counter@3",
                     new Dictionary<string, int> { ["counterWidth"] = 3 }))
-            .AddRegion("graph", GraphRegionTypes.Graph, "Graph")
+            .Root("graph", GraphRegionTypes.Graph, "Graph")
             .SetStateSchema(new StateSchema("Counter_State"))
             .AddResource("counter", "Counter", GraphResourceKind.SessionState, GraphResourceLifetime.Session,
                 new TensorDescriptor(type, [3]))

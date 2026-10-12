@@ -3,14 +3,11 @@ using SharpInference.Graphs;
 namespace SharpInference.Architectures.Rwkv7;
 
 /// <summary>Recognizes RWKV-7 tensor catalogs and supplies metadata and portable logical graphs.</summary>
-public sealed class Rwkv7ModelModule : IModelGraphModule
+public sealed class Rwkv7ModelModule
 {
     private readonly PortableRwkv7GraphProvider provider = new();
     /// <inheritdoc/>
     public string ArchitectureId => provider.ArchitectureId;
-    /// <inheritdoc/>
-    public IGraphModelSignatureReader LegacySignatureReader { get; } = new RwkvLegacyGraphSignatureReader();
-
     /// <inheritdoc/>
     public bool CanLoad(IModelTensorCatalog tensors)
     {
@@ -33,5 +30,5 @@ public sealed class Rwkv7ModelModule : IModelGraphModule
     }
 
     /// <inheritdoc/>
-    public LogicalGraph Build(IModelTensorCatalog tensors) => provider.Build(tensors);
+    public LogicalGraphDefinition Build(IModelTensorCatalog tensors) => provider.Build(tensors);
 }

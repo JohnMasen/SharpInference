@@ -106,14 +106,14 @@ public sealed class CpuFusedElementwiseExpressionTests(ITestOutputHelper output)
         ]);
         var logical = new LogicalGraphBuilder(new GraphIdentity("synthetic", 1, "branched"),
                 TestGraphSignatures.Create(2, 2, 1, 1, 2, "synthetic.state"))
-            .AddRegion("root", GraphRegionTypes.Graph, "root")
+            .Root("root", GraphRegionTypes.Graph, "root")
             .AddResource("a", "a", GraphResourceKind.Input, GraphResourceLifetime.External,
                 new TensorDescriptor(GraphElementType.Float32, [width]), graphInput: true)
             .AddResource("b", "b", GraphResourceKind.Input, GraphResourceLifetime.External,
                 new TensorDescriptor(GraphElementType.Float32, [width]), graphInput: true)
             .AddResource("result", "result", GraphResourceKind.Output, GraphResourceLifetime.External,
                 new TensorDescriptor(GraphElementType.Float32, [width]), graphOutput: true)
-            .AddNode("expression", FusedElementwiseExpressionContract.Operation, "root",
+            .Node("expression", FusedElementwiseExpressionContract.Operation,
                 [GraphBindings.Read("input0", "a"), GraphBindings.Read("input1", "b"),
                     GraphBindings.Write("output", "result")],
                 attributes: FusedElementwiseExpressionContract.ToAttributes(expression))
@@ -150,14 +150,14 @@ public sealed class CpuFusedElementwiseExpressionTests(ITestOutputHelper output)
         ]);
         var logical = new LogicalGraphBuilder(new GraphIdentity("synthetic", 1, "branched-tanh"),
                 TestGraphSignatures.Create(2, 2, 1, 1, 2, "synthetic.state"))
-            .AddRegion("root", GraphRegionTypes.Graph, "root")
+            .Root("root", GraphRegionTypes.Graph, "root")
             .AddResource("a", "a", GraphResourceKind.Input, GraphResourceLifetime.External,
                 new TensorDescriptor(GraphElementType.Float32, [width]), graphInput: true)
             .AddResource("b", "b", GraphResourceKind.Input, GraphResourceLifetime.External,
                 new TensorDescriptor(GraphElementType.Float32, [width]), graphInput: true)
             .AddResource("result", "result", GraphResourceKind.Output, GraphResourceLifetime.External,
                 new TensorDescriptor(GraphElementType.Float32, [width]), graphOutput: true)
-            .AddNode("expression", FusedElementwiseExpressionContract.Operation, "root",
+            .Node("expression", FusedElementwiseExpressionContract.Operation,
                 [GraphBindings.Read("input0", "a"), GraphBindings.Read("input1", "b"),
                     GraphBindings.Write("output", "result")],
                 attributes: FusedElementwiseExpressionContract.ToAttributes(expression))
@@ -222,7 +222,7 @@ public sealed class CpuFusedElementwiseExpressionTests(ITestOutputHelper output)
         var binary = FusedElementwiseExpressionContract.Arity(operation) == 2;
         var builder = new LogicalGraphBuilder(new GraphIdentity("synthetic", 1, name),
                 TestGraphSignatures.Create(2, 2, 1, 1, 2, "synthetic.state"))
-            .AddRegion("root", GraphRegionTypes.Graph, "root")
+            .Root("root", GraphRegionTypes.Graph, "root")
             .AddResource("a", "a", GraphResourceKind.Input, GraphResourceLifetime.External,
                 new TensorDescriptor(GraphElementType.Float32, [2]), graphInput: true)
             .AddResource("b", "b", GraphResourceKind.Input, GraphResourceLifetime.External,
@@ -231,9 +231,9 @@ public sealed class CpuFusedElementwiseExpressionTests(ITestOutputHelper output)
                 GraphResourceLifetime.Invocation, new TensorDescriptor(GraphElementType.Float32, [2]))
             .AddResource("result", "result", GraphResourceKind.Output, GraphResourceLifetime.External,
                 new TensorDescriptor(GraphElementType.Float32, [2]), graphOutput: true)
-            .AddNode("copy", PrimitiveGraphOperations.Copy, "root",
+            .Node("copy", PrimitiveGraphOperations.Copy,
                 [GraphBindings.Read("input", "a"), GraphBindings.Write("output", "temporary")])
-            .AddNode("step", operation, "root",
+            .Node("step", operation,
                 binary
                     ? [GraphBindings.Read("left", "temporary"), GraphBindings.Read("right", "b"),
                         GraphBindings.Write("output", "result")]
@@ -266,7 +266,7 @@ public sealed class CpuFusedElementwiseExpressionTests(ITestOutputHelper output)
     {
         var graph = new LogicalGraphBuilder(new GraphIdentity("synthetic", 1, "processor-expression"),
                 TestGraphSignatures.Create(2, 2, 1, 1, 2, "synthetic.state.fp32@1"))
-            .AddRegion("root", GraphRegionTypes.Graph, "root")
+            .Root("root", GraphRegionTypes.Graph, "root")
             .AddResource("token", "token", GraphResourceKind.Input, GraphResourceLifetime.External,
                 new TensorDescriptor(GraphElementType.Int32, [1]), graphInput: true)
             .AddResource("weight", "weight", GraphResourceKind.Weight, GraphResourceLifetime.Model,
@@ -279,13 +279,13 @@ public sealed class CpuFusedElementwiseExpressionTests(ITestOutputHelper output)
                 new TensorDescriptor(GraphElementType.Float32, [2]))
             .AddResource("logits", "logits", GraphResourceKind.Output, GraphResourceLifetime.External,
                 new TensorDescriptor(GraphElementType.Float32, [2]), graphOutput: true)
-            .AddNode("gather", PrimitiveGraphOperations.GatherRow, "root",
+            .Node("gather", PrimitiveGraphOperations.GatherRow,
                 [GraphBindings.Read("table", "weight"), GraphBindings.Read("index", "token"),
                     GraphBindings.Write("output", "row")])
-            .AddNode("sum", PrimitiveGraphOperations.Add, "root",
+            .Node("sum", PrimitiveGraphOperations.Add,
                 [GraphBindings.Read("left", "row"), GraphBindings.Read("right", "bias"),
                     GraphBindings.Write("output", "sum")], ["gather"])
-            .AddNode("relu", PrimitiveGraphOperations.Relu, "root",
+            .Node("relu", PrimitiveGraphOperations.Relu,
                 [GraphBindings.Read("input", "sum"), GraphBindings.Write("output", "logits")], ["sum"])
             .Build();
         var backend = CpuPrimitiveGraphBackend.Instance;
@@ -364,7 +364,7 @@ public sealed class CpuFusedElementwiseExpressionTests(ITestOutputHelper output)
     private static LogicalGraph BuildChain(int width) =>
         new LogicalGraphBuilder(new GraphIdentity("synthetic", 1, "fused-expression"),
                 TestGraphSignatures.Create(2, 2, 1, 1, 2, "synthetic.state"))
-            .AddRegion("root", GraphRegionTypes.Graph, "root")
+            .Root("root", GraphRegionTypes.Graph, "root")
             .AddResource("a", "a", GraphResourceKind.Input, GraphResourceLifetime.External,
                 new TensorDescriptor(GraphElementType.Float32, [width]), graphInput: true)
             .AddResource("b", "b", GraphResourceKind.Input, GraphResourceLifetime.External,
@@ -379,16 +379,16 @@ public sealed class CpuFusedElementwiseExpressionTests(ITestOutputHelper output)
                 GraphResourceLifetime.Invocation, new TensorDescriptor(GraphElementType.Float32, [width]))
             .AddResource("result", "result", GraphResourceKind.Output, GraphResourceLifetime.External,
                 new TensorDescriptor(GraphElementType.Float32, [width]), graphOutput: true)
-            .AddNode("sum", PrimitiveGraphOperations.Add, "root",
+            .Node("sum", PrimitiveGraphOperations.Add,
                 [GraphBindings.Read("left", "a"), GraphBindings.Read("right", "b"),
                     GraphBindings.Write("output", "sum")])
-            .AddNode("product", PrimitiveGraphOperations.Multiply, "root",
+            .Node("product", PrimitiveGraphOperations.Multiply,
                 [GraphBindings.Read("left", "sum"), GraphBindings.Read("right", "c"),
                     GraphBindings.Write("output", "product")], ["sum"])
-            .AddNode("activation", PrimitiveGraphOperations.Tanh, "root",
+            .Node("activation", PrimitiveGraphOperations.Tanh,
                 [GraphBindings.Read("input", "product"), GraphBindings.Write("output", "activation")],
                 ["product"])
-            .AddNode("maximum", PrimitiveGraphOperations.Maximum, "root",
+            .Node("maximum", PrimitiveGraphOperations.Maximum,
                 [GraphBindings.Read("left", "activation"), GraphBindings.Read("right", "b"),
                     GraphBindings.Write("output", "result")], ["activation"])
             .Build();

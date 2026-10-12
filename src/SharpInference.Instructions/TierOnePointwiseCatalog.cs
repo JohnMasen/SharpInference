@@ -77,7 +77,7 @@ public sealed class TierOnePointwiseDefinition
                 operand.Name != "output" && !Inputs.Contains(operand.Name, StringComparer.Ordinal)) ||
             operands.All(operand => operand.Name != "output"))
             diagnostic = "Unsupported ports.";
-        else if (!NumericTypeCompatibility.Satisfies(TierOnePointwiseCatalog.Precision, requirement))
+        else if (!InstructionPrecisionCompatibility.Satisfies(TierOnePointwiseCatalog.Precision, requirement))
             diagnostic = "Insufficient internal precision.";
         else
         {

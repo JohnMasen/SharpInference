@@ -16,7 +16,7 @@ public sealed class VmGraphBindingValidatorTests
     {
         var graph = new LogicalGraphBuilder(new("external", 1, "typed-io"),
                 new GraphModelSignature("external", "external.typed@2", new Dictionary<string, int>()))
-            .AddRegion("root", GraphRegionTypes.Graph, "Root")
+            .Root("root", GraphRegionTypes.Graph, "Root")
             .SetStateSchema(new("External_State"))
             .AddResource("input", "Input", GraphResourceKind.Input, GraphResourceLifetime.External,
                 new TensorDescriptor(graphType, [2]), graphInput: true)

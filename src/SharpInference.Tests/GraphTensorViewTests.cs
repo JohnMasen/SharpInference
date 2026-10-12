@@ -104,12 +104,12 @@ public sealed class GraphTensorViewTests
     public void PartialWritesRequireCompleteCoverageAndDependencies(bool missingDependency)
     {
         var builder = CopyBuilder()
-            .AddNode("first", PrimitiveGraphOperations.Copy, "root",
+            .Node("first", PrimitiveGraphOperations.Copy,
                 [View("input", "input", GraphResourceAccess.Read, 0, 2), View("output", "temporary", GraphResourceAccess.Write, 0, 2)]);
         if (missingDependency)
-            builder.AddNode("second", PrimitiveGraphOperations.Copy, "root",
+            builder.Node("second", PrimitiveGraphOperations.Copy,
                 [View("input", "input", GraphResourceAccess.Read, 8, 2), View("output", "temporary", GraphResourceAccess.Write, 8, 2)]);
-        builder.AddNode("read", PrimitiveGraphOperations.Copy, "root",
+        builder.Node("read", PrimitiveGraphOperations.Copy,
             [GraphBindings.Read("input", "temporary"), GraphBindings.Write("output", "output")], ["first"]);
         var error = Assert.Throws<InvalidDataException>(() => builder.Build());
         Assert.Contains(missingDependency ? "unordered overlapping view accesses" : "uninitialized byte range", error.Message);
@@ -119,11 +119,11 @@ public sealed class GraphTensorViewTests
     public void DisjointWritesInitializeTemporaryStorageWithoutAssumingZeroFill()
     {
         var graph = CopyBuilder()
-            .AddNode("first", PrimitiveGraphOperations.Copy, "root",
+            .Node("first", PrimitiveGraphOperations.Copy,
                 [View("input", "input", GraphResourceAccess.Read, 0, 2), View("output", "temporary", GraphResourceAccess.Write, 0, 2)])
-            .AddNode("second", PrimitiveGraphOperations.Copy, "root",
+            .Node("second", PrimitiveGraphOperations.Copy,
                 [View("input", "input", GraphResourceAccess.Read, 8, 2), View("output", "temporary", GraphResourceAccess.Write, 8, 2)])
-            .AddNode("read", PrimitiveGraphOperations.Copy, "root",
+            .Node("read", PrimitiveGraphOperations.Copy,
                 [GraphBindings.Read("input", "temporary"), GraphBindings.Write("output", "output")], ["first", "second"])
             .Build();
         using var backend = CpuVmBackendFactory.Create();
@@ -141,14 +141,14 @@ public sealed class GraphTensorViewTests
     {
         var graph = new LogicalGraphBuilder(new("external", 2, "half-view"),
                 new GraphModelSignature("matrix", "matrix.empty@1", new Dictionary<string, int>()))
-            .AddRegion("root", GraphRegionTypes.Graph, "Root")
+            .Root("root", GraphRegionTypes.Graph, "Root")
             .AddResource("input", "Input", GraphResourceKind.Input, GraphResourceLifetime.External,
                 new TensorDescriptor(GraphElementType.Float32, [2]), graphInput: true)
             .AddResource("weight", "Weight", GraphResourceKind.Weight, GraphResourceLifetime.Model,
                 new TensorDescriptor(GraphElementType.Float16, [8]), "weight")
             .AddResource("output", "Output", GraphResourceKind.Output, GraphResourceLifetime.External,
                 new TensorDescriptor(GraphElementType.Float32, [2]), graphOutput: true)
-            .AddNode("multiply", PrimitiveGraphOperations.MatVec, "root",
+            .Node("multiply", PrimitiveGraphOperations.MatVec,
                 [new("matrix", new("weight"), GraphResourceAccess.Read, View: new(8, new(GraphElementType.Float16, [2, 2]))),
                  GraphBindings.Read("input", "input"), GraphBindings.Write("output", "output")])
             .Build();
@@ -164,21 +164,21 @@ public sealed class GraphTensorViewTests
 
     private static LogicalGraph CreateGraph() => new LogicalGraphBuilder(new("external", 2, "views.forward"),
             new GraphModelSignature("array", "array.empty@1", new Dictionary<string, int>()))
-        .AddRegion("root", GraphRegionTypes.Graph, "Root")
+        .Root("root", GraphRegionTypes.Graph, "Root")
         .AddResource("input", "Input", GraphResourceKind.Input, GraphResourceLifetime.External,
             new TensorDescriptor(GraphElementType.Float32, [10]), graphInput: true)
         .AddResource("output", "Output", GraphResourceKind.Output, GraphResourceLifetime.External,
             new TensorDescriptor(GraphElementType.Float32, [6]), graphOutput: true)
-        .AddNode("first", PrimitiveGraphOperations.Add, "root",
+        .Node("first", PrimitiveGraphOperations.Add,
             [View("left", "input", GraphResourceAccess.Read, 4, 3), View("right", "input", GraphResourceAccess.Read, 16, 3),
              View("output", "output", GraphResourceAccess.Write, 0, 3)])
-        .AddNode("second", PrimitiveGraphOperations.Add, "root",
+        .Node("second", PrimitiveGraphOperations.Add,
             [View("left", "input", GraphResourceAccess.Read, 16, 3), View("right", "input", GraphResourceAccess.Read, 28, 3),
              View("output", "output", GraphResourceAccess.Write, 12, 3)]).Build();
 
-    private static LogicalGraphBuilder CopyBuilder() => new LogicalGraphBuilder(new("external", 2, "view-copy"),
+    private static LogicalGraphRegionBuilder CopyBuilder() => new LogicalGraphBuilder(new("external", 2, "view-copy"),
             new GraphModelSignature("array", "array.empty@1", new Dictionary<string, int>()))
-        .AddRegion("root", GraphRegionTypes.Graph, "Root")
+        .Root("root", GraphRegionTypes.Graph, "Root")
         .AddResource("input", "Input", GraphResourceKind.Input, GraphResourceLifetime.External,
             new TensorDescriptor(GraphElementType.Float32, [4]), graphInput: true)
         .AddResource("temporary", "Temporary", GraphResourceKind.Temporary, GraphResourceLifetime.Invocation,

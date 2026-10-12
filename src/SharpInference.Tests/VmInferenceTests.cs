@@ -149,7 +149,7 @@ public sealed class VmInferenceTests
         var builder = new LogicalGraphBuilder(new("test", 1, "accumulator"),
             TestGraphSignatures.Create(8, 1, 1, 1, 1, "test-state"))
             .SetStateSchema(new StateSchema("accumulator-state"));
-        builder.AddRegion("graph", GraphRegionTypes.Graph, "graph");
+        var root = builder.Root("graph", GraphRegionTypes.Graph, "graph");
         builder.AddResource("token", "token", GraphResourceKind.Input, GraphResourceLifetime.External,
             new(GraphElementType.Int32, [1]), graphInput: true);
         builder.AddResource("logits", "logits", GraphResourceKind.Output, GraphResourceLifetime.External,
@@ -162,13 +162,13 @@ public sealed class VmInferenceTests
             new(GraphElementType.Float32, [1]));
         builder.AddResource("next", "next", GraphResourceKind.Temporary, GraphResourceLifetime.Invocation,
             new(GraphElementType.Float32, [1]));
-        builder.AddNode("gather", PrimitiveGraphOperations.GatherRow, "graph",
+        root.Node("gather", PrimitiveGraphOperations.GatherRow,
             [GraphBindings.Read("table", "weight"), GraphBindings.Read("index", "token"), GraphBindings.Write("output", "value")]);
-        builder.AddNode("add", PrimitiveGraphOperations.Add, "graph",
+        root.Node("add", PrimitiveGraphOperations.Add,
             [GraphBindings.Read("left", "state"), GraphBindings.Read("right", "value"), GraphBindings.Write("output", "next")], ["gather"]);
-        builder.AddNode("copy", PrimitiveGraphOperations.Copy, "graph",
+        root.Node("copy", PrimitiveGraphOperations.Copy,
             [GraphBindings.Read("input", "next"), GraphBindings.Write("output", "state")], ["add"]);
-        builder.AddNode("broadcast", PortableTensorOperationContracts.Broadcast, "graph",
+        root.Node("broadcast", PortableTensorOperationContracts.Broadcast,
             [GraphBindings.Read("input", "state"), GraphBindings.Write("output", "logits")], ["copy"]);
         return builder.Build();
     }

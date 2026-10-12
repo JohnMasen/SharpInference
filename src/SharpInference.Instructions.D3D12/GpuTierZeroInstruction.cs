@@ -408,9 +408,9 @@ internal sealed class GpuTierZeroInstruction(Guid id,string name) : TierZeroInst
         }
         else if (op.Operation.StartsWith("core.tensor.", StringComparison.Ordinal))
         {
-            var contract = PortableTensorOperationContracts.Contracts.SingleOrDefault(c =>
-                c.Operation.Name == op.Operation && c.Operation.Version == op.Version) ?? throw Error("unsupported tensor operation.");
-            ports = contract.InputPorts.ToArray();
+            if (op.Version != 1)
+                throw Error("unsupported tensor operation version.");
+            ports = TierZeroInstruction.InputPorts(op.Operation).ToArray();
             var dims = output.Tensor.Dimensions;
             switch (op.Operation)
             {

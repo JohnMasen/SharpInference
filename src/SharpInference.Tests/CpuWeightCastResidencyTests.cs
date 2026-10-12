@@ -14,7 +14,7 @@ public sealed class CpuWeightCastResidencyTests
         var graph = new GraphOptimizer().Optimize(
             new LogicalGraphBuilder(new GraphIdentity("synthetic", 1, "weight-cache"),
                 TestGraphSignatures.Create(2, width, 1, 1, width, "synthetic.state"))
-                .AddRegion("root", GraphRegionTypes.Graph, "root")
+                .Root("root", GraphRegionTypes.Graph, "root")
                 .AddResource("weight", "weight", GraphResourceKind.Weight, GraphResourceLifetime.Model,
                     new TensorDescriptor(GraphElementType.Float16, [width, width]), bindingKey: "weight")
                 .AddResource("converted", "converted", GraphResourceKind.Temporary,
@@ -27,13 +27,13 @@ public sealed class CpuWeightCastResidencyTests
                     new TensorDescriptor(GraphElementType.Float32, [width]), graphInput: true)
                 .AddResource("result", "result", GraphResourceKind.Output, GraphResourceLifetime.External,
                     new TensorDescriptor(GraphElementType.Float32, [width]), graphOutput: true)
-                .AddNode("cast", PortableTensorOperationContracts.CastFp16ToFp32, "root",
+                .Node("cast", PortableTensorOperationContracts.CastFp16ToFp32,
                     [GraphBindings.Read("input", "weight"), GraphBindings.Write("output", "converted")],
                     requirements: FloatPrecision)
-                .AddNode("reshape", PortableTensorOperationContracts.Reshape, "root",
+                .Node("reshape", PortableTensorOperationContracts.Reshape,
                     [GraphBindings.Read("input", "converted"), GraphBindings.Write("output", "reshaped")],
                     ["cast"], requirements: FloatPrecision)
-                .AddNode("matvec", PrimitiveGraphOperations.MatVec, "root",
+                .Node("matvec", PrimitiveGraphOperations.MatVec,
                     [GraphBindings.Read("matrix", "reshaped"), GraphBindings.Read("input", "vector"),
                         GraphBindings.Write("output", "result")], ["reshape"])
                 .Build());
@@ -77,12 +77,12 @@ public sealed class CpuWeightCastResidencyTests
         var graph = new LogicalGraphBuilder(
                 new GraphIdentity("synthetic", 1, "dynamic-cast"),
                 TestGraphSignatures.Create(2, 2, 1, 1, 2, "synthetic.state"))
-            .AddRegion("root", GraphRegionTypes.Graph, "root")
+            .Root("root", GraphRegionTypes.Graph, "root")
             .AddResource("input", "input", GraphResourceKind.Input, GraphResourceLifetime.External,
                 new TensorDescriptor(GraphElementType.Float16, [2]), graphInput: true)
             .AddResource("result", "result", GraphResourceKind.Output, GraphResourceLifetime.External,
                 new TensorDescriptor(GraphElementType.Float32, [2]), graphOutput: true)
-            .AddNode("cast", PortableTensorOperationContracts.CastFp16ToFp32, "root",
+            .Node("cast", PortableTensorOperationContracts.CastFp16ToFp32,
                 [GraphBindings.Read("input", "input"), GraphBindings.Write("output", "result")],
                 requirements: FloatPrecision)
             .Build();
@@ -104,7 +104,7 @@ public sealed class CpuWeightCastResidencyTests
         var graph = new LogicalGraphBuilder(
                 new GraphIdentity("synthetic", 1, "half-gather"),
                 TestGraphSignatures.Create(width, width, 1, 1, width, "synthetic.state"))
-            .AddRegion("root", GraphRegionTypes.Graph, "root")
+            .Root("root", GraphRegionTypes.Graph, "root")
             .AddResource("weight", "weight", GraphResourceKind.Weight, GraphResourceLifetime.Model,
                 new TensorDescriptor(GraphElementType.Float16, [width, width]), bindingKey: "weight")
             .AddResource("cast", "cast", GraphResourceKind.Temporary, GraphResourceLifetime.Invocation,
@@ -115,13 +115,13 @@ public sealed class CpuWeightCastResidencyTests
                 new TensorDescriptor(GraphElementType.Int32, [1]), graphInput: true)
             .AddResource("result", "result", GraphResourceKind.Output, GraphResourceLifetime.External,
                 new TensorDescriptor(GraphElementType.Float32, [width]), graphOutput: true)
-            .AddNode("cast", PortableTensorOperationContracts.CastFp16ToFp32, "root",
+            .Node("cast", PortableTensorOperationContracts.CastFp16ToFp32,
                 [GraphBindings.Read("input", "weight"), GraphBindings.Write("output", "cast")],
                 requirements: FloatPrecision)
-            .AddNode("reshape", PortableTensorOperationContracts.Reshape, "root",
+            .Node("reshape", PortableTensorOperationContracts.Reshape,
                 [GraphBindings.Read("input", "cast"), GraphBindings.Write("output", "table")],
                 ["cast"], requirements: FloatPrecision)
-            .AddNode("gather", PrimitiveGraphOperations.GatherRow, "root",
+            .Node("gather", PrimitiveGraphOperations.GatherRow,
                 [GraphBindings.Read("table", "table"), GraphBindings.Read("index", "index"),
                     GraphBindings.Write("output", "result")], ["reshape"])
             .Build();
@@ -150,7 +150,7 @@ public sealed class CpuWeightCastResidencyTests
         var graph = new GraphOptimizer().Optimize(new LogicalGraphBuilder(
                 new GraphIdentity("synthetic", 1, "vectorized-half"),
                 TestGraphSignatures.Create(2, 2, 1, 1, 2, "synthetic.state"))
-            .AddRegion("root", GraphRegionTypes.Graph, "root")
+            .Root("root", GraphRegionTypes.Graph, "root")
             .AddResource("weight", "weight", GraphResourceKind.Weight, GraphResourceLifetime.Model,
                 new TensorDescriptor(GraphElementType.Float16, [rows, columns]), bindingKey: "weight")
             .AddResource("converted", "converted", GraphResourceKind.Temporary,
@@ -160,10 +160,10 @@ public sealed class CpuWeightCastResidencyTests
                 new TensorDescriptor(GraphElementType.Float32, [columns]), graphInput: true)
             .AddResource("result", "result", GraphResourceKind.Output, GraphResourceLifetime.External,
                 new TensorDescriptor(GraphElementType.Float32, [rows]), graphOutput: true)
-            .AddNode("cast", PortableTensorOperationContracts.CastFp16ToFp32, "root",
+            .Node("cast", PortableTensorOperationContracts.CastFp16ToFp32,
                 [GraphBindings.Read("input", "weight"), GraphBindings.Write("output", "converted")],
                 requirements: FloatPrecision)
-            .AddNode("matvec", PrimitiveGraphOperations.MatVec, "root",
+            .Node("matvec", PrimitiveGraphOperations.MatVec,
                 [GraphBindings.Read("matrix", "converted"), GraphBindings.Read("input", "vector"),
                     GraphBindings.Write("output", "result")], ["cast"])
             .Build());
@@ -192,7 +192,7 @@ public sealed class CpuWeightCastResidencyTests
         var graph = new LogicalGraphBuilder(
                 new GraphIdentity("synthetic", 1, "elementwise-cast"),
                 TestGraphSignatures.Create(2, 2, 1, 1, 2, "synthetic.state"))
-            .AddRegion("root", GraphRegionTypes.Graph, "root")
+            .Root("root", GraphRegionTypes.Graph, "root")
             .AddResource("weight", "weight", GraphResourceKind.Weight, GraphResourceLifetime.Model,
                 new TensorDescriptor(GraphElementType.Float16, [2]), bindingKey: "weight")
             .AddResource("cast", "cast", GraphResourceKind.Temporary, GraphResourceLifetime.Invocation,
@@ -201,10 +201,10 @@ public sealed class CpuWeightCastResidencyTests
                 new TensorDescriptor(GraphElementType.Float32, [2]), graphInput: true)
             .AddResource("result", "result", GraphResourceKind.Output, GraphResourceLifetime.External,
                 new TensorDescriptor(GraphElementType.Float32, [2]), graphOutput: true)
-            .AddNode("cast", PortableTensorOperationContracts.CastFp16ToFp32, "root",
+            .Node("cast", PortableTensorOperationContracts.CastFp16ToFp32,
                 [GraphBindings.Read("input", "weight"), GraphBindings.Write("output", "cast")],
                 requirements: FloatPrecision)
-            .AddNode("add", PrimitiveGraphOperations.Add, "root",
+            .Node("add", PrimitiveGraphOperations.Add,
                 [GraphBindings.Read("left", "cast"), GraphBindings.Read("right", "input"),
                     GraphBindings.Write("output", "result")], ["cast"])
             .Build();
@@ -224,7 +224,7 @@ public sealed class CpuWeightCastResidencyTests
         var graph = new GraphOptimizer().Optimize(
             new LogicalGraphBuilder(new GraphIdentity("synthetic", 1, "sessions"),
                 TestGraphSignatures.Create(2, 2, 1, 1, 2, "synthetic.state"))
-                .AddRegion("root", GraphRegionTypes.Graph, "root")
+                .Root("root", GraphRegionTypes.Graph, "root")
                 .AddResource("token", "token", GraphResourceKind.Input, GraphResourceLifetime.External,
                     new TensorDescriptor(GraphElementType.Int32, [1]), graphInput: true)
                 .AddResource("weight", "weight", GraphResourceKind.Weight, GraphResourceLifetime.Model,
@@ -237,13 +237,13 @@ public sealed class CpuWeightCastResidencyTests
                     new TensorDescriptor(GraphElementType.Float32, [2, 2]))
                 .AddResource("logits", "logits", GraphResourceKind.Output, GraphResourceLifetime.External,
                     new TensorDescriptor(GraphElementType.Float32, [2]), graphOutput: true)
-                .AddNode("cast", PortableTensorOperationContracts.CastFp16ToFp32, "root",
+                .Node("cast", PortableTensorOperationContracts.CastFp16ToFp32,
                     [GraphBindings.Read("input", "weight"), GraphBindings.Write("output", "converted")],
                     requirements: FloatPrecision)
-                .AddNode("reshape", PortableTensorOperationContracts.Reshape, "root",
+                .Node("reshape", PortableTensorOperationContracts.Reshape,
                     [GraphBindings.Read("input", "converted"), GraphBindings.Write("output", "reshaped")],
                     ["cast"], requirements: FloatPrecision)
-                .AddNode("gather", PrimitiveGraphOperations.GatherRow, "root",
+                .Node("gather", PrimitiveGraphOperations.GatherRow,
                     [GraphBindings.Read("table", "reshaped"), GraphBindings.Read("index", "token"),
                         GraphBindings.Write("output", "logits")], ["reshape"])
                 .Build());
@@ -273,7 +273,7 @@ public sealed class CpuWeightCastResidencyTests
         var graph = new GraphOptimizer().Optimize(
             new LogicalGraphBuilder(new GraphIdentity("synthetic", 1, "large-state"),
                 TestGraphSignatures.Create(2, 2, 1, 1, 2, "synthetic.state"))
-                .AddRegion("root", GraphRegionTypes.Graph, "root")
+                .Root("root", GraphRegionTypes.Graph, "root")
                 .AddResource("token", "token", GraphResourceKind.Input, GraphResourceLifetime.External,
                     new TensorDescriptor(GraphElementType.Int32, [1]), graphInput: true)
                 .AddResource("memory", "memory", GraphResourceKind.SessionState, GraphResourceLifetime.Session,
@@ -281,9 +281,9 @@ public sealed class CpuWeightCastResidencyTests
                 .AddResource("logits", "logits", GraphResourceKind.Output, GraphResourceLifetime.External,
                     new TensorDescriptor(GraphElementType.Float32, [2]), graphOutput: true)
                 .AddStateSlot("memory", "memory")
-                .AddNode("store", PrimitiveGraphOperations.Copy, "root",
+                .Node("store", PrimitiveGraphOperations.Copy,
                     [GraphBindings.Read("input", "memory"), GraphBindings.Write("output", "memory")])
-                .AddNode("fill", PortableTensorOperationContracts.Fill, "root",
+                .Node("fill", PortableTensorOperationContracts.Fill,
                     [GraphBindings.Write("output", "logits")], ["store"],
                     new TensorFillValue(2).ToAttributes(), FloatPrecision)
                 .Build());
@@ -313,10 +313,10 @@ public sealed class CpuWeightCastResidencyTests
         var graph = new GraphOptimizer().Optimize(
             new LogicalGraphBuilder(new GraphIdentity("synthetic", 1, "lazy-scratch"),
                 TestGraphSignatures.Create(2, 2, 1, 1, 2, "synthetic.state"))
-                .AddRegion("root", GraphRegionTypes.Graph, "root")
+                .Root("root", GraphRegionTypes.Graph, "root")
                 .AddResource("logits", "logits", GraphResourceKind.Output, GraphResourceLifetime.External,
                     new TensorDescriptor(GraphElementType.Float32, [width]), graphOutput: true)
-                .AddNode("fill", PortableTensorOperationContracts.Fill, "root",
+                .Node("fill", PortableTensorOperationContracts.Fill,
                     [GraphBindings.Write("output", "logits")],
                     attributes: new TensorFillValue(1).ToAttributes(), requirements: FloatPrecision)
                 .Build());

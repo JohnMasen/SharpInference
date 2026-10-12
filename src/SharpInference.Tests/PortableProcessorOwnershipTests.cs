@@ -52,7 +52,7 @@ public sealed class PortableProcessorOwnershipTests
                     TestGraphSignatures.Create(metadata.VocabularySize, metadata.EmbeddingSize,
                         metadata.LayerCount, metadata.HeadCount, metadata.HeadSize,
                         "experimental-graph.state.fp32@1"))
-                .AddRegion("graph", GraphRegionTypes.Graph, "Graph")
+                .Root("graph", GraphRegionTypes.Graph, "Graph")
                 .AddResource("token", "Token", GraphResourceKind.Input,
                     GraphResourceLifetime.External, new TensorDescriptor(GraphElementType.Int32, [1]),
                     graphInput: true)
@@ -63,7 +63,7 @@ public sealed class PortableProcessorOwnershipTests
                 .AddResource("weight", "Weight", GraphResourceKind.Weight,
                     GraphResourceLifetime.Model,
                     new TensorDescriptor(GraphElementType.Float32, weight.Dimensions), "head.weight")
-                .AddNode("gather", PrimitiveGraphOperations.GatherRow, "graph",
+                .Node("gather", PrimitiveGraphOperations.GatherRow,
                     [GraphBindings.Read("table", "weight"), GraphBindings.Read("index", "token"),
                      GraphBindings.Write("output", "logits")])
                 .Build();
@@ -102,7 +102,7 @@ public sealed class PortableProcessorOwnershipTests
         var graph = new LogicalGraphBuilder(
                 new GraphIdentity("test-graph", 1, "test.forward"),
                 TestGraphSignatures.Create(2, 2, 1, 1, 2, "test-graph.state.fp32@1"))
-            .AddRegion("graph", GraphRegionTypes.Graph, "Graph")
+            .Root("graph", GraphRegionTypes.Graph, "Graph")
             .AddResource("token", "Token", GraphResourceKind.Input,
                 GraphResourceLifetime.External, new TensorDescriptor(GraphElementType.Int32, [1]),
                 graphInput: true)
@@ -112,7 +112,7 @@ public sealed class PortableProcessorOwnershipTests
             .AddResource("weight", "Weight", GraphResourceKind.Weight,
                 GraphResourceLifetime.Model, new TensorDescriptor(GraphElementType.Float32, [2, 2]),
                 "table")
-            .AddNode("gather", PrimitiveGraphOperations.GatherRow, "graph",
+            .Node("gather", PrimitiveGraphOperations.GatherRow,
                 [GraphBindings.Read("table", "weight"), GraphBindings.Read("index", "token"),
                  GraphBindings.Write("output", "logits")])
             .Build();

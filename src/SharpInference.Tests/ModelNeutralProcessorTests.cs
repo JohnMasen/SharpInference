@@ -87,14 +87,14 @@ public sealed class ModelNeutralProcessorTests
         public LogicalGraph Build(IModelTensorCatalog tensors) =>
             new LogicalGraphBuilder(new(ArchitectureId, 1, "array.add"),
                     new GraphModelSignature("array", "opaque-cache-v3", new Dictionary<string, int> { ["samples"] = 3 }))
-                .AddRegion("root", GraphRegionTypes.Graph, "Root")
+                .Root("root", GraphRegionTypes.Graph, "Root")
                 .AddResource("input", "Input", GraphResourceKind.Input, GraphResourceLifetime.External,
                     new TensorDescriptor(GraphElementType.Float32, [3]), graphInput: true)
                 .AddResource("offset", "Offset", GraphResourceKind.Weight, GraphResourceLifetime.Model,
                     new TensorDescriptor(GraphElementType.Float32, [3]), "offset")
                 .AddResource("output", "Output", GraphResourceKind.Output, GraphResourceLifetime.External,
                     new TensorDescriptor(GraphElementType.Float32, [3]), graphOutput: true)
-                .AddNode("add", modelOperation ? new GraphOperationId("external.offset", 1) : PrimitiveGraphOperations.Add, "root",
+                .Node("add", modelOperation ? new GraphOperationId("external.offset", 1) : PrimitiveGraphOperations.Add,
                     [GraphBindings.Read("left", "input"), GraphBindings.Read("right", "offset"),
                      GraphBindings.Write("output", "output")])
                 .Build();

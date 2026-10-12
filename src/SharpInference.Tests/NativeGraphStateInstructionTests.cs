@@ -55,7 +55,7 @@ public sealed class NativeGraphStateInstructionTests
     private static LogicalGraph Graph(GraphResourceAccess access) =>
         new LogicalGraphBuilder(new("external.counter", 1, "forward"),
                 new GraphModelSignature("external.counter", "external.counter.state@1", new Dictionary<string, int>()))
-            .AddRegion("root", GraphRegionTypes.Graph, "Root")
+            .Root("root", GraphRegionTypes.Graph, "Root")
             .SetStateSchema(new("external.counter.state@1"))
             .AddResource("delta", "Delta", GraphResourceKind.Input, GraphResourceLifetime.External,
                 new TensorDescriptor(GraphElementType.Int32, [1]), graphInput: true)
@@ -64,7 +64,7 @@ public sealed class NativeGraphStateInstructionTests
             .AddResource("state", "Counter", GraphResourceKind.SessionState, GraphResourceLifetime.Session,
                 new TensorDescriptor(GraphElementType.Int32, [1]))
             .AddStateSlot("counter", "state")
-            .AddNode("accumulate", Accumulate, "root",
+            .Node("accumulate", Accumulate,
                 [GraphBindings.Read("delta", "delta"), new("state", new("state"), access), GraphBindings.Write("output", "output")])
             .Build();
 

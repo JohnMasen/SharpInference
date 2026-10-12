@@ -24,7 +24,7 @@ public sealed class VmTensorGraphSessionTests
         var biasAdd = operation == "core.bias-add";
         var builder = new LogicalGraphBuilder(new("matrix", 1, "forward"),
                 new GraphModelSignature("matrix", "matrix.empty@1", new Dictionary<string, int>()))
-            .AddRegion("root", GraphRegionTypes.Graph, "Root")
+            .Root("root", GraphRegionTypes.Graph, "Root")
             .AddResource("input", "Input", GraphResourceKind.Input, GraphResourceLifetime.External,
                 new TensorDescriptor(GraphElementType.Float32, [2, biasAdd ? 2 : 3]), graphInput: true)
             .AddResource("output", "Output", GraphResourceKind.Output, GraphResourceLifetime.External,
@@ -49,7 +49,7 @@ public sealed class VmTensorGraphSessionTests
             inputs[new("bias")] = Bytes([0.5f, -0.5f]);
         }
         bindings.Add(GraphBindings.Write("output", "output"));
-        var graph = builder.AddNode("operation", new(operation), "root", bindings,
+        var graph = builder.Node("operation", new(operation), bindings,
             attributes: biasAdd ? new Dictionary<string, string>() : new Dictionary<string, string>
             {
                 ["transpose_left"] = "false", ["transpose_right"] = "true",
@@ -68,12 +68,12 @@ public sealed class VmTensorGraphSessionTests
     {
         var graph = new LogicalGraphBuilder(new("external", 1, "double-array"),
                 new GraphModelSignature("array", "array.empty@1", new Dictionary<string, int>()))
-            .AddRegion("root", GraphRegionTypes.Graph, "Root")
+            .Root("root", GraphRegionTypes.Graph, "Root")
             .AddResource("input", "Input", GraphResourceKind.Input, GraphResourceLifetime.External,
                 new TensorDescriptor(GraphElementType.Float32, [3]), graphInput: true)
             .AddResource("output", "Output", GraphResourceKind.Output, GraphResourceLifetime.External,
                 new TensorDescriptor(GraphElementType.Float32, [3]), graphOutput: true)
-            .AddNode("add", PrimitiveGraphOperations.Add, "root",
+            .Node("add", PrimitiveGraphOperations.Add,
                 [GraphBindings.Read("left", "input"), GraphBindings.Read("right", "input"), GraphBindings.Write("output", "output")])
             .Build();
         var collections = SharpInference.Runtime.Cpu.CpuInstructionCollections.Create();
@@ -100,7 +100,7 @@ public sealed class VmTensorGraphSessionTests
     {
         var graph = new LogicalGraphBuilder(new("counter", 1, "counter"),
                 new GraphModelSignature("counter", "counter.state@1", new Dictionary<string, int>()))
-            .AddRegion("root", GraphRegionTypes.Graph, "Root")
+            .Root("root", GraphRegionTypes.Graph, "Root")
             .SetStateSchema(new("Counter_State"))
             .AddResource("input", "Input", GraphResourceKind.Input, GraphResourceLifetime.External,
                 new TensorDescriptor(GraphElementType.Int32, [2]), graphInput: true)

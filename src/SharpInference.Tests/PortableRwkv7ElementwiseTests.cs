@@ -11,7 +11,8 @@ public sealed class PortableRwkv7ElementwiseTests
         var builder = new LogicalGraphBuilder(
             new GraphIdentity("rwkv-7", 1, "elementwise-test"),
             TestGraphSignatures.Create(32, 4, 1, 1, 4, "rwkv-7.state.fp32@1"));
-        builder.AddRegion("graph", GraphRegionTypes.Graph, "Elementwise test");
+        var root = builder.Root("graph", GraphRegionTypes.Graph, "Elementwise test",
+            architecture: new(Description: "Portable RWKV-7 elementwise decomposition test."));
         var inputs = new Dictionary<string, float[]>
         {
             ["x"] = [0.4f, -0.5f, 1.2f, 2f],
@@ -28,7 +29,7 @@ public sealed class PortableRwkv7ElementwiseTests
             builder.AddResource(input, input, GraphResourceKind.Input, GraphResourceLifetime.External,
                 new TensorDescriptor(GraphElementType.Float32, [4]), graphInput: true);
 
-        var portable = new Rwkv7PortableElementwiseBuilder(builder, "graph", 4);
+        var portable = new Rwkv7PortableElementwiseBuilder(root, 4);
         var mix = portable.Mix("time-mix", "x", "previous", "coefficient");
         var value = portable.InterpolateValue("value-mix", "value", "first", "gate");
         var key = portable.AdaptKey("key", "key", "adaptation", "key-adapt");
@@ -85,7 +86,8 @@ public sealed class PortableRwkv7ElementwiseTests
     {
         var builder = new LogicalGraphBuilder(new GraphIdentity("rwkv-7", 1, "test"),
             TestGraphSignatures.Create(32, 4, 1, 1, 4, "state"));
+        var root = builder.Root("graph", GraphRegionTypes.Graph, "Graph");
         Assert.Throws<ArgumentOutOfRangeException>(() =>
-            new Rwkv7PortableElementwiseBuilder(builder, "graph", 0));
+            new Rwkv7PortableElementwiseBuilder(root, 0));
     }
 }

@@ -9,7 +9,7 @@ namespace SharpInference.Architectures.Phi4;
 public sealed record Phi4FusionSegment(int Start, int TokenCount, string? EmbeddingPort = null);
 
 /// <summary>Builds a dense prompt embedding graph that combines text tokens with image and audio embedding segments.</summary>
-public sealed class Phi4FusionGraphModule : IModelGraphModule
+public sealed class Phi4FusionGraphModule : IPhi4GraphModule
 {
     private readonly int tokenCount;
     private readonly Phi4FusionSegment[] segments;
@@ -53,13 +53,13 @@ public sealed class Phi4FusionGraphModule : IModelGraphModule
     }
 
     /// <inheritdoc/>
-    public LogicalGraph Build(IModelTensorCatalog tensors)
+    public LogicalGraphDefinition Build(IModelTensorCatalog tensors)
     {
         var dimensions = ReadMetadata(tensors).Dimensions.ToDictionary(pair => pair.Key, pair => checked((int)pair.Value));
         var width = dimensions["embedding_width"];
         var embedding = tensors.GetRequired("text.token_embd.weight");
-        var builder = new LogicalGraphBuilder(new(ArchitectureId, 2, "forward"), new GraphModelSignature(ArchitectureId, "phi4.fusion.empty@1", dimensions))
-            .AddRegion("root", GraphRegionTypes.Graph, "Dense token-major embedding fusion", architecture: new(
+        var builder = new Phi4GraphDefinitionBuilder(new(ArchitectureId, 2, "forward"), new GraphModelSignature(ArchitectureId, "phi4.fusion.empty@1", dimensions))
+            .Root("root", GraphSectionTypes.Graph, "Dense token-major embedding fusion", architecture: new(
                 Description: "Assembles text and media embeddings into explicit dense prompt row ranges.",
                 DefaultView: GraphArchitectureView.Architecture))
             .AddResource("output", "Fused prompt", GraphResourceKind.Output, GraphResourceLifetime.External,
@@ -72,39 +72,39 @@ public sealed class Phi4FusionGraphModule : IModelGraphModule
                 new TensorDescriptor(embedding.DataType == TensorDataType.Float16 ? GraphElementType.Float16 : GraphElementType.Float32, embedding.Dimensions), embedding.Name);
         }
         var index = 0;
-        builder.AddRegion("fusion", GraphRegionTypes.Stage, "Fusion", "root",
-            architecture: new(Description: "Writes each prompt segment to its disjoint tensor view."));
-        foreach (var segment in segments)
+        builder.Section("fusion", GraphSectionTypes.Stage, "Fusion", fusion =>
         {
-            builder.WithRegion($"segment.{segment.Start}", GraphRegionTypes.Architecture,
-                segment.EmbeddingPort is { } media ? media + " Embeddings" : "Text Embeddings", _ =>
+            foreach (var segment in segments)
             {
-                if (segment.EmbeddingPort is { } port)
+                fusion.Section($"segment.{segment.Start}", GraphSectionTypes.Architecture,
+                    segment.EmbeddingPort is { } media ? media + " Embeddings" : "Text Embeddings", scope =>
                 {
-                    var shape = new TensorDescriptor(GraphElementType.Float32, [segment.TokenCount, width]);
-                    builder.AddResource(port, port, GraphResourceKind.Input, GraphResourceLifetime.External, shape, graphInput: true);
-                    Emit(PrimitiveGraphOperations.Copy,
-                        [GraphBindings.Read("input", port), new("output", new("output"), GraphResourceAccess.Write,
-                        View: new(checked((ulong)segment.Start * (ulong)width * sizeof(float)), shape))]);
-                }
-                else
-                {
-                    for (var row = segment.Start; row < segment.Start + segment.TokenCount; row++)
-                        Emit(PrimitiveGraphOperations.GatherRow,
-                            [GraphBindings.Read("table", "token_embedding"), new("index", new("token_ids"), GraphResourceAccess.Read,
-                            View: new(checked((ulong)row * sizeof(int)), new TensorDescriptor(GraphElementType.Int32, [1]))),
-                         new("output", new("output"), GraphResourceAccess.Write,
-                            View: new(checked((ulong)row * (ulong)width * sizeof(float)), new TensorDescriptor(GraphElementType.Float32, [width])))]);
-                }
-            }, parentId: "fusion",
-                architecture: new(Description: $"Writes prompt rows [{segment.Start}, {segment.Start + segment.TokenCount}) using the actual tensor-view bindings."));
-        }
-        return builder.BuildSequential();
+                    if (segment.EmbeddingPort is { } port)
+                    {
+                        var shape = new TensorDescriptor(GraphElementType.Float32, [segment.TokenCount, width]);
+                        builder.AddResource(port, port, GraphResourceKind.Input, GraphResourceLifetime.External, shape, graphInput: true);
+                        Emit(scope, PrimitiveGraphOperations.Copy,
+                            [GraphBindings.Read("input", port), new("output", new("output"), GraphResourceAccess.Write,
+                            View: new(checked((ulong)segment.Start * (ulong)width * sizeof(float)), shape))]);
+                    }
+                    else
+                    {
+                        for (var row = segment.Start; row < segment.Start + segment.TokenCount; row++)
+                            Emit(scope, PrimitiveGraphOperations.GatherRow,
+                                [GraphBindings.Read("table", "token_embedding"), new("index", new("token_ids"), GraphResourceAccess.Read,
+                                View: new(checked((ulong)row * sizeof(int)), new TensorDescriptor(GraphElementType.Int32, [1]))),
+                             new("output", new("output"), GraphResourceAccess.Write,
+                                View: new(checked((ulong)row * (ulong)width * sizeof(float)), new TensorDescriptor(GraphElementType.Float32, [width])))]);
+                    }
+                }, architecture: new(Description: $"Writes prompt rows [{segment.Start}, {segment.Start + segment.TokenCount}) using the actual tensor-view bindings."));
+            }
+        }, architecture: new(Description: "Writes each prompt segment to its disjoint tensor view."));
+        return builder.Build();
 
-        void Emit(GraphOperationId operation, NodeResourceBinding[] bindings)
+        void Emit(Phi4GraphDefinitionBuilder.Phi4DefinitionScope scope, GraphOperationId operation, NodeResourceBinding[] bindings)
         {
             var id = "fusion.node." + index++;
-            builder.AddNode(id, operation, bindings, null);
+            scope.AddNode(id, operation, bindings, null);
         }
     }
 

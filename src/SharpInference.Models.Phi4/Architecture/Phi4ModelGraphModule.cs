@@ -3,32 +3,46 @@ using SharpInference.Graphs;
 namespace SharpInference.Architectures.Phi4;
 
 /// <summary>Composes optional media encoders and embedding fusion with the stateful Phi-4 text decoder.</summary>
-public sealed class Phi4ModelGraphModule : IModelGraphModule, IGraphOperationValidator
+public sealed class Phi4ModelGraphModule : IPhi4GraphModule
 {
     private readonly Phi4TextGraphModule text;
     private readonly Phi4FusionGraphModule? fusion;
-    private readonly IReadOnlyDictionary<string, IModelGraphModule> encoders;
+    private readonly IReadOnlyDictionary<string, IPhi4GraphModule> encoders;
 
-    /// <summary>Initializes the decoder and optional fusion and media encoder composition with the selected adapter.</summary>
-    public Phi4ModelGraphModule(int maximumContext = 4096, Phi4Adapter adapter = Phi4Adapter.None,
-        float? adapterScale = null, Phi4FusionGraphModule? fusion = null,
-        IReadOnlyDictionary<string, IModelGraphModule>? encoders = null)
+    /// <summary>Initializes decoder, fusion, and optional media encoder definition composition.</summary>
+    public Phi4ModelGraphModule(
+        int maximumContext = 4096,
+        Phi4Adapter adapter = Phi4Adapter.None,
+        float? adapterScale = null,
+        Phi4FusionGraphModule? fusion = null,
+        IReadOnlyDictionary<string, IPhi4GraphModule>? encoders = null)
     {
         if (fusion is null && encoders is { Count: > 0 })
             throw new ArgumentException("Encoder connections require a fusion graph.", nameof(encoders));
-        this.encoders = (encoders ?? new Dictionary<string, IModelGraphModule>()).ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.Ordinal);
-        if (this.encoders.Any(pair => string.IsNullOrWhiteSpace(pair.Key) || pair.Value is not (Phi4AudioGraphModule or Phi4VisionGraphModule)))
-            throw new ArgumentException("Phi4 encoder connections must explicitly name audio or vision modules.", nameof(encoders));
+        this.encoders = (encoders ?? new Dictionary<string, IPhi4GraphModule>())
+            .ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.Ordinal);
+        if (this.encoders.Any(pair =>
+                string.IsNullOrWhiteSpace(pair.Key) ||
+                pair.Value is not (Phi4AudioGraphModule or Phi4VisionGraphModule)))
+            throw new ArgumentException(
+                "Phi4 encoder connections must explicitly name audio or vision modules.",
+                nameof(encoders));
         this.fusion = fusion;
         text = new(maximumContext, embeddingInput: fusion is not null, adapter, adapterScale);
     }
 
     /// <inheritdoc/>
     public string ArchitectureId => "phi4";
+
+    /// <summary>
+    /// The legacy runtime operation validator. The definition IR is not currently consumable by
+    /// the Runtime/D3D12 pipeline.
+    /// </summary>
+
     /// <inheritdoc/>
-    public IGraphOperationValidator OperationValidator => this;
-    /// <inheritdoc/>
-    public bool CanLoad(IModelTensorCatalog tensors) => text.CanLoad(tensors) && encoders.Values.All(module => module.CanLoad(tensors));
+    public bool CanLoad(IModelTensorCatalog tensors) =>
+        text.CanLoad(tensors) && encoders.Values.All(module => module.CanLoad(tensors));
+
     /// <inheritdoc/>
     public ModelMetadata ReadMetadata(IModelTensorCatalog tensors)
     {
@@ -39,98 +53,97 @@ public sealed class Phi4ModelGraphModule : IModelGraphModule, IGraphOperationVal
     }
 
     /// <inheritdoc/>
-    public LogicalGraph Build(IModelTensorCatalog tensors)
+    public LogicalGraphDefinition Build(IModelTensorCatalog tensors)
     {
+        var metadata = ReadMetadata(tensors);
+        var dimensions = metadata.Dimensions.ToDictionary(
+            pair => pair.Key, pair => checked((int)pair.Value), StringComparer.Ordinal);
         var decoder = text.Build(tensors);
-        var builder = new LogicalGraphBuilder(new(ArchitectureId, 2, "forward"),
-                new GraphModelSignature(ArchitectureId, decoder.Model.StateAbiId, decoder.Model.Dimensions, decoder.Model.Attributes))
-            .AddRegion("root", GraphRegionTypes.Graph, "Phi4 model-owned component composition", architecture: new(
-                Description: "Model-owned audio/vision encoders, dense embedding fusion and a stateful text decoder.",
-                DefaultView: GraphArchitectureView.Architecture, Step: GraphArchitectureStep.Token))
-            .SetStateSchema(decoder.GraphState.Schema);
-        var resources = new Dictionary<string, TensorDescriptor>(StringComparer.Ordinal);
+        var builder = new Phi4GraphDefinitionBuilder(
+                new(ArchitectureId, 2, "forward"),
+                new GraphModelSignature(ArchitectureId, "phi4.definition@1", dimensions))
+            .Root("root", GraphSectionTypes.Graph, "Phi4 model-owned component composition",
+                architecture: new(
+                    Description: "Model-owned audio/vision encoders, dense embedding fusion and a stateful text decoder.",
+                    DefaultView: GraphArchitectureView.Architecture,
+                    Step: GraphArchitectureStep.Token));
+
         if (fusion is not null)
         {
             var fused = fusion.Build(tensors);
-            var aliases = new Dictionary<string, string>(StringComparer.Ordinal) { ["output"] = "fusion." + fused.Nodes[^1].Id.Value + "_output", ["token_ids"] = "token_ids" };
+            var aliases = new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["output"] = "fusion.output",
+                ["token_ids"] = "token_ids",
+            };
             foreach (var (port, module) in encoders)
             {
-                if (!fused.Inputs.Contains(new ResourceId(port))) throw new InvalidDataException($"Fusion has no encoder port '{port}'.");
+                var input = fused.Resources.SingleOrDefault(resource =>
+                    resource.Id.Value == port && resource.Kind == GraphDefinitionResourceKind.Input)
+                    ?? throw new InvalidDataException($"Fusion has no encoder port '{port}'.");
                 var component = module.Build(tensors);
-                var output = component.Resources.Single(resource => resource.Id.Value == "output").Tensor;
-                var target = fused.Resources.Single(resource => resource.Id.Value == port).Tensor;
-                if (!Same(output, target)) throw new InvalidDataException($"Encoder '{port}' does not match the dense fusion ABI.");
-                var destination = port + "." + component.Nodes[^1].Id.Value + "_output";
-                Append(component, port, new Dictionary<string, string> { ["output"] = destination });
+                var output = component.Resources.Single(resource =>
+                    resource.Id.Value == "output" &&
+                    resource.Kind == GraphDefinitionResourceKind.Output);
+                if (!Same(output.Tensor, input.Tensor))
+                    throw new InvalidDataException(
+                        $"Encoder '{port}' does not match the dense fusion ABI.");
+                var destination = $"{port}.output";
+                builder.AppendDefinition(component, port,
+                    new Dictionary<string, string> { ["output"] = destination });
                 aliases.Add(port, destination);
             }
-            Append(fused, "fusion", aliases);
-            var width = decoder.Model.Dimensions["embedding_width"];
-            var shape = new TensorDescriptor(GraphElementType.Float32, [width]);
-            builder.AddResource("select_prompt_embedding_output", "Selected fused token", GraphResourceKind.Temporary, GraphResourceLifetime.Invocation, shape)
-                .AddResource("prompt_index", "Prompt row", GraphResourceKind.Input, GraphResourceLifetime.External,
-                    new TensorDescriptor(GraphElementType.Int32, [1]), graphInput: true);
-            resources.Add("select_prompt_embedding_output", shape);
-            builder.AddRegion("prompt-selection", GraphRegionTypes.Architecture, "Prompt Row Selection", "root",
-                architecture: new(Description: "Selects the fused prompt embedding for the current decoder invocation."));
-            builder.AddNode("select_prompt_embedding", PrimitiveGraphOperations.GatherRow, "prompt-selection",
-                [GraphBindings.Read("table", aliases["output"]), GraphBindings.Read("index", "prompt_index"), GraphBindings.Write("output", "select_prompt_embedding_output")],
-                null);
+            builder.AppendDefinition(fused, "fusion", aliases);
+            builder
+                .AddResource(
+                    "select_prompt_embedding_output",
+                    "Selected fused token",
+                    GraphResourceKind.Temporary,
+                    GraphResourceLifetime.Invocation,
+                    new TensorDescriptor(
+                        GraphElementType.Float32,
+                        [dimensions["embedding_width"]]))
+                .AddResource(
+                    "prompt_index",
+                    "Prompt row",
+                    GraphResourceKind.Input,
+                    GraphResourceLifetime.External,
+                    new TensorDescriptor(GraphElementType.Int32, [1]),
+                    graphInput: true);
+            builder.Section(
+                "prompt-selection",
+                GraphSectionTypes.Architecture,
+                "Prompt Row Selection",
+                scope => scope.AddNode(
+                    "select_prompt_embedding",
+                    PrimitiveGraphOperations.GatherRow,
+                    [
+                        GraphBindings.Read("table", aliases["output"]),
+                        GraphBindings.Read("index", "prompt_index"),
+                        GraphBindings.Write(
+                            "output",
+                            "select_prompt_embedding_output"),
+                    ]),
+                architecture: new(
+                    Description: "Selects the fused prompt embedding for the current decoder invocation."));
         }
-        Append(decoder, "decoder", new Dictionary<string, string>
-        {
-            ["embedding"] = "select_prompt_embedding_output", ["position"] = "position", ["token"] = "token", ["logits"] = "logits",
-        }, exposeOutputs: true);
-        var graph = GraphLayerReuse.Extract(builder.BuildSequential(), region => region.Type != GraphRegionTypes.Layer ? null :
-            region.Id.Value.StartsWith("decoder.", StringComparison.Ordinal) ? "Phi4.Text.Layer" :
-            region.Id.Value.StartsWith("audio.", StringComparison.Ordinal) ? "Phi4.Audio.Layer" : "Phi4.Vision.Layer");
-        GraphValidator.Validate(graph, this);
-        return graph;
 
-        void Append(LogicalGraph component, string tag, IReadOnlyDictionary<string, string> aliases, bool exposeOutputs = false)
-        {
-            string Map(ResourceId id)
+        builder.AppendDefinition(
+            decoder,
+            "decoder",
+            new Dictionary<string, string>
             {
-                if (aliases.TryGetValue(id.Value, out var alias)) return alias;
-                var resource = component.Resources.Single(resource => resource.Id == id);
-                return resource.Kind == GraphResourceKind.Weight && resource.BindingKey is { } key ? "weight." + key : tag + "." + id.Value;
-            }
-            foreach (var resource in component.Resources)
-            {
-                var id = Map(resource.Id);
-                if (resources.TryGetValue(id, out var existing))
-                {
-                    if (!Same(existing, resource.Tensor)) throw new InvalidDataException($"Phi4 component '{tag}' has an incompatible port '{resource.Id}'.");
-                    continue;
-                }
-                var output = component.Outputs.Contains(resource.Id);
-                var internalOutput = output && !exposeOutputs;
-                builder.AddResource(id, resource.Name, internalOutput ? GraphResourceKind.Temporary : resource.Kind,
-                    internalOutput ? GraphResourceLifetime.Invocation : resource.Lifetime, resource.Tensor, resource.BindingKey,
-                    component.Inputs.Contains(resource.Id), output && exposeOutputs, resource.DeclaredScope);
-                resources.Add(id, resource.Tensor);
-            }
-            foreach (var region in component.Regions)
-                builder.AddRegion(tag + "." + region.Id.Value, region.Type == GraphRegionTypes.Graph ? GraphRegionTypes.Stage : region.Type,
-                    region.Name, region.ParentId is { } parent ? tag + "." + parent.Value : "root", region.Role, region.Attributes,
-                    region.Architecture?.MapResources(id => new ResourceId(Map(id))));
-            foreach (var node in component.Nodes)
-            {
-                var id = tag + "." + node.Id.Value;
-                builder.AddNode(id, node.Operation, tag + "." + node.Region.Value, node.Resources.Select(binding => binding with { Resource = new(Map(binding.Resource)) }),
-                    null, node.Attributes, node.Requirements);
-            }
-            foreach (var state in component.GraphState) builder.AddStateSlot(tag + "." + state.Name, Map(state.Resource));
-        }
+                ["embedding"] = "select_prompt_embedding_output",
+                ["position"] = "position",
+                ["token"] = "token",
+                ["logits"] = "logits",
+            },
+            exposeOutputs: true);
+        return builder.Build();
     }
 
-    private static bool Same(TensorDescriptor left, TensorDescriptor right) => left.ElementType == right.ElementType &&
-        left.Layout == right.Layout && left.Dimensions.SequenceEqual(right.Dimensions);
-    /// <inheritdoc/>
-    public void Validate(GraphOperationValidationContext context)
-    {
-        Phi4TextOperationValidation.Validate(context);
-        Phi4VisionOperationValidation.Validate(context);
-        Phi4AudioOperationValidation.Validate(context);
-    }
+    private static bool Same(TensorDescriptor left, TensorDescriptor right) =>
+        left.ElementType == right.ElementType &&
+        left.Layout == right.Layout &&
+        left.Dimensions.SequenceEqual(right.Dimensions);
 }

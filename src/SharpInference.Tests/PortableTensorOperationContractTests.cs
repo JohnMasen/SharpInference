@@ -108,10 +108,10 @@ public sealed class PortableTensorOperationContractTests
         var builder = new LogicalGraphBuilder(
             new GraphIdentity("test", 1, "tensor-contract-test"),
             TestGraphSignatures.Create(32, 4, 1, 1, 4, "state"));
-        builder.AddRegion("graph", GraphRegionTypes.Graph, "Graph");
+        var root = builder.Root("graph", GraphRegionTypes.Graph, "Graph");
         builder.AddResource("filled", "Filled", GraphResourceKind.Temporary,
             GraphResourceLifetime.Invocation, new TensorDescriptor(F32, [4]));
-        builder.AddNode("fill", PortableTensorOperationContracts.Fill, "graph",
+        root.Node("fill", PortableTensorOperationContracts.Fill,
             [GraphBindings.Write("output", "filled")],
             attributes: new TensorFillValue(2f).ToAttributes());
         var graph = builder.Build();
@@ -139,7 +139,7 @@ public sealed class PortableTensorOperationContractTests
     {
         var builder = new LogicalGraphBuilder(new GraphIdentity("rwkv-7", 1, "tensor-shapes"),
             TestGraphSignatures.Create(32, 8, 1, 2, 4, "rwkv-7.state.fp32@1"));
-        builder.AddRegion("graph", GraphRegionTypes.Graph, "WKV tensor shapes");
+        var root = builder.Root("graph", GraphRegionTypes.Graph, "WKV tensor shapes");
         void Resource(string name, GraphResourceKind kind, params int[] dimensions) =>
             builder.AddResource(name, name, kind,
                 kind == GraphResourceKind.Input ? GraphResourceLifetime.External :
@@ -154,21 +154,21 @@ public sealed class PortableTensorOperationContractTests
         Resource("state.projection", GraphResourceKind.Temporary, 2, 4);
         Resource("value-key", GraphResourceKind.Temporary, 2, 4, 4);
         Resource("value-key.rows", GraphResourceKind.Temporary, 2, 4);
-        builder.AddNode("reshape-decay", TensorOps.Reshape, "graph",
+        root.Node("reshape-decay", TensorOps.Reshape,
             [GraphBindings.Read("input", "decay"), GraphBindings.Write("output", "decay.axes")]);
-        builder.AddNode("broadcast-decay", TensorOps.Broadcast, "graph",
+        root.Node("broadcast-decay", TensorOps.Broadcast,
             [GraphBindings.Read("input", "decay.axes"), GraphBindings.Write("output", "decay.matrix")]);
-        builder.AddNode("project-state", TensorOps.BatchedMatVec, "graph",
+        root.Node("project-state", TensorOps.BatchedMatVec,
             [
                 GraphBindings.Read("matrix", "state"), GraphBindings.Read("vector", "key"),
                 GraphBindings.Write("output", "state.projection"),
             ]);
-        builder.AddNode("value-key-outer", TensorOps.HeadOuter, "graph",
+        root.Node("value-key-outer", TensorOps.HeadOuter,
             [
                 GraphBindings.Read("left", "value"), GraphBindings.Read("right", "key"),
                 GraphBindings.Write("output", "value-key"),
             ]);
-        builder.AddNode("reduce-outer", TensorOps.ReduceLastSum, "graph",
+        root.Node("reduce-outer", TensorOps.ReduceLastSum,
             [GraphBindings.Read("input", "value-key"), GraphBindings.Write("output", "value-key.rows")]);
         var graph = builder.Build();
         TensorOps.ValidateGraph(graph);

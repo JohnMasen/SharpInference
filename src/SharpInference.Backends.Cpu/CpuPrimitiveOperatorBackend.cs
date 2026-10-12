@@ -1,11 +1,10 @@
 using System.Numerics.Tensors;
 using System.Runtime.Intrinsics;
-using SharpInference.Graphs;
 
 namespace SharpInference.Backends.Cpu;
 
 /// <summary>Implements dense CPU primitive operators for Float32 and Float16 tensor storage.</summary>
-public sealed class CpuPrimitiveOperatorBackend : IPrimitiveOperatorBackend
+public sealed class CpuPrimitiveOperatorBackend
 {
     /// <summary>Gets the shared CPU primitive operator implementation.</summary>
     public static CpuPrimitiveOperatorBackend Instance { get; } = new();
@@ -13,18 +12,6 @@ public sealed class CpuPrimitiveOperatorBackend : IPrimitiveOperatorBackend
     private CpuPrimitiveOperatorBackend()
     {
     }
-
-    /// <inheritdoc/>
-    public IReadOnlyList<PrimitiveOperatorDescription> PrimitiveOperators { get; } =
-        PrimitiveGraphOperations.CreateStandardDescriptions();
-    /// <inheritdoc/>
-    public IReadOnlyList<OperatorImplementationDescription> OperatorImplementations { get; } =
-        PrimitiveGraphOperations.CreateStandardImplementations(
-            "cpu",
-            includeFp16: true,
-            new KernelPrecisionProfile(GraphElementType.Float32, GraphElementType.Float32),
-            new KernelPrecisionProfile(GraphElementType.Float32, GraphElementType.Float32),
-            new KernelPrecisionProfile(GraphElementType.Float32, GraphElementType.Float32));
 
     /// <inheritdoc/>
     public void Copy(ReadOnlySpan<float> input, Span<float> output) => CopyCore(input, output);

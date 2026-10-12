@@ -59,6 +59,7 @@ public sealed class Phi4Tokenizer
     /// <summary>Loads the tokenizer vocabulary, merges, and added tokens from a tokenizer JSON file.</summary>
     public static Phi4Tokenizer Load(string tokenizerJsonPath)
     {
+        //use manual parsing to support both array and string merge formats, and to validate the added tokens
         ArgumentException.ThrowIfNullOrWhiteSpace(tokenizerJsonPath);
         using var stream = File.OpenRead(tokenizerJsonPath);
         using var document = JsonDocument.Parse(stream);

@@ -1,4 +1,5 @@
 using System.Diagnostics.CodeAnalysis;
+using SharpInference.Instructions;
 
 namespace SharpInference.Vm;
 
@@ -73,7 +74,8 @@ public static class VmProgramValidator
                         if (operation.Version <= 0)
                             Fail($"Node '{node.Id}' has an invalid operation version.");
                         if (operation.ResolvedPrecision is { } precision &&
-                            !SharpInference.Graphs.NumericTypeCompatibility.Satisfies(precision, operation.Precision))
+                            !SharpInference.Instructions.InstructionPrecisionCompatibility.Satisfies(
+                                precision, operation.Precision))
                             Fail($"Node '{node.Id}' resolved precision does not satisfy its requirement.");
                         if (operation.ExecutionConfiguration is { } configuration &&
                             (configuration is not (SharpInference.Instructions.CpuInstructionExecutionConfiguration or

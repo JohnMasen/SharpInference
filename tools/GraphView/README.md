@@ -113,76 +113,46 @@ unchanged.
   position (or a surviving node nearest the viewport center when nothing is
   selected), rather than jumping back to the top of the graph.
 
-## Region architecture metadata
+## Logical graph definitions
 
-The hierarchy and execution order come from nested Regions containing actual
-operations. A Region may have one optional `Architecture` metadata element:
+The logical schema uses reusable `GraphDefinition` values. `Operation` elements
+describe direct operations and `Call` elements
+instantiate another definition. Definition and call annotations provide the
+architecture hierarchy shown by GraphView.
+
+`GraphCompileBoundary` controls later compilation without changing the
+architecture tree:
+
+- `Auto` lets the compiler select a safe boundary.
+- `Atomic` preserves whole-call completion semantics.
+- `Transparent` preserves the architecture container but does not introduce an
+  execution synchronization boundary.
+
+GraphView reads only `LogicalGraphDefinition` logical-graph XML. It presents
+each definition call as an expandable architecture component. Legacy
+`LogicalGraph`, Region, and logical-graph JSON formats are not supported.
+
+## Execution graph programs
+
+GraphView also reads `ExecutionGraphProgram` XML. The program is a validated
+collection of reusable execution graphs with one inferred root. Each graph
+contains an operation/graph-call DAG; double-click a graph call to inspect its
+target graph. Graph, call, and operation `Architecture` metadata is displayed
+but does not alter execution semantics. `SourceMap` metadata is retained in the
+source XML and ignored for layout.
+
+A call binding normally resolves its `resource` in the parent graph instance.
+An optional `instance` attribute instead resolves the resource in that direct
+child call instance:
 
 ```xml
-<Region id="memory-update" type="architecture" name="Memory Update">
-  <Architecture role="state-update">
-    <Description>Computes the new recurrent memory.</Description>
-    <Formula>S_new = ...</Formula>
-  </Architecture>
-  <!-- Actual Node, Call or nested Region elements -->
-</Region>
+<Binding
+  port="value"
+  resource="scores"
+  instance="attention-1"
+  access="Read" />
 ```
 
-`Description` and `Formula` are documentation, not executable expressions.
-Optional `Ports/Port` entries use `resource`, `direction` (`in` / `out`) and
-`name` to label real boundary resources. The viewer validates these against
-actual bindings rather than treating them as a second graph.
-
-`defaultCollapsed="false"` expands a structural container transparently.
-`repeatGroup="true"` marks a repeated group controlled by the toolbar.
-`defaultView="architecture"` on the root Region's metadata selects the initial
-architecture view; `computation` selects the full graph.
-
-With `step="token"` in the computation context, cross-token state edges connect
-the last writer of a `SessionState` resource to its first reader in the next
-token. They do not participate in current-step layout ordering.
-
-The viewer does not convert XML formats or change execution content.
-`GraphRegion.Architecture` represents this optional metadata in the C# graph
-model. XML and JSON serializers preserve it, including port resource mappings
-through reusable layer definitions and call expansion. Existing graphs without
-metadata remain supported. RWKV6, RWKV7 and Phi4 graph providers generate
-the nested semantic Regions directly, without a separate architecture tree.
-
-## Building semantic Regions in C#
-
-`LogicalGraphBuilder.WithRegion` synchronously enters a Region scope. Nested
-scopes infer their parent, and scoped `AddNode` calls infer their Region.
-`WithRegion<T>` returns a computation's resource ID or other result.
-The previous scope is restored on both normal and exceptional exits; exceptions
-propagate, and mutations made before a failure are not rolled back. Callbacks
-must be synchronous, and a builder must not be shared across threads.
-
-```csharp
-builder.WithRegion("root", GraphRegionTypes.Graph, "Forward", root =>
-{
-    var hidden = root.WithRegion(
-        "projection", GraphRegionTypes.Architecture, "Projection",
-        projection =>
-        {
-            projection.MatVec("project", "weight", "input", "hidden");
-            return "hidden";
-        },
-        architecture: new(Description: "Projects input features."));
-    root.Copy("finish", hidden, "output");
-});
-```
-
-Resources must be declared before nodes that use them, as with `AddNode`.
-Typed extensions cover copy, common unary/binary primitives, matrix-vector
-projection, row gathering, matrix multiplication and affine projection. Matrix
-transpose flags are Boolean parameters, not hand-written attribute strings.
-The extensions use the existing operation contracts and precision inference;
-they do not allocate resources or infer tensor shapes. An optional `regionId`
-keeps them usable with explicit Region construction.
-
-Explicit `AddRegion` and `AddNode` remain available for component composition,
-custom operations, tensor views, explicit dependencies and precision overrides.
-Region scopes and metadata do not reorder operations or define new execution
-boundaries. Semantic `architecture` Regions are transparent to existing
-stage/layer fusion boundaries.
+GraphView displays this resource as `attention-1/scores`. Cross-instance writes
+are valid logical bindings but produce a graph diagnostic because they can
+introduce surprising ordering and mutation behavior.

@@ -85,6 +85,6 @@ public sealed class ModelGraphModuleTests
         public LogicalGraph Build(IModelTensorCatalog tensors) =>
             new LogicalGraphBuilder(new(id, 1, "counter"),
                     new GraphModelSignature("counter", "counter.empty@1", new Dictionary<string, int> { ["counterWidth"] = 3 }))
-                .AddRegion("root", GraphRegionTypes.Graph, "Root").Build();
+                .Root("root", GraphRegionTypes.Graph, "Root").Build();
     }
 }

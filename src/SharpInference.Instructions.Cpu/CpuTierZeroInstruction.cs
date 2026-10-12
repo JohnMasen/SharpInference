@@ -10,7 +10,7 @@ internal sealed class CpuTierZeroInstruction(Guid id, string name) : TierZeroIns
     {
         var tensors = parameters.OfType<InstructionTensorParameter>().ToDictionary(p => p.Name, StringComparer.Ordinal);
         var attributes = parameters.OfType<InstructionAttributeParameter>().ToDictionary(p => p.Name, p => p.Value);
-        var inputs = TierZeroOperationContracts.Get(new(Name)).ResolveInputPorts(tensors.Keys).ToArray();
+        var inputs = TierZeroInstruction.InputPorts(Name).ToArray();
         var code = new StringBuilder("{\n");
         foreach (var port in inputs.Append("output"))
         {

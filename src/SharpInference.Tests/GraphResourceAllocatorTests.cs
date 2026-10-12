@@ -295,15 +295,15 @@ public sealed class GraphResourceAllocatorTests
     public void OptimizerPublicFirstWriteProofSurvivesFusionAndExecutionXml()
     {
         var builder = new LogicalGraphBuilder(new("test", 1, "public proof"), TestGraphSignatures.Create(1, 1, 1, 1, 1, "test.state"));
-        builder.AddRegion("root", GraphRegionTypes.Graph, "Root")
+        builder.Root("root", GraphRegionTypes.Graph, "Root")
             .AddResource("value", "Value", GraphResourceKind.Temporary,
                 GraphResourceLifetime.Invocation, new TensorDescriptor(GraphElementType.Float32, [2, 4]))
             .AddResource("result", "Result", GraphResourceKind.Output,
                 GraphResourceLifetime.External, new TensorDescriptor(GraphElementType.Float32, [2, 4]),
                 graphOutput: true)
-            .AddNode("first", new("test.first"), "root", [GraphBindings.Write("out", "value")])
-            .AddNode("second", new("test.second"), "root", [GraphBindings.Read("in", "value")], ["first"])
-            .AddNode("third", new("test.third"), "root",
+            .Node("first", new("test.first"), [GraphBindings.Write("out", "value")])
+            .Node("second", new("test.second"), [GraphBindings.Read("in", "value")], ["first"])
+            .Node("third", new("test.third"),
                 [GraphBindings.Read("in", "value"), GraphBindings.Write("out", "result")], ["second"]);
         var graph = new GraphOptimizer().Optimize(builder.Build(),
             new GraphOptimizationOptions(OptimizationBoundary.Unrestricted),
@@ -488,7 +488,7 @@ public sealed class GraphResourceAllocatorTests
         var builder = new LogicalGraphBuilder(
             new GraphIdentity("test", 1, "nested scratch"),
             TestGraphSignatures.Create(1, 1, 1, 1, 1, "test.state"));
-        builder.AddRegion("root", GraphRegionTypes.Graph, "Root")
+        builder.Root("root", GraphRegionTypes.Graph, "Root")
             .AddResource("a", "A", GraphResourceKind.Temporary,
                 GraphResourceLifetime.Invocation, new TensorDescriptor(GraphElementType.Float32, [2, 4]))
             .AddResource("b", "B", GraphResourceKind.Temporary,
@@ -496,11 +496,11 @@ public sealed class GraphResourceAllocatorTests
             .AddResource("output", "Output", GraphResourceKind.Output,
                 GraphResourceLifetime.External, new TensorDescriptor(GraphElementType.Float32, [2, 4]),
                 graphOutput: true)
-            .AddNode("first", new("test.first"), "root", [GraphBindings.Write("result", "a")])
-            .AddNode("second", new("test.second"), "root",
+            .Node("first", new("test.first"), [GraphBindings.Write("result", "a")])
+            .Node("second", new("test.second"),
                 [GraphBindings.Read("input", "a"), GraphBindings.Write("result", "b")],
                 ["first"])
-            .AddNode("third", new("test.third"), "root",
+            .Node("third", new("test.third"),
                 [GraphBindings.Read("input", "b"), GraphBindings.Write("result", "output")],
                 ["second"]);
 

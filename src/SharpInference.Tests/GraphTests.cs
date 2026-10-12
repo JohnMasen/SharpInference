@@ -372,7 +372,7 @@ public sealed class GraphTests
     {
         var logical = new LogicalGraphBuilder(new GraphIdentity("test", 1, "dead-path"),
                 TestGraphSignatures.Create(1, 2, 1, 1, 2, "test.state"))
-            .AddRegion("root", GraphRegionTypes.Graph, "Root")
+            .Root("root", GraphRegionTypes.Graph, "Root")
             .AddResource("input", "Input", GraphResourceKind.Input, GraphResourceLifetime.External,
                 new TensorDescriptor(GraphElementType.Float32, [2]), graphInput: true)
             .AddResource("dead-first", "Dead first", GraphResourceKind.Temporary, GraphResourceLifetime.Invocation,
@@ -381,13 +381,13 @@ public sealed class GraphTests
                 new TensorDescriptor(GraphElementType.Float32, [2]))
             .AddResource("output", "Output", GraphResourceKind.Output, GraphResourceLifetime.External,
                 new TensorDescriptor(GraphElementType.Float32, [2]), graphOutput: true)
-            .AddNode("fill", PortableTensorOperationContracts.Fill, "root",
+            .Node("fill", PortableTensorOperationContracts.Fill,
                 [GraphBindings.Write("output", "dead-first")],
                 attributes: new TensorFillValue(5).ToAttributes())
-            .AddNode("unused-copy", PrimitiveGraphOperations.Copy, "root",
+            .Node("unused-copy", PrimitiveGraphOperations.Copy,
                 [GraphBindings.Read("input", "dead-first"), GraphBindings.Write("output", "dead-second")],
                 ["fill"])
-            .AddNode("result", PrimitiveGraphOperations.Copy, "root",
+            .Node("result", PrimitiveGraphOperations.Copy,
                 [GraphBindings.Read("input", "input"), GraphBindings.Write("output", "output")],
                 ["unused-copy"])
             .Build();
@@ -684,16 +684,16 @@ public sealed class GraphTests
     {
         var graph = new LogicalGraphBuilder(new GraphIdentity("test", 1, "broadcast"),
                 TestGraphSignatures.Create(1, 4, 1, 1, 4, "test.state"))
-            .AddRegion("graph", GraphRegionTypes.Graph, "Graph")
+            .Root("graph", GraphRegionTypes.Graph, "Graph")
             .AddResource("input", "Input", GraphResourceKind.Input, GraphResourceLifetime.External,
                 new TensorDescriptor(GraphElementType.Float32, [2, 2]), graphInput: true)
             .AddResource("reshaped", "Reshaped", GraphResourceKind.Temporary,
                 GraphResourceLifetime.Invocation, new TensorDescriptor(GraphElementType.Float32, [2, 2, 1]))
             .AddResource("output", "Output", GraphResourceKind.Output, GraphResourceLifetime.External,
                 new TensorDescriptor(GraphElementType.Float32, [2, 2, 2]), graphOutput: true)
-            .AddNode("reshape", PortableTensorOperationContracts.Reshape, "graph",
+            .Node("reshape", PortableTensorOperationContracts.Reshape,
                 [GraphBindings.Read("input", "input"), GraphBindings.Write("output", "reshaped")])
-            .AddNode("broadcast", PortableTensorOperationContracts.Broadcast, "graph",
+            .Node("broadcast", PortableTensorOperationContracts.Broadcast,
                 [GraphBindings.Read("input", "reshaped"), GraphBindings.Write("output", "output")],
                 ["reshape"])
             .Build();
@@ -709,12 +709,12 @@ public sealed class GraphTests
         Assert.Equal(2, optimized.Nodes.Count);
         Assert.Equal([1f, 1f, 2f, 2f, 3f, 3f, 4f, 4f], expected);
         var direct = new LogicalGraphBuilder(new GraphIdentity("test", 1, "direct-broadcast"), graph.Model)
-            .AddRegion("graph", GraphRegionTypes.Graph, "Graph")
+            .Root("graph", GraphRegionTypes.Graph, "Graph")
             .AddResource("input", "Input", GraphResourceKind.Input, GraphResourceLifetime.External,
                 new TensorDescriptor(GraphElementType.Float32, [2, 2]), graphInput: true)
             .AddResource("output", "Output", GraphResourceKind.Output, GraphResourceLifetime.External,
                 new TensorDescriptor(GraphElementType.Float32, [2, 2, 2]), graphOutput: true)
-            .AddNode("broadcast", PortableTensorOperationContracts.Broadcast, "graph",
+            .Node("broadcast", PortableTensorOperationContracts.Broadcast,
                 [GraphBindings.Read("input", "input"), GraphBindings.Write("output", "output")])
             .Build();
         PortableTensorOperationContracts.ValidateGraph(direct);
@@ -1083,11 +1083,12 @@ public sealed class GraphTests
         Assert.NotEmpty(backend.Prepare(execution).GetPlanOrThrow("cpu").Graph.Nodes);
     }
 
-    private static LogicalGraph CreateElementwiseChain() =>
-        new LogicalGraphBuilder(new GraphIdentity("test", 1, "elementwise"),
-                TestGraphSignatures.Create(1, 2, 1, 1, 2, "test.state"))
-            .AddRegion("graph", GraphRegionTypes.Graph, "Graph")
-            .AddRegion("stage", GraphRegionTypes.Stage, "Stage", "graph")
+    private static LogicalGraph CreateElementwiseChain()
+    {
+        var builder = new LogicalGraphBuilder(new GraphIdentity("test", 1, "elementwise"),
+            TestGraphSignatures.Create(1, 2, 1, 1, 2, "test.state"));
+        var root = builder.Root("graph", GraphRegionTypes.Graph, "Graph");
+        root
             .AddResource("x", "X", GraphResourceKind.Input, GraphResourceLifetime.External,
                 new TensorDescriptor(GraphElementType.Float32, [2]), graphInput: true)
             .AddResource("y", "Y", GraphResourceKind.Input, GraphResourceLifetime.External,
@@ -1099,16 +1100,18 @@ public sealed class GraphTests
             .AddResource("tmp2", "Tmp2", GraphResourceKind.Temporary, GraphResourceLifetime.Invocation,
                 new TensorDescriptor(GraphElementType.Float32, [2]))
             .AddResource("output", "Output", GraphResourceKind.Output, GraphResourceLifetime.External,
-                new TensorDescriptor(GraphElementType.Float32, [2]), graphOutput: true)
-            .AddNode("a", PrimitiveGraphOperations.Add, "stage",
+                new TensorDescriptor(GraphElementType.Float32, [2]), graphOutput: true);
+        root.Region("stage", GraphRegionTypes.Stage, "Stage", stage => stage
+            .Node("a", PrimitiveGraphOperations.Add,
                 [GraphBindings.Read("left", "x"), GraphBindings.Read("right", "y"),
                     GraphBindings.Write("output", "tmp1")])
-            .AddNode("b", PrimitiveGraphOperations.Multiply, "stage",
+            .Node("b", PrimitiveGraphOperations.Multiply,
                 [GraphBindings.Read("left", "tmp1"), GraphBindings.Read("right", "z"),
                     GraphBindings.Write("output", "tmp2")], ["a"])
-            .AddNode("c", PrimitiveGraphOperations.Relu, "stage",
-                [GraphBindings.Read("input", "tmp2"), GraphBindings.Write("output", "output")], ["b"])
-            .Build();
+            .Node("c", PrimitiveGraphOperations.Relu,
+                [GraphBindings.Read("input", "tmp2"), GraphBindings.Write("output", "output")], ["b"]));
+        return builder.Build();
+    }
 
     private static float[] EvaluateExpression(
         ExecutionNode node,
@@ -1187,24 +1190,24 @@ public sealed class GraphTests
         var builder = new LogicalGraphBuilder(
             new GraphIdentity("test", 1, "boundary"),
             TestGraphSignatures.Create(1, 1, 1, 1, 1, "test.state@1"));
-        builder
-            .AddRegion("graph", GraphRegionTypes.Graph, "Graph")
-            .AddRegion("layer.0", GraphRegionTypes.Layer, "Layer", "graph")
-            .AddRegion("stage.a", GraphRegionTypes.Stage, "Stage A", "layer.0")
-            .AddRegion("stage.b", GraphRegionTypes.Stage, "Stage B", "layer.0")
+        var root = builder.Root("graph", GraphRegionTypes.Graph, "Graph");
+        root
             .AddResource("x", "X", GraphResourceKind.Input, GraphResourceLifetime.External, new TensorDescriptor(elementType, [1]), graphInput: true)
             .AddResource("y", "Y", GraphResourceKind.Temporary, GraphResourceLifetime.Invocation, new TensorDescriptor(elementType, [1]))
             .AddResource("z", "Z", GraphResourceKind.Temporary, GraphResourceLifetime.Invocation, new TensorDescriptor(elementType, [1]))
-            .AddResource("output", "Output", GraphResourceKind.Output, GraphResourceLifetime.External, new TensorDescriptor(elementType, [1]), graphOutput: true)
-            .AddNode("a", new GraphOperationId("test.a"), "stage.a", [GraphBindings.Read("input", "x"), GraphBindings.Write("output", "y")])
-            .AddNode(
-                "b",
-                new GraphOperationId("test.b"),
-                "stage.a",
-                [GraphBindings.Read("input", "y"), GraphBindings.Write("output", "z")],
-                ["a"],
-                requirements: middleRequirement)
-            .AddNode("c", new GraphOperationId("test.c"), "stage.b", [GraphBindings.Read("input", "z"), GraphBindings.Write("output", "output")], ["b"]);
+            .AddResource("output", "Output", GraphResourceKind.Output, GraphResourceLifetime.External, new TensorDescriptor(elementType, [1]), graphOutput: true);
+        root.Region("layer.0", GraphRegionTypes.Layer, "Layer", layer =>
+        {
+            layer.Region("stage.a", GraphRegionTypes.Stage, "Stage A", firstStage => firstStage
+                .Node("a", new GraphOperationId("test.a"),
+                    [GraphBindings.Read("input", "x"), GraphBindings.Write("output", "y")])
+                .Node("b", new GraphOperationId("test.b"),
+                    [GraphBindings.Read("input", "y"), GraphBindings.Write("output", "z")],
+                    ["a"], requirements: middleRequirement));
+            layer.Region("stage.b", GraphRegionTypes.Stage, "Stage B", secondStage =>
+                secondStage.Node("c", new GraphOperationId("test.c"),
+                    [GraphBindings.Read("input", "z"), GraphBindings.Write("output", "output")], ["b"]));
+        });
         return builder.Build();
     }
 

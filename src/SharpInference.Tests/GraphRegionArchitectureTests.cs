@@ -26,16 +26,19 @@ public sealed class GraphRegionArchitectureTests
         ],
     };
 
-    private static LogicalGraph Graph() => Builder().WithRegion("root", GraphRegionTypes.Graph, "Root", root =>
+    private static LogicalGraph Graph()
     {
-        root.WithRegion("stage", GraphRegionTypes.Stage, "Stage", stage =>
+        var builder = Builder();
+        var root = builder.Root("root", GraphRegionTypes.Graph, "Root", architecture: Metadata());
+        root.Region("stage", GraphRegionTypes.Stage, "Stage", stage =>
         {
-            stage.WithRegion("mix", GraphRegionTypes.Architecture, "Mix",
+            stage.Region("mix", GraphRegionTypes.Architecture, "Mix",
                 mix => mix.Copy("first", "input", "mid"),
                 architecture: new(Description: "A real computation group."));
             stage.Copy("second", "mid", "output");
         });
-    }, architecture: Metadata()).BuildSequential();
+        return builder.BuildSequential();
+    }
 
     [Fact]
     public void NestedScopesInferParentsAndRestoreNodeOwnership()
@@ -49,26 +52,23 @@ public sealed class GraphRegionArchitectureTests
     }
 
     [Fact]
-    public void CallbackResultsAndExceptionsRestoreThePreviousScope()
+    public void RegionValuesAndExceptionsRemainScoped()
     {
         var builder = Builder();
-        builder.WithRegion("root", GraphRegionTypes.Graph, "Root", root =>
+        var root = builder.Root("root", GraphRegionTypes.Graph, "Root");
+        var resource = root.RegionValue("child", GraphRegionTypes.Architecture, "Child", child =>
         {
-            var resource = root.WithRegion("child", GraphRegionTypes.Architecture, "Child", child =>
-            {
-                child.Copy("first", "input", "mid");
-                return "mid";
-            });
-            var exception = Assert.Throws<InvalidOperationException>(() =>
-                root.WithRegion("failure", GraphRegionTypes.Architecture, "Failure",
-                    (Action<LogicalGraphBuilder>)(_ => throw new InvalidOperationException("test failure"))));
-            Assert.Equal("test failure", exception.Message);
-            root.Copy("second", resource, "output");
+            child.Copy("first", "input", "mid");
+            return "mid";
         });
-        Assert.Throws<InvalidOperationException>(() => builder.Copy("outside", "input", "output"));
+        var exception = Assert.Throws<InvalidOperationException>(() =>
+            root.Region("failure", GraphRegionTypes.Architecture, "Failure",
+                _ => throw new InvalidOperationException("test failure")));
+        Assert.Equal("test failure", exception.Message);
+        root.Copy("second", resource, "output");
         Assert.Equal(["child", "root"], builder.Build().Nodes.Select(n => n.Region.Value));
-        Assert.Throws<ArgumentNullException>(() => builder.WithRegion(
-            "invalid", GraphRegionTypes.Stage, "Invalid", (Action<LogicalGraphBuilder>)null!));
+        Assert.Throws<ArgumentNullException>(() => root.Region(
+            "invalid", GraphRegionTypes.Stage, "Invalid", (Action<LogicalGraphRegionBuilder>)null!));
     }
 
     [Theory]
@@ -239,8 +239,8 @@ public sealed class GraphRegionArchitectureTests
     [Fact]
     public void NullPortsFailExplicitlyBeforeResourceMapping()
     {
-        Assert.Throws<InvalidDataException>(() => Builder().WithRegion("root", GraphRegionTypes.Graph, "Root",
-            root => root.Copy("copy", "input", "output"), architecture: new() { Ports = null! }).Build());
+        Assert.Throws<InvalidDataException>(() => Builder().Root("root", GraphRegionTypes.Graph, "Root",
+            architecture: new() { Ports = null! }).Copy("copy", "input", "output").Build());
         Assert.Throws<InvalidDataException>(() => new GraphRegionArchitecture { Ports = [null!] }
             .MapResources(resource => resource));
     }
@@ -251,14 +251,14 @@ public sealed class GraphRegionArchitectureTests
     public void ArchitectureScopesDoNotAddFusionBoundaries(OptimizationBoundary boundary)
     {
         var builder = Builder();
-        builder.WithRegion("root", GraphRegionTypes.Graph, "Root", root =>
-            root.WithRegion("layer", GraphRegionTypes.Layer, "Layer", layer =>
-                layer.WithRegion("stage", GraphRegionTypes.Stage, "Stage", stage =>
-                    stage.WithRegion("semantic", GraphRegionTypes.Architecture, "Semantic", semantic =>
+        builder.Root("root", GraphRegionTypes.Graph, "Root")
+            .Region("layer", GraphRegionTypes.Layer, "Layer", layer =>
+                layer.Region("stage", GraphRegionTypes.Stage, "Stage", stage =>
+                    stage.Region("semantic", GraphRegionTypes.Architecture, "Semantic", semantic =>
                     {
                         semantic.Copy("first", "input", "mid");
                         semantic.Copy("second", "mid", "output");
-                    }))));
+                    })));
         var graph = builder.Build();
         var execution = new GraphOptimizer().Optimize(graph, new(boundary),
             [new SequenceFusionRule("copy-pair", [PrimitiveGraphOperations.Copy, PrimitiveGraphOperations.Copy], new("test.copy-pair"))]);

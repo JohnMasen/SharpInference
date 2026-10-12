@@ -333,19 +333,19 @@ public sealed class TargetExecutionPlanTests
 
     private static LogicalGraph CopyGraph() => new LogicalGraphBuilder(new("external", 1, "copy"),
             new("array", "array@1", new Dictionary<string, int>()))
-        .AddRegion("root", GraphRegionTypes.Graph, "Root")
+        .Root("root", GraphRegionTypes.Graph, "Root")
         .AddResource("input", "Input", GraphResourceKind.Input, GraphResourceLifetime.External,
             new(GraphElementType.Float32, [4]), graphInput: true)
         .AddResource("output", "Output", GraphResourceKind.Output, GraphResourceLifetime.External,
             new(GraphElementType.Float32, [4]), graphOutput: true)
-        .AddNode("copy", PrimitiveGraphOperations.Copy, "root",
+        .Node("copy", PrimitiveGraphOperations.Copy,
             [GraphBindings.Read("input", "input"), GraphBindings.Write("output", "output")]).Build();
 
     private static LogicalGraph ReshapeGraph(bool overwrite)
     {
         var builder = new LogicalGraphBuilder(new("external", 1, "reshape"),
                 new("array", "array@1", new Dictionary<string, int>()))
-            .AddRegion("root", GraphRegionTypes.Graph, "Root")
+            .Root("root", GraphRegionTypes.Graph, "Root")
             .AddResource("input", "Input", GraphResourceKind.Input, GraphResourceLifetime.External,
                 new(GraphElementType.Float32, [4]), graphInput: true)
             .AddResource("base", "Base", GraphResourceKind.Temporary, GraphResourceLifetime.Token,
@@ -354,28 +354,28 @@ public sealed class TargetExecutionPlanTests
                 new(GraphElementType.Float32, [2, 2]))
             .AddResource("output", "Output", GraphResourceKind.Output, GraphResourceLifetime.External,
                 new(GraphElementType.Float32, [2, 2]), graphOutput: true)
-            .AddNode("initialize", PrimitiveGraphOperations.Copy, "root",
+            .Node("initialize", PrimitiveGraphOperations.Copy,
                 [GraphBindings.Read("input", "input"), GraphBindings.Write("output", "base")])
-            .AddNode("reshape", PortableTensorOperationContracts.Reshape, "root",
+            .Node("reshape", PortableTensorOperationContracts.Reshape,
                 [GraphBindings.Read("input", "base"), GraphBindings.Write("output", "reshaped")], ["initialize"]);
         if (overwrite)
-            builder.AddNode("overwrite", PortableTensorOperationContracts.Fill, "root",
+            builder.Node("overwrite", PortableTensorOperationContracts.Fill,
                 [GraphBindings.Write("output", "base")], ["reshape"], new Dictionary<string, string> { ["value"] = "0" });
-        return builder.AddNode("copy", PrimitiveGraphOperations.Copy, "root",
+        return builder.Node("copy", PrimitiveGraphOperations.Copy,
             [GraphBindings.Read("input", "reshaped"), GraphBindings.Write("output", "output")],
             [overwrite ? "overwrite" : "reshape"]).Build();
     }
 
     private static LogicalGraph MatVecGraph(int columns) => new LogicalGraphBuilder(new("external", 1, "matvec"),
             new("array", "array@1", new Dictionary<string, int>()))
-        .AddRegion("root", GraphRegionTypes.Graph, "Root")
+        .Root("root", GraphRegionTypes.Graph, "Root")
         .AddResource("matrix", "Matrix", GraphResourceKind.Input, GraphResourceLifetime.External,
             new(GraphElementType.Float32, [2, columns]), graphInput: true)
         .AddResource("input", "Input", GraphResourceKind.Input, GraphResourceLifetime.External,
             new(GraphElementType.Float32, [columns]), graphInput: true)
         .AddResource("output", "Output", GraphResourceKind.Output, GraphResourceLifetime.External,
             new(GraphElementType.Float32, [2]), graphOutput: true)
-        .AddNode("matvec", PrimitiveGraphOperations.MatVec, "root",
+        .Node("matvec", PrimitiveGraphOperations.MatVec,
             [GraphBindings.Read("matrix", "matrix"), GraphBindings.Read("input", "input"),
              GraphBindings.Write("output", "output")]).Build();
 

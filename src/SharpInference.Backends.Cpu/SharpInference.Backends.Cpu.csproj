@@ -8,5 +8,10 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
   </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="CpuPrimitiveOperatorBackend.cs" />
+    <Compile Include="CpuHalfMatrixOperators.cs" />
+  </ItemGroup>
 </Project>

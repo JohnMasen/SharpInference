@@ -34,7 +34,7 @@ public sealed class PortableGraphProcessorTests
                         metadata.LayerCount, metadata.HeadCount, metadata.HeadSize,
                         $"{metadata.ArchitectureId}.state.fp32@1"))
                 .SetStateSchema(new StateSchema("Primitive_State"))
-                .AddRegion("graph", GraphRegionTypes.Graph, "Primitive graph")
+                .Root("graph", GraphRegionTypes.Graph, "Primitive graph")
                 .AddResource("token", "Token", GraphResourceKind.Input,
                     GraphResourceLifetime.External, new TensorDescriptor(GraphElementType.Int32, [1]),
                     graphInput: true)
@@ -48,13 +48,13 @@ public sealed class PortableGraphProcessorTests
                 .AddResource("state", "Previous row", GraphResourceKind.SessionState,
                     GraphResourceLifetime.Session, vector)
                 .AddStateSlot("state", "state")
-                .AddNode("gather", PrimitiveGraphOperations.GatherRow, "graph",
+                .Node("gather", PrimitiveGraphOperations.GatherRow,
                     [GraphBindings.Read("table", "weight"), GraphBindings.Read("index", "token"),
                      GraphBindings.Write("output", "row")])
-                .AddNode("sum", PrimitiveGraphOperations.Add, "graph",
+                .Node("sum", PrimitiveGraphOperations.Add,
                     [GraphBindings.Read("left", "row"), GraphBindings.Read("right", "state"),
                      GraphBindings.Write("output", "logits")], ["gather"])
-                .AddNode("store", PrimitiveGraphOperations.Copy, "graph",
+                .Node("store", PrimitiveGraphOperations.Copy,
                     [GraphBindings.Read("input", "row"), GraphBindings.Write("output", "state")], ["sum"])
                 .Build();
         }

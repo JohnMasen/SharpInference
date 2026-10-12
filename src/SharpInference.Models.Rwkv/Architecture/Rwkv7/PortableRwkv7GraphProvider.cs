@@ -6,13 +6,13 @@ namespace SharpInference.Architectures.Rwkv7;
 /// Unfused RWKV-7 single-token logical graph. Its tensor operations
 /// require backend implementations before execution.
 /// </summary>
-public sealed class PortableRwkv7GraphProvider : ILogicalGraphProvider
+public sealed class PortableRwkv7GraphProvider
 {
     /// <inheritdoc/>
     public string ArchitectureId => "rwkv-7";
 
     /// <inheritdoc/>
-    public LogicalGraph Build(IModelTensorCatalog tensors)
+    public LogicalGraphDefinition Build(IModelTensorCatalog tensors)
     {
         ArgumentNullException.ThrowIfNull(tensors);
         var modelDimensions = RwkvTensorCatalogDimensions.Read(tensors);
@@ -28,21 +28,13 @@ public sealed class PortableRwkv7GraphProvider : ILogicalGraphProvider
         if (receptanceKey.Dimensions[0] != headSize)
             throw new InvalidDataException("RWKV-7 receptance-key dimensions do not match the head shape.");
 
-        var builder = new LogicalGraphBuilder(
-            new GraphIdentity("rwkv-7", 1, "rwkv7.forward-token.portable"),
-            RwkvGraphSignatures.Create(modelDimensions.VocabularySize, width, modelDimensions.LayerCount, heads,
-                headSize, "rwkv-7.state.fp32@1"))
-            .SetStateSchema(new StateSchema("RWKV7_State"));
-        builder.AddRegion("graph", GraphRegionTypes.Graph, "Portable forward token", architecture: new(
-            Description: "Embedding, recurrent RWKV7 Blocks and language-model head.",
-            DefaultView: GraphArchitectureView.Architecture, Step: GraphArchitectureStep.Token));
-        builder.AddRegion("blocks", GraphRegionTypes.Architecture, "RWKV7 Blocks", "graph",
-            architecture: new(Description: "Ordered Block instances; the first captures the value reused by subsequent Blocks within this token.",
-                DefaultCollapsed: true, RepeatGroup: true));
-        builder.AddResource("token", "Token", GraphResourceKind.Input, GraphResourceLifetime.External,
-            new TensorDescriptor(GraphElementType.Int32, [1]), graphInput: true);
-        builder.AddResource("logits", "Logits", GraphResourceKind.Output, GraphResourceLifetime.External,
-            new TensorDescriptor(GraphElementType.Float32, [modelDimensions.VocabularySize]), graphOutput: true);
+        return PortableRwkvGraphDefinitionComposer.Define(
+            "rwkv7.forward-token.portable",
+            modelDimensions.VocabularySize,
+            builder =>
+        {
+        var graphScope = builder.Root("graph", "Portable forward token", new(
+            Description: "Embedding, recurrent RWKV7 Blocks and language-model head."));
         var shapes = new Dictionary<string, int[]>(StringComparer.Ordinal)
         {
             ["token"] = [1],
@@ -57,8 +49,7 @@ public sealed class PortableRwkv7GraphProvider : ILogicalGraphProvider
             var id = $"weight.{name}";
             var type = tensor.DataType == TensorDataType.Float16
                 ? GraphElementType.Float16 : GraphElementType.Float32;
-            builder.AddResource(id, name, GraphResourceKind.Weight, GraphResourceLifetime.Model,
-                new TensorDescriptor(type, tensor.Dimensions), name);
+            builder.AddWeight(id, name, new TensorDescriptor(type, tensor.Dimensions), name);
             shapes.Add(id, tensor.Dimensions.ToArray());
             types.Add(id, type);
         }
@@ -71,13 +62,16 @@ public sealed class PortableRwkv7GraphProvider : ILogicalGraphProvider
             })
             {
                 var id = $"state.{layer}.{suffix}";
-                builder.AddResource(id, id, GraphResourceKind.SessionState, GraphResourceLifetime.Session,
-                    new TensorDescriptor(GraphElementType.Float32, dimensions)).AddStateSlot(id, id);
+                builder.AddState(id, new TensorDescriptor(GraphElementType.Float32, dimensions));
                 shapes.Add(id, dimensions);
             }
         }
 
         var serial = 0;
+        T ArchitectureValue<T>(RwkvArchitectureScope parent, string id, string name,
+            Func<RwkvArchitectureScope, T> build, RwkvArchitectureAnnotation? architecture = null) =>
+            parent.Value(id, name, build, architecture);
+        static void Within(RwkvArchitectureScope scope, Action build) => build();
         string Node(GraphOperationId operation, (string Port, string Resource)[] inputs,
             int[] resultShape, string? resultId = null, IReadOnlyDictionary<string, string>? attributes = null)
         {
@@ -90,15 +84,12 @@ public sealed class PortableRwkv7GraphProvider : ILogicalGraphProvider
             }
             else
             {
-                builder.AddResource(resultId, resultId, GraphResourceKind.Temporary,
-                    GraphResourceLifetime.Invocation,
+                builder.AddTemporary(resultId,
                     new TensorDescriptor(GraphElementType.Float32, resultShape));
                 shapes.Add(resultId, resultShape);
             }
-            var bindings = inputs.Select(input => GraphBindings.Read(input.Port, input.Resource))
-                .Append(GraphBindings.Write("output", resultId));
-            builder.AddNode(id, operation, bindings, null,
-                attributes, new PrecisionRequirement(GraphElementType.Float32, GraphElementType.Float32));
+            builder.AddNode(id, operation, inputs, resultId, attributes,
+                new PrecisionRequirement(GraphElementType.Float32, GraphElementType.Float32));
             return resultId;
         }
         int[] Shape(string resource) => shapes[resource];
@@ -109,18 +100,18 @@ public sealed class PortableRwkv7GraphProvider : ILogicalGraphProvider
             if (Count(Shape(input)) != Count(dimensions))
                 throw new InvalidDataException($"Cannot reshape '{input}'.");
             return Shape(input).SequenceEqual(dimensions) ? input :
-                Node(PortableTensorOperationContracts.Reshape, [("input", input)], dimensions);
+                Node(RwkvPortableTensorOperations.Reshape, [("input", input)], dimensions);
         }
         string Broadcast(string input, params int[] dimensions) =>
-            Node(PortableTensorOperationContracts.Broadcast, [("input", input)], dimensions);
+            Node(RwkvPortableTensorOperations.Broadcast, [("input", input)], dimensions);
         string Fill(float value, params int[] dimensions) =>
-            Node(PortableTensorOperationContracts.Fill, [], dimensions,
-                attributes: new TensorFillValue(value).ToAttributes());
+            Node(RwkvPortableTensorOperations.Fill, [], dimensions,
+                attributes: RwkvPortableTensorOperations.FillAttributes(value));
         string Weight(string name)
         {
             var id = $"weight.{name}";
             if (types[id] == GraphElementType.Float32) return id;
-            return Node(PortableTensorOperationContracts.CastFp16ToFp32,
+            return Node(RwkvPortableTensorOperations.CastFp16ToFp32,
                 [("input", id)], Shape(id));
         }
         string VectorWeight(string name, int length)
@@ -144,8 +135,8 @@ public sealed class PortableRwkv7GraphProvider : ILogicalGraphProvider
         string Mean(string input) => Node(PrimitiveGraphOperations.ReduceMean,
             [("input", input)], [1]);
         string ReduceHead(string input, bool mean) => Node(
-            mean ? PortableTensorOperationContracts.ReduceLastMean :
-                PortableTensorOperationContracts.ReduceLastSum,
+            mean ? RwkvPortableTensorOperations.ReduceLastMean :
+                RwkvPortableTensorOperations.ReduceLastSum,
             [("input", input)], Shape(input)[..^1]);
         string ExpandHead(string input) => Broadcast(Reshape(input, heads, 1), heads, headSize);
         string Matrix(string name, int inputLength)
@@ -190,19 +181,19 @@ public sealed class PortableRwkv7GraphProvider : ILogicalGraphProvider
         string Mix(string input, string previousValue, string mix) =>
             Add(input, Mul(Sub(previousValue, input), mix));
         string SliceMix(string mixes, int row) =>
-            Reshape(Node(PortableTensorOperationContracts.Slice,
+            Reshape(Node(RwkvPortableTensorOperations.Slice,
                     [("input", mixes)], [1, width],
-                    attributes: new TensorSlice(0, row, 1).ToAttributes()), width);
+                    attributes: RwkvPortableTensorOperations.SliceAttributes(0, row, 1)), width);
         string Outer(string left, string right) => Node(
-            PortableTensorOperationContracts.HeadOuter,
+            RwkvPortableTensorOperations.HeadOuter,
             [("left", left), ("right", right)], [heads, headSize, headSize]);
         string BatchedMatVec(string matrix, string vector) => Node(
-            PortableTensorOperationContracts.BatchedMatVec,
+            RwkvPortableTensorOperations.BatchedMatVec,
             [("matrix", matrix), ("vector", vector)], [heads, headSize]);
         void Store(string source, string state) =>
             Node(PrimitiveGraphOperations.Copy, [("input", source)], Shape(state), state);
 
-        var x = builder.WithRegion("embedding", GraphRegionTypes.Stage, "Embedding", _ =>
+        var x = ArchitectureValue(graphScope, "embedding", "Embedding", _ =>
         {
             var embedding = Matrix("emb.weight", width);
             if (Shape(embedding)[0] != modelDimensions.VocabularySize)
@@ -210,155 +201,158 @@ public sealed class PortableRwkv7GraphProvider : ILogicalGraphProvider
             var embedded = Node(PrimitiveGraphOperations.GatherRow,
                 [("table", embedding), ("index", "token")], [width]);
             return Affine(Normalize(embedded, 1e-5f), "blocks.0.ln0.weight", "blocks.0.ln0.bias");
-        }, parentId: "graph", architecture: new(Description: "Token embedding and initial affine LayerNorm."));
+        }, new(Description: "Token embedding and initial affine LayerNorm."));
         string? firstValue = null;
-        for (var layer = 0; layer < modelDimensions.LayerCount; layer++)
+        graphScope.Child("blocks", "RWKV7 Blocks", blocksScope =>
         {
-            var layerRegion = $"layer.{layer}";
-            builder.AddRegion(layerRegion, GraphRegionTypes.Layer, "RWKV7 Block", "blocks",
-                architecture: new(Description: "Pre-normalized TimeMix and ChannelMix with residual connections and history stores."));
-            var attentionRegion = layerRegion + ".attention";
-            builder.AddRegion(attentionRegion, GraphRegionTypes.Stage, "Attention", layerRegion, role: "attention",
-                architecture: new(DefaultCollapsed: false));
-            var prefix = $"blocks.{layer}.";
-            string Att(string suffix) => prefix + "att." + suffix;
-            var attPrevious = $"state.{layer}.att-previous";
-            var ffnPrevious = $"state.{layer}.ffn-previous";
-            var wkvState = $"state.{layer}.wkv";
-            var timeMix = layerRegion + ".time-mix";
-            var normalized = builder.WithRegion(layerRegion + ".norm1", GraphRegionTypes.Architecture, "LayerNorm 1", _ => Affine(Normalize(x, 1e-5f), prefix + "ln1.weight", prefix + "ln1.bias"), parentId: attentionRegion, architecture: new("normalization", "Normalizes the input before TimeMix.", null));
-            var timeMixOutput = builder.WithRegion(timeMix, GraphRegionTypes.Architecture, "TimeMix", _ =>
+            for (var layer = 0; layer < modelDimensions.LayerCount; layer++)
             {
-                var projections = timeMix + ".projections";
-                var (xr, xw, xk, xv, xa, xg) = builder.WithRegion(timeMix + ".input-mixing", GraphRegionTypes.Architecture, "Input Mixing", _ =>
+                var layerPath = $"layer.{layer}";
+                blocksScope.Child(layerPath, "RWKV7 Block", layerScope =>
                 {
-                    var mixes = Reshape(Weight(Att("x_rwkvag")), 6, width);
-                    var xr = Mix(normalized, attPrevious, SliceMix(mixes, 0));
-                    var xw = Mix(normalized, attPrevious, SliceMix(mixes, 1));
-                    var xk = Mix(normalized, attPrevious, SliceMix(mixes, 2));
-                    var xv = Mix(normalized, attPrevious, SliceMix(mixes, 3));
-                    var xa = Mix(normalized, attPrevious, SliceMix(mixes, 4));
-                    var xg = Mix(normalized, attPrevious, SliceMix(mixes, 5));
-                    return (xr, xw, xk, xv, xa, xg);
-                }, architecture: new("temporal-mixing", "Produces six time-mixed inputs using previous-token history.", "x_q = x + (x_prev - x) .* m_q; q = r,w,k,v,a,g"));
-                var (r, key, value, decay, adaptation, gate) = builder.WithRegion(projections, GraphRegionTypes.Architecture, "Projections and Gates", _ =>
+                    var prefix = $"blocks.{layer}.";
+                    string Att(string suffix) => prefix + "att." + suffix;
+                    var attPrevious = $"state.{layer}.att-previous";
+                    var ffnPrevious = $"state.{layer}.ffn-previous";
+                    var wkvState = $"state.{layer}.wkv";
+                    var attentionPath = layerPath + ".attention";
+                    layerScope.Child(attentionPath, "Attention", attentionScope =>
                 {
-                    var r = builder.WithRegion(projections + ".r", GraphRegionTypes.Architecture, "R: Receptance", _ => Project(Att("receptance.weight"), xr), architecture: new("receptance", "Projects receptance.", "r = W_r x_r"));
-                    var key = builder.WithRegion(projections + ".k", GraphRegionTypes.Architecture, "K: Key", _ => Project(Att("key.weight"), xk), architecture: new("key", "Projects the key.", "k = W_k x_k"));
-                    var value = builder.WithRegion(projections + ".v", GraphRegionTypes.Architecture, "V: Value", _ => Project(Att("value.weight"), xv), architecture: new("value", "Projects the value.", "v = W_v x_v"));
-                    var decay = builder.WithRegion(projections + ".w", GraphRegionTypes.Architecture, "W: Decay", _ =>
+                    var timeMix = layerPath + ".time-mix";
+                    var normalized = ArchitectureValue(attentionScope, layerPath + ".norm1", "LayerNorm 1", _ => Affine(Normalize(x, 1e-5f), prefix + "ln1.weight", prefix + "ln1.bias"), new("normalization", "Normalizes the input before TimeMix.", null));
+                    string timeMixOutput = null!;
+                    attentionScope.Child(timeMix, "TimeMix", timeMixScope =>
+                {
+                    var projections = timeMix + ".projections";
+                    var (xr, xw, xk, xv, xa, xg) = ArchitectureValue(timeMixScope, timeMix + ".input-mixing", "Input Mixing", _ =>
                     {
-                        var decayOffset = Add(Project(Att("w2"), Unary(PrimitiveGraphOperations.Tanh, Project(Att("w1"), xw))), VectorWeight(Att("w0"), width));
-                        var decay = Unary(PrimitiveGraphOperations.Exp, Mul(Fill(-0.606531f, width), Unary(PrimitiveGraphOperations.Sigmoid, decayOffset)));
-                        return decay;
-                    }, architecture: new("decay", "Computes the recurrent memory decay.", "w = exp(-0.606531 * sigmoid(w0 + W2 tanh(W1 x_w)))"));
-                    var adaptation = builder.WithRegion(projections + ".a", GraphRegionTypes.Architecture, "A: Adaptation", _ => Unary(PrimitiveGraphOperations.Sigmoid, Add(Project(Att("a2"), Project(Att("a1"), xa)), VectorWeight(Att("a0"), width))), architecture: new("adaptation", "Computes key adaptation.", "a = sigmoid(a0 + A2 A1 x_a)"));
-                    var gate = builder.WithRegion(projections + ".g", GraphRegionTypes.Architecture, "G: Output Gate", _ => Project(Att("g2"), Unary(PrimitiveGraphOperations.Sigmoid, Project(Att("g1"), xg))), architecture: new("output-gate", "Computes the output gate.", "g = G2 sigmoid(G1 x_g)"));
-                    return (r, key, value, decay, adaptation, gate);
-                }, architecture: new("projection-and-gating", "R/K/V projections and W/A/G low-rank branches.", null));
-                var normalizedKey = builder.WithRegion(timeMix + ".key-value", GraphRegionTypes.Architecture, "Key / Value Adjustment", _ =>
-                {
-                    var scaledKey = Mul(key, VectorWeight(Att("k_k"), width));
-                    var keyHeads = Reshape(scaledKey, heads, headSize);
-                    var squares = ReduceHead(Unary(PrimitiveGraphOperations.Square, keyHeads), mean: false);
-                    var inverseMagnitude = Unary(PrimitiveGraphOperations.ReciprocalSquareRoot, Binary(PrimitiveGraphOperations.Maximum, squares, Fill(1e-24f, heads)));
-                    var normalizedKey = Mul(keyHeads, ExpandHead(inverseMagnitude));
-                    var ka = Mul(key, VectorWeight(Att("k_a"), width));
-                    key = Sub(Add(key, Mul(adaptation, ka)), ka);
-                    if (firstValue is null)
-                        firstValue = value;
-                    else
+                        var mixes = Reshape(Weight(Att("x_rwkvag")), 6, width);
+                        var xr = Mix(normalized, attPrevious, SliceMix(mixes, 0));
+                        var xw = Mix(normalized, attPrevious, SliceMix(mixes, 1));
+                        var xk = Mix(normalized, attPrevious, SliceMix(mixes, 2));
+                        var xv = Mix(normalized, attPrevious, SliceMix(mixes, 3));
+                        var xa = Mix(normalized, attPrevious, SliceMix(mixes, 4));
+                        var xg = Mix(normalized, attPrevious, SliceMix(mixes, 5));
+                        return (xr, xw, xk, xv, xa, xg);
+                    }, new("temporal-mixing", "Produces six time-mixed inputs using previous-token history.", "x_q = x + (x_prev - x) .* m_q; q = r,w,k,v,a,g"));
+                    string r = null!, key = null!, value = null!, decay = null!, adaptation = null!, gate = null!;
+                    timeMixScope.Child(projections, "Projections and Gates", projectionsScope =>
                     {
-                        var valueGate = Unary(PrimitiveGraphOperations.Sigmoid, Add(Project(Att("v2"), Project(Att("v1"), xv)), VectorWeight(Att("v0"), width)));
-                        value = Add(value, Mul(Sub(firstValue, value), valueGate));
-                    }
+                        r = ArchitectureValue(projectionsScope, projections + ".r", "R: Receptance", _ => Project(Att("receptance.weight"), xr), new("receptance", "Projects receptance.", "r = W_r x_r"));
+                        key = ArchitectureValue(projectionsScope, projections + ".k", "K: Key", _ => Project(Att("key.weight"), xk), new("key", "Projects the key.", "k = W_k x_k"));
+                        value = ArchitectureValue(projectionsScope, projections + ".v", "V: Value", _ => Project(Att("value.weight"), xv), new("value", "Projects the value.", "v = W_v x_v"));
+                        decay = ArchitectureValue(projectionsScope, projections + ".w", "W: Decay", _ =>
+                        {
+                            var decayOffset = Add(Project(Att("w2"), Unary(PrimitiveGraphOperations.Tanh, Project(Att("w1"), xw))), VectorWeight(Att("w0"), width));
+                            var decay = Unary(PrimitiveGraphOperations.Exp, Mul(Fill(-0.606531f, width), Unary(PrimitiveGraphOperations.Sigmoid, decayOffset)));
+                            return decay;
+                        }, new("decay", "Computes the recurrent memory decay.", "w = exp(-0.606531 * sigmoid(w0 + W2 tanh(W1 x_w)))"));
+                        adaptation = ArchitectureValue(projectionsScope, projections + ".a", "A: Adaptation", _ => Unary(PrimitiveGraphOperations.Sigmoid, Add(Project(Att("a2"), Project(Att("a1"), xa)), VectorWeight(Att("a0"), width))), new("adaptation", "Computes key adaptation.", "a = sigmoid(a0 + A2 A1 x_a)"));
+                        gate = ArchitectureValue(projectionsScope, projections + ".g", "G: Output Gate", _ => Project(Att("g2"), Unary(PrimitiveGraphOperations.Sigmoid, Project(Att("g1"), xg))), new("output-gate", "Computes the output gate.", "g = G2 sigmoid(G1 x_g)"));
+                    }, architecture: new("projection-and-gating", "R/K/V projections and W/A/G low-rank branches.", null));
+                    var normalizedKey = ArchitectureValue(timeMixScope, timeMix + ".key-value", "Key / Value Adjustment", _ =>
+                    {
+                        var scaledKey = Mul(key, VectorWeight(Att("k_k"), width));
+                        var keyHeads = Reshape(scaledKey, heads, headSize);
+                        var squares = ReduceHead(Unary(PrimitiveGraphOperations.Square, keyHeads), mean: false);
+                        var inverseMagnitude = Unary(PrimitiveGraphOperations.ReciprocalSquareRoot, Binary(PrimitiveGraphOperations.Maximum, squares, Fill(1e-24f, heads)));
+                        var normalizedKey = Mul(keyHeads, ExpandHead(inverseMagnitude));
+                        var ka = Mul(key, VectorWeight(Att("k_a"), width));
+                        key = Sub(Add(key, Mul(adaptation, ka)), ka);
+                        if (firstValue is null)
+                            firstValue = value;
+                        else
+                        {
+                            var valueGate = Unary(PrimitiveGraphOperations.Sigmoid, Add(Project(Att("v2"), Project(Att("v1"), xv)), VectorWeight(Att("v0"), width)));
+                            value = Add(value, Mul(Sub(firstValue, value), valueGate));
+                        }
 
-                    return normalizedKey;
-                }, architecture: new("key-value-adjustment", layer == 0 ? "Normalizes and adapts the key; captures the first-layer value." : "Normalizes and adapts the key; interpolates with the first-layer value.", layer == 0 ? "k_adj = k + k .* k_a .* (a - 1); v_first = v" : "k_adj = k + k .* k_a .* (a - 1); v_adj = v + (v_first - v) .* value_gate"));
-                var (received, updated) = builder.WithRegion(timeMix + ".state-update", GraphRegionTypes.Architecture, "Memory Update", _ =>
-                {
-                    var keyed = Reshape(key, heads, headSize);
-                    var valued = Reshape(value, heads, headSize);
-                    var received = Reshape(r, heads, headSize);
-                    var adaptedKey = Mul(normalizedKey, Reshape(adaptation, heads, headSize));
-                    var negativeProjection = Sub(Fill(0, heads, headSize), BatchedMatVec(wkvState, normalizedKey));
-                    var decayMatrix = Broadcast(Reshape(decay, heads, 1, headSize), heads, headSize, headSize);
-                    // S'[h,i,j] = S[h,i,j]*w[h,j] + v[h,i]*k[h,j]
-                    //             - (sum_l S[h,i,l]*kn[h,l])*kn[h,j]*a[h,j].
-                    var updated = Add(Add(Mul(wkvState, decayMatrix), Outer(valued, keyed)), Outer(negativeProjection, adaptedKey));
-                    return (received, updated);
-                }, architecture: new("state-update", "Computes the updated WKV matrix and prepares receptance for the following read.", layer == 0 ? "S_new = S_prev diag(w) - (S_prev kn)(kn .* a)^T + v k_adj^T" : "S_new = S_prev diag(w) - (S_prev kn)(kn .* a)^T + v_adj k_adj^T"));
-                var attention = builder.WithRegion(timeMix + ".state-read", GraphRegionTypes.Architecture, "Memory Read / Commit", _ =>
-                {
-                    var attention = Reshape(BatchedMatVec(updated, received), width);
-                    Store(updated, wkvState);
-                    return attention;
-                }, architecture: new("state-read", "Reads the updated memory, then stores it for the next token.", "y = S_new r; S_prev <- S_new"));
-                var timeMixOutput = builder.WithRegion(timeMix + ".output", GraphRegionTypes.Architecture, "Output Processing", _ =>
-                {
-                    attention = Affine(GroupNormalize(attention), Att("ln_x.weight"), Att("ln_x.bias"));
-                    var bonusFactors = Mul(Mul(key, r), VectorWeight(Att("r_k"), width));
-                    var bonus = ExpandHead(ReduceHead(Reshape(bonusFactors, heads, headSize), mean: false));
-                    attention = Mul(Add(attention, Mul(value, Reshape(bonus, width))), gate);
-                    var timeMixOutput = Project(Att("output.weight"), attention);
-                    return timeMixOutput;
-                }, architecture: new("output-processing", "Head-wise normalization, receptance-key bonus, output gating and projection.", null));
-                return timeMixOutput;
-            }, parentId: attentionRegion, architecture: new("time-mix", "Time mixing, projections and gating, recurrent memory update/read/commit and output processing.", null));
-            builder.WithRegion(layerRegion + ".residual1", GraphRegionTypes.Architecture, "Residual Add 1", _ =>
-            {
-                x = Add(x, timeMixOutput);
-            }, parentId: attentionRegion, architecture: new("residual-add", "Adds the TimeMix output to the Block input.", "x <- x + TimeMix(x)"));
-            builder.WithRegion(layerRegion + ".attention-history", GraphRegionTypes.Architecture, "Attention History Store", _ =>
-            {
-                Store(normalized, attPrevious);
-            }, parentId: attentionRegion, architecture: new("state-store", "Stores the normalized input for the next token.", null));
+                        return normalizedKey;
+                    }, new("key-value-adjustment", layer == 0 ? "Normalizes and adapts the key; captures the first-layer value." : "Normalizes and adapts the key; interpolates with the first-layer value.", layer == 0 ? "k_adj = k + k .* k_a .* (a - 1); v_first = v" : "k_adj = k + k .* k_a .* (a - 1); v_adj = v + (v_first - v) .* value_gate"));
+                    var (received, updated) = ArchitectureValue(timeMixScope, timeMix + ".state-update", "Memory Update", _ =>
+                    {
+                        var keyed = Reshape(key, heads, headSize);
+                        var valued = Reshape(value, heads, headSize);
+                        var received = Reshape(r, heads, headSize);
+                        var adaptedKey = Mul(normalizedKey, Reshape(adaptation, heads, headSize));
+                        var negativeProjection = Sub(Fill(0, heads, headSize), BatchedMatVec(wkvState, normalizedKey));
+                        var decayMatrix = Broadcast(Reshape(decay, heads, 1, headSize), heads, headSize, headSize);
+                        // S'[h,i,j] = S[h,i,j]*w[h,j] + v[h,i]*k[h,j]
+                        //             - (sum_l S[h,i,l]*kn[h,l])*kn[h,j]*a[h,j].
+                        var updated = Add(Add(Mul(wkvState, decayMatrix), Outer(valued, keyed)), Outer(negativeProjection, adaptedKey));
+                        return (received, updated);
+                    }, new("state-update", "Computes the updated WKV matrix and prepares receptance for the following read.", layer == 0 ? "S_new = S_prev diag(w) - (S_prev kn)(kn .* a)^T + v k_adj^T" : "S_new = S_prev diag(w) - (S_prev kn)(kn .* a)^T + v_adj k_adj^T"));
+                    var attention = ArchitectureValue(timeMixScope, timeMix + ".state-read", "Memory Read / Commit", _ =>
+                    {
+                        var attention = Reshape(BatchedMatVec(updated, received), width);
+                        Store(updated, wkvState);
+                        return attention;
+                    }, new("state-read", "Reads the updated memory, then stores it for the next token.", "y = S_new r; S_prev <- S_new"));
+                    timeMixOutput = ArchitectureValue(timeMixScope, timeMix + ".output", "Output Processing", _ =>
+                    {
+                        attention = Affine(GroupNormalize(attention), Att("ln_x.weight"), Att("ln_x.bias"));
+                        var bonusFactors = Mul(Mul(key, r), VectorWeight(Att("r_k"), width));
+                        var bonus = ExpandHead(ReduceHead(Reshape(bonusFactors, heads, headSize), mean: false));
+                        attention = Mul(Add(attention, Mul(value, Reshape(bonus, width))), gate);
+                        var timeMixOutput = Project(Att("output.weight"), attention);
+                        return timeMixOutput;
+                    }, new("output-processing", "Head-wise normalization, receptance-key bonus, output gating and projection.", null));
+                }, architecture: new("time-mix", "Time mixing, projections and gating, recurrent memory update/read/commit and output processing.", null));
+                    attentionScope.Child(layerPath + ".residual1", "Residual Add 1", residualScope =>
+                    Within(residualScope, () =>
+                    {
+                        x = Add(x, timeMixOutput);
+                    }), architecture: new("residual-add", "Adds the TimeMix output to the Block input.", "x <- x + TimeMix(x)"));
+                    attentionScope.Child(layerPath + ".attention-history", "Attention History Store", historyScope =>
+                    Within(historyScope, () =>
+                    {
+                        Store(normalized, attPrevious);
+                    }), architecture: new("state-store", "Stores the normalized input for the next token.", null));
+                }, architecture: new("attention"));
 
-            var ffnRegion = layerRegion + ".ffn";
-            builder.AddRegion(ffnRegion, GraphRegionTypes.Stage, "Feed forward", layerRegion, role: "ffn",
-                architecture: new(DefaultCollapsed: false));
-            var channelMix = layerRegion + ".channel-mix";
-            var ffnNormalized = builder.WithRegion(layerRegion + ".norm2", GraphRegionTypes.Architecture, "LayerNorm 2", _ => Affine(Normalize(x, 1e-5f), prefix + "ln2.weight", prefix + "ln2.bias"), parentId: ffnRegion, architecture: new("normalization", "Normalizes the input before ChannelMix.", null));
-            var channelMixOutput = builder.WithRegion(channelMix, GraphRegionTypes.Architecture, "ChannelMix", _ =>
-            {
-                var keyInput = builder.WithRegion(channelMix + ".input-mixing", GraphRegionTypes.Architecture, "Input Mixing", _ => Mix(ffnNormalized, ffnPrevious, VectorWeight(prefix + "ffn.x_k", width)), architecture: new("temporal-mixing", "Mixes normalized input with previous-token FFN history.", "x_mix = x + (x_prev - x) .* m"));
-                var projectedKey = builder.WithRegion(channelMix + ".key", GraphRegionTypes.Architecture, "Key Projection", _ => Project(prefix + "ffn.key.weight", keyInput), architecture: new("key-projection", "Projects to the FFN hidden width.", null));
-                var squared = builder.WithRegion(channelMix + ".activation", GraphRegionTypes.Architecture, "ReLU Squared", _ =>
+                    var ffnPath = layerPath + ".ffn";
+                    layerScope.Child(ffnPath, "Feed forward", ffnScope =>
                 {
-                    var hidden = Unary(PrimitiveGraphOperations.Relu, projectedKey);
-                    var squared = Unary(PrimitiveGraphOperations.Square, hidden);
-                    return squared;
-                }, architecture: new("activation", "Applies squared ReLU.", "h = relu(W_k x_mix)^2"));
-                var channelMixOutput = builder.WithRegion(channelMix + ".value", GraphRegionTypes.Architecture, "Value Projection", _ => Project(prefix + "ffn.value.weight", squared), architecture: new("value-projection", "Projects back to the embedding width.", "y = W_v h"));
-                return channelMixOutput;
-            }, parentId: ffnRegion, architecture: new("channel-mix", "Temporal input mixing and squared-ReLU feed-forward projections.", null));
-            builder.WithRegion(layerRegion + ".residual2", GraphRegionTypes.Architecture, "Residual Add 2", _ =>
+                    var channelMix = layerPath + ".channel-mix";
+                    var ffnNormalized = ArchitectureValue(ffnScope, layerPath + ".norm2", "LayerNorm 2", _ => Affine(Normalize(x, 1e-5f), prefix + "ln2.weight", prefix + "ln2.bias"), new("normalization", "Normalizes the input before ChannelMix.", null));
+                    string channelMixOutput = null!;
+                    ffnScope.Child(channelMix, "ChannelMix", channelMixScope =>
+                {
+                    var keyInput = ArchitectureValue(channelMixScope, channelMix + ".input-mixing", "Input Mixing", _ => Mix(ffnNormalized, ffnPrevious, VectorWeight(prefix + "ffn.x_k", width)), new("temporal-mixing", "Mixes normalized input with previous-token FFN history.", "x_mix = x + (x_prev - x) .* m"));
+                    var projectedKey = ArchitectureValue(channelMixScope, channelMix + ".key", "Key Projection", _ => Project(prefix + "ffn.key.weight", keyInput), new("key-projection", "Projects to the FFN hidden width.", null));
+                    var squared = ArchitectureValue(channelMixScope, channelMix + ".activation", "ReLU Squared", _ =>
+                    {
+                        var hidden = Unary(PrimitiveGraphOperations.Relu, projectedKey);
+                        var squared = Unary(PrimitiveGraphOperations.Square, hidden);
+                        return squared;
+                    }, new("activation", "Applies squared ReLU.", "h = relu(W_k x_mix)^2"));
+                    channelMixOutput = ArchitectureValue(channelMixScope, channelMix + ".value", "Value Projection", _ => Project(prefix + "ffn.value.weight", squared), new("value-projection", "Projects back to the embedding width.", "y = W_v h"));
+                }, architecture: new("channel-mix", "Temporal input mixing and squared-ReLU feed-forward projections.", null));
+                    ffnScope.Child(layerPath + ".residual2", "Residual Add 2", residualScope =>
+                    Within(residualScope, () =>
+                    {
+                        x = Add(x, channelMixOutput);
+                    }), architecture: new("residual-add", "Adds the ChannelMix output.", "x <- x + ChannelMix(x)"));
+                    ffnScope.Child(layerPath + ".ffn-history", "FFN History Store", historyScope =>
+                    Within(historyScope, () =>
+                    {
+                        Store(ffnNormalized, ffnPrevious);
+                    }), architecture: new("state-store", "Stores the normalized FFN input for the next token.", null));
+                }, architecture: new("ffn"));
+                }, architecture: new(Description: "Pre-normalized TimeMix and ChannelMix with residual connections and history stores."));
+            }
+        }, architecture: new(Description: "Ordered Block instances; the first captures the value reused by subsequent Blocks within this token."));
+        graphScope.Child("output", "LM Head", outputScope =>
+            Within(outputScope, () =>
             {
-                x = Add(x, channelMixOutput);
-            }, parentId: ffnRegion, architecture: new("residual-add", "Adds the ChannelMix output.", "x <- x + ChannelMix(x)"));
-            builder.WithRegion(layerRegion + ".ffn-history", GraphRegionTypes.Architecture, "FFN History Store", _ =>
-            {
-                Store(ffnNormalized, ffnPrevious);
-            }, parentId: ffnRegion, architecture: new("state-store", "Stores the normalized FFN input for the next token.", null));
-        }
-        builder.WithRegion("output", GraphRegionTypes.Stage, "LM Head", _ =>
-        {
-            var output = Affine(Normalize(x, 1e-5f), "ln_out.weight", "ln_out.bias");
-            var logits = Project("head.weight", output);
-            Node(PrimitiveGraphOperations.Copy, [("input", logits)], [modelDimensions.VocabularySize], "logits");
-        }, parentId: "graph", architecture: new(Description: "Final affine LayerNorm and vocabulary projection."));
+                var output = Affine(Normalize(x, 1e-5f), "ln_out.weight", "ln_out.bias");
+                var logits = Project("head.weight", output);
+                Node(PrimitiveGraphOperations.Copy, [("input", logits)], [modelDimensions.VocabularySize], "logits");
+            }), architecture: new(Description: "Final affine LayerNorm and vocabulary projection."));
 
-        var graph = GraphLayerReuse.Extract(builder.BuildSequential(), region => region.Id.Value switch
-        {
-            "embedding" => "Rwkv7.Embedding",
-            "output" => "Rwkv7.Output",
-            "layer.0" => "Rwkv7.Layer.CaptureFirstValue",
-            _ when region.Type == GraphRegionTypes.Layer => "Rwkv7.Layer.MixFirstValue",
-            _ => null,
-        }, (region, resource, access) => resource.Id.Value == firstValue
-            ? region.Id.Value == "layer.0" ? "firstValueOut" : "firstValue"
-            : null);
-        PortableTensorOperationContracts.ValidateGraph(graph);
-        return graph;
+        }, new GraphAnnotation(
+            Name: "RWKV-7 forward token",
+            Role: "forward-token",
+            Description: "RWKV-7 single-token portable logical graph."));
     }
 }

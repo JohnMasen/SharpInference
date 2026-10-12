@@ -235,7 +235,7 @@ public abstract class Instruction
                 (port.Access == GraphResourceAccess.Read || parameter.Access != GraphResourceAccess.Read)))).ToArray();
         if (matches.Length == 0)
             throw new InstructionAdaptationException(CollectionId, Name, "No supported parameter signature.");
-        var compatible = matches.Where(signature => NumericTypeCompatibility.Satisfies(signature.Precision, precision)).ToArray();
+        var compatible = matches.Where(signature => InstructionPrecisionCompatibility.Satisfies(signature.Precision, precision)).ToArray();
         if (compatible.Length == 0)
             throw new InstructionAdaptationException(CollectionId, Name,
                 $"On {Target}, required arithmetic={precision.MinimumArithmeticType}, accumulator={precision.MinimumAccumulatorType}; " +

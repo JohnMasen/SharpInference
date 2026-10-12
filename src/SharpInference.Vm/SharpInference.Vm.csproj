@@ -8,4 +8,7 @@
     <ProjectReference Include="..\SharpInference.Graphs\SharpInference.Graphs.csproj" />
     <ProjectReference Include="..\SharpInference.Instructions\SharpInference.Instructions.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <Compile Remove="VmTierZeroOperations.cs" />
+  </ItemGroup>
 </Project>

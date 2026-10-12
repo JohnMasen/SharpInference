@@ -3,7 +3,7 @@ using System.Numerics.Tensors;
 
 namespace SharpInference.Backends.Cpu;
 
-internal static class CpuHalfMatrixOperators
+public static class CpuHalfMatrixOperators
 {
     private const int ParallelRowThreshold = 64;
     private const int ParallelElementThreshold = 65536;

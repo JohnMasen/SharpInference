@@ -853,14 +853,14 @@ public sealed class VorticePrimitiveGraphExecutorTests(ITestOutputHelper output)
         ]);
         var graph = new LogicalGraphBuilder(new GraphIdentity("synthetic", 1, "branched-gpu"),
                 TestGraphSignatures.Create(2, 2, 1, 1, 2, "synthetic.state"))
-            .AddRegion("root", GraphRegionTypes.Graph, "root")
+            .Root("root", GraphRegionTypes.Graph, "root")
             .AddResource("a", "a", GraphResourceKind.Input, GraphResourceLifetime.External,
                 new TensorDescriptor(GraphElementType.Float32, [2]), graphInput: true)
             .AddResource("b", "b", GraphResourceKind.Input, GraphResourceLifetime.External,
                 new TensorDescriptor(GraphElementType.Float32, [2]), graphInput: true)
             .AddResource("result", "result", GraphResourceKind.Output, GraphResourceLifetime.External,
                 new TensorDescriptor(GraphElementType.Float32, [2]), graphOutput: true)
-            .AddNode("expression", FusedElementwiseExpressionContract.Operation, "root",
+            .Node("expression", FusedElementwiseExpressionContract.Operation,
                 [GraphBindings.Read("input0", "a"), GraphBindings.Read("input1", "b"),
                     GraphBindings.Write("output", "result")],
                 attributes: FusedElementwiseExpressionContract.ToAttributes(expression))
@@ -889,7 +889,7 @@ public sealed class VorticePrimitiveGraphExecutorTests(ITestOutputHelper output)
         if (device is null) return;
         var builder = new LogicalGraphBuilder(new GraphIdentity("synthetic", 1, "reshape-view"),
                 TestGraphSignatures.Create(2, 2, 1, 1, 2, "synthetic.state"))
-            .AddRegion("root", GraphRegionTypes.Graph, "root")
+            .Root("root", GraphRegionTypes.Graph, "root")
             .AddResource("input", "input", GraphResourceKind.Input, GraphResourceLifetime.External,
                 new TensorDescriptor(GraphElementType.Float32, [2, 3]), graphInput: true)
             .AddResource("temp", "temp", GraphResourceKind.Temporary, GraphResourceLifetime.Invocation,
@@ -898,19 +898,19 @@ public sealed class VorticePrimitiveGraphExecutorTests(ITestOutputHelper output)
                 new TensorDescriptor(GraphElementType.Float32, [3, 2]))
             .AddResource("result", "result", GraphResourceKind.Output, GraphResourceLifetime.External,
                 new TensorDescriptor(GraphElementType.Float32, [3, 2]), graphOutput: true)
-            .AddNode("copy", PrimitiveGraphOperations.Copy, "root",
+            .Node("copy", PrimitiveGraphOperations.Copy,
                 [GraphBindings.Read("input", "input"), GraphBindings.Write("output", "temp")])
-            .AddNode("reshape", PortableTensorOperationContracts.Reshape, "root",
+            .Node("reshape", PortableTensorOperationContracts.Reshape,
                 [GraphBindings.Read("input", "temp"), GraphBindings.Write("output", "flat")],
                 ["copy"])
-            .AddNode("result", PrimitiveGraphOperations.Copy, "root",
+            .Node("result", PrimitiveGraphOperations.Copy,
                 [GraphBindings.Read("input", "flat"), GraphBindings.Write("output", "result")],
                 ["reshape"]);
         if (readSourceAfterReshape)
             builder.AddResource("other", "other", GraphResourceKind.Output,
                     GraphResourceLifetime.External, new TensorDescriptor(GraphElementType.Float32, [2, 3]),
                     graphOutput: true)
-                .AddNode("other", PrimitiveGraphOperations.Copy, "root",
+                .Node("other", PrimitiveGraphOperations.Copy,
                     [GraphBindings.Read("input", "temp"), GraphBindings.Write("output", "other")],
                     ["result"]);
         using var backend = new VorticePrimitiveGraphBackend(device);
@@ -932,7 +932,7 @@ public sealed class VorticePrimitiveGraphExecutorTests(ITestOutputHelper output)
         var binary = FusedElementwiseExpressionContract.Arity(operation) == 2;
         return new LogicalGraphBuilder(new GraphIdentity("synthetic", 1, "gpu-step"),
                 TestGraphSignatures.Create(2, 2, 1, 1, 2, "synthetic.state"))
-            .AddRegion("root", GraphRegionTypes.Graph, "root")
+            .Root("root", GraphRegionTypes.Graph, "root")
             .AddResource("a", "a", GraphResourceKind.Input, GraphResourceLifetime.External,
                 new TensorDescriptor(GraphElementType.Float32, [5]), graphInput: true)
             .AddResource("b", "b", GraphResourceKind.Input, GraphResourceLifetime.External,
@@ -941,9 +941,9 @@ public sealed class VorticePrimitiveGraphExecutorTests(ITestOutputHelper output)
                 new TensorDescriptor(GraphElementType.Float32, [5]))
             .AddResource("result", "result", GraphResourceKind.Output, GraphResourceLifetime.External,
                 new TensorDescriptor(GraphElementType.Float32, [5]), graphOutput: true)
-            .AddNode("copy", PrimitiveGraphOperations.Copy, "root",
+            .Node("copy", PrimitiveGraphOperations.Copy,
                 [GraphBindings.Read("input", "a"), GraphBindings.Write("output", "temp")])
-            .AddNode("step", operation, "root",
+            .Node("step", operation,
                 binary
                     ? [GraphBindings.Read("left", "temp"), GraphBindings.Read("right", "b"),
                         GraphBindings.Write("output", "result")]
@@ -1319,7 +1319,7 @@ public sealed class VorticePrimitiveGraphExecutorTests(ITestOutputHelper output)
     {
         var builder = new LogicalGraphBuilder(new GraphIdentity("synthetic", 1, "gpu-expression"),
                 TestGraphSignatures.Create(2, 2, 1, 1, 2, "synthetic.state"))
-            .AddRegion("root", GraphRegionTypes.Graph, "root");
+            .Root("root", GraphRegionTypes.Graph, "root");
         foreach (var name in new[] { "a", "b", "c" })
             builder.AddResource(name, name, GraphResourceKind.Input, GraphResourceLifetime.External,
                 new TensorDescriptor(GraphElementType.Float32, [5]), graphInput: true);
@@ -1329,16 +1329,16 @@ public sealed class VorticePrimitiveGraphExecutorTests(ITestOutputHelper output)
         return builder
             .AddResource("result", "result", GraphResourceKind.Output, GraphResourceLifetime.External,
                 new TensorDescriptor(GraphElementType.Float32, [5]), graphOutput: true)
-            .AddNode("sub", PrimitiveGraphOperations.Subtract, "root",
+            .Node("sub", PrimitiveGraphOperations.Subtract,
                 [GraphBindings.Read("left", "a"), GraphBindings.Read("right", "b"),
                     GraphBindings.Write("output", "sub")])
-            .AddNode("div", PrimitiveGraphOperations.Divide, "root",
+            .Node("div", PrimitiveGraphOperations.Divide,
                 [GraphBindings.Read("left", "sub"), GraphBindings.Read("right", "c"),
                     GraphBindings.Write("output", "div")], ["sub"])
-            .AddNode("max", PrimitiveGraphOperations.Maximum, "root",
+            .Node("max", PrimitiveGraphOperations.Maximum,
                 [GraphBindings.Read("left", "div"), GraphBindings.Read("right", "b"),
                     GraphBindings.Write("output", "max")], ["div"])
-            .AddNode("square", PrimitiveGraphOperations.Square, "root",
+            .Node("square", PrimitiveGraphOperations.Square,
                 [GraphBindings.Read("input", "max"), GraphBindings.Write("output", "result")], ["max"])
             .Build();
     }

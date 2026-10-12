@@ -201,7 +201,7 @@ public sealed class CpuPortableTensorOperationsTests
         var builder = new LogicalGraphBuilder(
             new GraphIdentity("tensor-test", 1, "portable-tensor"),
             TestGraphSignatures.Create(2, 2, 1, 1, 2, "tensor.state"))
-            .AddRegion("root", GraphRegionTypes.Graph, "root");
+            .Root("root", GraphRegionTypes.Graph, "root");
         foreach (var source in sources)
             builder.AddResource(source.Port, source.Port, GraphResourceKind.Input,
                 GraphResourceLifetime.External,
@@ -210,7 +210,7 @@ public sealed class CpuPortableTensorOperationsTests
         builder.AddResource("output", "output", GraphResourceKind.Output,
             GraphResourceLifetime.External, new TensorDescriptor(GraphElementType.Float32, shape),
             graphOutput: true);
-        builder.AddNode("operation", operation, "root",
+        builder.Node("operation", operation,
             sources.Select(source => GraphBindings.Read(source.Port, source.Port))
                 .Append(GraphBindings.Write("output", "output")), attributes: attributes,
             requirements: new PrecisionRequirement(GraphElementType.Float32, GraphElementType.Float32));

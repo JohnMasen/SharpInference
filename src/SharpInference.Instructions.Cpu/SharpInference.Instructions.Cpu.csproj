@@ -4,6 +4,5 @@
     <ProjectReference Include="..\SharpInference.Instructions.TierZero\SharpInference.Instructions.TierZero.csproj" />
     <ProjectReference Include="..\SharpInference.Vm\SharpInference.Vm.csproj" />
     <ProjectReference Include="..\SharpInference.Backends.Cpu\SharpInference.Backends.Cpu.csproj" />
-    <Compile Include="..\SharpInference.Backends.Cpu\CpuHalfMatrixOperators.cs" Link="CpuHalfMatrixOperators.cs" />
   </ItemGroup>
 </Project>

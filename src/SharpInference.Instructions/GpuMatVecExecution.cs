@@ -7,7 +7,7 @@ namespace SharpInference.Instructions;
 public static class GpuMatVecExecution
 {
     /// <summary>Identifies the 64-thread cooperative matrix-vector group size.</summary>
-    public const uint Threads = SharpInference.Graphs.ExecutionPlanGpuContracts.CooperativeMatVecThreads;
+    public const uint Threads = 64;
     /// <summary>Gets the implementation assigning each output's reduction to one GPU thread.</summary>
     public static D3D12InstructionExecutionConfiguration Serial { get; } = new(new("serial-matvec"));
     /// <summary>Gets the implementation using a thread group to cooperate on each output reduction.</summary>
@@ -21,7 +21,12 @@ public static class GpuMatVecExecution
     /// <param name="rows">The positive number of output rows requiring cooperative reduction groups.</param>
     public static (uint X, uint Y) Groups(ulong rows)
     {
-        var grid = SharpInference.Graphs.ExecutionPlanGpuContracts.CooperativeMatVecGroups(rows);
-        return (grid.X, grid.Y);
+        if (rows == 0 || rows > uint.MaxValue / Threads)
+            throw new ArgumentOutOfRangeException(nameof(rows), "Cooperative MatVec exceeds 32-bit thread indexing.");
+        var y = checked((uint)((rows + 65534) / 65535));
+        var x = checked((uint)((rows + y - 1) / y));
+        if ((ulong)x * y * Threads > uint.MaxValue)
+            throw new ArgumentOutOfRangeException(nameof(rows), "Padded cooperative grid exceeds 32-bit thread indexing.");
+        return (x, y);
     }
 }

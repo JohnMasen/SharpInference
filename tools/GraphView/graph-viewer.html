@@ -100,7 +100,7 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;color:#bccce0}
       <g id="world"><g id="edges"></g><g id="nodes"></g></g>
     </svg>
     <div id="empty"><div><strong data-i18n="emptyTitle">把模型结构变成可探索的节点图</strong><p data-i18n="emptyHelp">点击“打开 XML 文件”，也可将文件拖放到这里。</p><p data-i18n="privacy">文件仅在浏览器内读取，不会上传到任何服务器。</p></div></div>
-    <div id="legend"><span><i class="dot" style="background:#7098e4"></i><span data-i18n="legendRegions">Region / 层调用</span></span><span><i class="dot" style="background:#56728e"></i><span data-i18n="legendOperators">算子</span></span><span><i class="dot" style="background:#62a48f"></i><span data-i18n="legendResources">输入 / 状态 / 资源</span></span></div>
+    <div id="legend"><span><i class="dot" style="background:#7098e4"></i><span data-i18n="legendRegions">Definition / 图调用</span></span><span><i class="dot" style="background:#56728e"></i><span data-i18n="legendOperators">算子</span></span><span><i class="dot" style="background:#62a48f"></i><span data-i18n="legendResources">输入 / 状态 / 资源</span></span></div>
   </div>
   <aside id="details">
     <h2 data-i18n="helpTitle">使用说明</h2>
@@ -149,13 +149,13 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;color:#bccce0}
     "emptyTitle": ["把模型结构变成可探索的节点图", "Explore your model as a node graph"],
     "emptyHelp": ["点击“打开 XML 文件”，也可将文件拖放到这里。", "Click “Open XML file” or drop a file here."],
     "privacy": ["文件仅在浏览器内读取，不会上传到任何服务器。", "Files are read locally in your browser and never uploaded."],
-    "legendRegions": ["Region / 层调用", "Regions / layer calls"],
+    "legendRegions": ["Definition / 图调用", "Definitions / graph calls"],
     "legendOperators": ["算子", "Operations"],
     "legendResources": ["输入 / 状态 / 资源", "Inputs / state / resources"],
     "helpTitle": ["使用说明", "How to use"],
     "helpNodes": ["节点上边缘方块代表输入，下边缘方块代表输出；连线连接对应端口，悬停查看完整名称与资源。单击节点查看详情，拖动调整位置；双击层调用进入对应定义。", "Blocks on the top edge are inputs; blocks on the bottom edge are outputs. Edges attach to their ports; hover for full names and resources. Click a node for details, drag to reposition it, or double-click a layer call to enter its definition."],
     "helpEdges": ["单击连线以金黄色高亮线条、箭头及两端节点，并查看连接资源；再次单击节点恢复节点选择。", "Click an edge to highlight its line, arrow and endpoints in gold and inspect its resources. Click a node to return to node selection."],
-    "helpRegions": ["Region 下可包含一个可选的 Architecture 元数据元素。嵌套 Region 直接包含真实算子，不需要独立架构树或 NodeRef 映射。双击 Region 展开子步骤，双击叶子 Region 查看算子；也可直接“查看全部算子”。说明与公式显示在详情顶部。", "A Region may contain optional Architecture metadata. Nested Regions own real operations directly, without a separate architecture tree or NodeRef mapping. Double-click to explore substeps or leaf operations, or choose “View all operations”. Descriptions and formulas appear at the top of the details panel."],
+    "helpRegions": ["Definition 包含真实算子和对子图 Definition 的调用。双击图调用进入对应定义；说明和编译边界显示在详情顶部。", "A Definition contains real operations and calls to child Definitions. Double-click a graph call to enter its definition; descriptions and compile boundaries appear in the details panel."],
     "helpMetadata": ["架构连线由真实资源绑定聚合生成。Architecture 的 Ports/Port 可用 resource、direction（in/out）、name 为边界命名；Description、Formula 提供说明。defaultCollapsed=false 让结构容器透明展开，repeatGroup=true 标记可切换的重复组。所属计算上下文声明 step=token 时，紫色虚线表示末次状态写入到下一 token 首次读取，不参与本步排序。", "Architecture edges aggregate real resource bindings. Architecture Ports/Port uses resource, direction (in/out) and name to label boundaries; Description and Formula provide documentation. defaultCollapsed=false expands a container transparently; repeatGroup=true marks a toggleable repeated group. With step=token in the computation context, purple dashed edges connect the last state write to the first read of the next token and do not affect current-step ordering."],
     "helpReadable": ["默认以 100% 可读比例显示节点，拖动画布探索大图。“适应画布”显示全貌，但大图文字会缩小；“可读视图”（F）恢复 100%，有选中节点时以它为中心。输入框内不触发 F 快捷键。搜索后点击“下一个”定位匹配节点。", "Nodes start at readable 100% zoom. Pan to explore large graphs. “Fit to canvas” shows the whole graph but may shrink text; “Readable view” (F) restores 100% and centers the selection. F is ignored in text fields. Search and use “Next” to locate matches."],
     "helpHistory": ["“后退 / 前进”或 Alt + ← / → 导航本文件内的视图历史，恢复画布位置、显示选项和选中内容。打开新文件会重置历史。", "Use Back / Forward or Alt + ← / → to navigate this file’s view history, restoring canvas position, display options and selection. Opening another file resets history."],
@@ -211,7 +211,7 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;color:#bccce0}
     "missingHistoryEdge": ["导航失败：历史视图中的连线不存在。", "Navigation failed: the historical edge no longer exists."],
     "missingView": ["导航失败：找不到视图 {0}", "Navigation failed: view not found: {0}"],
     "missingScope": ["找不到所选图或 Region。", "The selected graph or Region was not found."],
-    "expandRegionHint": ["双击展开子 Region", "Double-click to expand Regions"],
+    "expandRegionHint": ["双击进入子图 Definition", "Double-click to enter child Definitions"],
     "expandOperatorsHint": ["双击查看算子", "Double-click to view operations"],
     "stateBoundary": ["跨 token 状态{0}", "Cross-token state {0}"],
     "output": ["输出", "output"],
@@ -237,7 +237,7 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;color:#bccce0}
     "executionNodes": ["执行节点", "execution nodes"],
     "drawingFailed": ["绘图失败：{0}", "Drawing failed: {0}"],
     "overviewClick": ["单击查看节点详情；单击连线高亮两端节点；双击层调用查看模板内部算子。", "Click to inspect node details, click an edge to highlight its endpoints, or double-click a layer call to explore its template."],
-    "overviewRegions": ["当前层级直接来自嵌套 Region，连线由真实算子/调用的资源绑定聚合。双击 Region 展开子步骤，叶子 Region 展开为算子；详情中可直接查看全部算子。绿色侧线表示残差连接，紫色虚线表示跨 token 状态。", "This hierarchy comes directly from nested Regions; edges aggregate real operation/call bindings. Double-click to explore substeps or leaf operations, or view all operations from the details panel. Green side edges are residual connections; purple dashed edges are cross-token state."],
+    "overviewRegions": ["当前层级来自 Definition/Call，连线由真实算子和调用的资源绑定聚合。双击调用进入子图 Definition。", "This hierarchy comes from Definitions and Calls; edges aggregate real operation and call bindings. Double-click a call to enter its child Definition."],
     "overviewMetadata": ["Architecture 只是所属 Region 的可选元数据，不是执行节点。状态写入保留原执行位置。层定义中的资源和端口是模板，不是具体层实例。", "Architecture is optional Region metadata, not an execution node. State writes keep their original execution positions. Definition resources and ports are templates, not concrete layer instances."],
     "model": ["模型", "Model"],
     "tips": ["操作提示", "Tips"],
@@ -339,8 +339,8 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;color:#bccce0}
   function graphType() {
     if (state.plan) return t("targetGraph", state.plan.kind.toUpperCase());
     const kind = attr(state.root, "kind");
-    if (kind === "LogicalGraph") return t("logicalGraph");
-    if (kind === "ExecutionGraph") return t("executionGraph");
+    if (kind === "LogicalGraphDefinition") return t("logicalGraph");
+    if (kind === "ExecutionGraph" || kind === "ExecutionGraphProgram") return t("executionGraph");
     return t("unspecifiedGraph");
   }
   function updateGraphType() {
@@ -364,12 +364,206 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;color:#bccce0}
     const root = documentXml.documentElement;
     if (root.localName === "ExecutionPlan") return parseExecutionPlan(root);
     if (root.localName !== "Graph") throw new ViewerError("invalidRoot");
-    if (!child(root, "Region") && !child(root, "Nodes"))
-      throw new ViewerError("missingStructure");
-    if (child(root, "Architecture"))
-      throw new ViewerError("legacyArchitecture");
-    return { root, definitions: namedMap(child(root, "LayerDefinitions"), "LayerDefinition"),
-      resources: namedMap(child(root, "Resources"), "Resource"), plan: null };
+    if (attr(root, "kind") === "LogicalGraphDefinition") return parseDefinitionGraph(root);
+    if (attr(root, "kind") === "ExecutionGraphProgram") return parseExecutionGraphProgram(root);
+    throw new ViewerError("missingStructure");
+  }
+  function parseExecutionGraphProgram(source) {
+    const rootId = attr(child(source, "Root"), "graph");
+    const sourceGraphs = namedMap(child(source, "Graphs"), "ExecutionGraph");
+    if (!rootId || !sourceGraphs.has(rootId)) throw new ViewerError("missingDefinition", "root", rootId);
+    const documentXml = document.implementation.createDocument("", "Graph");
+    const create = (name, attributes = {}) => {
+      const element = documentXml.createElement(name);
+      for (const [key, value] of Object.entries(attributes))
+        if (value) element.setAttribute(key, value);
+      return element;
+    };
+    const copyChildren = (target, sourceElement) => {
+      if (sourceElement) for (const item of sourceElement.children)
+        target.append(documentXml.importNode(item, true));
+    };
+    const converted = documentXml.documentElement;
+    converted.setAttribute("kind", "LogicalGraphDefinition");
+    converted.setAttribute("version", attr(source, "version"));
+    converted.append(create("Root", { definition: rootId }));
+    const definitions = create("Definitions");
+    for (const [id, graph] of sourceGraphs) {
+      const definition = create("Definition", {
+        id, compileBoundary: attr(graph, "compileBoundary")
+      });
+      const architecture = child(graph, "Architecture");
+      if (architecture) {
+        const annotation = create("Annotation", {
+          name: attr(architecture, "name"), role: attr(architecture, "role"),
+          description: attr(architecture, "description")
+        });
+        copyChildren(annotation, architecture);
+        definition.append(annotation);
+      }
+      definition.append(documentXml.importNode(child(graph, "Resources"), true));
+      const nodes = create("Nodes");
+      for (const sourceNode of child(graph, "Nodes").children) {
+        const isCall = sourceNode.localName === "GraphCall";
+        const node = create(isCall ? "Call" : "Operation",
+          isCall
+            ? { id: attr(sourceNode, "id"), definition: attr(sourceNode, "target") }
+            : { id: attr(sourceNode, "id"), operation: attr(sourceNode, "operation"),
+                operationVersion: attr(sourceNode, "operationVersion") });
+        const nodeArchitecture = child(sourceNode, "Architecture");
+        if (nodeArchitecture) {
+          const annotation = create("Annotation", {
+            name: attr(nodeArchitecture, "name"), role: attr(nodeArchitecture, "role"),
+            description: attr(nodeArchitecture, "description")
+          });
+          copyChildren(annotation, nodeArchitecture);
+          node.append(annotation);
+        }
+        for (const name of ["Bindings", "Dependencies", "Attributes", "Precision"]) {
+          const item = child(sourceNode, name);
+          if (item) node.append(documentXml.importNode(item, true));
+        }
+        nodes.append(node);
+      }
+      definition.append(nodes);
+      definitions.append(definition);
+    }
+    converted.append(definitions);
+    const result = parseDefinitionGraph(converted);
+    result.root.setAttribute("kind", "ExecutionGraphProgram");
+    return result;
+  }
+  function parseDefinitionGraph(source) {
+    const rootRef = child(source, "Root"), definitionsElement = child(source, "Definitions");
+    const rootId = attr(rootRef, "definition");
+    const sourceDefinitions = namedMap(definitionsElement, "Definition");
+    if (!rootId || !sourceDefinitions.has(rootId)) throw new ViewerError("missingDefinition", "root", rootId);
+    const documentXml = document.implementation.createDocument("", "Graph");
+    const copy = element => documentXml.importNode(element, true);
+    const create = (name, attributes = {}) => {
+      const element = documentXml.createElement(name);
+      for (const [key, value] of Object.entries(attributes))
+        if (value) element.setAttribute(key, value);
+      return element;
+    };
+    const converted = documentXml.documentElement;
+    converted.setAttribute("kind", "LogicalGraphDefinition");
+    converted.setAttribute("version", attr(source, "version"));
+    const resources = create("Resources");
+    const table = create("LayerDefinitions");
+    converted.append(resources, table);
+
+    const annotation = definition => {
+      const sourceAnnotation = child(definition, "Annotation");
+      if (!sourceAnnotation) return null;
+      const result = create("Architecture");
+      const description = [attr(sourceAnnotation, "description"),
+        `Compile boundary: ${attr(definition, "compileBoundary")}`].filter(Boolean).join("\n");
+      if (description) {
+        const item = create("Description");
+        item.textContent = description;
+        result.append(item);
+      }
+      return result;
+    };
+    const tensorAttributes = resource => {
+      const tensor = child(resource, "Tensor");
+      return {
+        elementType: attr(tensor, "elementType"),
+        shape: children(tensor, "Dimension").map(item => attr(item, "value")).join("x"),
+        layout: attr(tensor, "layout"),
+      };
+    };
+    const resource = item => create("Resource", {
+      id: attr(item, "id"), name: attr(item, "name"), kind: attr(item, "kind"),
+      bindingKey: attr(item, "bindingKey"), ...tensorAttributes(item),
+    });
+    const dependencies = sourceNode => {
+      const result = create("DependsOn");
+      for (const reference of children(child(sourceNode, "Dependencies"), "NodeRef"))
+        result.append(create("ElementRef", { id: attr(reference, "id") }));
+      return result;
+    };
+    const node = (sourceNode, definition, exposedResources) => {
+      const result = sourceNode.localName === "Call"
+        ? create("Call", { id: attr(sourceNode, "id"), definition: attr(sourceNode, "definition") })
+        : create("Node", { id: attr(sourceNode, "id"),
+          operation: `${attr(sourceNode, "operation")}@${attr(sourceNode, "operationVersion")}` });
+      const sourceBindings = child(sourceNode, "Bindings");
+      if (sourceBindings) {
+        const bindings = create("Bindings");
+        for (const sourceBinding of children(sourceBindings, "Binding")) {
+          const instance = attr(sourceBinding, "instance");
+          const resourceId = attr(sourceBinding, "resource");
+          const binding = copy(sourceBinding);
+          if (instance) {
+            const exposedId = `${instance}/${resourceId}`;
+            binding.setAttribute("resource", exposedId);
+            binding.removeAttribute("instance");
+            if (!children(exposedResources, "Resource").some(item => attr(item, "id") === exposedId)) {
+              const ownerCall = children(child(definition, "Nodes"), "Call")
+                .find(call => attr(call, "id") === instance);
+              const ownerDefinition = ownerCall
+                ? sourceDefinitions.get(attr(ownerCall, "definition"))
+                : null;
+              const sourceResource = ownerDefinition
+                ? children(child(ownerDefinition, "Resources"), "Resource")
+                    .find(item => attr(item, "id") === resourceId)
+                : null;
+              if (!sourceResource)
+                throw new ViewerError("missingResource", attr(definition, "id"), attr(sourceNode, "id"), exposedId);
+              const exposed = resource(sourceResource);
+              exposed.setAttribute("id", exposedId);
+              exposed.setAttribute("name", `${instance}/${attr(sourceResource, "name") || resourceId}`);
+              exposedResources.append(exposed);
+            }
+          }
+          bindings.append(binding);
+        }
+        result.append(bindings);
+      }
+      result.append(dependencies(sourceNode));
+      return result;
+    };
+    const region = (definition, exposedResources) => {
+      const sourceAnnotation = child(definition, "Annotation");
+      const result = create("Region", {
+        id: attr(definition, "id"),
+        type: "graph",
+        name: attr(sourceAnnotation, "name") || attr(definition, "id"),
+        role: attr(sourceAnnotation, "role"),
+      });
+      const metadata = annotation(definition);
+      if (metadata) result.append(metadata);
+      for (const sourceNode of child(definition, "Nodes").children)
+        result.append(node(sourceNode, definition, exposedResources));
+      return result;
+    };
+
+    const rootDefinition = sourceDefinitions.get(rootId);
+    for (const item of child(rootDefinition, "Resources").children) resources.append(resource(item));
+    converted.append(region(rootDefinition, resources));
+    for (const [id, definition] of sourceDefinitions) {
+      if (id === rootId) continue;
+      const layer = create("LayerDefinition", { id });
+      const ports = create("Ports"), locals = create("LocalResources");
+      for (const item of child(definition, "Resources").children) {
+        const kind = attr(item, "kind");
+        if (["Input", "Output", "InOut"].includes(kind)) {
+          ports.append(create("Port", {
+            id: attr(item, "id"),
+            access: kind === "Input" ? "Read" : kind === "Output" ? "Write" : "ReadWrite",
+            ...tensorAttributes(item),
+          }));
+        } else {
+          locals.append(resource(item));
+        }
+      }
+      layer.append(ports, locals, region(definition, locals));
+      table.append(layer);
+    }
+    return { root: converted, definitions: namedMap(table, "LayerDefinition"),
+      resources: namedMap(resources, "Resource"), plan: null };
   }
   function parseExecutionPlan(planRoot) {
     if (attr(planRoot, "schema") === "sharp-inference") return parseTargetExecutionPlan(planRoot);

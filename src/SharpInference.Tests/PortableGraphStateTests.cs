@@ -76,7 +76,7 @@ public sealed class PortableGraphStateTests
                 new GraphIdentity("test-model", 1, "test.forward"),
                 TestGraphSignatures.Create(4, 2, 1, 1, 2, "test-model.state.fp32@1"))
             .SetStateSchema(new StateSchema("Test_State"))
-            .AddRegion("graph", GraphRegionTypes.Graph, "Graph")
+            .Root("graph", GraphRegionTypes.Graph, "Graph")
             .AddResource("token", "Token", GraphResourceKind.Input,
                 GraphResourceLifetime.External, new TensorDescriptor(GraphElementType.Int32, [1]),
                 graphInput: true)
@@ -86,7 +86,7 @@ public sealed class PortableGraphStateTests
             .AddResource("state", "State", GraphResourceKind.SessionState,
                 GraphResourceLifetime.Session, new TensorDescriptor(GraphElementType.Float32, [1, 2, 2]))
             .AddStateSlot("state", "state")
-            .AddNode("output", PrimitiveGraphOperations.Copy, "graph",
+            .Node("output", PrimitiveGraphOperations.Copy,
                 [GraphBindings.Read("input", "state"), GraphBindings.Write("output", "logits")])
             .Build();
         return new GraphOptimizer().Optimize(graph,
