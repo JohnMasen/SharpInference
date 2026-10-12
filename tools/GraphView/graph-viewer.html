@@ -401,9 +401,12 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;color:#bccce0}
         copyChildren(annotation, architecture);
         definition.append(annotation);
       }
-      definition.append(documentXml.importNode(child(graph, "Resources"), true));
       const nodes = create("Nodes");
       for (const sourceNode of child(graph, "Nodes").children) {
+        if (sourceNode.localName === "Resource") {
+          nodes.append(documentXml.importNode(sourceNode, true));
+          continue;
+        }
         const isCall = sourceNode.localName === "GraphCall";
         const node = create(isCall ? "Call" : "Operation",
           isCall
@@ -419,13 +422,14 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;color:#bccce0}
           copyChildren(annotation, nodeArchitecture);
           node.append(annotation);
         }
-        for (const name of ["Bindings", "Dependencies", "Attributes", "Precision"]) {
+        for (const name of ["Attributes", "Precision"]) {
           const item = child(sourceNode, name);
           if (item) node.append(documentXml.importNode(item, true));
         }
         nodes.append(node);
       }
       definition.append(nodes);
+      definition.append(documentXml.importNode(child(graph, "Edges"), true));
       definitions.append(definition);
     }
     converted.append(definitions);
@@ -478,10 +482,22 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;color:#bccce0}
       id: attr(item, "id"), name: attr(item, "name"), kind: attr(item, "kind"),
       bindingKey: attr(item, "bindingKey"), ...tensorAttributes(item),
     });
-    const dependencies = sourceNode => {
+    const graphNodeId = sourceNode => `operation:${attr(sourceNode, "id")}`;
+    const resourceGraphId = sourceResource => {
+      const instance = attr(sourceResource, "instance");
+      return instance
+        ? `resource:instance:${instance}:${attr(sourceResource, "id")}`
+        : `resource:parent:${attr(sourceResource, "id")}`;
+    };
+    const dependencies = (sourceNode, definition) => {
       const result = create("DependsOn");
-      for (const reference of children(child(sourceNode, "Dependencies"), "NodeRef"))
-        result.append(create("ElementRef", { id: attr(reference, "id") }));
+      for (const edge of children(child(definition, "Edges"), "Dependency")) {
+        if (attr(edge, "target") !== graphNodeId(sourceNode)) continue;
+        const source = attr(edge, "source");
+        result.append(create("ElementRef", {
+          id: source.startsWith("operation:") ? source.slice(10) : source
+        }));
+      }
       return result;
     };
     const node = (sourceNode, definition, exposedResources) => {
@@ -489,29 +505,38 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;color:#bccce0}
         ? create("Call", { id: attr(sourceNode, "id"), definition: attr(sourceNode, "definition") })
         : create("Node", { id: attr(sourceNode, "id"),
           operation: `${attr(sourceNode, "operation")}@${attr(sourceNode, "operationVersion")}` });
-      const sourceBindings = child(sourceNode, "Bindings");
-      if (sourceBindings) {
+      const resourceNodes = children(child(definition, "Nodes"), "Resource");
+      const resourcesByGraphId = new Map(resourceNodes.map(item => [resourceGraphId(item), item]));
+      const operationId = graphNodeId(sourceNode);
+      const accessEdges = Array.from(child(definition, "Edges").children).filter(edge =>
+        (edge.localName === "Read" && attr(edge, "target") === operationId) ||
+        (edge.localName === "Write" && attr(edge, "source") === operationId));
+      if (accessEdges.length) {
         const bindings = create("Bindings");
-        for (const sourceBinding of children(sourceBindings, "Binding")) {
-          const instance = attr(sourceBinding, "instance");
-          const resourceId = attr(sourceBinding, "resource");
-          const binding = copy(sourceBinding);
+        const groups = new Map();
+        for (const edge of accessEdges) {
+          const id = attr(edge, "binding");
+          if (!groups.has(id)) groups.set(id, []);
+          groups.get(id).push(edge);
+        }
+        for (const edges of groups.values()) {
+          const read = edges.find(edge => edge.localName === "Read");
+          const write = edges.find(edge => edge.localName === "Write");
+          const graphResourceId = read ? attr(read, "source") : attr(write, "target");
+          const sourceResource = resourcesByGraphId.get(graphResourceId);
+          if (!sourceResource)
+            throw new ViewerError("missingResource", attr(definition, "id"),
+              attr(sourceNode, "id"), graphResourceId);
+          const instance = attr(sourceResource, "instance");
+          const resourceId = attr(sourceResource, "id");
+          const binding = create("Binding", {
+            port: attr(read || write, "port"),
+            resource: instance ? `${instance}/${resourceId}` : resourceId,
+            access: read && write ? "ReadWrite" : read ? "Read" : "Write"
+          });
           if (instance) {
             const exposedId = `${instance}/${resourceId}`;
-            binding.setAttribute("resource", exposedId);
-            binding.removeAttribute("instance");
             if (!children(exposedResources, "Resource").some(item => attr(item, "id") === exposedId)) {
-              const ownerCall = children(child(definition, "Nodes"), "Call")
-                .find(call => attr(call, "id") === instance);
-              const ownerDefinition = ownerCall
-                ? sourceDefinitions.get(attr(ownerCall, "definition"))
-                : null;
-              const sourceResource = ownerDefinition
-                ? children(child(ownerDefinition, "Resources"), "Resource")
-                    .find(item => attr(item, "id") === resourceId)
-                : null;
-              if (!sourceResource)
-                throw new ViewerError("missingResource", attr(definition, "id"), attr(sourceNode, "id"), exposedId);
               const exposed = resource(sourceResource);
               exposed.setAttribute("id", exposedId);
               exposed.setAttribute("name", `${instance}/${attr(sourceResource, "name") || resourceId}`);
@@ -522,7 +547,7 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;color:#bccce0}
         }
         result.append(bindings);
       }
-      result.append(dependencies(sourceNode));
+      result.append(dependencies(sourceNode, definition));
       return result;
     };
     const region = (definition, exposedResources) => {
@@ -535,19 +560,22 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;color:#bccce0}
       });
       const metadata = annotation(definition);
       if (metadata) result.append(metadata);
-      for (const sourceNode of child(definition, "Nodes").children)
+      for (const sourceNode of Array.from(child(definition, "Nodes").children)
+        .filter(item => item.localName !== "Resource"))
         result.append(node(sourceNode, definition, exposedResources));
       return result;
     };
 
     const rootDefinition = sourceDefinitions.get(rootId);
-    for (const item of child(rootDefinition, "Resources").children) resources.append(resource(item));
+    for (const item of children(child(rootDefinition, "Nodes"), "Resource")
+      .filter(item => !attr(item, "instance"))) resources.append(resource(item));
     converted.append(region(rootDefinition, resources));
     for (const [id, definition] of sourceDefinitions) {
       if (id === rootId) continue;
       const layer = create("LayerDefinition", { id });
       const ports = create("Ports"), locals = create("LocalResources");
-      for (const item of child(definition, "Resources").children) {
+      for (const item of children(child(definition, "Nodes"), "Resource")
+        .filter(item => !attr(item, "instance"))) {
         const kind = attr(item, "kind");
         if (["Input", "Output", "InOut"].includes(kind)) {
           ports.append(create("Port", {

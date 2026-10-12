@@ -1,4 +1,5 @@
 using SharpInference.Graphs;
+using SharpInference.Graphs.Core;
 using SharpInference.Instructions;
 
 namespace SharpInference.Vm.Optimization;
@@ -67,7 +68,7 @@ public sealed class VmExecutionGraphEmitter
             foreach (var call in StableOrder(graph).OfType<ExecutionGraphCallNode>())
             {
                 var child = BuildFrame(call.Target);
-                var boundPorts = call.Bindings.Select(binding => binding.Port)
+                var boundPorts = graph.Bindings(call).Select(binding => binding.Port)
                     .ToHashSet(StringComparer.Ordinal);
                 foreach (var parameter in child.Parameters.Where(parameter => !boundPorts.Contains(parameter.Name)))
                     parameters.Add(parameter with
@@ -124,11 +125,13 @@ public sealed class VmExecutionGraphEmitter
         var completion = new Dictionary<ExecutionNodeId, string>();
         foreach (var node in StableOrder(frame.Graph))
         {
-            var dependencies = node.Dependencies.Select(dependency => completion[dependency]).ToArray();
+            var dependencies = frame.Graph.Dependencies(node)
+                .Select(dependency => completion[dependency]).ToArray();
             switch (node)
             {
                 case ExecutionOperationNode operation:
                     var selected = Resolve(operation, frame);
+                    var operationBindings = frame.Graph.Bindings(operation);
                     if (target == VmTarget.Cpu)
                     {
                         nodes.Add(new VmNode(operation.Id.Value,
@@ -138,7 +141,7 @@ public sealed class VmExecutionGraphEmitter
                     else
                     {
                         var kernelId = KernelId(frame.Graph.Id, operation.Id);
-                        var operationParameters = operation.Bindings.Select(binding =>
+                        var operationParameters = operationBindings.Select(binding =>
                             new VmParameter(binding.Port, Access(binding.Access),
                                 Tensor(ResolveTensor(frame, binding)))).ToArray();
                         EnsureUnique(operationParameters.Select(parameter => parameter.Name),
@@ -149,12 +152,12 @@ public sealed class VmExecutionGraphEmitter
                             operationParameters,
                             [new VmNode("body", Operator(operation, selected, operationParameters))],
                             Dispatch(selected, operation, frame, options).Threads));
-                        var arguments = operation.Bindings.Select(binding =>
+                        var arguments = operationBindings.Select(binding =>
                             new VmArgument(binding.Port, ResolveSource(frame, binding))).ToArray();
                         var launch = Dispatch(selected, operation, frame, options);
                         nodes.Add(new VmNode(operation.Id.Value,
                             new VmDispatch(kernelId, arguments, launch.Groups), dependencies));
-                        var writes = operation.Bindings
+                        var writes = operationBindings
                             .Where(binding => binding.Access != GraphResourceAccess.Read)
                             .Select(binding => ResolveSource(frame, binding))
                             .Distinct(StringComparer.Ordinal).ToArray();
@@ -194,7 +197,7 @@ public sealed class VmExecutionGraphEmitter
     {
         if (bindings.TryGetValue(operation.Operation, out var binding))
             return binding;
-        var output = operation.Bindings.FirstOrDefault(binding =>
+        var output = frame.Graph.Bindings(operation).FirstOrDefault(binding =>
             binding.Access != GraphResourceAccess.Read);
         var collection = output is not null
             ? CollectionForFallback(frame, output)
@@ -215,7 +218,7 @@ public sealed class VmExecutionGraphEmitter
 
     private static Guid CollectionForFallback(
         Frame frame,
-        ExecutionGraphBinding output)
+        ModelResourceBinding output)
     {
         var tensor = ResolveTensor(frame, output);
         return tensor.ElementType == GraphElementType.Float16
@@ -231,7 +234,7 @@ public sealed class VmExecutionGraphEmitter
             operation.Requirements,
             selected.CollectionId,
             selected.InstructionName,
-            operation.Bindings.Select(binding =>
+            frame.Graph.Bindings(operation).Select(binding =>
                 new VmArgument(binding.Port, ResolveSource(frame, binding))),
             operation.Attributes);
 
@@ -252,7 +255,8 @@ public sealed class VmExecutionGraphEmitter
         Frame frame,
         VmExecutionGraphEmitterOptions options)
     {
-        var tensors = operation.Bindings.ToDictionary(
+        var operationBindings = frame.Graph.Bindings(operation);
+        var tensors = operationBindings.ToDictionary(
             binding => binding.Port,
             binding => ResolveTensor(frame, binding),
             StringComparer.Ordinal);
@@ -264,7 +268,7 @@ public sealed class VmExecutionGraphEmitter
                 new VmThreadGroup(dispatch.ThreadsX, dispatch.ThreadsY, dispatch.ThreadsZ),
                 new VmThreadGroup(dispatch.GroupsX, dispatch.GroupsY, dispatch.GroupsZ));
         }
-        var tensor = operation.Bindings
+        var tensor = operationBindings
             .Where(binding => binding.Access != GraphResourceAccess.Read)
             .Select(binding => tensors[binding.Port])
             .FirstOrDefault() ?? tensors.Values.FirstOrDefault()
@@ -299,23 +303,23 @@ public sealed class VmExecutionGraphEmitter
         ExecutionGraphCallNode call,
         string childParameter)
     {
-        var binding = call.Bindings.SingleOrDefault(binding =>
+        var binding = frame.Graph.Bindings(call).SingleOrDefault(binding =>
             string.Equals(binding.Port, childParameter, StringComparison.Ordinal));
         return binding is null
             ? InstanceName(call.Id, childParameter)
             : ResolveSource(frame, binding);
     }
 
-    private static string ResolveSource(Frame frame, ExecutionGraphBinding binding) =>
-        binding.ResourceOwner.IsParent
-            ? binding.Resource.Value
+    private static string ResolveSource(Frame frame, ModelResourceBinding binding) =>
+        binding.Resource.Owner.IsParent
+            ? binding.Resource.Resource.Value
             : InstanceName(
-                new ExecutionNodeId(binding.ResourceOwner.Call!.Value.Value),
-                binding.Resource.Value);
+                new ExecutionNodeId(binding.Resource.Owner.Call!.Value.Value),
+                binding.Resource.Resource.Value);
 
     private static TensorDescriptor ResolveTensor(
         Frame frame,
-        ExecutionGraphBinding binding)
+        ModelResourceBinding binding)
     {
         var source = ResolveSource(frame, binding);
         return frame.Parameters.SingleOrDefault(parameter => parameter.Name == source)?.Tensor
@@ -323,38 +327,9 @@ public sealed class VmExecutionGraphEmitter
                 $"Binding '{frame.Graph.Id}/{binding.Port}' resolves to unknown VM resource '{source}'.");
     }
 
-    private static IReadOnlyList<ExecutionGraphNode> StableOrder(ExecutionGraph graph)
-    {
-        var positions = graph.Nodes.Select((node, index) => (node.Id, index))
-            .ToDictionary(pair => pair.Id, pair => pair.index);
-        var indegree = graph.Nodes.ToDictionary(node => node.Id, node => node.Dependencies.Count);
-        var successors = graph.Nodes.ToDictionary(node => node.Id, _ => new List<ExecutionNodeId>());
-        foreach (var node in graph.Nodes)
-            foreach (var dependency in node.Dependencies)
-                successors[dependency].Add(node.Id);
-        var ready = new SortedSet<(int Position, string Id, ExecutionNodeId Node)>(
-            Comparer<(int Position, string Id, ExecutionNodeId Node)>.Create((left, right) =>
-            {
-                var value = left.Position.CompareTo(right.Position);
-                return value != 0 ? value : StringComparer.Ordinal.Compare(left.Id, right.Id);
-            }));
-        foreach (var node in graph.Nodes.Where(node => indegree[node.Id] == 0))
-            ready.Add((positions[node.Id], node.Id.Value, node.Id));
-        var result = new List<ExecutionGraphNode>(graph.Nodes.Count);
-        var nodes = graph.Nodes.ToDictionary(node => node.Id);
-        while (ready.Count != 0)
-        {
-            var next = ready.Min;
-            ready.Remove(next);
-            result.Add(nodes[next.Node]);
-            foreach (var successor in successors[next.Node])
-                if (--indegree[successor] == 0)
-                    ready.Add((positions[successor], successor.Value, successor));
-        }
-        if (result.Count != graph.Nodes.Count)
-            throw new InvalidDataException($"Execution graph '{graph.Id}' contains a dependency cycle.");
-        return result;
-    }
+    private static IReadOnlyList<ExecutionGraphNode> StableOrder(ExecutionGraph graph) =>
+        graph.Structure.DependencyView().TopologicalOrder()
+            .OfType<ExecutionGraphNode>().ToArray();
 
     private static VmParameter Parameter(FrameParameter parameter) =>
         new(parameter.Name, Access(parameter.Kind), Tensor(parameter.Tensor));

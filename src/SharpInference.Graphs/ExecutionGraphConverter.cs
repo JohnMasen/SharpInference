@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using SharpInference.Graphs.Core;
 
 namespace SharpInference.Graphs;
 
@@ -104,22 +105,20 @@ public sealed class DefaultExecutionGraphConverter : IExecutionGraphConverter
 
     private static ExecutionGraph ConvertDefinition(LogicalGraphDefinition definition)
     {
-        var resources = definition.Resources
-            .Where(resource => resource.Owner == definition.Id)
-            .Select(resource => new ExecutionGraphResource(
-                resource.Id,
-                resource.Name,
-                resource.Kind,
-                resource.Tensor,
-                resource.BindingKey))
-            .ToArray();
-        var nodes = definition.Nodes.Select<GraphDefinitionNode, ExecutionGraphNode>(node => node switch
+        var nodes = definition.Structure.Nodes.Select<LogicalGraphNode, ExecutionGraphStructureNode>(
+            node => node switch
         {
+            LogicalResourceNode resource => new ExecutionResourceNode(
+                resource.ResourceNodeId,
+                new ExecutionGraphResource(
+                    resource.Resource.Id,
+                    resource.Resource.Name,
+                    resource.Resource.Kind,
+                    resource.Resource.Tensor,
+                    resource.Resource.BindingKey)),
             GraphOperationNode operation => new ExecutionOperationNode(
                 new ExecutionNodeId(operation.Id.Value),
                 operation.Operation,
-                operation.Bindings.Select(ConvertBinding).ToArray(),
-                operation.Dependencies.Select(id => new ExecutionNodeId(id.Value)).ToArray(),
                 new ReadOnlyDictionary<string, string>(
                     new Dictionary<string, string>(operation.Attributes, StringComparer.Ordinal)),
                 operation.Requirements,
@@ -128,25 +127,41 @@ public sealed class DefaultExecutionGraphConverter : IExecutionGraphConverter
             GraphCallNode call => new ExecutionGraphCallNode(
                 new ExecutionNodeId(call.Id.Value),
                 new ExecutionGraphId(call.Definition.Value),
-                call.Bindings.Select(ConvertBinding).ToArray(),
-                call.Dependencies.Select(id => new ExecutionNodeId(id.Value)).ToArray(),
                 definition.Definitions.Single(child => child.Id == call.Definition).CompileBoundary,
                 new ExecutionSourceMap([call.Id]),
                 ConvertArchitecture(call.Annotation)),
             _ => throw new InvalidDataException(
                 $"Unsupported logical node type '{node.GetType().Name}'."),
         }).ToArray();
+        var edges = definition.Structure.Edges.Select<LogicalGraphEdge, ExecutionGraphEdge>(
+            edge => edge switch
+            {
+                LogicalDependencyEdge dependency => new ExecutionDependencyEdge(
+                    dependency.Id,
+                    dependency.Source,
+                    dependency.Target),
+                LogicalResourceReadEdge read => new ExecutionResourceReadEdge(
+                    read.Id,
+                    read.Source,
+                    read.Target,
+                    read.Port,
+                    read.BindingId),
+                LogicalResourceWriteEdge write => new ExecutionResourceWriteEdge(
+                    write.Id,
+                    write.Source,
+                    write.Target,
+                    write.Port,
+                    write.BindingId),
+                _ => throw new InvalidDataException(
+                    $"Unsupported logical edge type '{edge.GetType().Name}'."),
+            }).ToArray();
         return new ExecutionGraph(
             new ExecutionGraphId(definition.Id.Value),
-            resources,
-            nodes,
+            new Graph<ExecutionGraphStructureNode, ExecutionGraphEdge>(nodes, edges),
             definition.CompileBoundary,
             ConvertArchitecture(definition.Annotation),
             new ExecutionGraphSource(definition.Id));
     }
-
-    private static ExecutionGraphBinding ConvertBinding(GraphDefinitionBinding binding) =>
-        new(binding.Port, binding.Resource, binding.Access, binding.ResourceOwner);
 
     private static GraphArchitecture? ConvertArchitecture(GraphAnnotation? annotation) =>
         annotation is null

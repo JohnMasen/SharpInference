@@ -11,11 +11,4 @@
     <ProjectReference Include="..\SharpInference.Gguf\SharpInference.Gguf.csproj" />
     <PackageReference Include="System.Numerics.Tensors" Version="10.0.0" />
   </ItemGroup>
-  <ItemGroup>
-    <!-- Runtime consumers are deferred until the execution IR is redesigned. -->
-    <Compile Remove="Runtime\D3D12\**\*.cs" />
-    <Compile Remove="Instructions\Cpu\**\*.cs" />
-    <Compile Remove="Instructions\D3D12\**\*.cs" />
-    <Compile Remove="Architecture\*Validation.cs" />
-  </ItemGroup>
 </Project>

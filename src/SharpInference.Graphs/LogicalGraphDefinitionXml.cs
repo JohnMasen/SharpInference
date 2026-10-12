@@ -1,6 +1,8 @@
+using System.Collections.ObjectModel;
 using System.Globalization;
 using System.Xml;
 using System.Xml.Linq;
+using SharpInference.Graphs.Core;
 
 namespace SharpInference.Graphs;
 
@@ -10,57 +12,56 @@ public static partial class GraphXml
     private const int MaxElements = 100_000;
     private const int MaxDepth = 64;
 
-    /// <summary>Serializes a reusable logical graph definition and all directly or transitively called definitions.</summary>
     public static string Serialize(LogicalGraphDefinition graph)
     {
         ArgumentNullException.ThrowIfNull(graph);
         var definitions = CollectDefinitions(graph);
-        var root = new XElement("Graph",
+        return Write(new XElement(
+            "Graph",
             new XAttribute("kind", "LogicalGraphDefinition"),
-            new XAttribute("version", 1),
+            new XAttribute("version", 2),
             new XElement("Root", new XAttribute("definition", graph.Id.Value)),
-            new XElement("Definitions", definitions.Values
-                .OrderBy(definition => definition.Id.Value, StringComparer.Ordinal)
-                .Select(WriteDefinition)));
-        return Write(root);
+            new XElement(
+                "Definitions",
+                definitions.Values
+                    .OrderBy(definition => definition.Id.Value, StringComparer.Ordinal)
+                    .Select(WriteDefinition))));
     }
 
-    /// <summary>Deserializes and validates a reusable logical graph definition.</summary>
     public static LogicalGraphDefinition DeserializeDefinition(string xml)
     {
-        var root = Read(xml, "LogicalGraphDefinition");
-        Check(root, "Graph", "kind", "version");
+        var root = Read(xml, "LogicalGraphDefinition", 2);
         var rootElement = RequiredChild(root, "Root");
         Check(rootElement, "Root", "definition");
         var rootId = Required(rootElement, "definition");
-        var container = RequiredChild(root, "Definitions");
-        var records = Children(container, "Definition")
+        var records = Children(RequiredChild(root, "Definitions"), "Definition")
             .Select(ReadDefinitionRecord)
             .ToDictionary(record => record.Id, StringComparer.Ordinal);
         var completed = new Dictionary<string, LogicalGraphDefinition>(StringComparer.Ordinal);
         var active = new HashSet<string>(StringComparer.Ordinal);
         var result = Build(rootId);
         if (completed.Count != records.Count)
-            throw new InvalidDataException("Logical graph XML contains unreachable definitions.");
+            throw new InvalidDataException(
+                "Logical graph XML contains unreachable definitions.");
         return result;
 
         LogicalGraphDefinition Build(string id)
         {
-            if (completed.TryGetValue(id, out var existing)) return existing;
+            if (completed.TryGetValue(id, out var existing))
+                return existing;
             if (!records.TryGetValue(id, out var record))
                 throw new InvalidDataException($"Unknown graph definition '{id}'.");
             if (!active.Add(id))
                 throw new InvalidDataException($"Recursive graph definition '{id}'.");
-            var children = record.Nodes.OfType<GraphCallNode>()
+            var children = record.Structure.Nodes.OfType<GraphCallNode>()
                 .Select(call => Build(call.Definition.Value))
                 .DistinctBy(definition => definition.Id)
                 .ToArray();
             var definition = new LogicalGraphDefinition(
-                new GraphDefinitionId(record.Id),
+                new(record.Id),
                 record.Boundary,
                 record.Annotation,
-                record.Resources,
-                LogicalGraphDefinitionValidator.InferDependencies(record.Nodes),
+                record.Structure,
                 children);
             active.Remove(id);
             completed.Add(id, definition);
@@ -68,8 +69,8 @@ public static partial class GraphXml
         }
     }
 
-    private static IReadOnlyDictionary<GraphDefinitionId, LogicalGraphDefinition> CollectDefinitions(
-        LogicalGraphDefinition root)
+    private static IReadOnlyDictionary<GraphDefinitionId, LogicalGraphDefinition>
+        CollectDefinitions(LogicalGraphDefinition root)
     {
         var result = new Dictionary<GraphDefinitionId, LogicalGraphDefinition>();
         var active = new HashSet<GraphDefinitionId>();
@@ -78,199 +79,245 @@ public static partial class GraphXml
 
         void Visit(LogicalGraphDefinition definition)
         {
-            if (result.ContainsKey(definition.Id)) return;
+            if (result.ContainsKey(definition.Id))
+                return;
             if (!active.Add(definition.Id))
-                throw new InvalidDataException($"Recursive graph definition '{definition.Id}'.");
-            foreach (var child in definition.Definitions) Visit(child);
+                throw new InvalidDataException(
+                    $"Recursive graph definition '{definition.Id}'.");
+            foreach (var child in definition.Definitions)
+                Visit(child);
             active.Remove(definition.Id);
             result.Add(definition.Id, definition);
         }
     }
 
     private static XElement WriteDefinition(LogicalGraphDefinition definition) =>
-        new("Definition",
+        new(
+            "Definition",
             new XAttribute("id", definition.Id.Value),
             new XAttribute("compileBoundary", definition.CompileBoundary),
             WriteAnnotation(definition.Annotation),
-            new XElement("Resources", definition.Resources.Select(WriteDefinitionResource)),
-            new XElement("Nodes", definition.Nodes.Select(WriteDefinitionNode)));
+            new XElement("Nodes", definition.Structure.Nodes.Select(WriteLogicalNode)),
+            new XElement("Edges", definition.Structure.Edges.Select(WriteLogicalEdge)));
 
-    private static XElement WriteDefinitionResource(GraphDefinitionResource resource) =>
-        new("Resource",
-            new XAttribute("id", resource.Id.Value),
-            new XAttribute("name", resource.Name),
-            new XAttribute("kind", resource.Kind),
-            new XAttribute("owner", resource.Owner.Value),
-            Optional("bindingKey", resource.BindingKey),
-            WriteTensor(resource.Tensor));
-
-    private static XElement WriteDefinitionNode(GraphDefinitionNode node)
+    private static XElement WriteLogicalNode(LogicalGraphNode node) => node switch
     {
-        var result = new XElement(node is GraphCallNode ? "Call" : "Operation",
-            new XAttribute("id", node.Id.Value));
-        if (node is GraphCallNode call)
-            result.Add(new XAttribute("definition", call.Definition.Value));
-        else
+        LogicalResourceNode resource => new XElement(
+            "Resource",
+            new XAttribute("id", resource.Resource.Id.Value),
+            new XAttribute("name", resource.Resource.Name),
+            new XAttribute("kind", resource.Resource.Kind),
+            new XAttribute("owner", resource.Resource.Owner.Value),
+            resource.ResourceNodeId.Owner.IsParent
+                ? null
+                : new XAttribute(
+                    "instance", resource.ResourceNodeId.Owner.Call!.Value.Value),
+            Optional("bindingKey", resource.Resource.BindingKey),
+            WriteTensor(resource.Resource.Tensor)),
+        GraphCallNode call => new XElement(
+            "Call",
+            new XAttribute("id", call.Id.Value),
+            new XAttribute("definition", call.Definition.Value),
+            WriteAnnotation(call.Annotation)),
+        GraphOperationNode operation => new XElement(
+            "Operation",
+            new XAttribute("id", operation.Id.Value),
+            new XAttribute("operation", operation.Operation.Name),
+            new XAttribute("operationVersion", operation.Operation.Version),
+            WriteAnnotation(operation.Annotation),
+            WriteAttributes(operation.Attributes),
+            WritePrecision(operation.Requirements)),
+        _ => throw new InvalidDataException(
+            $"Unsupported logical node type '{node.GetType().Name}'."),
+    };
+
+    private static XElement WriteLogicalEdge(LogicalGraphEdge edge) => edge switch
+    {
+        LogicalDependencyEdge dependency => new XElement(
+            "Dependency",
+            new XAttribute("id", dependency.Id.Value),
+            new XAttribute("source", dependency.Source.Value),
+            new XAttribute("target", dependency.Target.Value)),
+        LogicalResourceReadEdge read => new XElement(
+            "Read",
+            new XAttribute("id", read.Id.Value),
+            new XAttribute("source", read.Source.Value),
+            new XAttribute("target", read.Target.Value),
+            new XAttribute("port", read.Port),
+            new XAttribute("binding", read.BindingId)),
+        LogicalResourceWriteEdge write => new XElement(
+            "Write",
+            new XAttribute("id", write.Id.Value),
+            new XAttribute("source", write.Source.Value),
+            new XAttribute("target", write.Target.Value),
+            new XAttribute("port", write.Port),
+            new XAttribute("binding", write.BindingId)),
+        _ => throw new InvalidDataException(
+            $"Unsupported logical edge type '{edge.GetType().Name}'."),
+    };
+
+    private static DefinitionRecord ReadDefinitionRecord(XElement element)
+    {
+        Check(element, "Definition", "id", "compileBoundary");
+        var nodes = DefinitionChildren(
+                RequiredChild(element, "Nodes"), "Resource", "Operation", "Call")
+            .Select(ReadLogicalNode).ToArray();
+        var edges = DefinitionChildren(
+                RequiredChild(element, "Edges"), "Dependency", "Read", "Write")
+            .Select(ReadLogicalEdge).ToArray();
+        return new(
+            Required(element, "id"),
+            DefinitionEnumValue<GraphCompileBoundary>(element, "compileBoundary"),
+            ReadAnnotation(element.Element("Annotation")),
+            new Graph<LogicalGraphNode, LogicalGraphEdge>(nodes, edges));
+    }
+
+    private static LogicalGraphNode ReadLogicalNode(XElement element)
+    {
+        if (element.Name == "Resource")
         {
-            var operationNode = (GraphOperationNode)node;
-            result.Add(
-                new XAttribute("operation", operationNode.Operation.Name),
-                new XAttribute("operationVersion", operationNode.Operation.Version));
+            Check(
+                element, "Resource", "id", "name", "kind", "owner", "instance",
+                "bindingKey");
+            var resource = new GraphDefinitionResource(
+                new(Required(element, "id")),
+                Required(element, "name"),
+                DefinitionEnumValue<GraphDefinitionResourceKind>(element, "kind"),
+                ReadTensor(RequiredChild(element, "Tensor")),
+                new(Required(element, "owner")),
+                (string?)element.Attribute("bindingKey"));
+            var instance = (string?)element.Attribute("instance");
+            var owner = string.IsNullOrWhiteSpace(instance)
+                ? GraphBindingOwner.Parent
+                : GraphBindingOwner.Instance(new(instance));
+            return new LogicalResourceNode(
+                new ModelResourceNodeId(owner, resource.Id), resource);
         }
-        result.Add(WriteAnnotation(node.Annotation),
-            new XElement("Bindings", node.Bindings.Select(binding =>
-                new XElement("Binding",
-                    new XAttribute("port", binding.Port),
-                    new XAttribute("resource", binding.Resource.Value),
-                    binding.ResourceOwner.IsParent
-                        ? null
-                        : new XAttribute("instance", binding.ResourceOwner.Call!.Value.Value),
-                    new XAttribute("access", binding.Access)))),
-            new XElement("Dependencies", node.Dependencies.Select(dependency =>
-                new XElement("NodeRef", new XAttribute("id", dependency.Value)))));
-        if (node is GraphOperationNode operation)
+
+        if (element.Name == "Call")
         {
-            result.Add(new XElement("Attributes", operation.Attributes.Select(attribute =>
-                    new XElement("Attribute",
-                        new XAttribute("name", attribute.Key),
-                        new XAttribute("value", attribute.Value)))),
-                new XElement("Precision",
-                    new XAttribute("arithmetic", operation.Requirements.MinimumArithmeticType),
-                    new XAttribute("accumulator", operation.Requirements.MinimumAccumulatorType)));
+            Check(element, "Call", "id", "definition");
+            return new GraphCallNode(
+                new(Required(element, "id")),
+                new(Required(element, "definition")),
+                ReadAnnotation(element.Element("Annotation")));
         }
-        return result;
+
+        Check(element, "Operation", "id", "operation", "operationVersion");
+        return new GraphOperationNode(
+            new(Required(element, "id")),
+            new(Required(element, "operation"), Number(element, "operationVersion")),
+            ReadAttributes(RequiredChild(element, "Attributes")),
+            ReadPrecision(RequiredChild(element, "Precision")),
+            ReadAnnotation(element.Element("Annotation")));
+    }
+
+    private static LogicalGraphEdge ReadLogicalEdge(XElement element)
+    {
+        Check(
+            element,
+            element.Name.LocalName,
+            element.Name == "Dependency"
+                ? ["id", "source", "target"]
+                : ["id", "source", "target", "port", "binding"]);
+        var id = new GraphEdgeId(Required(element, "id"));
+        var source = new GraphNodeId(Required(element, "source"));
+        var target = new GraphNodeId(Required(element, "target"));
+        return element.Name.LocalName switch
+        {
+            "Dependency" => new LogicalDependencyEdge(id, source, target),
+            "Read" => new LogicalResourceReadEdge(
+                id, source, target, Required(element, "port"),
+                Required(element, "binding")),
+            "Write" => new LogicalResourceWriteEdge(
+                id, source, target, Required(element, "port"),
+                Required(element, "binding")),
+            _ => throw new InvalidDataException(
+                $"Unsupported logical edge element <{element.Name}>."),
+        };
+    }
+
+    private static XElement WriteAttributes(IReadOnlyDictionary<string, string> attributes) =>
+        new(
+            "Attributes",
+            attributes.Select(attribute => new XElement(
+                "Attribute",
+                new XAttribute("name", attribute.Key),
+                new XAttribute("value", attribute.Value))));
+
+    private static IReadOnlyDictionary<string, string> ReadAttributes(XElement element) =>
+        new ReadOnlyDictionary<string, string>(
+            Children(element, "Attribute").ToDictionary(attribute =>
+            {
+                Check(attribute, "Attribute", "name", "value");
+                return Required(attribute, "name");
+            }, attribute => Required(attribute, "value"), StringComparer.Ordinal));
+
+    private static XElement WritePrecision(PrecisionRequirement precision) =>
+        new(
+            "Precision",
+            new XAttribute("arithmetic", precision.MinimumArithmeticType),
+            new XAttribute("accumulator", precision.MinimumAccumulatorType));
+
+    private static PrecisionRequirement ReadPrecision(XElement element)
+    {
+        Check(element, "Precision", "arithmetic", "accumulator");
+        return new(
+            DefinitionEnumValue<GraphElementType>(element, "arithmetic"),
+            DefinitionEnumValue<GraphElementType>(element, "accumulator"));
     }
 
     private static XElement? WriteAnnotation(GraphAnnotation? annotation)
     {
-        if (annotation is null) return null;
-        return new XElement("Annotation",
+        if (annotation is null)
+            return null;
+        return new XElement(
+            "Annotation",
             Optional("name", annotation.Name),
             Optional("role", annotation.Role),
             Optional("description", annotation.Description),
-            (annotation.Attributes ?? new Dictionary<string, string>()).Select(attribute =>
-                new XElement("Attribute",
+            (annotation.Attributes ?? new Dictionary<string, string>())
+                .Select(attribute => new XElement(
+                    "Attribute",
                     new XAttribute("name", attribute.Key),
                     new XAttribute("value", attribute.Value))));
     }
 
+    private static GraphAnnotation? ReadAnnotation(XElement? element)
+    {
+        if (element is null)
+            return null;
+        Check(element, "Annotation", "name", "role", "description");
+        return new(
+            (string?)element.Attribute("name"),
+            (string?)element.Attribute("role"),
+            (string?)element.Attribute("description"),
+            ReadAttributes(element));
+    }
+
     private static XElement WriteTensor(TensorDescriptor tensor) =>
-        new("Tensor",
+        new(
+            "Tensor",
             new XAttribute("elementType", tensor.ElementType),
             new XAttribute("layout", tensor.Layout),
             tensor.Dimensions.Select(dimension =>
                 new XElement("Dimension", new XAttribute("value", dimension))));
 
-    private static DefinitionRecord ReadDefinitionRecord(XElement element)
-    {
-        Check(element, "Definition", "id", "compileBoundary");
-        var id = Required(element, "id");
-        var boundary = DefinitionEnumValue<GraphCompileBoundary>(element, "compileBoundary");
-        var annotation = ReadAnnotation(element.Element("Annotation"));
-        var resources = Children(RequiredChild(element, "Resources"), "Resource")
-            .Select(ReadDefinitionResource).ToArray();
-        var nodes = DefinitionChildren(RequiredChild(element, "Nodes"), "Operation", "Call")
-            .Select(ReadDefinitionNode).ToArray();
-        return new DefinitionRecord(id, boundary, annotation, resources, nodes);
-    }
-
-    private static GraphDefinitionResource ReadDefinitionResource(XElement element)
-    {
-        Check(element, "Resource", "id", "name", "kind", "owner", "bindingKey");
-        return new GraphDefinitionResource(
-            new ResourceId(Required(element, "id")),
-            Required(element, "name"),
-            DefinitionEnumValue<GraphDefinitionResourceKind>(element, "kind"),
-            ReadTensor(RequiredChild(element, "Tensor")),
-            new GraphDefinitionId(Required(element, "owner")),
-            (string?)element.Attribute("bindingKey"));
-    }
-
-    private static GraphDefinitionNode ReadDefinitionNode(XElement element)
-    {
-        var operation = element.Name == "Operation";
-        Check(element, operation ? "Operation" : "Call",
-            operation
-                ? ["id", "operation", "operationVersion"]
-                : ["id", "definition"]);
-        var id = new GraphDefinitionNodeId(Required(element, "id"));
-        var annotation = ReadAnnotation(element.Element("Annotation"));
-        var bindings = Children(RequiredChild(element, "Bindings"), "Binding").Select(binding =>
-        {
-            Check(binding, "Binding", "port", "resource", "instance", "access");
-            var instance = (string?)binding.Attribute("instance");
-            return new GraphDefinitionBinding(
-                Required(binding, "port"),
-                new ResourceId(Required(binding, "resource")),
-                DefinitionEnumValue<GraphResourceAccess>(binding, "access"),
-                string.IsNullOrWhiteSpace(instance)
-                    ? GraphBindingOwner.Parent
-                    : GraphBindingOwner.Instance(new GraphDefinitionNodeId(instance)));
-        }).ToArray();
-        var dependencies = Children(RequiredChild(element, "Dependencies"), "NodeRef").Select(reference =>
-        {
-            Check(reference, "NodeRef", "id");
-            return new GraphDefinitionNodeId(Required(reference, "id"));
-        }).ToArray();
-        if (!operation)
-            return new GraphCallNode(
-                id,
-                new GraphDefinitionId(Required(element, "definition")),
-                bindings,
-                dependencies,
-                annotation);
-        var attributes = Children(RequiredChild(element, "Attributes"), "Attribute").ToDictionary(attribute =>
-        {
-            Check(attribute, "Attribute", "name", "value");
-            return Required(attribute, "name");
-        }, attribute => Required(attribute, "value"), StringComparer.Ordinal);
-        var precision = RequiredChild(element, "Precision");
-        Check(precision, "Precision", "arithmetic", "accumulator");
-        return new GraphOperationNode(
-            id,
-            new GraphOperationId(
-                Required(element, "operation"),
-                Number(element, "operationVersion")),
-            bindings,
-            dependencies,
-            new System.Collections.ObjectModel.ReadOnlyDictionary<string, string>(attributes),
-            new PrecisionRequirement(
-                DefinitionEnumValue<GraphElementType>(precision, "arithmetic"),
-                DefinitionEnumValue<GraphElementType>(precision, "accumulator")),
-            annotation);
-    }
-
-    private static GraphAnnotation? ReadAnnotation(XElement? element)
-    {
-        if (element is null) return null;
-        Check(element, "Annotation", "name", "role", "description");
-        var attributes = Children(element, "Attribute").ToDictionary(attribute =>
-        {
-            Check(attribute, "Attribute", "name", "value");
-            return Required(attribute, "name");
-        }, attribute => Required(attribute, "value"), StringComparer.Ordinal);
-        return new GraphAnnotation(
-            (string?)element.Attribute("name"),
-            (string?)element.Attribute("role"),
-            (string?)element.Attribute("description"),
-            new System.Collections.ObjectModel.ReadOnlyDictionary<string, string>(attributes));
-    }
-
     private static TensorDescriptor ReadTensor(XElement element)
     {
         Check(element, "Tensor", "elementType", "layout");
-        var dimensions = Children(element, "Dimension").Select(dimension =>
-        {
-            Check(dimension, "Dimension", "value");
-            return Number(dimension, "value");
-        }).ToArray();
-        return new TensorDescriptor(
+        return new(
             DefinitionEnumValue<GraphElementType>(element, "elementType"),
-            dimensions,
+            Children(element, "Dimension").Select(dimension =>
+            {
+                Check(dimension, "Dimension", "value");
+                return Number(dimension, "value");
+            }),
             Required(element, "layout"));
     }
 
-    private static T DefinitionEnumValue<T>(XElement element, string attribute) where T : struct, Enum
+    private static T DefinitionEnumValue<T>(XElement element, string attribute)
+        where T : struct, Enum
     {
         var value = Required(element, attribute);
         if (!Enum.TryParse<T>(value, false, out var result) || !Enum.IsDefined(result))
@@ -282,11 +329,14 @@ public static partial class GraphXml
     {
         var values = parent.Elements(name).ToArray();
         if (values.Length != 1)
-            throw new InvalidDataException($"Element <{parent.Name}> requires exactly one <{name}> child.");
+            throw new InvalidDataException(
+                $"Element <{parent.Name}> requires exactly one <{name}> child.");
         return values[0];
     }
 
-    private static IEnumerable<XElement> DefinitionChildren(XElement parent, params string[] names)
+    private static IEnumerable<XElement> DefinitionChildren(
+        XElement parent,
+        params string[] names)
     {
         if (parent.Elements().Any(element =>
             !names.Contains(element.Name.LocalName, StringComparer.Ordinal) ||
@@ -304,7 +354,7 @@ public static partial class GraphXml
         return xml;
     }
 
-    private static XElement Read(string xml, string kind)
+    private static XElement Read(string xml, string kind, int version)
     {
         ArgumentNullException.ThrowIfNull(xml);
         if (xml.Length > MaxCharacters)
@@ -320,20 +370,45 @@ public static partial class GraphXml
             };
             using var reader = XmlReader.Create(new StringReader(xml), settings);
             var document = XDocument.Load(reader, LoadOptions.None);
-            var root = document.Root ?? throw new InvalidDataException("Graph XML has no root.");
+            var root = document.Root
+                ?? throw new InvalidDataException("Graph XML has no root.");
             if (root.DescendantsAndSelf().Take(MaxElements + 1).Count() > MaxElements ||
                 root.DescendantsAndSelf().Any(element =>
                     element.Ancestors().Take(MaxDepth + 1).Count() > MaxDepth))
-                throw new InvalidDataException("Graph XML exceeds the structural limit.");
+                throw new InvalidDataException(
+                    "Graph XML exceeds the structural limit.");
             Check(root, "Graph", "kind", "version");
-            if (Required(root, "kind") != kind || Required(root, "version") != "1")
-                throw new InvalidDataException($"Expected {kind} XML schema version 1.");
+            if (Required(root, "kind") != kind)
+                throw new InvalidDataException($"Graph XML kind must be '{kind}'.");
+            if (Number(root, "version") != version)
+                throw new InvalidDataException(
+                    $"Unsupported graph XML version '{Required(root, "version")}'.");
             return root;
         }
-        catch (XmlException exception)
+        catch (InvalidDataException)
+        {
+            throw;
+        }
+        catch (Exception exception) when (
+            exception is XmlException or InvalidOperationException or FormatException)
         {
             throw new InvalidDataException("Invalid graph XML.", exception);
         }
+    }
+
+    private static void Check(
+        XElement element,
+        string name,
+        params string[] allowedAttributes)
+    {
+        if (element.Name != name || element.Name.Namespace != XNamespace.None)
+            throw new InvalidDataException($"Expected <{name}>.");
+        if (element.Attributes().Any(attribute =>
+            attribute.IsNamespaceDeclaration ||
+            !allowedAttributes.Contains(
+                attribute.Name.LocalName, StringComparer.Ordinal) ||
+            attribute.Name.Namespace != XNamespace.None))
+            throw new InvalidDataException($"Unexpected attribute on <{name}>.");
     }
 
     private static IEnumerable<XElement> Children(XElement parent, string name)
@@ -341,37 +416,24 @@ public static partial class GraphXml
         if (parent.Elements().Any(element =>
             element.Name != name || element.Name.Namespace != XNamespace.None))
             throw new InvalidDataException($"Unexpected children in <{parent.Name}>.");
-        return parent.Elements();
+        return parent.Elements(name);
     }
 
-    private static void Check(XElement element, string name, params string[] attributes)
-    {
-        if (element.Name != name ||
-            element.Attributes().Any(attribute =>
-                attribute.IsNamespaceDeclaration ||
-                attribute.Name.Namespace != XNamespace.None ||
-                !attributes.Contains(attribute.Name.LocalName, StringComparer.Ordinal)) ||
-            element.Nodes().Any(node =>
-                node is XText text && !string.IsNullOrWhiteSpace(text.Value) ||
-                node is not XElement && node is not XText))
-            throw new InvalidDataException($"Invalid <{name}> element.");
-    }
+    private static string Required(XElement element, string attribute) =>
+        string.IsNullOrWhiteSpace((string?)element.Attribute(attribute))
+            ? throw new InvalidDataException(
+                $"Element <{element.Name}> requires attribute '{attribute}'.")
+            : (string)element.Attribute(attribute)!;
 
-    private static string Required(XElement element, string attribute)
-    {
-        var value = (string?)element.Attribute(attribute);
-        return string.IsNullOrWhiteSpace(value)
-            ? throw new InvalidDataException($"Element <{element.Name}> requires '{attribute}'.")
-            : value;
-    }
-
-    private static int Number(XElement element, string attribute)
-    {
-        var value = Required(element, attribute);
-        return int.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out var result)
-            ? result
-            : throw new InvalidDataException($"Invalid integer '{value}'.");
-    }
+    private static int Number(XElement element, string attribute) =>
+        int.TryParse(
+            Required(element, attribute),
+            NumberStyles.None,
+            CultureInfo.InvariantCulture,
+            out var value)
+            ? value
+            : throw new InvalidDataException(
+                $"Attribute '{attribute}' on <{element.Name}> must be an integer.");
 
     private static XAttribute? Optional(string name, string? value) =>
         value is null ? null : new XAttribute(name, value);
@@ -380,6 +442,5 @@ public static partial class GraphXml
         string Id,
         GraphCompileBoundary Boundary,
         GraphAnnotation? Annotation,
-        IReadOnlyList<GraphDefinitionResource> Resources,
-        IReadOnlyList<GraphDefinitionNode> Nodes);
+        Graph<LogicalGraphNode, LogicalGraphEdge> Structure);
 }

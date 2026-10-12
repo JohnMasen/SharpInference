@@ -11,12 +11,6 @@
     <ProjectReference Include="..\SharpInference.Models.Ggml\SharpInference.Models.Ggml.csproj" />
   </ItemGroup>
   <ItemGroup>
-    <!-- Runtime binding is deferred until the execution IR is redesigned. -->
-    <Compile Remove="Runtime\**\*.cs" />
-    <Compile Remove="Architecture\RwkvGraphSignatures.cs" />
-    <Compile Remove="Architecture\RwkvLegacyGraphSignatureReader.cs" />
-    <Compile Remove="Architecture\Rwkv6\Rwkv6WeightBindings.cs" />
-    <Compile Remove="Architecture\Rwkv7\Rwkv7WeightBindings.cs" />
     <EmbeddedResource Include="Resources\rwkv_vocab_v20230424.txt"
                       LogicalName="SharpInference.Resources.rwkv_vocab_v20230424.txt" />
     <InternalsVisibleTo Include="SharpInference.Tests" />

@@ -1,4 +1,5 @@
 using SharpInference.Graphs;
+using SharpInference.Graphs.Core;
 
 namespace SharpInference.Tests;
 
@@ -76,6 +77,9 @@ public sealed class ExecutionGraphConverterTests
             .Nodes.OfType<ExecutionGraphCallNode>().ToArray();
         Assert.Equal(2, calls.Length);
         Assert.All(calls, call => Assert.Equal(new ExecutionGraphId("child"), call.Target));
+        Assert.Equal(2, program.Callers(new("child")).Count);
+        Assert.Equal(2, program.Callees(new("root")).Count);
+        Assert.False(program.IsExclusiveCall(new("root"), new("first")));
     }
 
     [Fact]
@@ -83,14 +87,10 @@ public sealed class ExecutionGraphConverterTests
     {
         var graphA = Graph(
             "a",
-            new ExecutionGraphCallNode(
-                new("call-b"), new("b"), [], [], GraphCompileBoundary.Auto,
-                new ExecutionSourceMap([])));
+            Call("call-b", "b"));
         var graphB = Graph(
             "b",
-            new ExecutionGraphCallNode(
-                new("call-a"), new("a"), [], [], GraphCompileBoundary.Auto,
-                new ExecutionSourceMap([])));
+            Call("call-a", "a"));
 
         Assert.Throws<InvalidDataException>(() =>
             new ExecutionGraphProgram([graphA, graphB]));
@@ -140,7 +140,7 @@ public sealed class ExecutionGraphConverterTests
              Binding("output", "output", GraphResourceAccess.Write)],
             [new ExecutionNodeId("copy")]);
         var program = new ExecutionGraphProgram(
-            [new ExecutionGraph(new("root"), resources, [copy, relu])]);
+            [Graph("root", resources, copy, relu)]);
 
         var extracted = ExecutionGraphRewriter.ExtractNodesToGraph(
             program,
@@ -171,30 +171,30 @@ public sealed class ExecutionGraphConverterTests
     [Fact]
     public void RewriterFusesNodesAndReplacesGraphCall()
     {
-        var child = new ExecutionGraph(
-            new("child"),
+        var child = Graph(
+            "child",
             [Resource("input", GraphDefinitionResourceKind.Input),
              Resource("output", GraphDefinitionResourceKind.Output)],
-            [Operation("copy", PrimitiveGraphOperations.Copy,
+            Operation("copy", PrimitiveGraphOperations.Copy,
                 [Binding("input", "input", GraphResourceAccess.Read),
-                 Binding("output", "output", GraphResourceAccess.Write)])]);
-        var root = new ExecutionGraph(
-            new("root"),
+                 Binding("output", "output", GraphResourceAccess.Write)]));
+        var root = Graph(
+            "root",
             [Resource("input", GraphDefinitionResourceKind.Input),
              Resource("temporary", GraphDefinitionResourceKind.Temporary),
              Resource("output", GraphDefinitionResourceKind.Output)],
-            [Operation("first", PrimitiveGraphOperations.Copy,
+            Operation("first", PrimitiveGraphOperations.Copy,
                 [Binding("input", "input", GraphResourceAccess.Read),
                  Binding("output", "temporary", GraphResourceAccess.Write)]),
-             Operation("second", PrimitiveGraphOperations.Relu,
+            Operation("second", PrimitiveGraphOperations.Relu,
                 [Binding("input", "temporary", GraphResourceAccess.Read),
                  Binding("output", "output", GraphResourceAccess.Write)],
                 [new ExecutionNodeId("first")]),
-             new ExecutionGraphCallNode(
-                 new("child-call"), new("child"),
-                 [Binding("input", "input", GraphResourceAccess.Read),
-                  Binding("output", "output", GraphResourceAccess.Write)],
-                 [], GraphCompileBoundary.Auto, new ExecutionSourceMap([]))]);
+            Call(
+                "child-call",
+                "child",
+                [Binding("input", "input", GraphResourceAccess.Read),
+                 Binding("output", "output", GraphResourceAccess.Write)]));
         var program = new ExecutionGraphProgram([root, child]);
 
         var fused = ExecutionGraphRewriter.FuseNodesToOperation(
@@ -222,30 +222,29 @@ public sealed class ExecutionGraphConverterTests
     [Fact]
     public void ExecutionProgramXmlRoundTripsGraphsAndArchitecture()
     {
-        var child = new ExecutionGraph(
-            new("child"),
+        var child = Graph(
+            "child",
             [Resource("input", GraphDefinitionResourceKind.Input),
              Resource("output", GraphDefinitionResourceKind.Output)],
-            [Operation("copy", PrimitiveGraphOperations.Copy,
+            Operation("copy", PrimitiveGraphOperations.Copy,
                 [Binding("input", "input", GraphResourceAccess.Read),
-                 Binding("output", "output", GraphResourceAccess.Write)])],
+                 Binding("output", "output", GraphResourceAccess.Write)]),
             GraphCompileBoundary.Atomic,
             new("Attention", "attention", "Reusable attention body",
                 new Dictionary<string, string> { ["layer"] = "1" }),
             new(new("logical-child")));
-        var root = new ExecutionGraph(
-            new("root"),
+        var root = Graph(
+            "root",
             [Resource("input", GraphDefinitionResourceKind.Input),
              Resource("output", GraphDefinitionResourceKind.Output)],
-            [new ExecutionGraphCallNode(
-                new("attention-1"),
-                new("child"),
+            Call(
+                "attention-1",
+                "child",
                 [Binding("input", "input", GraphResourceAccess.Read),
                  Binding("output", "output", GraphResourceAccess.Write)],
-                [],
                 GraphCompileBoundary.Atomic,
                 new([new("logical-call")], "preserve-call"),
-                new("Layer 1", "decoder-layer"))],
+                new("Layer 1", "decoder-layer")),
             source: new(new("logical-root")));
         var original = new ExecutionGraphProgram([root, child]);
 
@@ -263,33 +262,106 @@ public sealed class ExecutionGraphConverterTests
         Assert.Equal("decoder-layer", restoredCall.Architecture!.Role);
     }
 
-    private static ExecutionGraph Graph(string id, params ExecutionGraphNode[] nodes) =>
-        new(new ExecutionGraphId(id), [], nodes);
+    private static ExecutionGraph Graph(string id, params NodeSpec[] nodes) =>
+        Graph(id, [], nodes);
+
+    private static ExecutionGraph Graph(
+        string id,
+        IEnumerable<ExecutionGraphResource> resources,
+        params NodeSpec[] nodes) =>
+        Graph(id, resources, nodes, GraphCompileBoundary.Auto, null, null);
+
+    private static ExecutionGraph Graph(
+        string id,
+        IEnumerable<ExecutionGraphResource> resources,
+        NodeSpec node,
+        GraphCompileBoundary boundary = GraphCompileBoundary.Auto,
+        GraphArchitecture? architecture = null,
+        ExecutionGraphSource? source = null) =>
+        Graph(id, resources, [node], boundary, architecture, source);
+
+    private static ExecutionGraph Graph(
+        string id,
+        IEnumerable<ExecutionGraphResource> resources,
+        IEnumerable<NodeSpec> nodes,
+        GraphCompileBoundary boundary = GraphCompileBoundary.Auto,
+        GraphArchitecture? architecture = null,
+        ExecutionGraphSource? source = null)
+    {
+        var builder = new ExecutionGraphBuilder(
+            new(id), boundary, architecture, source);
+        foreach (var resource in resources)
+            builder.AddResource(resource);
+        foreach (var node in nodes)
+            if (node.Node is ExecutionOperationNode operation)
+                builder.AddOperation(operation, node.Bindings, node.Dependencies);
+            else
+                builder.AddCall(
+                    (ExecutionGraphCallNode)node.Node,
+                    node.Bindings,
+                    node.Dependencies);
+        return builder.Build();
+    }
 
     private static ExecutionGraphResource Resource(
         string id,
         GraphDefinitionResourceKind kind) =>
         new(new ResourceId(id), id, kind, F);
 
-    private static ExecutionGraphBinding Binding(
+    private static ModelResourceBinding Binding(
         string port,
         string resource,
-        GraphResourceAccess access) =>
-        new(port, new ResourceId(resource), access);
+        GraphResourceAccess access,
+        string? node = null) =>
+        new(
+            port,
+            new(GraphBindingOwner.Parent, new(resource)),
+            access,
+            $"{node ?? "binding"}:{port}:{resource}");
 
-    private static ExecutionOperationNode Operation(
+    private static NodeSpec Operation(
         string id,
         GraphOperationId operation,
-        IReadOnlyList<ExecutionGraphBinding> bindings,
+        IReadOnlyList<ModelResourceBinding> bindings,
         IReadOnlyList<ExecutionNodeId>? dependencies = null) =>
         new(
-            new ExecutionNodeId(id),
-            operation,
-            bindings,
-            dependencies ?? [],
-            new Dictionary<string, string>(),
-            new PrecisionRequirement(GraphElementType.Float32, GraphElementType.Float32),
-            new ExecutionSourceMap([]));
+            new ExecutionOperationNode(
+                new(id),
+                operation,
+                new Dictionary<string, string>(),
+                new PrecisionRequirement(
+                    GraphElementType.Float32, GraphElementType.Float32),
+                new ExecutionSourceMap([])),
+            bindings.Select(binding => binding with
+            {
+                BindingId = $"{id}:{binding.Port}",
+            }).ToArray(),
+            dependencies ?? []);
+
+    private static NodeSpec Call(
+        string id,
+        string target,
+        IReadOnlyList<ModelResourceBinding>? bindings = null,
+        GraphCompileBoundary boundary = GraphCompileBoundary.Auto,
+        ExecutionSourceMap? source = null,
+        GraphArchitecture? architecture = null) =>
+        new(
+            new ExecutionGraphCallNode(
+                new(id),
+                new(target),
+                boundary,
+                source ?? new ExecutionSourceMap([]),
+                architecture),
+            (bindings ?? []).Select(binding => binding with
+            {
+                BindingId = $"{id}:{binding.Port}",
+            }).ToArray(),
+            []);
+
+    private sealed record NodeSpec(
+        ExecutionGraphNode Node,
+        IReadOnlyList<ModelResourceBinding> Bindings,
+        IReadOnlyList<ExecutionNodeId> Dependencies);
 
     private static GraphDefinition<UnaryPorts> CopyGraph(
         string id,
@@ -320,8 +392,9 @@ public sealed class ExecutionGraphConverterTests
             return new ExecutionGraphProgram(program.Graphs.Select(graph =>
                 new ExecutionGraph(
                     graph.Id,
-                    graph.Resources,
-                    graph.Nodes.Select(node => node is ExecutionOperationNode operation
+                    new Graph<ExecutionGraphStructureNode, ExecutionGraphEdge>(
+                        graph.Structure.Nodes.Select(node =>
+                            node is ExecutionOperationNode operation
                         ? operation with
                         {
                             Attributes = new Dictionary<string, string>(operation.Attributes)
@@ -330,6 +403,7 @@ public sealed class ExecutionGraphConverterTests
                             },
                         }
                         : node),
+                        graph.Structure.Edges),
                     graph.DefaultCompileBoundary,
                     graph.Architecture,
                     graph.Source)));

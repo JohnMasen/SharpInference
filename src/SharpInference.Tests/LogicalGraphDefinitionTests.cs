@@ -97,7 +97,7 @@ public sealed class LogicalGraphDefinitionTests
             new GraphAnnotation("Unary", "test", "A two-operation graph.")).Definition;
 
         Assert.Equal(GraphCompileBoundary.Atomic, graph.CompileBoundary);
-        Assert.Equal(["first"], graph.Nodes[1].Dependencies.Select(id => id.Value));
+        Assert.Equal(["first"], graph.Dependencies(graph.Nodes[1]).Select(id => id.Value));
         Assert.Equal(["second"], graph.CompletionSinks.Select(id => id.Value));
         Assert.Equal(["second"], graph.TerminalWriters[new("output")].Select(id => id.Value));
         Assert.Empty(graph.Diagnostics);
@@ -124,11 +124,13 @@ public sealed class LogicalGraphDefinitionTests
 
         var call = Assert.IsType<GraphCallNode>(parent.Nodes[0]);
         Assert.Equal("copy", call.Definition.Value);
-        Assert.Contains(call.Bindings, binding =>
-            binding.Port == "input" && binding.Resource == new ResourceId("input"));
-        Assert.Contains(call.Bindings, binding =>
-            binding.Port == "output" && binding.Resource == new ResourceId("child/output"));
-        Assert.Equal(["child"], parent.Nodes[1].Dependencies.Select(id => id.Value));
+        Assert.Contains(parent.Bindings(call), binding =>
+            binding.Port == "input" &&
+            binding.Resource.Resource == new ResourceId("input"));
+        Assert.Contains(parent.Bindings(call), binding =>
+            binding.Port == "output" &&
+            binding.Resource.Resource == new ResourceId("child/output"));
+        Assert.Equal(["child"], parent.Dependencies(parent.Nodes[1]).Select(id => id.Value));
         Assert.Single(parent.Definitions);
     }
 
@@ -150,9 +152,9 @@ public sealed class LogicalGraphDefinitionTests
             GraphCompileBoundary.Transparent).Definition;
 
         var call = Assert.IsType<GraphCallNode>(Assert.Single(parent.Nodes));
-        Assert.Contains(call.Bindings, binding =>
+        Assert.Contains(parent.Bindings(call), binding =>
             binding.Port == "output" &&
-            binding.Resource == parent.Resources.Single(resource =>
+            binding.Resource.Resource == parent.Resources.Single(resource =>
                 resource.Kind == GraphDefinitionResourceKind.Output).Id);
         Assert.Equal(["child"], parent.CompletionSinks.Select(id => id.Value));
         Assert.Equal(["child"], parent.TerminalWriters[new("output")].Select(id => id.Value));
@@ -183,7 +185,7 @@ public sealed class LogicalGraphDefinitionTests
 
         var call = Assert.IsType<GraphCallNode>(Assert.Single(parent.Nodes));
         Assert.Equal(GraphResourceAccess.ReadWrite,
-            call.Bindings.Single(binding => binding.Port == "state").Access);
+            parent.Bindings(call).Single(binding => binding.Port == "state").Access);
         Assert.Equal(["stateful"], parent.TerminalWriters[new("state")].Select(id => id.Value));
     }
 
@@ -216,6 +218,57 @@ public sealed class LogicalGraphDefinitionTests
 
         Assert.Equal(["second"], graph.TerminalWriters[new("output")].Select(id => id.Value));
         Assert.DoesNotContain(graph.Diagnostics, diagnostic => diagnostic.Code == "LGW002");
+        var output = graph.Structure.NodesOfType<LogicalResourceNode>()
+            .Single(node => node.Resource.Id == new ResourceId("output"));
+        var conflict = Assert.Single(graph.Structure.ResourceConflicts(output));
+        Assert.True(conflict.Ordered);
+        Assert.Empty(graph.Structure.UnorderedResourceConflicts(output));
+    }
+
+    [Fact]
+    public void ResourceConflictQueryFindsUnorderedReadWriteHazards()
+    {
+        var graph = LogicalGraphDefinition.Define<StatefulPorts>("conflicts", builder =>
+        {
+            builder.AddNode("first", new("test.update"), node =>
+            {
+                node.AddInput("input", builder.Ports.Input);
+                node.AddInOut("state", builder.Ports.State);
+            });
+            builder.AddNode("second", new("test.update"), node =>
+            {
+                node.AddInput("input", builder.Ports.Input);
+                node.AddInOut("state", builder.Ports.State);
+                node.AddOutput("output", builder.Ports.Output);
+            });
+        }).Definition;
+        var state = graph.Structure.NodesOfType<LogicalResourceNode>()
+            .Single(node =>
+                node.ResourceNodeId.Owner.IsParent &&
+                node.Resource.Id == new ResourceId("state"));
+
+        var conflict = Assert.Single(
+            graph.Structure.UnorderedResourceConflicts(state));
+        var first = graph.Nodes.Single(node => node.Id.Value == "first");
+        var boundary = graph.Structure.BoundaryResources([first.GraphId]);
+
+        Assert.Equal("first", Assert.IsType<GraphOperationNode>(conflict.First).Id.Value);
+        Assert.Equal("second", Assert.IsType<GraphOperationNode>(conflict.Second).Id.Value);
+        Assert.True(conflict.Kind.HasFlag(ModelResourceConflictKind.ReadAfterWrite));
+        Assert.True(conflict.Kind.HasFlag(ModelResourceConflictKind.WriteAfterRead));
+        Assert.True(conflict.Kind.HasFlag(ModelResourceConflictKind.WriteAfterWrite));
+        Assert.Equal(["first", "second"],
+            graph.Structure.Readers(state)
+                .Cast<GraphOperationNode>().Select(node => node.Id.Value));
+        Assert.Equal(["first", "second"],
+            graph.Structure.Writers(state)
+                .Cast<GraphOperationNode>().Select(node => node.Id.Value));
+        Assert.Equal(["input", "state"],
+            boundary.Inputs.Cast<LogicalResourceNode>()
+                .Select(node => node.Resource.Id.Value));
+        Assert.Equal(["state"],
+            boundary.Outputs.Cast<LogicalResourceNode>()
+                .Select(node => node.Resource.Id.Value));
     }
 
     [Fact]
@@ -235,7 +288,7 @@ public sealed class LogicalGraphDefinitionTests
             });
         }).Definition;
 
-        Assert.All(graph.Nodes, node => Assert.Empty(node.Dependencies));
+        Assert.All(graph.Nodes, node => Assert.Empty(graph.Dependencies(node)));
         Assert.Equal(["left", "right"],
             graph.TerminalWriters[new("output")].Select(id => id.Value));
         Assert.Contains(graph.Diagnostics, diagnostic =>
@@ -290,23 +343,25 @@ public sealed class LogicalGraphDefinitionTests
         }).Definition;
 
         var producerCall = Assert.IsType<GraphCallNode>(graph.Nodes[0]);
-        var producerInput = producerCall.Bindings.Single(binding => binding.Port == "input");
-        Assert.True(producerInput.ResourceOwner.IsParent);
-        Assert.Equal(new ResourceId("input"), producerInput.Resource);
+        var producerInput = graph.Bindings(producerCall).Single(binding => binding.Port == "input");
+        Assert.True(producerInput.Resource.Owner.IsParent);
+        Assert.Equal(new ResourceId("input"), producerInput.Resource.Resource);
 
         var consumerCall = Assert.IsType<GraphCallNode>(graph.Nodes[1]);
-        var consumerInput = consumerCall.Bindings.Single(binding => binding.Port == "input");
-        Assert.Equal(new GraphDefinitionNodeId("producer-call"), consumerInput.ResourceOwner.Call);
-        Assert.Equal(new ResourceId("internal"), consumerInput.Resource);
-        Assert.Contains(new GraphDefinitionNodeId("producer-call"), consumerCall.Dependencies);
+        var consumerInput = graph.Bindings(consumerCall).Single(binding => binding.Port == "input");
+        Assert.Equal(new GraphDefinitionNodeId("producer-call"), consumerInput.Resource.Owner.Call);
+        Assert.Equal(new ResourceId("internal"), consumerInput.Resource.Resource);
+        Assert.Contains(
+            new GraphDefinitionNodeId("producer-call"),
+            graph.Dependencies(consumerCall));
 
         var xml = GraphXml.Serialize(graph);
-        Assert.Contains("resource=\"internal\"", xml, StringComparison.Ordinal);
+        Assert.Contains("id=\"internal\"", xml, StringComparison.Ordinal);
         Assert.Contains("instance=\"producer-call\"", xml, StringComparison.Ordinal);
         var restored = GraphXml.DeserializeDefinition(xml);
         Assert.Equal(
-            graph.Nodes.SelectMany(node => node.Bindings),
-            restored.Nodes.SelectMany(node => node.Bindings));
+            graph.Nodes.SelectMany(graph.Bindings),
+            restored.Nodes.SelectMany(restored.Bindings));
         Assert.Equal(xml, GraphXml.Serialize(restored));
     }
 
@@ -340,9 +395,9 @@ public sealed class LogicalGraphDefinitionTests
             });
         }).Definition;
 
-        var binding = graph.Nodes[1].Bindings.Single(value => value.Port == "output");
+        var binding = graph.Bindings(graph.Nodes[1]).Single(value => value.Port == "output");
         Assert.Equal(GraphResourceAccess.Write, binding.Access);
-        Assert.Equal(new GraphDefinitionNodeId("producer-call"), binding.ResourceOwner.Call);
+        Assert.Equal(new GraphDefinitionNodeId("producer-call"), binding.Resource.Owner.Call);
         Assert.Contains(graph.Diagnostics, diagnostic =>
             diagnostic.Code == "LGW003" &&
             diagnostic.Severity == LogicalGraphDiagnosticSeverity.Warning &&
@@ -382,10 +437,14 @@ public sealed class LogicalGraphDefinitionTests
         Assert.Equal("Root architecture", restored.Annotation!.Name);
         Assert.Equal("test", restored.Annotation.Attributes!["group"]);
         Assert.Single(restored.Definitions);
-        Assert.Equal(original.Nodes.Select(node => (node.Id, node.Bindings.Count, node.Dependencies.Count)),
-            restored.Nodes.Select(node => (node.Id, node.Bindings.Count, node.Dependencies.Count)));
-        Assert.Equal(original.Nodes.SelectMany(node => node.Bindings),
-            restored.Nodes.SelectMany(node => node.Bindings));
+        Assert.Equal(
+            original.Nodes.Select(node =>
+                (node.Id, original.Bindings(node).Count, original.Dependencies(node).Count)),
+            restored.Nodes.Select(node =>
+                (node.Id, restored.Bindings(node).Count, restored.Dependencies(node).Count)));
+        Assert.Equal(
+            original.Nodes.SelectMany(original.Bindings),
+            restored.Nodes.SelectMany(restored.Bindings));
         Assert.Equal(xml, GraphXml.Serialize(restored));
     }
 
@@ -401,8 +460,8 @@ public sealed class LogicalGraphDefinitionTests
             ]).Definition;
 
         Assert.Equal(3, graph.Nodes.Count);
-        Assert.Equal(["step-0"], graph.Nodes[1].Dependencies.Select(id => id.Value));
-        Assert.Equal(["step-1"], graph.Nodes[2].Dependencies.Select(id => id.Value));
+        Assert.Equal(["step-0"], graph.Dependencies(graph.Nodes[1]).Select(id => id.Value));
+        Assert.Equal(["step-1"], graph.Dependencies(graph.Nodes[2]).Select(id => id.Value));
         Assert.Equal(["step-2"], graph.CompletionSinks.Select(id => id.Value));
     }
 
@@ -463,9 +522,9 @@ public sealed class LogicalGraphDefinitionTests
 
         Assert.DoesNotContain(graph.Resources, resource =>
             resource.GetType().Name.Contains("Region", StringComparison.Ordinal));
-        Assert.Equal(["qkv"], graph.Nodes[1].Dependencies.Select(id => id.Value));
+        Assert.Equal(["qkv"], graph.Dependencies(graph.Nodes[1]).Select(id => id.Value));
         Assert.Equal(["qkv", "scores"],
-            graph.Nodes[2].Dependencies.Select(id => id.Value).OrderBy(id => id));
+            graph.Dependencies(graph.Nodes[2]).Select(id => id.Value).OrderBy(id => id));
         Assert.Equal(["values"], graph.CompletionSinks.Select(id => id.Value));
         Assert.Equal(["qkv"], graph.TerminalWriters[new("key_cache")].Select(id => id.Value));
         Assert.Equal(["qkv"], graph.TerminalWriters[new("value_cache")].Select(id => id.Value));

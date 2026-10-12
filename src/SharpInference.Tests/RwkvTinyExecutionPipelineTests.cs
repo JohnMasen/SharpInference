@@ -3,9 +3,11 @@ using System.Runtime.InteropServices;
 using SharpInference.Architectures.Rwkv6;
 using SharpInference.Architectures.Rwkv7;
 using SharpInference.Backends.CpuVm;
+using SharpInference.Backends.D3D12Vm;
 using SharpInference.Graphs;
 using SharpInference.Instructions;
 using SharpInference.Instructions.Cpu;
+using SharpInference.Instructions.D3D12;
 using SharpInference.Vm;
 using SharpInference.Vm.Optimization;
 
@@ -67,6 +69,63 @@ public sealed class RwkvTinyExecutionPipelineTests
         ];
         var program = new VmExecutionGraphEmitter(VmTarget.Cpu, providers).Emit(execution);
         var artifact = new CpuVmCompiler(providers).Compile(program);
+        using var executable = artifact.CreateExecutor();
+        var buffers = program.Slots.Select(slot =>
+            new byte[checked((int)slot.Tensor.ByteLength)]).ToArray();
+        for (var index = 0; index < program.Slots.Count; index++)
+        {
+            var slot = program.Slots[index];
+            if (slot.Scope != VmSlotScope.Global)
+                continue;
+            using var storage = new VmMemoryStorage(buffers[index].Length);
+            VmModelBindings.InitializeGlobal(catalog, slot, storage);
+            storage.Read(0, buffers[index]);
+        }
+        var tokenIndex = program.Slots.ToList().FindIndex(slot => slot.Id == "token");
+        var logitsIndex = program.Slots.ToList().FindIndex(slot => slot.Id == "logits");
+        foreach (var token in new[] { (int)'"', (int)'i', (int)'n' })
+        {
+            MemoryMarshal.Write(buffers[tokenIndex], token);
+            executable.Execute("forward", buffers);
+        }
+
+        var logits = MemoryMarshal.Cast<byte, float>(buffers[logitsIndex]).ToArray();
+        Assert.Equal(catalog.VocabularySize, logits.Length);
+        Assert.All(logits, value => Assert.True(float.IsFinite(value)));
+        Assert.Contains(logits, value => value != 0f);
+        var expectedBytes = File.ReadAllBytes(
+            Path.Combine(directory, "expected-logits-7v0-834K.bin"));
+        var expected = MemoryMarshal.Cast<byte, float>(expectedBytes).ToArray();
+        Assert.Equal(expected.Length, logits.Length);
+        var meanAbsoluteError = logits.Zip(expected, (actual, baseline) =>
+            MathF.Abs(actual - baseline)).Average();
+        Assert.True(
+            meanAbsoluteError <= 0.0011f,
+            $"Mean absolute error {meanAbsoluteError:G9}; " +
+            $"actual=[{string.Join(",", logits.Take(8).Select(value => value.ToString("G9")))}]; " +
+            $"expected=[{string.Join(",", expected.Take(8).Select(value => value.ToString("G9")))}].");
+    }
+
+    [Fact]
+    public void TinyRwkv7D3D12MatchesRwkvCppExpectedLogits()
+    {
+        var directory = ModelDirectory();
+        if (directory is null)
+            return;
+        using var catalog = GgmlModelFile.Open(
+            Path.Combine(directory, "tiny-rwkv-7v0-834K-FP32.bin"));
+        var logical = new PortableRwkv7GraphProvider().Build(catalog);
+        var execution = new DefaultExecutionGraphConverter().Convert(
+            logical,
+            new("rwkv-7", "d3d12-vm"));
+        IInstructionCollectionProvider[] providers =
+        [
+            new GpuFloat32InstructionCollection(),
+            new GpuFloat16InstructionCollection(),
+        ];
+        var program = new VmExecutionGraphEmitter(
+            VmTarget.Direct3D12, providers).Emit(execution);
+        var artifact = new D3D12VmCompiler(providers).Compile(program);
         using var executable = artifact.CreateExecutor();
         var buffers = program.Slots.Select(slot =>
             new byte[checked((int)slot.Tensor.ByteLength)]).ToArray();

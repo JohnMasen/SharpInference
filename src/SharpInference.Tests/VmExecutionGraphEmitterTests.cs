@@ -31,10 +31,7 @@ public sealed class VmExecutionGraphEmitterTests
     [Fact]
     public void D3D12EmitterCreatesKernelDispatchAndBarrier()
     {
-        var graph = new ExecutionGraph(
-            new("root"),
-            Resources(),
-            [Operation("copy")]);
+        var graph = BuildGraph("root", Resources(), Operation("copy"));
         var provider = new Provider(InstructionTarget.Direct3D12);
         var emitted = new VmExecutionGraphEmitter(
             VmTarget.Direct3D12,
@@ -53,10 +50,10 @@ public sealed class VmExecutionGraphEmitterTests
     [Fact]
     public void ProductionCompilersConsumeEmittedProgram()
     {
-        var graph = new ExecutionGraph(
-            new("root"),
+        var graph = BuildGraph(
+            "root",
             Resources(),
-            [Operation("copy") with { Operation = PrimitiveGraphOperations.Copy }]);
+            Operation("copy", PrimitiveGraphOperations.Copy));
         var program = new ExecutionGraphProgram([graph]);
         IInstructionCollectionProvider[] cpuProviders = [new CpuFloat32InstructionCollection()];
         var cpuProgram = new VmExecutionGraphEmitter(VmTarget.Cpu, cpuProviders).Emit(program);
@@ -73,39 +70,37 @@ public sealed class VmExecutionGraphEmitterTests
     [Fact]
     public void CpuEmitterAllocatesChildInternalsAndUsesStableTopologicalOrder()
     {
-        var child = new ExecutionGraph(
-            new("child"),
+        var child = BuildGraph(
+            "child",
             [
                 .. Resources(),
                 new(new("scratch"), "scratch", GraphDefinitionResourceKind.Temporary,
                     new(GraphElementType.Float32, [16])),
             ],
-            [Operation("copy")]);
-        var call = new ExecutionGraphCallNode(
-            new("child-call"),
-            child.Id,
+            Operation("copy"));
+        var call = Call(
+            "child-call",
+            child.Id.Value,
             [Binding("input", "input", GraphResourceAccess.Read),
              Binding("output", "middle", GraphResourceAccess.Write)],
-            [],
-            GraphCompileBoundary.Atomic,
-            new ExecutionSourceMap([]));
-        var finish = Operation("finish") with
-        {
-            Bindings =
+            GraphCompileBoundary.Atomic);
+        var finish = Operation(
+            "finish",
+            new("test.copy"),
             [
                 Binding("input", "middle", GraphResourceAccess.Read),
                 Binding("output", "output", GraphResourceAccess.Write),
             ],
-            Dependencies = [call.Id],
-        };
-        var root = new ExecutionGraph(
-            new("root"),
+            [new ExecutionNodeId("child-call")]);
+        var root = BuildGraph(
+            "root",
             [
                 .. Resources(),
                 new(new("middle"), "middle", GraphDefinitionResourceKind.Temporary,
                     new(GraphElementType.Float32, [16])),
             ],
-            [finish, call]);
+            finish,
+            call);
 
         var emitted = new VmExecutionGraphEmitter(
             VmTarget.Cpu, [new Provider(InstructionTarget.Cpu)])
@@ -120,7 +115,7 @@ public sealed class VmExecutionGraphEmitterTests
     [Fact]
     public void UnsupportedOperationNamesTargetAndOperation()
     {
-        var graph = new ExecutionGraph(new("root"), Resources(), [Operation("copy")]);
+        var graph = BuildGraph("root", Resources(), Operation("copy"));
 
         var error = Assert.Throws<NotSupportedException>(() =>
             new VmExecutionGraphEmitter(VmTarget.Cpu, [new EmptyProvider()])
@@ -132,40 +127,91 @@ public sealed class VmExecutionGraphEmitterTests
 
     private static ExecutionGraphProgram ProgramWithChild()
     {
-        var child = new ExecutionGraph(
-            new("child"),
+        var child = BuildGraph("child", Resources(), Operation("copy"));
+        var root = BuildGraph(
+            "root",
             Resources(),
-            [Operation("copy")]);
-        var root = new ExecutionGraph(
-            new("root"),
-            Resources(),
-            [new ExecutionGraphCallNode(
-                new("child-call"),
-                new("child"),
+            Call(
+                "child-call",
+                "child",
                 [Binding("input", "input", GraphResourceAccess.Read),
                  Binding("output", "output", GraphResourceAccess.Write)],
-                [],
-                GraphCompileBoundary.Auto,
-                new ExecutionSourceMap([]))]);
+                GraphCompileBoundary.Auto));
         return new([root, child]);
     }
 
-    private static ExecutionOperationNode Operation(string id) =>
+    private static NodeSpec Operation(
+        string id,
+        GraphOperationId? operation = null,
+        IReadOnlyList<ModelResourceBinding>? bindings = null,
+        IReadOnlyList<ExecutionNodeId>? dependencies = null) =>
         new(
-            new(id),
-            new("test.copy"),
-            [Binding("input", "input", GraphResourceAccess.Read),
-             Binding("output", "output", GraphResourceAccess.Write)],
-            [],
-            new Dictionary<string, string>(),
-            new PrecisionRequirement(GraphElementType.Float32, GraphElementType.Float32),
-            new ExecutionSourceMap([]));
+            new ExecutionOperationNode(
+                new(id),
+                operation ?? new("test.copy"),
+                new Dictionary<string, string>(),
+                new PrecisionRequirement(
+                    GraphElementType.Float32, GraphElementType.Float32),
+                new ExecutionSourceMap([])),
+            (bindings ??
+             [Binding("input", "input", GraphResourceAccess.Read),
+              Binding("output", "output", GraphResourceAccess.Write)])
+                .Select(binding => binding with
+                {
+                    BindingId = $"{id}:{binding.Port}",
+                }).ToArray(),
+            dependencies ?? []);
 
-    private static ExecutionGraphBinding Binding(
+    private static ModelResourceBinding Binding(
         string port,
         string resource,
         GraphResourceAccess access) =>
-        new(port, new ResourceId(resource), access);
+        new(
+            port,
+            new(GraphBindingOwner.Parent, new(resource)),
+            access,
+            $"binding:{port}:{resource}");
+
+    private static NodeSpec Call(
+        string id,
+        string target,
+        IReadOnlyList<ModelResourceBinding> bindings,
+        GraphCompileBoundary boundary) =>
+        new(
+            new ExecutionGraphCallNode(
+                new(id),
+                new(target),
+                boundary,
+                new ExecutionSourceMap([])),
+            bindings.Select(binding => binding with
+            {
+                BindingId = $"{id}:{binding.Port}",
+            }).ToArray(),
+            []);
+
+    private static ExecutionGraph BuildGraph(
+        string id,
+        IEnumerable<ExecutionGraphResource> resources,
+        params NodeSpec[] nodes)
+    {
+        var builder = new ExecutionGraphBuilder(new(id));
+        foreach (var resource in resources)
+            builder.AddResource(resource);
+        foreach (var node in nodes)
+            if (node.Node is ExecutionOperationNode operation)
+                builder.AddOperation(operation, node.Bindings, node.Dependencies);
+            else
+                builder.AddCall(
+                    (ExecutionGraphCallNode)node.Node,
+                    node.Bindings,
+                    node.Dependencies);
+        return builder.Build();
+    }
+
+    private sealed record NodeSpec(
+        ExecutionGraphNode Node,
+        IReadOnlyList<ModelResourceBinding> Bindings,
+        IReadOnlyList<ExecutionNodeId> Dependencies);
 
     private static ExecutionGraphResource[] Resources() =>
     [

@@ -1,38 +1,39 @@
 using System.Collections.ObjectModel;
 using System.Xml.Linq;
+using SharpInference.Graphs.Core;
 
 namespace SharpInference.Graphs;
 
 public static partial class GraphXml
 {
-    /// <summary>Serializes a validated execution graph program.</summary>
     public static string Serialize(ExecutionGraphProgram program)
     {
         ArgumentNullException.ThrowIfNull(program);
         return Write(new XElement(
             "Graph",
             new XAttribute("kind", "ExecutionGraphProgram"),
-            new XAttribute("version", 1),
+            new XAttribute("version", 2),
             new XElement("Root", new XAttribute("graph", program.RootGraph.Value)),
-            new XElement("Graphs", program.Graphs
-                .OrderBy(graph => graph.Id.Value, StringComparer.Ordinal)
-                .Select(WriteExecutionGraph))));
+            new XElement(
+                "Graphs",
+                program.Graphs.OrderBy(
+                        graph => graph.Id.Value, StringComparer.Ordinal)
+                    .Select(WriteExecutionGraph))));
     }
 
-    /// <summary>Deserializes and validates an execution graph program.</summary>
     public static ExecutionGraphProgram DeserializeProgram(string xml)
     {
-        var root = Read(xml, "ExecutionGraphProgram");
-        Check(root, "Graph", "kind", "version");
+        var root = Read(xml, "ExecutionGraphProgram", 2);
         var rootElement = RequiredChild(root, "Root");
         Check(rootElement, "Root", "graph");
         var rootId = new ExecutionGraphId(Required(rootElement, "graph"));
-        var graphs = Children(RequiredChild(root, "Graphs"), "ExecutionGraph")
-            .Select(ReadExecutionGraph).ToArray();
-        var result = new ExecutionGraphProgram(graphs);
+        var result = new ExecutionGraphProgram(
+            Children(RequiredChild(root, "Graphs"), "ExecutionGraph")
+                .Select(ReadExecutionGraph));
         if (result.RootGraph != rootId)
             throw new InvalidDataException(
-                $"Declared execution root '{rootId}' does not match inferred root '{result.RootGraph}'.");
+                $"Declared execution root '{rootId}' does not match inferred root " +
+                $"'{result.RootGraph}'.");
         return result;
     }
 
@@ -43,90 +44,73 @@ public static partial class GraphXml
             new XAttribute("compileBoundary", graph.DefaultCompileBoundary),
             graph.Source is null
                 ? null
-                : new XElement("Source", new XAttribute("definition", graph.Source.Definition.Value)),
+                : new XElement(
+                    "Source",
+                    new XAttribute("definition", graph.Source.Definition.Value)),
             WriteArchitecture(graph.Architecture),
-            new XElement("Resources", graph.Resources.Select(WriteExecutionResource)),
-            new XElement("Nodes", graph.Nodes.Select(WriteExecutionNode)));
+            new XElement(
+                "Nodes", graph.Structure.Nodes.Select(WriteExecutionNode)),
+            new XElement(
+                "Edges", graph.Structure.Edges.Select(WriteExecutionEdge)));
 
-    private static XElement WriteExecutionResource(ExecutionGraphResource resource) =>
-        new(
+    private static XElement WriteExecutionNode(
+        ExecutionGraphStructureNode node) => node switch
+    {
+        ExecutionResourceNode resource => new XElement(
             "Resource",
-            new XAttribute("id", resource.Id.Value),
-            new XAttribute("name", resource.Name),
-            new XAttribute("kind", resource.Kind),
-            Optional("bindingKey", resource.BindingKey),
-            WriteTensor(resource.Tensor));
+            new XAttribute("id", resource.Resource.Id.Value),
+            new XAttribute("name", resource.Resource.Name),
+            new XAttribute("kind", resource.Resource.Kind),
+            resource.ResourceNodeId.Owner.IsParent
+                ? null
+                : new XAttribute(
+                    "instance", resource.ResourceNodeId.Owner.Call!.Value.Value),
+            Optional("bindingKey", resource.Resource.BindingKey),
+            WriteTensor(resource.Resource.Tensor)),
+        ExecutionGraphCallNode call => new XElement(
+            "GraphCall",
+            new XAttribute("id", call.Id.Value),
+            new XAttribute("target", call.Target.Value),
+            new XAttribute("compileBoundary", call.CompileBoundary),
+            WriteArchitecture(call.Architecture),
+            WriteSourceMap(call.Source)),
+        ExecutionOperationNode operation => new XElement(
+            "Operation",
+            new XAttribute("id", operation.Id.Value),
+            new XAttribute("operation", operation.Operation.Name),
+            new XAttribute("operationVersion", operation.Operation.Version),
+            WriteArchitecture(operation.Architecture),
+            WriteSourceMap(operation.Source),
+            WriteAttributes(operation.Attributes),
+            WritePrecision(operation.Requirements)),
+        _ => throw new InvalidDataException(
+            $"Unsupported execution node type '{node.GetType().Name}'."),
+    };
 
-    private static XElement WriteExecutionNode(ExecutionGraphNode node)
+    private static XElement WriteExecutionEdge(ExecutionGraphEdge edge) => edge switch
     {
-        var element = new XElement(
-            node is ExecutionGraphCallNode ? "GraphCall" : "Operation",
-            new XAttribute("id", node.Id.Value));
-        if (node is ExecutionGraphCallNode call)
-        {
-            element.Add(
-                new XAttribute("target", call.Target.Value),
-                new XAttribute("compileBoundary", call.CompileBoundary));
-        }
-        else
-        {
-            var operation = (ExecutionOperationNode)node;
-            element.Add(
-                new XAttribute("operation", operation.Operation.Name),
-                new XAttribute("operationVersion", operation.Operation.Version));
-        }
-        element.Add(
-            WriteArchitecture(node.Architecture),
-            WriteSourceMap(node.Source),
-            new XElement("Bindings", node.Bindings.Select(binding =>
-                new XElement(
-                    "Binding",
-                    new XAttribute("port", binding.Port),
-                    new XAttribute("resource", binding.Resource.Value),
-                    new XAttribute("access", binding.Access),
-                    binding.ResourceOwner.IsParent
-                        ? null
-                        : new XAttribute("instance", binding.ResourceOwner.Call!.Value.Value)))),
-            new XElement("Dependencies", node.Dependencies.Select(dependency =>
-                new XElement("NodeRef", new XAttribute("id", dependency.Value)))));
-        if (node is ExecutionOperationNode operationNode)
-        {
-            element.Add(
-                new XElement("Attributes", operationNode.Attributes.Select(attribute =>
-                    new XElement(
-                        "Attribute",
-                        new XAttribute("name", attribute.Key),
-                        new XAttribute("value", attribute.Value)))),
-                new XElement(
-                    "Precision",
-                    new XAttribute("arithmetic", operationNode.Requirements.MinimumArithmeticType),
-                    new XAttribute("accumulator", operationNode.Requirements.MinimumAccumulatorType)));
-        }
-        return element;
-    }
-
-    private static XElement? WriteArchitecture(GraphArchitecture? architecture)
-    {
-        if (architecture is null)
-            return null;
-        return new XElement(
-            "Architecture",
-            Optional("name", architecture.Name),
-            Optional("role", architecture.Role),
-            Optional("description", architecture.Description),
-            (architecture.Attributes ?? new Dictionary<string, string>()).Select(attribute =>
-                new XElement(
-                    "Attribute",
-                    new XAttribute("name", attribute.Key),
-                    new XAttribute("value", attribute.Value))));
-    }
-
-    private static XElement WriteSourceMap(ExecutionSourceMap source) =>
-        new(
-            "SourceMap",
-            Optional("transformation", source.Transformation),
-            source.LogicalNodes.Select(node =>
-                new XElement("LogicalNode", new XAttribute("id", node.Value))));
+        ExecutionDependencyEdge dependency => new XElement(
+            "Dependency",
+            new XAttribute("id", dependency.Id.Value),
+            new XAttribute("source", dependency.Source.Value),
+            new XAttribute("target", dependency.Target.Value)),
+        ExecutionResourceReadEdge read => new XElement(
+            "Read",
+            new XAttribute("id", read.Id.Value),
+            new XAttribute("source", read.Source.Value),
+            new XAttribute("target", read.Target.Value),
+            new XAttribute("port", read.Port),
+            new XAttribute("binding", read.BindingId)),
+        ExecutionResourceWriteEdge write => new XElement(
+            "Write",
+            new XAttribute("id", write.Id.Value),
+            new XAttribute("source", write.Source.Value),
+            new XAttribute("target", write.Target.Value),
+            new XAttribute("port", write.Port),
+            new XAttribute("binding", write.BindingId)),
+        _ => throw new InvalidDataException(
+            $"Unsupported execution edge type '{edge.GetType().Name}'."),
+    };
 
     private static ExecutionGraph ReadExecutionGraph(XElement element)
     {
@@ -138,86 +122,107 @@ public static partial class GraphXml
             Check(sourceElement, "Source", "definition");
             source = new(new(Required(sourceElement, "definition")));
         }
-        return new ExecutionGraph(
+        var nodes = DefinitionChildren(
+                RequiredChild(element, "Nodes"),
+                "Resource", "Operation", "GraphCall")
+            .Select(ReadExecutionNode).ToArray();
+        var edges = DefinitionChildren(
+                RequiredChild(element, "Edges"),
+                "Dependency", "Read", "Write")
+            .Select(ReadExecutionEdge).ToArray();
+        return new(
             new(Required(element, "id")),
-            Children(RequiredChild(element, "Resources"), "Resource")
-                .Select(ReadExecutionResource),
-            DefinitionChildren(RequiredChild(element, "Nodes"), "Operation", "GraphCall")
-                .Select(ReadExecutionNode),
-            DefinitionEnumValue<GraphCompileBoundary>(element, "compileBoundary"),
+            new Graph<ExecutionGraphStructureNode, ExecutionGraphEdge>(nodes, edges),
+            DefinitionEnumValue<GraphCompileBoundary>(
+                element, "compileBoundary"),
             ReadArchitecture(element.Element("Architecture")),
             source);
     }
 
-    private static ExecutionGraphResource ReadExecutionResource(XElement element)
+    private static ExecutionGraphStructureNode ReadExecutionNode(XElement element)
     {
-        Check(element, "Resource", "id", "name", "kind", "bindingKey");
-        return new(
-            new(Required(element, "id")),
-            Required(element, "name"),
-            DefinitionEnumValue<GraphDefinitionResourceKind>(element, "kind"),
-            ReadTensor(RequiredChild(element, "Tensor")),
-            (string?)element.Attribute("bindingKey"));
-    }
-
-    private static ExecutionGraphNode ReadExecutionNode(XElement element)
-    {
-        var isCall = element.Name == "GraphCall";
-        Check(
-            element,
-            isCall ? "GraphCall" : "Operation",
-            isCall
-                ? ["id", "target", "compileBoundary"]
-                : ["id", "operation", "operationVersion"]);
-        var id = new ExecutionNodeId(Required(element, "id"));
-        var architecture = ReadArchitecture(element.Element("Architecture"));
-        var source = ReadSourceMap(RequiredChild(element, "SourceMap"));
-        var bindings = Children(RequiredChild(element, "Bindings"), "Binding").Select(binding =>
+        if (element.Name == "Resource")
         {
-            Check(binding, "Binding", "port", "resource", "access", "instance");
-            var instance = (string?)binding.Attribute("instance");
-            return new ExecutionGraphBinding(
-                Required(binding, "port"),
-                new(Required(binding, "resource")),
-                DefinitionEnumValue<GraphResourceAccess>(binding, "access"),
-                string.IsNullOrWhiteSpace(instance)
-                    ? GraphBindingOwner.Parent
-                    : GraphBindingOwner.Instance(new(instance)));
-        }).ToArray();
-        var dependencies = Children(RequiredChild(element, "Dependencies"), "NodeRef")
-            .Select(reference =>
-            {
-                Check(reference, "NodeRef", "id");
-                return new ExecutionNodeId(Required(reference, "id"));
-            }).ToArray();
-        if (isCall)
+            Check(
+                element, "Resource", "id", "name", "kind", "instance",
+                "bindingKey");
+            var resource = new ExecutionGraphResource(
+                new(Required(element, "id")),
+                Required(element, "name"),
+                DefinitionEnumValue<GraphDefinitionResourceKind>(element, "kind"),
+                ReadTensor(RequiredChild(element, "Tensor")),
+                (string?)element.Attribute("bindingKey"));
+            var instance = (string?)element.Attribute("instance");
+            var owner = string.IsNullOrWhiteSpace(instance)
+                ? GraphBindingOwner.Parent
+                : GraphBindingOwner.Instance(new(instance));
+            return new ExecutionResourceNode(
+                new ModelResourceNodeId(owner, resource.Id), resource);
+        }
+
+        var source = ReadSourceMap(RequiredChild(element, "SourceMap"));
+        var architecture = ReadArchitecture(element.Element("Architecture"));
+        if (element.Name == "GraphCall")
+        {
+            Check(element, "GraphCall", "id", "target", "compileBoundary");
             return new ExecutionGraphCallNode(
-                id,
+                new(Required(element, "id")),
                 new(Required(element, "target")),
-                bindings,
-                dependencies,
-                DefinitionEnumValue<GraphCompileBoundary>(element, "compileBoundary"),
+                DefinitionEnumValue<GraphCompileBoundary>(
+                    element, "compileBoundary"),
                 source,
                 architecture);
-        var attributes = Children(RequiredChild(element, "Attributes"), "Attribute")
-            .ToDictionary(attribute =>
-            {
-                Check(attribute, "Attribute", "name", "value");
-                return Required(attribute, "name");
-            }, attribute => Required(attribute, "value"), StringComparer.Ordinal);
-        var precision = RequiredChild(element, "Precision");
-        Check(precision, "Precision", "arithmetic", "accumulator");
+        }
+
+        Check(element, "Operation", "id", "operation", "operationVersion");
         return new ExecutionOperationNode(
-            id,
+            new(Required(element, "id")),
             new(Required(element, "operation"), Number(element, "operationVersion")),
-            bindings,
-            dependencies,
-            new ReadOnlyDictionary<string, string>(attributes),
-            new(
-                DefinitionEnumValue<GraphElementType>(precision, "arithmetic"),
-                DefinitionEnumValue<GraphElementType>(precision, "accumulator")),
+            ReadAttributes(RequiredChild(element, "Attributes")),
+            ReadPrecision(RequiredChild(element, "Precision")),
             source,
             architecture);
+    }
+
+    private static ExecutionGraphEdge ReadExecutionEdge(XElement element)
+    {
+        Check(
+            element,
+            element.Name.LocalName,
+            element.Name == "Dependency"
+                ? ["id", "source", "target"]
+                : ["id", "source", "target", "port", "binding"]);
+        var id = new GraphEdgeId(Required(element, "id"));
+        var source = new GraphNodeId(Required(element, "source"));
+        var target = new GraphNodeId(Required(element, "target"));
+        return element.Name.LocalName switch
+        {
+            "Dependency" => new ExecutionDependencyEdge(id, source, target),
+            "Read" => new ExecutionResourceReadEdge(
+                id, source, target, Required(element, "port"),
+                Required(element, "binding")),
+            "Write" => new ExecutionResourceWriteEdge(
+                id, source, target, Required(element, "port"),
+                Required(element, "binding")),
+            _ => throw new InvalidDataException(
+                $"Unsupported execution edge element <{element.Name}>."),
+        };
+    }
+
+    private static XElement? WriteArchitecture(GraphArchitecture? architecture)
+    {
+        if (architecture is null)
+            return null;
+        return new XElement(
+            "Architecture",
+            Optional("name", architecture.Name),
+            Optional("role", architecture.Role),
+            Optional("description", architecture.Description),
+            (architecture.Attributes ?? new Dictionary<string, string>())
+                .Select(attribute => new XElement(
+                    "Attribute",
+                    new XAttribute("name", attribute.Key),
+                    new XAttribute("value", attribute.Value))));
     }
 
     private static GraphArchitecture? ReadArchitecture(XElement? element)
@@ -225,28 +230,30 @@ public static partial class GraphXml
         if (element is null)
             return null;
         Check(element, "Architecture", "name", "role", "description");
-        var attributes = Children(element, "Attribute").ToDictionary(attribute =>
-        {
-            Check(attribute, "Attribute", "name", "value");
-            return Required(attribute, "name");
-        }, attribute => Required(attribute, "value"), StringComparer.Ordinal);
         return new(
             (string?)element.Attribute("name"),
             (string?)element.Attribute("role"),
             (string?)element.Attribute("description"),
-            new ReadOnlyDictionary<string, string>(attributes));
+            ReadAttributes(element));
     }
+
+    private static XElement WriteSourceMap(ExecutionSourceMap source) =>
+        new(
+            "SourceMap",
+            Optional("transformation", source.Transformation),
+            source.LogicalNodes.Select(node =>
+                new XElement(
+                    "LogicalNode", new XAttribute("id", node.Value))));
 
     private static ExecutionSourceMap ReadSourceMap(XElement element)
     {
         Check(element, "SourceMap", "transformation");
         return new(
-            Children(element, "LogicalNode")
-                .Select(node =>
-                {
-                    Check(node, "LogicalNode", "id");
-                    return new GraphDefinitionNodeId(Required(node, "id"));
-                }).ToArray(),
+            Children(element, "LogicalNode").Select(node =>
+            {
+                Check(node, "LogicalNode", "id");
+                return new GraphDefinitionNodeId(Required(node, "id"));
+            }).ToArray(),
             (string?)element.Attribute("transformation"));
     }
 }

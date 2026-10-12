@@ -115,10 +115,10 @@ unchanged.
 
 ## Logical graph definitions
 
-The logical schema uses reusable `GraphDefinition` values. `Operation` elements
-describe direct operations and `Call` elements
-instantiate another definition. Definition and call annotations provide the
-architecture hierarchy shown by GraphView.
+The logical schema uses reusable `GraphDefinition` values. Version 2 stores
+resources, operations and calls as typed nodes, with `Read`, `Write` and
+`Dependency` elements as typed edges. Definition and call annotations provide
+the architecture hierarchy shown by GraphView.
 
 `GraphCompileBoundary` controls later compilation without changing the
 architecture tree:
@@ -129,15 +129,15 @@ architecture tree:
   execution synchronization boundary.
 
 GraphView reads only `LogicalGraphDefinition` logical-graph XML. It presents
-each definition call as an expandable architecture component. Legacy
-`LogicalGraph`, Region, and logical-graph JSON formats are not supported.
+each definition call as an expandable architecture component. Other XML and
+JSON graph formats are not supported.
 
 ## Execution graph programs
 
 GraphView also reads `ExecutionGraphProgram` XML. The program is a validated
-collection of reusable execution graphs with one inferred root. Each graph
-contains an operation/graph-call DAG; double-click a graph call to inspect its
-target graph. Graph, call, and operation `Architecture` metadata is displayed
+collection of reusable execution graphs with one inferred root. Each graph uses
+the same typed node/edge structure as the logical graph; double-click a graph
+call to inspect its target graph. Graph, call, and operation `Architecture` metadata is displayed
 but does not alter execution semantics. `SourceMap` metadata is retained in the
 source XML and ignored for layout.
 

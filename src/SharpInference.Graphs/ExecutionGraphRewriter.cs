@@ -1,11 +1,10 @@
 using System.Collections.ObjectModel;
+using SharpInference.Graphs.Core;
 
 namespace SharpInference.Graphs;
 
-/// <summary>Validated structural rewrites used by execution graph postprocessors.</summary>
 public static class ExecutionGraphRewriter
 {
-    /// <summary>Replaces one graph call with one concrete operation while preserving its boundary bindings and dependencies.</summary>
     public static ExecutionGraphProgram ReplaceGraphCallWithOperation(
         ExecutionGraphProgram program,
         ExecutionGraphId graphId,
@@ -17,39 +16,38 @@ public static class ExecutionGraphRewriter
     {
         ArgumentNullException.ThrowIfNull(program);
         var graph = RequiredGraph(program, graphId);
-        var call = graph.Nodes.SingleOrDefault(node => node.Id == callId) as ExecutionGraphCallNode
-            ?? throw new ArgumentException($"Graph '{graphId}' has no call '{callId}'.", nameof(callId));
+        var call = graph.Nodes.SingleOrDefault(node => node.Id == callId)
+            as ExecutionGraphCallNode
+            ?? throw new ArgumentException(
+                $"Graph '{graphId}' has no call '{callId}'.", nameof(callId));
         var replacement = new ExecutionOperationNode(
             call.Id,
             operation,
-            call.Bindings,
-            call.Dependencies,
-            new ReadOnlyDictionary<string, string>(
-                new Dictionary<string, string>(
-                    attributes ?? new Dictionary<string, string>(),
-                    StringComparer.Ordinal)),
+            Copy(attributes),
             requirements ?? new PrecisionRequirement(
-                GraphElementType.Float32,
-                GraphElementType.Float32),
+                GraphElementType.Float32, GraphElementType.Float32),
             call.Source with
             {
-                Transformation = transformation ?? "replace-graph-call-with-operation",
+                Transformation = transformation ??
+                    "replace-graph-call-with-operation",
             },
             call.Architecture);
+        var structure =
+            new GraphRewritePlan<ExecutionGraphStructureNode, ExecutionGraphEdge>()
+                .AddNode(replacement)
+                .Apply(graph.Structure);
         return ReplaceGraph(
             program,
-            CopyGraph(graph, nodes: graph.Nodes.Select(node =>
-                node.Id == callId ? replacement : node)));
+            CopyGraph(graph, structure.Nodes, structure.Edges));
     }
 
-    /// <summary>Fuses operation nodes into one supplied operation and reconnects incoming and outgoing dependencies.</summary>
     public static ExecutionGraphProgram FuseNodesToOperation(
         ExecutionGraphProgram program,
         ExecutionGraphId graphId,
         IEnumerable<ExecutionNodeId> nodeIds,
         ExecutionNodeId replacementId,
         GraphOperationId operation,
-        IEnumerable<ExecutionGraphBinding> bindings,
+        IEnumerable<ModelResourceBinding> bindings,
         IReadOnlyDictionary<string, string>? attributes = null,
         PrecisionRequirement? requirements = null,
         GraphArchitecture? architecture = null,
@@ -60,38 +58,57 @@ public static class ExecutionGraphRewriter
         var selected = nodeIds?.ToHashSet()
             ?? throw new ArgumentNullException(nameof(nodeIds));
         if (selected.Count < 2)
-            throw new ArgumentException("Fusion requires at least two nodes.", nameof(nodeIds));
+            throw new ArgumentException(
+                "Fusion requires at least two nodes.", nameof(nodeIds));
         var sources = graph.Nodes.Where(node => selected.Contains(node.Id)).ToArray();
-        if (sources.Length != selected.Count || sources.Any(node => node is not ExecutionOperationNode))
-            throw new ArgumentException("Every fused node must be an operation in the selected graph.", nameof(nodeIds));
-        if (graph.Nodes.Any(node => node.Id == replacementId && !selected.Contains(node.Id)))
-            throw new ArgumentException($"Replacement node '{replacementId}' already exists.", nameof(replacementId));
+        if (sources.Length != selected.Count ||
+            sources.Any(node => node is not ExecutionOperationNode))
+            throw new ArgumentException(
+                "Every fused node must be an operation in the selected graph.",
+                nameof(nodeIds));
+        if (graph.Nodes.Any(node =>
+            node.Id == replacementId && !selected.Contains(node.Id)))
+            throw new ArgumentException(
+                $"Replacement node '{replacementId}' already exists.",
+                nameof(replacementId));
 
-        var dependencies = sources.SelectMany(node => node.Dependencies)
-            .Where(dependency => !selected.Contains(dependency))
-            .Distinct().ToArray();
+        var target = GraphRewriteTarget<
+            ExecutionGraphStructureNode,
+            ExecutionGraphEdge>.Capture(
+                graph.Structure,
+                sources.Select(node => node.GraphId));
         var replacement = new ExecutionOperationNode(
             replacementId,
             operation,
-            bindings?.ToArray() ?? throw new ArgumentNullException(nameof(bindings)),
-            dependencies,
-            new ReadOnlyDictionary<string, string>(
-                new Dictionary<string, string>(
-                    attributes ?? new Dictionary<string, string>(),
-                    StringComparer.Ordinal)),
-            requirements ?? MergeRequirements(sources.Cast<ExecutionOperationNode>()),
+            Copy(attributes),
+            requirements ?? MergeRequirements(
+                sources.Cast<ExecutionOperationNode>()),
             new ExecutionSourceMap(
-                sources.SelectMany(node => node.Source.LogicalNodes).Distinct().ToArray(),
+                sources.SelectMany(node => node.Source.LogicalNodes)
+                    .Distinct().ToArray(),
                 transformation ?? "fuse-nodes-to-operation"),
             architecture);
-        var nodes = graph.Nodes.Where(node => !selected.Contains(node.Id))
-            .Select(node => RewriteDependencies(node, selected, replacementId))
-            .Append(replacement)
-            .ToArray();
-        return ReplaceGraph(program, CopyGraph(graph, nodes: nodes));
+        var replacementEdges = new List<ExecutionGraphEdge>();
+        foreach (var source in target.IncomingEdges.OfType<ExecutionDependencyEdge>()
+            .Select(edge => edge.Source).Distinct())
+            AddDependency(replacementEdges, source, replacement.GraphId);
+        foreach (var successor in target.OutgoingEdges.OfType<ExecutionDependencyEdge>()
+            .Select(edge => edge.Target).Distinct())
+            AddDependency(replacementEdges, replacement.GraphId, successor);
+        AddBindings(replacementEdges, replacement, bindings);
+        var plan = new GraphRewritePlan<
+                ExecutionGraphStructureNode,
+                ExecutionGraphEdge>()
+            .Remove(target)
+            .AddNode(replacement);
+        foreach (var edge in replacementEdges)
+            plan.AddEdge(edge);
+        var rewritten = plan.Apply(graph.Structure);
+        return ReplaceGraph(
+            program,
+            CopyGraph(graph, rewritten.Nodes, rewritten.Edges));
     }
 
-    /// <summary>Extracts operation nodes into a new reusable graph and replaces them with one graph call.</summary>
     public static ExecutionGraphProgram ExtractNodesToGraph(
         ExecutionGraphProgram program,
         ExecutionGraphId sourceGraphId,
@@ -103,101 +120,158 @@ public static class ExecutionGraphRewriter
     {
         ArgumentNullException.ThrowIfNull(program);
         if (program.Graphs.Any(graph => graph.Id == extractedGraphId))
-            throw new ArgumentException($"Graph '{extractedGraphId}' already exists.", nameof(extractedGraphId));
+            throw new ArgumentException(
+                $"Graph '{extractedGraphId}' already exists.",
+                nameof(extractedGraphId));
         var source = RequiredGraph(program, sourceGraphId);
         var selected = nodeIds?.ToHashSet()
             ?? throw new ArgumentNullException(nameof(nodeIds));
-        var selectedNodes = source.Nodes.Where(node => selected.Contains(node.Id)).ToArray();
-        if (selectedNodes.Length != selected.Count ||
+        var selectedNodes = source.Nodes
+            .Where(node => selected.Contains(node.Id)).ToArray();
+        if (selected.Count == 0 ||
+            selectedNodes.Length != selected.Count ||
             selectedNodes.Any(node => node is not ExecutionOperationNode))
-            throw new ArgumentException("Extraction currently requires operation nodes from one graph.", nameof(nodeIds));
-        if (selected.Count == 0)
-            throw new ArgumentException("Extraction requires at least one node.", nameof(nodeIds));
-        if (source.Nodes.Any(node => node.Id == callId && !selected.Contains(node.Id)))
-            throw new ArgumentException($"Call node '{callId}' already exists.", nameof(callId));
+            throw new ArgumentException(
+                "Extraction requires operation nodes from one graph.",
+                nameof(nodeIds));
+        if (source.Nodes.Any(node =>
+            node.Id == callId && !selected.Contains(node.Id)))
+            throw new ArgumentException(
+                $"Call node '{callId}' already exists.", nameof(callId));
 
-        var resourceMap = source.Resources.ToDictionary(resource => resource.Id);
-        var outside = source.Nodes.Where(node => !selected.Contains(node.Id)).ToArray();
-        var extractedResources = new List<ExecutionGraphResource>();
-        var callBindings = new List<ExecutionGraphBinding>();
-        foreach (var resourceId in selectedNodes.SelectMany(node => node.Bindings)
-            .Select(binding => binding.Resource).Distinct())
+        var rewriteTarget = GraphRewriteTarget<
+            ExecutionGraphStructureNode,
+            ExecutionGraphEdge>.Capture(
+                source.Structure,
+                selectedNodes.Select(node => node.GraphId));
+        var selectedGraphIds = rewriteTarget.Nodes
+            .Select(node => node.GraphId).ToHashSet();
+        var resourceNodes = source.Structure.NodesOfType<ExecutionResourceNode>()
+            .Where(resource => source.Structure.Edges.Any(edge =>
+                selectedGraphIds.Contains(edge.Source) &&
+                edge.Target == resource.GraphId ||
+                edge.Source == resource.GraphId &&
+                selectedGraphIds.Contains(edge.Target)))
+            .ToArray();
+        if (resourceNodes.Any(resource => !resource.ResourceNodeId.Owner.IsParent))
+            throw new NotSupportedException(
+                "Extraction cannot move direct call-instance resource accesses.");
+
+        var extractedResources = new List<ExecutionResourceNode>();
+        var callBindings = new List<ModelResourceBinding>();
+        foreach (var resourceNode in resourceNodes)
         {
-            var resource = resourceMap[resourceId];
-            var bindings = selectedNodes.SelectMany(node => node.Bindings)
-                .Where(binding => binding.Resource == resourceId).ToArray();
-            var reads = bindings.Any(binding => binding.Access != GraphResourceAccess.Write);
-            var writes = bindings.Any(binding => binding.Access != GraphResourceAccess.Read);
-            var externallyRead = outside.SelectMany(node => node.Bindings).Any(binding =>
-                binding.Resource == resourceId && binding.Access != GraphResourceAccess.Write);
-            var externallyWritten = outside.SelectMany(node => node.Bindings).Any(binding =>
-                binding.Resource == resourceId && binding.Access != GraphResourceAccess.Read);
-            var portKind = reads && externallyWritten
+            var selectedReads = source.Structure.OutEdges(resourceNode.GraphId)
+                .OfType<ExecutionResourceReadEdge>()
+                .Any(edge => selectedGraphIds.Contains(edge.Target));
+            var selectedWrites = source.Structure.InEdges(resourceNode.GraphId)
+                .OfType<ExecutionResourceWriteEdge>()
+                .Any(edge => selectedGraphIds.Contains(edge.Source));
+            var outsideReads = source.Structure.OutEdges(resourceNode.GraphId)
+                .OfType<ExecutionResourceReadEdge>()
+                .Any(edge => !selectedGraphIds.Contains(edge.Target));
+            var outsideWrites = source.Structure.InEdges(resourceNode.GraphId)
+                .OfType<ExecutionResourceWriteEdge>()
+                .Any(edge => !selectedGraphIds.Contains(edge.Source));
+            var kind = selectedReads && outsideWrites
                 ? GraphDefinitionResourceKind.InOut
-                : reads && !writes
+                : selectedReads && !selectedWrites
                     ? GraphDefinitionResourceKind.Input
-                    : writes && (externallyRead ||
-                        resource.Kind is GraphDefinitionResourceKind.Output
+                    : selectedWrites && (outsideReads ||
+                        resourceNode.Kind is GraphDefinitionResourceKind.Output
                             or GraphDefinitionResourceKind.InOut)
                         ? GraphDefinitionResourceKind.Output
                         : GraphDefinitionResourceKind.Temporary;
-            extractedResources.Add(resource with { Kind = portKind });
-            if (portKind is GraphDefinitionResourceKind.Input
+            extractedResources.Add(resourceNode with
+            {
+                Resource = resourceNode.Resource with { Kind = kind },
+            });
+            if (kind is GraphDefinitionResourceKind.Input
                 or GraphDefinitionResourceKind.Output
                 or GraphDefinitionResourceKind.InOut)
-                callBindings.Add(new ExecutionGraphBinding(
-                    resourceId.Value,
-                    resourceId,
-                    portKind switch
+                callBindings.Add(new(
+                    resourceNode.Resource.Id.Value,
+                    resourceNode.ResourceNodeId,
+                    kind switch
                     {
-                        GraphDefinitionResourceKind.Input => GraphResourceAccess.Read,
-                        GraphDefinitionResourceKind.Output => GraphResourceAccess.Write,
+                        GraphDefinitionResourceKind.Input =>
+                            GraphResourceAccess.Read,
+                        GraphDefinitionResourceKind.Output =>
+                            GraphResourceAccess.Write,
                         _ => GraphResourceAccess.ReadWrite,
-                    }));
+                    },
+                    $"{callId.Value}:{resourceNode.Resource.Id.Value}"));
         }
 
-        var extractedNodes = selectedNodes.Select(node =>
-            node switch
+        var extractedEdges = source.Structure.Edges.Where(edge =>
+            edge switch
             {
-                ExecutionOperationNode operation => operation with
-                {
-                    Dependencies = operation.Dependencies
-                        .Where(selected.Contains).ToArray(),
-                    Source = operation.Source with
-                    {
-                        Transformation = "extract-nodes-to-graph",
-                    },
-                },
-                _ => node,
+                ExecutionDependencyEdge =>
+                    selectedGraphIds.Contains(edge.Source) &&
+                    selectedGraphIds.Contains(edge.Target),
+                ExecutionResourceReadEdge =>
+                    resourceNodes.Any(resource => resource.GraphId == edge.Source) &&
+                    selectedGraphIds.Contains(edge.Target),
+                ExecutionResourceWriteEdge =>
+                    selectedGraphIds.Contains(edge.Source) &&
+                    resourceNodes.Any(resource => resource.GraphId == edge.Target),
+                _ => false,
             }).ToArray();
-        var incoming = selectedNodes.SelectMany(node => node.Dependencies)
-            .Where(dependency => !selected.Contains(dependency)).Distinct().ToArray();
+        var extractedNodes = extractedResources
+            .Cast<ExecutionGraphStructureNode>()
+            .Concat(selectedNodes.Select(node =>
+                node is ExecutionOperationNode operation
+                    ? operation with
+                    {
+                        Source = operation.Source with
+                        {
+                            Transformation = "extract-nodes-to-graph",
+                        },
+                    }
+                    : node))
+            .ToArray();
+        var extracted = new ExecutionGraph(
+            extractedGraphId,
+            new Graph<ExecutionGraphStructureNode, ExecutionGraphEdge>(
+                extractedNodes, extractedEdges),
+            boundary,
+            architecture);
+
         var call = new ExecutionGraphCallNode(
             callId,
             extractedGraphId,
-            callBindings,
-            incoming,
             boundary,
             new ExecutionSourceMap(
-                selectedNodes.SelectMany(node => node.Source.LogicalNodes).Distinct().ToArray(),
+                selectedNodes.SelectMany(node => node.Source.LogicalNodes)
+                    .Distinct().ToArray(),
                 "extract-nodes-to-graph"),
             architecture);
-        var remaining = source.Nodes.Where(node => !selected.Contains(node.Id))
-            .Select(node => RewriteDependencies(node, selected, callId))
-            .Append(call).ToArray();
-        var extracted = new ExecutionGraph(
-            extractedGraphId,
-            extractedResources,
-            extractedNodes,
-            boundary,
-            architecture);
+        var replacementEdges = new List<ExecutionGraphEdge>();
+        foreach (var incoming in rewriteTarget.IncomingEdges
+            .OfType<ExecutionDependencyEdge>()
+            .Select(edge => edge.Source).Distinct())
+            AddDependency(replacementEdges, incoming, call.GraphId);
+        foreach (var outgoing in rewriteTarget.OutgoingEdges
+            .OfType<ExecutionDependencyEdge>()
+            .Select(edge => edge.Target).Distinct())
+            AddDependency(replacementEdges, call.GraphId, outgoing);
+        AddBindings(replacementEdges, call, callBindings);
+        var plan = new GraphRewritePlan<
+                ExecutionGraphStructureNode,
+                ExecutionGraphEdge>()
+            .Remove(rewriteTarget)
+            .AddNode(call);
+        foreach (var edge in replacementEdges)
+            plan.AddEdge(edge);
+        var callerStructure = plan.Apply(source.Structure);
+        var caller = CopyGraph(
+            source, callerStructure.Nodes, callerStructure.Edges);
         return new ExecutionGraphProgram(
             program.Graphs.Where(graph => graph.Id != sourceGraphId)
-                .Append(CopyGraph(source, nodes: remaining))
+                .Append(caller)
                 .Append(extracted));
     }
 
-    /// <summary>Inlines one graph call into its caller and removes an unreferenced target graph.</summary>
     public static ExecutionGraphProgram InlineGraphCall(
         ExecutionGraphProgram program,
         ExecutionGraphId graphId,
@@ -205,173 +279,233 @@ public static class ExecutionGraphRewriter
     {
         ArgumentNullException.ThrowIfNull(program);
         var caller = RequiredGraph(program, graphId);
-        var call = caller.Nodes.SingleOrDefault(node => node.Id == callId) as ExecutionGraphCallNode
-            ?? throw new ArgumentException($"Graph '{graphId}' has no call '{callId}'.", nameof(callId));
+        var call = caller.Nodes.SingleOrDefault(node => node.Id == callId)
+            as ExecutionGraphCallNode
+            ?? throw new ArgumentException(
+                $"Graph '{graphId}' has no call '{callId}'.", nameof(callId));
+        var rewriteTarget = GraphRewriteTarget<
+            ExecutionGraphStructureNode,
+            ExecutionGraphEdge>.Capture(
+                caller.Structure,
+                [call.GraphId]);
         var target = RequiredGraph(program, call.Target);
-        var portBindings = call.Bindings.ToDictionary(
-            binding => new ResourceId(binding.Port),
-            binding => binding);
+        var callBindings = caller.Bindings(call).ToDictionary(
+            binding => new ResourceId(binding.Port));
         var prefix = call.Id.Value + "/";
-        var internalIds = new Dictionary<ResourceId, ResourceId>();
-        var callerResources = caller.Resources.ToList();
-        foreach (var resource in target.Resources)
+        var nodeMap = target.Nodes.ToDictionary(
+            node => node.GraphId,
+            node => ExecutionGraphNode.NodeGraphId(
+                new ExecutionNodeId(prefix + node.Id.Value)));
+        var resourceMap = new Dictionary<GraphNodeId, GraphNodeId>();
+        var addedResources = new List<ExecutionResourceNode>();
+        foreach (var resource in target.Structure.NodesOfType<ExecutionResourceNode>())
         {
-            if (portBindings.ContainsKey(resource.Id))
-                continue;
-            var mapped = new ResourceId(prefix + resource.Id.Value);
-            internalIds.Add(resource.Id, mapped);
-            callerResources.Add(resource with
+            if (resource.ResourceNodeId.Owner.IsParent &&
+                callBindings.TryGetValue(
+                    resource.Resource.Id, out var bound))
             {
-                Id = mapped,
-                Name = $"{call.Id.Value}/{resource.Name}",
-            });
+                resourceMap.Add(resource.GraphId, bound.Resource.GraphId);
+                continue;
+            }
+            var mappedOwner = resource.ResourceNodeId.Owner.IsParent
+                ? GraphBindingOwner.Parent
+                : GraphBindingOwner.Instance(new(
+                    prefix + resource.ResourceNodeId.Owner.Call!.Value.Value));
+            var mappedResource = resource.Resource with
+            {
+                Id = new(prefix + resource.Resource.Id.Value),
+                Name = $"{call.Id.Value}/{resource.Resource.Name}",
+            };
+            var mappedNode = new ExecutionResourceNode(
+                new ModelResourceNodeId(mappedOwner, mappedResource.Id),
+                mappedResource);
+            resourceMap.Add(resource.GraphId, mappedNode.GraphId);
+            addedResources.Add(mappedNode);
         }
 
-        ResourceId MapResource(ResourceId id) =>
-            portBindings.TryGetValue(id, out var bound) && bound.ResourceOwner.IsParent
-                ? bound.Resource
-                : internalIds.TryGetValue(id, out var mapped)
-                    ? mapped
-                    : throw new NotSupportedException(
-                        $"Inlining call '{callId}' cannot flatten non-parent port binding '{id}'.");
+        GraphNodeId Map(GraphNodeId id) =>
+            nodeMap.TryGetValue(id, out var node)
+                ? node
+                : resourceMap.TryGetValue(id, out var resource)
+                    ? resource
+                    : throw new InvalidDataException(
+                        $"Call '{callId}' contains unknown target node '{id}'.");
 
-        var idMap = target.Nodes.ToDictionary(
-            node => node.Id,
-            node => new ExecutionNodeId(prefix + node.Id.Value));
-        var successors = target.Nodes.ToDictionary(node => node.Id, _ => 0);
-        foreach (var node in target.Nodes)
-            foreach (var dependency in node.Dependencies)
-                successors[dependency]++;
-        var entries = target.Nodes.Where(node => node.Dependencies.Count == 0)
-            .Select(node => idMap[node.Id]).ToArray();
-        var completions = target.Nodes.Where(node => successors[node.Id] == 0)
-            .Select(node => idMap[node.Id]).ToArray();
-        var inlined = target.Nodes.Select<ExecutionGraphNode, ExecutionGraphNode>(node => node switch
+        var inlinedNodes = target.Nodes.Select<ExecutionGraphNode, ExecutionGraphStructureNode>(
+            node => node switch
         {
             ExecutionOperationNode operation => operation with
             {
-                Id = idMap[operation.Id],
-                Bindings = operation.Bindings.Select(binding => binding with
-                {
-                    Resource = MapResource(binding.Resource),
-                    Instance = binding.ResourceOwner.IsParent
-                        ? GraphBindingOwner.Parent
-                        : GraphBindingOwner.Instance(new GraphDefinitionNodeId(
-                            prefix + binding.ResourceOwner.Call!.Value.Value)),
-                }).ToArray(),
-                Dependencies = operation.Dependencies.Select(id => idMap[id])
-                    .Concat(entries.Contains(idMap[operation.Id]) ? call.Dependencies : [])
-                    .Distinct().ToArray(),
-                Source = operation.Source with { Transformation = "inline-graph-call" },
+                Id = new(prefix + operation.Id.Value),
             },
-            ExecutionGraphCallNode childCall => childCall with
+            ExecutionGraphCallNode child => child with
             {
-                Id = idMap[childCall.Id],
-                Bindings = childCall.Bindings.Select(binding => binding with
-                {
-                    Resource = binding.ResourceOwner.IsParent
-                        ? MapResource(binding.Resource)
-                        : binding.Resource,
-                    Instance = binding.ResourceOwner.IsParent
-                        ? GraphBindingOwner.Parent
-                        : GraphBindingOwner.Instance(new GraphDefinitionNodeId(
-                            prefix + binding.ResourceOwner.Call!.Value.Value)),
-                }).ToArray(),
-                Dependencies = childCall.Dependencies.Select(id => idMap[id])
-                    .Concat(entries.Contains(idMap[childCall.Id]) ? call.Dependencies : [])
-                    .Distinct().ToArray(),
-                Source = childCall.Source with { Transformation = "inline-graph-call" },
+                Id = new(prefix + child.Id.Value),
             },
             _ => throw new InvalidDataException(),
         }).ToArray();
-        var completionSet = completions.ToHashSet();
-        var remaining = caller.Nodes.Where(node => node.Id != callId)
-            .Select(node => ReplaceDependency(node, callId, completionSet))
-            .Concat(inlined).ToArray();
-        var graphs = program.Graphs.Where(graph => graph.Id != graphId)
-            .Append(CopyGraph(caller, callerResources, remaining)).ToList();
-        var targetReferences = graphs.SelectMany(graph => graph.Nodes.OfType<ExecutionGraphCallNode>())
-            .Count(node => node.Target == target.Id);
-        if (targetReferences == 0)
-            graphs.RemoveAll(graph => graph.Id == target.Id);
-        return new ExecutionGraphProgram(graphs);
+        var inlinedEdges = target.Structure.Edges.Select<ExecutionGraphEdge, ExecutionGraphEdge>(
+            edge => edge switch
+        {
+            ExecutionDependencyEdge dependency => new ExecutionDependencyEdge(
+                new($"inline:{callId.Value}:{dependency.Id.Value}"),
+                Map(dependency.Source),
+                Map(dependency.Target)),
+            ExecutionResourceReadEdge read => new ExecutionResourceReadEdge(
+                new($"inline:{callId.Value}:{read.Id.Value}"),
+                Map(read.Source),
+                Map(read.Target),
+                read.Port,
+                $"{prefix}{read.BindingId}"),
+            ExecutionResourceWriteEdge write => new ExecutionResourceWriteEdge(
+                new($"inline:{callId.Value}:{write.Id.Value}"),
+                Map(write.Source),
+                Map(write.Target),
+                write.Port,
+                $"{prefix}{write.BindingId}"),
+            _ => throw new InvalidDataException(),
+        }).ToList();
+
+        var targetDependency = target.Structure.DependencyView();
+        var entries = target.Nodes
+            .Where(node => !targetDependency.InEdges(node.GraphId).Any())
+            .Select(node => Map(node.GraphId)).ToArray();
+        var completions = target.Nodes
+            .Where(node => !targetDependency.OutEdges(node.GraphId).Any())
+            .Select(node => Map(node.GraphId)).ToArray();
+        var callerIncoming = caller.Structure.InEdges(call.GraphId)
+            .OfType<ExecutionDependencyEdge>()
+            .Select(edge => edge.Source).ToArray();
+        var callerOutgoing = caller.Structure.OutEdges(call.GraphId)
+            .OfType<ExecutionDependencyEdge>()
+            .Select(edge => edge.Target).ToArray();
+        foreach (var incoming in callerIncoming)
+            foreach (var entry in entries)
+                AddDependency(inlinedEdges, incoming, entry);
+        foreach (var completion in completions)
+            foreach (var outgoing in callerOutgoing)
+                AddDependency(inlinedEdges, completion, outgoing);
+
+        var plan = new GraphRewritePlan<
+                ExecutionGraphStructureNode,
+                ExecutionGraphEdge>()
+            .Remove(rewriteTarget);
+        foreach (var resource in addedResources)
+            plan.AddNode(resource);
+        foreach (var node in inlinedNodes)
+            plan.AddNode(node);
+        foreach (var edge in inlinedEdges)
+            plan.AddEdge(edge);
+        var callerStructure = plan.Apply(caller.Structure);
+        var rewritten = CopyGraph(
+            caller, callerStructure.Nodes, callerStructure.Edges);
+        return CreateReachableProgram(
+            program.Graphs.Where(graph => graph.Id != graphId)
+                .Append(rewritten),
+            program.RootGraph);
+    }
+
+    private static void AddBindings(
+        ICollection<ExecutionGraphEdge> edges,
+        ExecutionGraphNode node,
+        IEnumerable<ModelResourceBinding> bindings)
+    {
+        foreach (var binding in bindings)
+        {
+            if (binding.Access != GraphResourceAccess.Write)
+                edges.Add(new ExecutionResourceReadEdge(
+                    new($"binding:{binding.BindingId}:read"),
+                    binding.Resource.GraphId,
+                    node.GraphId,
+                    binding.Port,
+                    binding.BindingId));
+            if (binding.Access != GraphResourceAccess.Read)
+                edges.Add(new ExecutionResourceWriteEdge(
+                    new($"binding:{binding.BindingId}:write"),
+                    node.GraphId,
+                    binding.Resource.GraphId,
+                    binding.Port,
+                    binding.BindingId));
+        }
+    }
+
+    private static void AddDependency(
+        ICollection<ExecutionGraphEdge> edges,
+        GraphNodeId source,
+        GraphNodeId target)
+    {
+        if (edges.OfType<ExecutionDependencyEdge>().Any(edge =>
+            edge.Source == source && edge.Target == target))
+            return;
+        edges.Add(new ExecutionDependencyEdge(
+            new($"dependency:{source.Value}:{target.Value}"),
+            source,
+            target));
     }
 
     private static ExecutionGraph RequiredGraph(
         ExecutionGraphProgram program,
-        ExecutionGraphId graphId) =>
-        program.Graphs.SingleOrDefault(graph => graph.Id == graphId)
-        ?? throw new ArgumentException($"Unknown execution graph '{graphId}'.", nameof(graphId));
+        ExecutionGraphId id) =>
+        program.Graphs.SingleOrDefault(graph => graph.Id == id)
+        ?? throw new ArgumentException(
+            $"Execution graph program has no graph '{id}'.", nameof(id));
+
+    private static ExecutionGraph CopyGraph(
+        ExecutionGraph source,
+        IEnumerable<ExecutionGraphStructureNode> nodes,
+        IEnumerable<ExecutionGraphEdge> edges) =>
+        new(
+            source.Id,
+            new Graph<ExecutionGraphStructureNode, ExecutionGraphEdge>(
+                nodes, edges),
+            source.DefaultCompileBoundary,
+            source.Architecture,
+            source.Source);
 
     private static ExecutionGraphProgram ReplaceGraph(
         ExecutionGraphProgram program,
-        ExecutionGraph replacement)
+        ExecutionGraph replacement) =>
+        CreateReachableProgram(
+            program.Graphs.Select(graph =>
+                graph.Id == replacement.Id ? replacement : graph),
+            program.RootGraph);
+
+    private static ExecutionGraphProgram CreateReachableProgram(
+        IEnumerable<ExecutionGraph> graphs,
+        ExecutionGraphId root)
     {
-        var graphs = program.Graphs.Select(graph =>
-            graph.Id == replacement.Id ? replacement : graph).ToDictionary(graph => graph.Id);
+        var values = graphs.ToArray();
+        var map = values.ToDictionary(graph => graph.Id);
         var reachable = new HashSet<ExecutionGraphId>();
         var pending = new Stack<ExecutionGraphId>();
-        pending.Push(program.RootGraph);
-        while (pending.TryPop(out var graphId))
+        pending.Push(root);
+        while (pending.TryPop(out var id) && reachable.Add(id))
         {
-            if (!reachable.Add(graphId))
-                continue;
-            foreach (var call in graphs[graphId].Nodes.OfType<ExecutionGraphCallNode>())
-                pending.Push(call.Target);
+            if (!map.TryGetValue(id, out var graph))
+                throw new InvalidDataException(
+                    $"Execution graph program has no reachable graph '{id}'.");
+            foreach (var target in graph.Nodes.OfType<ExecutionGraphCallNode>()
+                .Select(call => call.Target))
+                pending.Push(target);
         }
-
-        return new ExecutionGraphProgram(graphs.Values.Where(graph => reachable.Contains(graph.Id)));
-    }
-
-    private static ExecutionGraph CopyGraph(
-        ExecutionGraph graph,
-        IEnumerable<ExecutionGraphResource>? resources = null,
-        IEnumerable<ExecutionGraphNode>? nodes = null) =>
-        new(
-            graph.Id,
-            resources ?? graph.Resources,
-            nodes ?? graph.Nodes,
-            graph.DefaultCompileBoundary,
-            graph.Architecture,
-            graph.Source);
-
-    private static ExecutionGraphNode RewriteDependencies(
-        ExecutionGraphNode node,
-        IReadOnlySet<ExecutionNodeId> removed,
-        ExecutionNodeId replacement)
-    {
-        var dependencies = node.Dependencies.Select(dependency =>
-            removed.Contains(dependency) ? replacement : dependency).Distinct().ToArray();
-        return node switch
-        {
-            ExecutionOperationNode operation => operation with { Dependencies = dependencies },
-            ExecutionGraphCallNode call => call with { Dependencies = dependencies },
-            _ => node,
-        };
-    }
-
-    private static ExecutionGraphNode ReplaceDependency(
-        ExecutionGraphNode node,
-        ExecutionNodeId removed,
-        IReadOnlySet<ExecutionNodeId> replacements)
-    {
-        var dependencies = node.Dependencies.SelectMany(dependency =>
-            dependency == removed
-                ? replacements
-                : (IEnumerable<ExecutionNodeId>)[dependency]).Distinct().ToArray();
-        return node switch
-        {
-            ExecutionOperationNode operation => operation with { Dependencies = dependencies },
-            ExecutionGraphCallNode call => call with { Dependencies = dependencies },
-            _ => node,
-        };
+        return new ExecutionGraphProgram(
+            values.Where(graph => reachable.Contains(graph.Id)));
     }
 
     private static PrecisionRequirement MergeRequirements(
-        IEnumerable<ExecutionOperationNode> operations) =>
+        IEnumerable<ExecutionOperationNode> nodes) =>
         new(
             NumericTypeCompatibility.Maximum(
-                operations.Select(operation => operation.Requirements.MinimumArithmeticType)),
+                nodes.Select(node =>
+                    node.Requirements.MinimumArithmeticType)),
             NumericTypeCompatibility.Maximum(
-                operations.Select(operation => operation.Requirements.MinimumAccumulatorType)));
+                nodes.Select(node =>
+                    node.Requirements.MinimumAccumulatorType)));
+
+    private static IReadOnlyDictionary<string, string> Copy(
+        IReadOnlyDictionary<string, string>? values) =>
+        new ReadOnlyDictionary<string, string>(
+            new Dictionary<string, string>(
+                values ?? new Dictionary<string, string>(),
+                StringComparer.Ordinal));
 }

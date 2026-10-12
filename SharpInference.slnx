@@ -7,6 +7,7 @@
     <Project Path="src/SharpInference.Backends.D3D12Vm/SharpInference.Backends.D3D12Vm.csproj" />
     <Project Path="src/SharpInference.Backends.Cpu/SharpInference.Backends.Cpu.csproj" />
     <Project Path="src/SharpInference.Core/SharpInference.Core.csproj" />
+    <Project Path="src/SharpInference.Graphs.Core/SharpInference.Graphs.Core.csproj" />
     <Project Path="src/SharpInference.Graphs/SharpInference.Graphs.csproj" />
     <Project Path="src/SharpInference.Instructions/SharpInference.Instructions.csproj" />
     <Project Path="src/SharpInference.Instructions.TierZero/SharpInference.Instructions.TierZero.csproj" />

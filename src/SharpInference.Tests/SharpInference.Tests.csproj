@@ -5,7 +5,6 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <IsPackable>false</IsPackable>
-    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
   </PropertyGroup>
 
   <ItemGroup>
@@ -20,6 +19,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\SharpInference.Graphs.Core\SharpInference.Graphs.Core.csproj" />
     <ProjectReference Include="..\SharpInference.Graphs\SharpInference.Graphs.csproj" />
     <ProjectReference Include="..\SharpInference.Instructions\SharpInference.Instructions.csproj" />
     <ProjectReference Include="..\SharpInference.Vm\SharpInference.Vm.csproj" />
@@ -30,10 +30,6 @@
     <ProjectReference Include="..\SharpInference.Instructions.D3D12\SharpInference.Instructions.D3D12.csproj" />
     <ProjectReference Include="..\SharpInference.Models.Rwkv\SharpInference.Models.Rwkv.csproj" />
     <ProjectReference Include="..\SharpInference.Models.Ggml\SharpInference.Models.Ggml.csproj" />
-    <Compile Include="LogicalGraphDefinitionTests.cs" />
-    <Compile Include="ExecutionGraphConverterTests.cs" />
-    <Compile Include="VmExecutionGraphEmitterTests.cs" />
-    <Compile Include="RwkvTinyExecutionPipelineTests.cs" />
   </ItemGroup>
 
   <ItemGroup Condition="'$(RwkvTestModelDirectory)' != ''">

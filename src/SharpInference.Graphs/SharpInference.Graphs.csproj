@@ -2,23 +2,13 @@
 
   <ItemGroup>
     <ProjectReference Include="..\SharpInference.Abstractions\SharpInference.Abstractions.csproj" />
+    <ProjectReference Include="..\SharpInference.Graphs.Core\SharpInference.Graphs.Core.csproj" />
   </ItemGroup>
 
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
   </PropertyGroup>
-
-  <ItemGroup>
-    <Compile Include="GraphPrimitives.cs" />
-    <Compile Include="LogicalGraphDefinition.cs" />
-    <Compile Include="LogicalGraphDefinitionXml.cs" />
-    <Compile Include="ExecutionGraph.cs" />
-    <Compile Include="ExecutionGraphConverter.cs" />
-    <Compile Include="ExecutionGraphRewriter.cs" />
-    <Compile Include="ExecutionGraphProgramXml.cs" />
-  </ItemGroup>
 
 </Project>

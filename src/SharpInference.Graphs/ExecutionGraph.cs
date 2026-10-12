@@ -1,37 +1,30 @@
 using System.Collections.ObjectModel;
+using SharpInference.Graphs.Core;
 
 namespace SharpInference.Graphs;
 
-/// <summary>Identifies one graph in an execution graph program.</summary>
 public readonly record struct ExecutionGraphId(string Value)
 {
-    /// <inheritdoc/>
     public override string ToString() => Value;
 }
 
-/// <summary>Identifies one node within an execution graph.</summary>
 public readonly record struct ExecutionNodeId(string Value)
 {
-    /// <inheritdoc/>
     public override string ToString() => Value;
 }
 
-/// <summary>Architecture-only metadata that processors may use and backends may ignore.</summary>
 public sealed record GraphArchitecture(
     string? Name = null,
     string? Role = null,
     string? Description = null,
     IReadOnlyDictionary<string, string>? Attributes = null);
 
-/// <summary>Maps an execution graph back to a logical definition.</summary>
 public sealed record ExecutionGraphSource(GraphDefinitionId Definition);
 
-/// <summary>Maps an execution node back to one or more logical nodes and records its transformation.</summary>
 public sealed record ExecutionSourceMap(
     IReadOnlyList<GraphDefinitionNodeId> LogicalNodes,
     string? Transformation = null);
 
-/// <summary>One target-independent resource declared by an execution graph.</summary>
 public sealed record ExecutionGraphResource(
     ResourceId Id,
     string Name,
@@ -39,204 +32,319 @@ public sealed record ExecutionGraphResource(
     TensorDescriptor Tensor,
     string? BindingKey = null);
 
-/// <summary>Binds a node port to a graph resource or a direct call instance's internal resource.</summary>
-public sealed record ExecutionGraphBinding(
-    string Port,
-    ResourceId Resource,
-    GraphResourceAccess Access,
-    GraphBindingOwner Instance = default)
+public abstract record ExecutionGraphStructureNode : IModelGraphNode
 {
-    /// <summary>Gets the normalized owner, treating the default value as the containing graph.</summary>
-    public GraphBindingOwner ResourceOwner =>
-        Instance.IsParent ? GraphBindingOwner.Parent : Instance;
+    public abstract GraphNodeId GraphId { get; }
+    GraphNodeId IGraphNode.Id => GraphId;
 }
 
-/// <summary>Base class for operation and graph-call nodes in an execution graph.</summary>
+public sealed record ExecutionResourceNode(
+    ModelResourceNodeId ResourceNodeId,
+    ExecutionGraphResource Resource)
+    : ExecutionGraphStructureNode, IModelResourceNode
+{
+    public override GraphNodeId GraphId => ResourceNodeId.GraphId;
+    public TensorDescriptor Tensor => Resource.Tensor;
+    public GraphDefinitionResourceKind Kind => Resource.Kind;
+}
+
 public abstract record ExecutionGraphNode(
     ExecutionNodeId Id,
-    IReadOnlyList<ExecutionGraphBinding> Bindings,
-    IReadOnlyList<ExecutionNodeId> Dependencies,
     ExecutionSourceMap Source,
-    GraphArchitecture? Architecture);
+    GraphArchitecture? Architecture) : ExecutionGraphStructureNode, IModelOperationNode
+{
+    public override GraphNodeId GraphId => NodeGraphId(Id);
 
-/// <summary>One concrete operation call in an execution graph.</summary>
+    internal static GraphNodeId NodeGraphId(ExecutionNodeId id) =>
+        new($"operation:{id.Value}");
+}
+
 public sealed record ExecutionOperationNode(
     ExecutionNodeId Id,
     GraphOperationId Operation,
-    IReadOnlyList<ExecutionGraphBinding> Bindings,
-    IReadOnlyList<ExecutionNodeId> Dependencies,
     IReadOnlyDictionary<string, string> Attributes,
     PrecisionRequirement Requirements,
     ExecutionSourceMap Source,
     GraphArchitecture? Architecture = null)
-    : ExecutionGraphNode(Id, Bindings, Dependencies, Source, Architecture);
+    : ExecutionGraphNode(Id, Source, Architecture);
 
-/// <summary>One call to another graph in the execution graph program.</summary>
 public sealed record ExecutionGraphCallNode(
     ExecutionNodeId Id,
     ExecutionGraphId Target,
-    IReadOnlyList<ExecutionGraphBinding> Bindings,
-    IReadOnlyList<ExecutionNodeId> Dependencies,
     GraphCompileBoundary CompileBoundary,
     ExecutionSourceMap Source,
     GraphArchitecture? Architecture = null)
-    : ExecutionGraphNode(Id, Bindings, Dependencies, Source, Architecture);
+    : ExecutionGraphNode(Id, Source, Architecture);
 
-/// <summary>One reusable execution graph containing an operation/call DAG.</summary>
+public abstract record ExecutionGraphEdge(
+    GraphEdgeId Id,
+    GraphNodeId Source,
+    GraphNodeId Target) : IModelGraphEdge;
+
+public sealed record ExecutionDependencyEdge(
+    GraphEdgeId Id,
+    GraphNodeId Source,
+    GraphNodeId Target)
+    : ExecutionGraphEdge(Id, Source, Target), IDependencyEdge;
+
+public sealed record ExecutionResourceReadEdge(
+    GraphEdgeId Id,
+    GraphNodeId Source,
+    GraphNodeId Target,
+    string Port,
+    string BindingId)
+    : ExecutionGraphEdge(Id, Source, Target), IResourceReadEdge;
+
+public sealed record ExecutionResourceWriteEdge(
+    GraphEdgeId Id,
+    GraphNodeId Source,
+    GraphNodeId Target,
+    string Port,
+    string BindingId)
+    : ExecutionGraphEdge(Id, Source, Target), IResourceWriteEdge;
+
 public sealed class ExecutionGraph
 {
-    /// <summary>Creates and validates one execution graph.</summary>
     public ExecutionGraph(
         ExecutionGraphId id,
-        IEnumerable<ExecutionGraphResource> resources,
-        IEnumerable<ExecutionGraphNode> nodes,
+        Graph<ExecutionGraphStructureNode, ExecutionGraphEdge> structure,
         GraphCompileBoundary defaultCompileBoundary = GraphCompileBoundary.Auto,
         GraphArchitecture? architecture = null,
         ExecutionGraphSource? source = null)
     {
         if (string.IsNullOrWhiteSpace(id.Value))
-            throw new ArgumentException("An execution graph identifier is required.", nameof(id));
+            throw new ArgumentException(
+                "An execution graph identifier is required.", nameof(id));
         if (!Enum.IsDefined(defaultCompileBoundary))
             throw new ArgumentOutOfRangeException(nameof(defaultCompileBoundary));
         Id = id;
-        Resources = Array.AsReadOnly(resources?.ToArray()
-            ?? throw new ArgumentNullException(nameof(resources)));
-        Nodes = Array.AsReadOnly(nodes?.ToArray()
-            ?? throw new ArgumentNullException(nameof(nodes)));
+        Structure = structure ?? throw new ArgumentNullException(nameof(structure));
         DefaultCompileBoundary = defaultCompileBoundary;
         Architecture = architecture;
         Source = source;
         Validate();
     }
 
-    /// <summary>Gets the graph identifier.</summary>
     public ExecutionGraphId Id { get; }
-
-    /// <summary>Gets resources declared by this graph.</summary>
-    public IReadOnlyList<ExecutionGraphResource> Resources { get; }
-
-    /// <summary>Gets operation and graph-call nodes in this graph.</summary>
-    public IReadOnlyList<ExecutionGraphNode> Nodes { get; }
-
-    /// <summary>Gets the graph's default compilation boundary.</summary>
+    public Graph<ExecutionGraphStructureNode, ExecutionGraphEdge> Structure { get; }
+    public IReadOnlyList<ExecutionGraphResource> Resources =>
+        Structure.NodesOfType<ExecutionResourceNode>()
+            .Where(node => node.ResourceNodeId.Owner.IsParent)
+            .Select(node => node.Resource).ToArray();
+    public IReadOnlyList<ExecutionGraphNode> Nodes =>
+        Structure.Nodes.OfType<ExecutionGraphNode>().ToArray();
     public GraphCompileBoundary DefaultCompileBoundary { get; }
-
-    /// <summary>Gets optional architecture metadata.</summary>
     public GraphArchitecture? Architecture { get; }
-
-    /// <summary>Gets the logical source definition.</summary>
     public ExecutionGraphSource? Source { get; }
+
+    public IReadOnlyList<ModelResourceBinding> Bindings(ExecutionGraphNode node) =>
+        Structure.Bindings(node);
+
+    public IReadOnlyList<ExecutionNodeId> Dependencies(ExecutionGraphNode node) =>
+        Structure.Predecessors(node).OfType<ExecutionGraphNode>()
+            .Select(value => value.Id).ToArray();
 
     private void Validate()
     {
-        var resources = Unique(Resources, resource => resource.Id, "resource");
-        var nodes = Unique(Nodes, node => node.Id, "node");
         foreach (var node in Nodes)
         {
-            if (node.Dependencies.Any(dependency => !nodes.ContainsKey(dependency)))
-                throw new InvalidDataException(
-                    $"Node '{Id}/{node.Id}' has an unknown dependency.");
-            if (node.Dependencies.Contains(node.Id))
-                throw new InvalidDataException(
-                    $"Node '{Id}/{node.Id}' depends on itself.");
-            foreach (var binding in node.Bindings)
+            var ports = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var binding in Bindings(node))
             {
-                if (binding.ResourceOwner.IsParent &&
-                    !resources.ContainsKey(binding.Resource))
+                if (!ports.Add(binding.Port))
                     throw new InvalidDataException(
-                        $"Node '{Id}/{node.Id}' references unknown resource '{binding.Resource}'.");
-                if (!binding.ResourceOwner.IsParent)
-                {
-                    if (!nodes.TryGetValue(
-                            new ExecutionNodeId(binding.ResourceOwner.Call!.Value.Value),
-                            out var owner) ||
-                        owner is not ExecutionGraphCallNode)
-                        throw new InvalidDataException(
-                            $"Node '{Id}/{node.Id}' references unknown graph-call instance '{binding.ResourceOwner}'.");
-                }
+                        $"Node '{Id}/{node.Id}' has duplicate port '{binding.Port}'.");
+                if (!binding.Resource.Owner.IsParent &&
+                    Structure.GetNode(binding.Resource.Owner.Call is { } call
+                        ? ExecutionGraphNode.NodeGraphId(new ExecutionNodeId(call.Value))
+                        : throw new InvalidDataException()) is not ExecutionGraphCallNode)
+                    throw new InvalidDataException(
+                        $"Node '{Id}/{node.Id}' references unknown graph-call instance " +
+                        $"'{binding.Resource.Owner}'.");
             }
         }
-        ValidateAcyclic(nodes);
-    }
-
-    private static Dictionary<TKey, TValue> Unique<TValue, TKey>(
-        IEnumerable<TValue> values,
-        Func<TValue, TKey> key,
-        string kind)
-        where TKey : notnull
-    {
-        var result = new Dictionary<TKey, TValue>();
-        foreach (var value in values)
-            if (!result.TryAdd(key(value), value))
-                throw new InvalidDataException($"Duplicate execution graph {kind} '{key(value)}'.");
-        return result;
-    }
-
-    private static void ValidateAcyclic(
-        IReadOnlyDictionary<ExecutionNodeId, ExecutionGraphNode> nodes)
-    {
-        var states = new Dictionary<ExecutionNodeId, int>();
-        foreach (var id in nodes.Keys)
-            Visit(id);
-
-        void Visit(ExecutionNodeId id)
+        try
         {
-            if (states.TryGetValue(id, out var state))
-            {
-                if (state == 1)
-                    throw new InvalidDataException($"Execution node cycle detected at '{id}'.");
-                return;
-            }
-            states[id] = 1;
-            foreach (var dependency in nodes[id].Dependencies)
-                Visit(dependency);
-            states[id] = 2;
+            _ = Structure.DependencyView().TopologicalOrder();
+        }
+        catch (InvalidDataException exception)
+        {
+            throw new InvalidDataException(
+                $"Execution graph '{Id}' contains a dependency cycle.", exception);
         }
     }
 }
 
-/// <summary>A validated collection of reusable execution graphs with one inferred root.</summary>
+/// <summary>Builds one immutable execution graph from typed nodes and edges.</summary>
+public sealed class ExecutionGraphBuilder
+{
+    private readonly ExecutionGraphId id;
+    private readonly GraphCompileBoundary boundary;
+    private readonly GraphArchitecture? architecture;
+    private readonly ExecutionGraphSource? source;
+    private readonly List<ExecutionGraphStructureNode> nodes = [];
+    private readonly List<ExecutionGraphEdge> edges = [];
+
+    /// <summary>Creates an execution graph builder.</summary>
+    public ExecutionGraphBuilder(
+        ExecutionGraphId id,
+        GraphCompileBoundary boundary = GraphCompileBoundary.Auto,
+        GraphArchitecture? architecture = null,
+        ExecutionGraphSource? source = null)
+    {
+        this.id = id;
+        this.boundary = boundary;
+        this.architecture = architecture;
+        this.source = source;
+    }
+
+    /// <summary>Adds one parent-owned resource node.</summary>
+    public void AddResource(ExecutionGraphResource resource) =>
+        AddResource(resource, GraphBindingOwner.Parent);
+
+    /// <summary>Adds one scoped resource node.</summary>
+    public void AddResource(
+        ExecutionGraphResource resource,
+        GraphBindingOwner owner)
+    {
+        ArgumentNullException.ThrowIfNull(resource);
+        nodes.Add(new ExecutionResourceNode(
+            new ModelResourceNodeId(owner, resource.Id), resource));
+    }
+
+    /// <summary>Adds one operation with its complete bindings and dependencies.</summary>
+    public void AddOperation(
+        ExecutionOperationNode operation,
+        IEnumerable<ModelResourceBinding> bindings,
+        IEnumerable<ExecutionNodeId>? dependencies = null) =>
+        AddNode(operation, bindings, dependencies);
+
+    /// <summary>Adds one graph call with its complete bindings and dependencies.</summary>
+    public void AddCall(
+        ExecutionGraphCallNode call,
+        IEnumerable<ModelResourceBinding> bindings,
+        IEnumerable<ExecutionNodeId>? dependencies = null) =>
+        AddNode(call, bindings, dependencies);
+
+    /// <summary>Creates and validates the immutable graph.</summary>
+    public ExecutionGraph Build() =>
+        new(
+            id,
+            new Graph<ExecutionGraphStructureNode, ExecutionGraphEdge>(
+                nodes, edges),
+            boundary,
+            architecture,
+            source);
+
+    private void AddNode(
+        ExecutionGraphNode node,
+        IEnumerable<ModelResourceBinding> bindings,
+        IEnumerable<ExecutionNodeId>? dependencies)
+    {
+        ArgumentNullException.ThrowIfNull(node);
+        ArgumentNullException.ThrowIfNull(bindings);
+        nodes.Add(node);
+        foreach (var binding in bindings)
+        {
+            if (binding.Access != GraphResourceAccess.Write)
+                edges.Add(new ExecutionResourceReadEdge(
+                    new($"binding:{binding.BindingId}:read"),
+                    binding.Resource.GraphId,
+                    node.GraphId,
+                    binding.Port,
+                    binding.BindingId));
+            if (binding.Access != GraphResourceAccess.Read)
+                edges.Add(new ExecutionResourceWriteEdge(
+                    new($"binding:{binding.BindingId}:write"),
+                    node.GraphId,
+                    binding.Resource.GraphId,
+                    binding.Port,
+                    binding.BindingId));
+        }
+        foreach (var dependency in dependencies ?? [])
+            edges.Add(new ExecutionDependencyEdge(
+                new($"dependency:{dependency.Value}:{node.Id.Value}"),
+                ExecutionGraphNode.NodeGraphId(dependency),
+                node.GraphId));
+    }
+}
+
+public sealed record ExecutionGraphCallRelation(
+    string Id,
+    ExecutionGraphId Source,
+    ExecutionGraphId Target,
+    ExecutionNodeId Call);
+
 public sealed class ExecutionGraphProgram
 {
-    /// <summary>Creates a program, infers its root, and validates its graph-call DAG.</summary>
     public ExecutionGraphProgram(IEnumerable<ExecutionGraph> graphs)
     {
         var values = graphs?.ToArray() ?? throw new ArgumentNullException(nameof(graphs));
         if (values.Length == 0)
-            throw new ArgumentException("An execution graph program requires at least one graph.", nameof(graphs));
+            throw new ArgumentException(
+                "An execution graph program requires at least one graph.", nameof(graphs));
         var map = new Dictionary<ExecutionGraphId, ExecutionGraph>();
         foreach (var graph in values)
             if (!map.TryAdd(graph.Id, graph))
                 throw new InvalidDataException($"Duplicate execution graph '{graph.Id}'.");
 
-        var referenced = new HashSet<ExecutionGraphId>();
-        foreach (var graph in values)
-            foreach (var call in graph.Nodes.OfType<ExecutionGraphCallNode>())
-            {
-                if (!map.ContainsKey(call.Target))
-                    throw new InvalidDataException(
-                        $"Graph call '{graph.Id}/{call.Id}' targets unknown graph '{call.Target}'.");
-                referenced.Add(call.Target);
-            }
-
+        var relations = values.SelectMany(graph =>
+            graph.Nodes.OfType<ExecutionGraphCallNode>().Select(call =>
+                new ExecutionGraphCallRelation(
+                    $"{graph.Id.Value}:{call.Id.Value}",
+                    graph.Id,
+                    call.Target,
+                    call.Id))).ToArray();
+        foreach (var relation in relations)
+            if (!map.ContainsKey(relation.Target))
+                throw new InvalidDataException(
+                    $"Graph call '{relation.Source}/{relation.Call}' targets unknown graph " +
+                    $"'{relation.Target}'.");
+        var referenced = relations.Select(relation => relation.Target).ToHashSet();
         var roots = values.Where(graph => !referenced.Contains(graph.Id)).ToArray();
         if (roots.Length != 1)
             throw new InvalidDataException(
                 $"An execution graph program requires exactly one root; found {roots.Length}.");
-        ValidateCallDag(roots[0].Id, map);
+        ValidateCallDag(roots[0].Id, map, relations);
         Graphs = Array.AsReadOnly(values);
+        Calls = Array.AsReadOnly(relations);
         RootGraph = roots[0].Id;
     }
 
-    /// <summary>Gets all reusable execution graphs.</summary>
     public IReadOnlyList<ExecutionGraph> Graphs { get; }
-
-    /// <summary>Gets the single graph not referenced by another graph call.</summary>
+    public IReadOnlyList<ExecutionGraphCallRelation> Calls { get; }
     public ExecutionGraphId RootGraph { get; }
+
+    /// <summary>Gets graph-call instances originating in one graph.</summary>
+    public IReadOnlyList<ExecutionGraphCallRelation> Callees(
+        ExecutionGraphId source) =>
+        Calls.Where(call => call.Source == source).ToArray();
+
+    /// <summary>Gets graph-call instances targeting one graph.</summary>
+    public IReadOnlyList<ExecutionGraphCallRelation> Callers(
+        ExecutionGraphId target) =>
+        Calls.Where(call => call.Target == target).ToArray();
+
+    /// <summary>Gets non-root graphs that currently have no callers.</summary>
+    public IReadOnlyList<ExecutionGraph> UnreferencedGraphs() =>
+        Graphs.Where(graph =>
+            graph.Id != RootGraph && Callers(graph.Id).Count == 0).ToArray();
+
+    /// <summary>Returns whether a call is the target graph's only call site.</summary>
+    public bool IsExclusiveCall(ExecutionGraphId caller, ExecutionNodeId call)
+    {
+        var relation = Calls.SingleOrDefault(value =>
+            value.Source == caller && value.Call == call)
+            ?? throw new ArgumentException(
+                $"Execution graph program has no call '{caller}/{call}'.",
+                nameof(call));
+        return Callers(relation.Target).Count == 1;
+    }
 
     private static void ValidateCallDag(
         ExecutionGraphId root,
-        IReadOnlyDictionary<ExecutionGraphId, ExecutionGraph> graphs)
+        IReadOnlyDictionary<ExecutionGraphId, ExecutionGraph> graphs,
+        IReadOnlyList<ExecutionGraphCallRelation> relations)
     {
         var states = new Dictionary<ExecutionGraphId, int>();
         var reachable = new HashSet<ExecutionGraphId>();
@@ -246,7 +354,8 @@ public sealed class ExecutionGraphProgram
         {
             var missing = graphs.Keys.Where(id => !reachable.Contains(id));
             throw new InvalidDataException(
-                $"Execution graph program contains unreachable graphs: {string.Join(", ", missing)}.");
+                $"Execution graph program contains unreachable graphs: " +
+                $"{string.Join(", ", missing)}.");
         }
 
         void Visit(ExecutionGraphId id)
@@ -262,8 +371,8 @@ public sealed class ExecutionGraphProgram
             states[id] = 1;
             reachable.Add(id);
             path.Push(id);
-            foreach (var target in graphs[id].Nodes.OfType<ExecutionGraphCallNode>()
-                .Select(call => call.Target).Distinct())
+            foreach (var target in relations.Where(relation => relation.Source == id)
+                .Select(relation => relation.Target).Distinct())
                 Visit(target);
             path.Pop();
             states[id] = 2;
@@ -271,10 +380,8 @@ public sealed class ExecutionGraphProgram
     }
 }
 
-/// <summary>Provides model and backend information to conversion and postprocessing.</summary>
 public sealed class ExecutionGraphCompilationContext
 {
-    /// <summary>Creates a compilation context.</summary>
     public ExecutionGraphCompilationContext(
         string modelType,
         string backend,
