@@ -75,6 +75,12 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;color:#bccce0}
     <button id="home" data-i18n="home" disabled>主图</button>
     <button id="architecture" data-i18n="architecture" disabled>架构视图</button>
     <select id="scope" data-i18n-aria-label="scope" aria-label="图或层定义" disabled><option data-i18n="unopened">尚未打开文件</option></select>
+    <label><span data-i18n="layoutPriority">布局优先级</span>
+      <select id="layout-priority" data-i18n-aria-label="layoutPriority" aria-label="布局优先级" disabled>
+        <option value="execution" data-i18n="executionPriority">执行顺序优先</option>
+        <option value="logical" data-i18n="logicalPriority">逻辑优先</option>
+      </select>
+    </label>
     <label><input id="weights" type="checkbox"> <span data-i18n="weights">显示权重 / 常量</span></label>
     <label><input id="collapse" type="checkbox" disabled> <span data-i18n="collapse">折叠重复组</span></label>
     <label><input id="states" type="checkbox" disabled> <span data-i18n="states">跨步状态</span></label>
@@ -89,6 +95,7 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;color:#bccce0}
     <span id="readability" class="hint"></span>
   </div>
   <div id="status" role="status" aria-live="polite">请选择 SharpInference Graph XML。</div>
+  <progress id="load-progress" data-i18n-aria-label="loadProgress" aria-label="加载进度" hidden></progress>
 </header>
 <main>
   <div id="viewport">
@@ -108,6 +115,7 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;color:#bccce0}
     <p data-i18n="helpEdges"></p>
     <p data-i18n="helpRegions"></p>
     <p data-i18n="helpMetadata"></p>
+    <p data-i18n="helpLayout"></p>
     <p data-i18n="helpReadable"></p>
     <p data-i18n="helpHistory"></p>
     <p data-i18n="helpWeights"></p>
@@ -131,6 +139,10 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;color:#bccce0}
     "home": ["主图", "Main graph"],
     "architecture": ["架构视图", "Architecture view"],
     "scope": ["图或层定义", "Graph or layer definition"],
+    "layoutPriority": ["布局优先级", "Layout priority"],
+    "executionPriority": ["执行顺序优先", "Execution-order first"],
+    "logicalPriority": ["逻辑优先", "Logic first"],
+    "helpLayout": ["执行顺序优先按数据和执行依赖从上到下排列。逻辑优先仅按输入输出关系分层，隐藏纯执行依赖连线，并调整同层顺序以减少数据连线交叉；不会改变执行顺序或资源绑定。", "Execution-order first ranks nodes by data and execution dependencies. Logic first ranks only input/output relationships, hides pure execution-order edges, and rearranges rows to reduce data-edge crossings; execution order and resource bindings remain unchanged."],
     "unopened": ["尚未打开文件", "No file opened"],
     "weights": ["显示权重 / 常量", "Show weights / constants"],
     "collapse": ["折叠重复组", "Collapse repeated groups"],
@@ -155,7 +167,7 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;color:#bccce0}
     "helpTitle": ["使用说明", "How to use"],
     "helpNodes": ["节点上边缘方块代表输入，下边缘方块代表输出；连线连接对应端口，悬停查看完整名称与资源。单击节点查看详情，拖动调整位置；双击层调用进入对应定义。", "Blocks on the top edge are inputs; blocks on the bottom edge are outputs. Edges attach to their ports; hover for full names and resources. Click a node for details, drag to reposition it, or double-click a layer call to enter its definition."],
     "helpEdges": ["单击连线以金黄色高亮线条、箭头及两端节点，并查看连接资源；再次单击节点恢复节点选择。", "Click an edge to highlight its line, arrow and endpoints in gold and inspect its resources. Click a node to return to node selection."],
-    "helpRegions": ["Definition 包含真实算子和对子图 Definition 的调用。双击图调用进入对应定义；说明和编译边界显示在详情顶部。", "A Definition contains real operations and calls to child Definitions. Double-click a graph call to enter its definition; descriptions and compile boundaries appear in the details panel."],
+    "helpRegions": ["Definition 包含真实算子和对子图 Definition 的调用。architecture.path 注解生成可展开的展示模块；双击模块展开，双击图调用进入对应定义。", "A Definition contains real operations and calls to child Definitions. architecture.path annotations create expandable display modules; double-click a module to expand it or a graph call to enter its definition."],
     "helpMetadata": ["架构连线由真实资源绑定聚合生成。Architecture 的 Ports/Port 可用 resource、direction（in/out）、name 为边界命名；Description、Formula 提供说明。defaultCollapsed=false 让结构容器透明展开，repeatGroup=true 标记可切换的重复组。所属计算上下文声明 step=token 时，紫色虚线表示末次状态写入到下一 token 首次读取，不参与本步排序。", "Architecture edges aggregate real resource bindings. Architecture Ports/Port uses resource, direction (in/out) and name to label boundaries; Description and Formula provide documentation. defaultCollapsed=false expands a container transparently; repeatGroup=true marks a toggleable repeated group. With step=token in the computation context, purple dashed edges connect the last state write to the first read of the next token and do not affect current-step ordering."],
     "helpReadable": ["默认以 100% 可读比例显示节点，拖动画布探索大图。“适应画布”显示全貌，但大图文字会缩小；“可读视图”（F）恢复 100%，有选中节点时以它为中心。输入框内不触发 F 快捷键。搜索后点击“下一个”定位匹配节点。", "Nodes start at readable 100% zoom. Pan to explore large graphs. “Fit to canvas” shows the whole graph but may shrink text; “Readable view” (F) restores 100% and centers the selection. F is ignored in text fields. Search and use “Next” to locate matches."],
     "helpHistory": ["“后退 / 前进”或 Alt + ← / → 导航本文件内的视图历史，恢复画布位置、显示选项和选中内容。打开新文件会重置历史。", "Use Back / Forward or Alt + ← / → to navigate this file’s view history, restoring canvas position, display options and selection. Opening another file resets history."],
@@ -186,6 +198,17 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;color:#bccce0}
     "missingStructure": ["Graph 缺少 Region 或 Nodes，无法绘制节点。", "Graph requires Region or Nodes to draw its structure."],
     "legacyArchitecture": ["旧的独立 Architecture 格式已移除，请使用嵌套 Region 示例。", "The legacy standalone Architecture format is no longer supported. Use the nested Region example."],
     "loading": ["正在读取 {0}…", "Reading {0}…"],
+    "loadProgress": ["加载进度", "Loading progress"],
+    "processing": ["正在处理 {0} · {1}：{2}/{3}", "Processing {0} · {1}: {2}/{3}"],
+    "parseXml": ["解析 XML", "Parsing XML"],
+    "convertExecution": ["转换执行图", "Converting execution graphs"],
+    "convertLogical": ["构建展示模型", "Building the display model"],
+    "registerViews": ["注册导航视图", "Registering navigation views"],
+    "renderView": ["布局与绘制", "Layout and rendering"],
+    "createEdges": ["创建连线", "Creating edges"],
+    "createNodes": ["创建节点", "Creating nodes"],
+    "routeEdges": ["计算连线路径", "Routing edges"],
+    "switchingView": ["正在切换视图 · {0}：{1}/{2}", "Switching view · {0}: {1}/{2}"],
     "mainOperators": ["主图 · 全部算子/调用", "Main graph · All operations/calls"],
     "openFailed": ["打开失败：{0}", "Open failed: {0}"],
     "fileFailed": ["文件未打开，请选择有效的 Graph 或 ExecutionPlan XML。", "No file opened. Choose a valid Graph or ExecutionPlan XML file."],
@@ -196,6 +219,7 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;color:#bccce0}
     "missingResource": ["节点 {0}/{1} 引用不存在的资源：{2}", "Node {0}/{1} references a missing resource: {2}"],
     "invalidAccess": ["节点 {0} 的访问类型不受支持：{1}", "Node {0} uses an unsupported access type: {1}"],
     "duplicateMetadata": ["Region {0}/{1} 只能有一个 Architecture。", "Region {0}/{1} may have only one Architecture element."],
+    "invalidArchitecturePath": ["节点 {0} 的 architecture.path 无效：{1}", "Node {0} has an invalid architecture.path: {1}"],
     "invalidStep": ["Region {0}/{1} 只支持 step=token。", "Region {0}/{1} supports only step=token."],
     "invalidBoolean": ["Region {0} 的 {1} 必须为 true 或 false。", "Region {0}: {1} must be true or false."],
     "invalidDefaultView": ["Region {0} 的 defaultView 无效。", "Region {0} has an invalid defaultView."],
@@ -237,8 +261,8 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;color:#bccce0}
     "executionNodes": ["执行节点", "execution nodes"],
     "drawingFailed": ["绘图失败：{0}", "Drawing failed: {0}"],
     "overviewClick": ["单击查看节点详情；单击连线高亮两端节点；双击层调用查看模板内部算子。", "Click to inspect node details, click an edge to highlight its endpoints, or double-click a layer call to explore its template."],
-    "overviewRegions": ["当前层级来自 Definition/Call，连线由真实算子和调用的资源绑定聚合。双击调用进入子图 Definition。", "This hierarchy comes from Definitions and Calls; edges aggregate real operation and call bindings. Double-click a call to enter its child Definition."],
-    "overviewMetadata": ["Architecture 只是所属 Region 的可选元数据，不是执行节点。状态写入保留原执行位置。层定义中的资源和端口是模板，不是具体层实例。", "Architecture is optional Region metadata, not an execution node. State writes keep their original execution positions. Definition resources and ports are templates, not concrete layer instances."],
+    "overviewRegions": ["当前层级来自 Definition/Call 或 architecture.path 注解，连线由真实算子和调用的资源绑定聚合。双击模块展开，双击调用进入子图 Definition。", "This hierarchy comes from Definitions/Calls or architecture.path annotations; edges aggregate real operation and call bindings. Double-click a module to expand it or a call to enter its child Definition."],
+    "overviewMetadata": ["Architecture 是展示元数据，不是执行节点。路径容器仅在查看器内部构建，状态写入保留原执行位置。层定义中的资源和端口是模板，不是具体层实例。", "Architecture is display metadata, not an execution node. Path containers exist only inside the viewer; state writes keep their original execution positions. Definition resources and ports are templates, not concrete layer instances."],
     "model": ["模型", "Model"],
     "tips": ["操作提示", "Tips"],
     "overviewReadable": ["默认使用 100% 可读比例。大图可拖动或搜索探索；“适应画布”用于总览，“可读视图”（F）恢复清晰文字并定位选中节点。输入框内不触发 F 快捷键。", "Default zoom is a readable 100%. Pan or search large graphs. “Fit to canvas” shows an overview; “Readable view” (F) restores clear text and centers the selected node. F is ignored in text fields."],
@@ -294,7 +318,7 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;color:#bccce0}
     updateGraphType();
   }
   function setLanguage(next) {
-    if (next === language) return;
+    if (next === language || state.renderBusy) return;
     const view = state.root ? captureView() : null;
     const rawOpen = $("details").querySelector("details")?.open;
     language = next;
@@ -315,7 +339,30 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;color:#bccce0}
   const state = { root: null, definitions: new Map(), resources: new Map(), nodes: [], edges: [],
     selected: null, selectedEdge: null, matches: [], matchIndex: -1, scale: 1, x: 0, y: 0,
     width: 1, height: 1, loadId: 0, history: [], historyIndex: -1, viewScope: "",
-    positions: new Map(), layoutKey: "" };
+    positions: new Map(), layoutKey: "", layoutPriority: "execution",
+    renderGeneration: 0, renderBusy: null };
+  function setRenderBusy(busy) {
+    if (busy && !state.renderBusy) {
+      const controls = Array.from(document.querySelectorAll(
+        "#home, #architecture, #scope, #layout-priority, #back, #forward, #weights, " +
+        "#collapse, #states, #search, #next, #fit, #layout, #readable, #plus, #minus, [data-language]"));
+      state.renderBusy = controls.map(control => [control, control.disabled]);
+      for (const control of controls) control.disabled = true;
+      $("canvas").style.pointerEvents = "none";
+      $("canvas").setAttribute("aria-busy", "true");
+    } else if (!busy && state.renderBusy) {
+      for (const [control, disabled] of state.renderBusy) control.disabled = disabled;
+      state.renderBusy = null;
+      $("canvas").style.pointerEvents = "";
+      $("canvas").removeAttribute("aria-busy");
+    }
+  }
+  function setRenderControlDisabled(id, disabled) {
+    const control = $(id);
+    const saved = state.renderBusy?.find(([item]) => item === control);
+    if (saved) saved[1] = disabled;
+    else control.disabled = disabled;
+  }
   const children = (element, name) => Array.from(element?.children || []).filter(e => e.localName === name);
   const child = (element, name) => children(element, name)[0];
   const attr = (element, name) => element?.getAttribute(name) || "";
@@ -357,18 +404,19 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;color:#bccce0}
     }
     return result;
   }
-  function parseXml(source) {
+  async function parseXml(source, checkpoint) {
+    await checkpoint("parseXml", 0, 1);
     const documentXml = new DOMParser().parseFromString(source, "application/xml");
     const error = documentXml.querySelector("parsererror");
     if (error) throw new ViewerError("xmlError", error.textContent.trim().slice(0, 220));
     const root = documentXml.documentElement;
-    if (root.localName === "ExecutionPlan") return parseExecutionPlan(root);
+    if (root.localName === "ExecutionPlan") return parseExecutionPlan(root, checkpoint);
     if (root.localName !== "Graph") throw new ViewerError("invalidRoot");
-    if (attr(root, "kind") === "LogicalGraphDefinition") return parseDefinitionGraph(root);
-    if (attr(root, "kind") === "ExecutionGraphProgram") return parseExecutionGraphProgram(root);
+    if (attr(root, "kind") === "LogicalGraphDefinition") return parseDefinitionGraph(root, checkpoint);
+    if (attr(root, "kind") === "ExecutionGraphProgram") return parseExecutionGraphProgram(root, checkpoint);
     throw new ViewerError("missingStructure");
   }
-  function parseExecutionGraphProgram(source) {
+  async function parseExecutionGraphProgram(source, checkpoint) {
     const rootId = attr(child(source, "Root"), "graph");
     const sourceGraphs = namedMap(child(source, "Graphs"), "ExecutionGraph");
     if (!rootId || !sourceGraphs.has(rootId)) throw new ViewerError("missingDefinition", "root", rootId);
@@ -388,6 +436,9 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;color:#bccce0}
     converted.setAttribute("version", attr(source, "version"));
     converted.append(create("Root", { definition: rootId }));
     const definitions = create("Definitions");
+    const totalNodes = Array.from(sourceGraphs.values()).reduce((sum, graph) =>
+      sum + child(graph, "Nodes").children.length, 0);
+    let completedNodes = 0;
     for (const [id, graph] of sourceGraphs) {
       const definition = create("Definition", {
         id, compileBoundary: attr(graph, "compileBoundary")
@@ -403,6 +454,8 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;color:#bccce0}
       }
       const nodes = create("Nodes");
       for (const sourceNode of child(graph, "Nodes").children) {
+        if (completedNodes++ % 64 === 0)
+          await checkpoint("convertExecution", completedNodes - 1, totalNodes);
         if (sourceNode.localName === "Resource") {
           nodes.append(documentXml.importNode(sourceNode, true));
           continue;
@@ -433,11 +486,12 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;color:#bccce0}
       definitions.append(definition);
     }
     converted.append(definitions);
-    const result = parseDefinitionGraph(converted);
+    await checkpoint("convertExecution", totalNodes, totalNodes);
+    const result = await parseDefinitionGraph(converted, checkpoint);
     result.root.setAttribute("kind", "ExecutionGraphProgram");
     return result;
   }
-  function parseDefinitionGraph(source) {
+  async function parseDefinitionGraph(source, checkpoint) {
     const rootRef = child(source, "Root"), definitionsElement = child(source, "Definitions");
     const rootId = attr(rootRef, "definition");
     const sourceDefinitions = namedMap(definitionsElement, "Definition");
@@ -455,17 +509,40 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;color:#bccce0}
     converted.setAttribute("version", attr(source, "version"));
     const resources = create("Resources");
     const table = create("LayerDefinitions");
+    const nodeOrder = new WeakMap();
+    const indexes = new WeakMap(), exposedIds = new WeakMap();
+    const totalNodes = Array.from(sourceDefinitions.values()).reduce((sum, definition) =>
+      sum + Array.from(child(definition, "Nodes").children)
+        .filter(item => item.localName !== "Resource").length, 0);
+    let completedNodes = 0;
     converted.append(resources, table);
 
-    const annotation = definition => {
-      const sourceAnnotation = child(definition, "Annotation");
+    const annotation = (element, includeBoundary = false) => {
+      const sourceAnnotation = child(element, "Annotation");
       if (!sourceAnnotation) return null;
-      const result = create("Architecture");
+      const attributes = new Map(children(sourceAnnotation, "Attribute")
+        .map(item => [attr(item, "name"), attr(item, "value")]));
+      const result = create("Architecture", {
+        name: attr(sourceAnnotation, "name") || attributes.get("architecture.name"),
+        role: attr(sourceAnnotation, "role"),
+        path: attributes.get("architecture.path"),
+      });
+      for (const name of ["step", "defaultView", "defaultCollapsed", "repeatGroup"]) {
+        const value = attributes.get(`architecture.${name}`) || attributes.get(name);
+        if (value) result.setAttribute(name, value);
+      }
       const description = [attr(sourceAnnotation, "description"),
-        `Compile boundary: ${attr(definition, "compileBoundary")}`].filter(Boolean).join("\n");
+        includeBoundary ? `Compile boundary: ${attr(element, "compileBoundary")}` : ""]
+        .filter(Boolean).join("\n");
       if (description) {
         const item = create("Description");
         item.textContent = description;
+        result.append(item);
+      }
+      const formula = attributes.get("architecture.formula") || attributes.get("formula");
+      if (formula) {
+        const item = create("Formula");
+        item.textContent = formula;
         result.append(item);
       }
       return result;
@@ -489,10 +566,26 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;color:#bccce0}
         ? `resource:instance:${instance}:${attr(sourceResource, "id")}`
         : `resource:parent:${attr(sourceResource, "id")}`;
     };
+    function definitionIndex(definition) {
+      if (indexes.has(definition)) return indexes.get(definition);
+      const resources = new Map(children(child(definition, "Nodes"), "Resource")
+        .map(item => [resourceGraphId(item), item]));
+      const accesses = new Map(), dependencies = new Map();
+      for (const edge of child(definition, "Edges").children) {
+        const dependency = edge.localName === "Dependency";
+        if (!dependency && !["Read", "Write"].includes(edge.localName)) continue;
+        const map = dependency ? dependencies : accesses;
+        const id = attr(edge, edge.localName === "Write" ? "source" : "target");
+        if (!map.has(id)) map.set(id, []);
+        map.get(id).push(edge);
+      }
+      const result = { resources, accesses, dependencies };
+      indexes.set(definition, result);
+      return result;
+    }
     const dependencies = (sourceNode, definition) => {
       const result = create("DependsOn");
-      for (const edge of children(child(definition, "Edges"), "Dependency")) {
-        if (attr(edge, "target") !== graphNodeId(sourceNode)) continue;
+      for (const edge of definitionIndex(definition).dependencies.get(graphNodeId(sourceNode)) || []) {
         const source = attr(edge, "source");
         result.append(create("ElementRef", {
           id: source.startsWith("operation:") ? source.slice(10) : source
@@ -505,12 +598,10 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;color:#bccce0}
         ? create("Call", { id: attr(sourceNode, "id"), definition: attr(sourceNode, "definition") })
         : create("Node", { id: attr(sourceNode, "id"),
           operation: `${attr(sourceNode, "operation")}@${attr(sourceNode, "operationVersion")}` });
-      const resourceNodes = children(child(definition, "Nodes"), "Resource");
-      const resourcesByGraphId = new Map(resourceNodes.map(item => [resourceGraphId(item), item]));
+      const index = definitionIndex(definition);
+      const resourcesByGraphId = index.resources;
       const operationId = graphNodeId(sourceNode);
-      const accessEdges = Array.from(child(definition, "Edges").children).filter(edge =>
-        (edge.localName === "Read" && attr(edge, "target") === operationId) ||
-        (edge.localName === "Write" && attr(edge, "source") === operationId));
+      const accessEdges = index.accesses.get(operationId) || [];
       if (accessEdges.length) {
         const bindings = create("Bindings");
         const groups = new Map();
@@ -536,11 +627,16 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;color:#bccce0}
           });
           if (instance) {
             const exposedId = `${instance}/${resourceId}`;
-            if (!children(exposedResources, "Resource").some(item => attr(item, "id") === exposedId)) {
+            if (!exposedIds.has(exposedResources))
+              exposedIds.set(exposedResources, new Set(children(exposedResources, "Resource")
+                .map(item => attr(item, "id"))));
+            const ids = exposedIds.get(exposedResources);
+            if (!ids.has(exposedId)) {
               const exposed = resource(sourceResource);
               exposed.setAttribute("id", exposedId);
               exposed.setAttribute("name", `${instance}/${attr(sourceResource, "name") || resourceId}`);
               exposedResources.append(exposed);
+              ids.add(exposedId);
             }
           }
           bindings.append(binding);
@@ -548,9 +644,11 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;color:#bccce0}
         result.append(bindings);
       }
       result.append(dependencies(sourceNode, definition));
+      const metadata = annotation(sourceNode);
+      if (metadata) result.append(metadata);
       return result;
     };
-    const region = (definition, exposedResources) => {
+    const region = async (definition, exposedResources) => {
       const sourceAnnotation = child(definition, "Annotation");
       const result = create("Region", {
         id: attr(definition, "id"),
@@ -558,18 +656,65 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;color:#bccce0}
         name: attr(sourceAnnotation, "name") || attr(definition, "id"),
         role: attr(sourceAnnotation, "role"),
       });
-      const metadata = annotation(definition);
+      const metadata = annotation(definition, true);
       if (metadata) result.append(metadata);
-      for (const sourceNode of Array.from(child(definition, "Nodes").children)
-        .filter(item => item.localName !== "Resource"))
-        result.append(node(sourceNode, definition, exposedResources));
+      const sourceNodes = Array.from(child(definition, "Nodes").children)
+        .filter(item => item.localName !== "Resource");
+      const paths = sourceNodes.map(sourceNode => {
+        const attribute = children(child(sourceNode, "Annotation"), "Attribute")
+          .find(item => attr(item, "name") === "architecture.path");
+        if (!attribute) return null;
+        const path = attr(attribute, "value").split("/");
+        if (path.length > 64 || path.some(part => !part.trim()))
+          throw new ViewerError("invalidArchitecturePath", attr(sourceNode, "id"), attr(attribute, "value"));
+        return path;
+      });
+      const annotatedPaths = paths.filter(Boolean);
+      const rootPath = annotatedPaths.length &&
+        annotatedPaths.every(path => path[0] === annotatedPaths[0][0])
+        ? annotatedPaths[0][0] : "";
+      const groups = new Map(rootPath ? [[rootPath, result]] : []);
+      const ids = new Set([attr(definition, "id"), ...sourceNodes.map(item => attr(item, "id"))]);
+      if (annotatedPaths.length && !metadata) result.append(create("Architecture"));
+      for (const [index, sourceNode] of sourceNodes.entries()) {
+        if (completedNodes++ % 64 === 0)
+          await checkpoint("convertLogical", completedNodes - 1, totalNodes);
+        const item = node(sourceNode, definition, exposedResources);
+        nodeOrder.set(item, index);
+        let parent = result;
+        const path = paths[index];
+        if (path) {
+          for (let depth = rootPath ? 1 : 0; depth < path.length; depth++) {
+            const prefix = path.slice(0, depth + 1).join("/");
+            if (!groups.has(prefix)) {
+              const base = `architecture:${prefix}`;
+              let id = base;
+              for (let suffix = 1; ids.has(id); suffix++) id = `${base}:${suffix}`;
+              ids.add(id);
+              const group = create("Region", {
+                id, type: "architecture", name: path[depth], path: prefix,
+              });
+              group.append(create("Architecture"));
+              parent.append(group);
+              groups.set(prefix, group);
+            }
+            parent = groups.get(prefix);
+          }
+          const itemMetadata = child(item, "Architecture");
+          if (parent !== result && itemMetadata) {
+            parent.setAttribute("name", attr(itemMetadata, "name") || path[path.length - 1]);
+            parent.replaceChild(copy(itemMetadata), child(parent, "Architecture"));
+          }
+        }
+        parent.append(item);
+      }
       return result;
     };
 
     const rootDefinition = sourceDefinitions.get(rootId);
     for (const item of children(child(rootDefinition, "Nodes"), "Resource")
       .filter(item => !attr(item, "instance"))) resources.append(resource(item));
-    converted.append(region(rootDefinition, resources));
+    converted.append(await region(rootDefinition, resources));
     for (const [id, definition] of sourceDefinitions) {
       if (id === rootId) continue;
       const layer = create("LayerDefinition", { id });
@@ -587,13 +732,14 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;color:#bccce0}
           locals.append(resource(item));
         }
       }
-      layer.append(ports, locals, region(definition, locals));
+      layer.append(ports, locals, await region(definition, locals));
       table.append(layer);
     }
+    await checkpoint("convertLogical", totalNodes, totalNodes);
     return { root: converted, definitions: namedMap(table, "LayerDefinition"),
-      resources: namedMap(resources, "Resource"), plan: null };
+      resources: namedMap(resources, "Resource"), plan: null, nodeOrder };
   }
-  function parseExecutionPlan(planRoot) {
+  function parseExecutionPlan(planRoot, checkpoint) {
     if (attr(planRoot, "schema") === "sharp-inference") return parseTargetExecutionPlan(planRoot);
     const fail = detail => { throw new ViewerError("invalidPlan", detail); };
     const kind = attr(planRoot, "kind");
@@ -618,14 +764,14 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;color:#bccce0}
       if (!element) fail(name);
       root.append(copy(element));
     }
-    function parseTargetExecutionPlan(planRoot) {
+    async function parseTargetExecutionPlan(planRoot) {
       const fail = detail => { throw new ViewerError("invalidPlan", detail); };
       const kind = attr(planRoot, "kind");
       if (attr(planRoot, "version") !== "1" || !["il", "cpu", "gpu"].includes(kind)) fail("schema / version / kind");
       if (kind === "il") {
         const graph = child(planRoot, "Graph");
         if (!graph) fail("IL Graph");
-        const parsed = parseXml(new XMLSerializer().serializeToString(graph));
+        const parsed = await parseXml(new XMLSerializer().serializeToString(graph), checkpoint);
         parsed.plan = { root: planRoot, kind, originals: new WeakMap(), owners: new Map(), unitPlans: new Map() };
         return parsed;
       }
@@ -924,11 +1070,27 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;color:#bccce0}
   async function openFile(file) {
     if (!file) return;
     const loadId = ++state.loadId;
+    state.renderGeneration++;
+    setRenderBusy(false);
     status(message("loading", file.name));
+    const progress = $("load-progress");
+    progress.hidden = false;
+    progress.removeAttribute("value");
+    const checkpoint = async (phase, completed, total) => {
+      if (loadId !== state.loadId) throw new DOMException("Superseded file load.", "AbortError");
+      progress.max = Math.max(1, total);
+      progress.value = completed;
+      status(message("processing", file.name, message(phase), completed, total));
+      await new Promise(resolve => setTimeout(resolve, 0));
+      if (loadId !== state.loadId) throw new DOMException("Superseded file load.", "AbortError");
+    };
     try {
-      const parsed = parseXml(await file.text());
+      const xml = await file.text();
       if (loadId !== state.loadId) return;
-      Object.assign(state, parsed);
+      const parsed = await parseXml(xml, checkpoint);
+      if (loadId !== state.loadId) return;
+      await checkpoint("registerViews", 0, 1);
+      Object.assign(state, { nodeOrder: null }, parsed);
       updateGraphType();
       state.rootResources = parsed.resources;
       state.filename = file.name;
@@ -945,6 +1107,8 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;color:#bccce0}
         attr(state.views.get(state.architectureKey).metadata, "defaultView") !== "computation"
         ? state.architectureKey : "root";
       $("scope").disabled = false; $("home").disabled = false;
+      $("layout-priority").disabled = false;
+      await checkpoint("renderView", 0, 1);
       if (!render()) throw state.drawError;
       state.history = [captureView()]; state.historyIndex = 0; updateNavigation();
     } catch (error) {
@@ -958,7 +1122,7 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;color:#bccce0}
         const unopened = new Option(t("unopened"), "");
         unopened.dataset.i18n = "unopened";
         $("scope").replaceChildren(unopened);
-        for (const id of ["scope", "home", "architecture", "collapse", "states", "fit", "readable", "plus", "minus", "next"])
+        for (const id of ["scope", "home", "architecture", "layout-priority", "collapse", "states", "fit", "readable", "plus", "minus", "next"])
           $(id).disabled = true;
         $("weights").disabled = false;
         $("empty").style.display = "flex";
@@ -967,7 +1131,12 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;color:#bccce0}
         $("details").replaceChildren();
         status(message("openFailed", errorMessage(error)), true);
       }
-    } finally { $("file").value = ""; }
+    } finally {
+      if (loadId === state.loadId) {
+        progress.hidden = true;
+        $("file").value = "";
+      }
+    }
   }
   function registerRegionViews() {
     state.views = new Map(); state.contexts = new Map(); state.regionMetadata = new Map();
@@ -1046,6 +1215,13 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;color:#bccce0}
         if (!["Node", "Call"].includes(node.localName)) throw new ViewerError("unknownNodeChild", node.localName);
         visit(node, [], []);
       }
+      // Display grouping must not reorder accesses to reused resources or dependencies.
+      if (state.nodeOrder) {
+        const compare = (first, second) =>
+          state.nodeOrder.get(first.element) - state.nodeOrder.get(second.element);
+        context.nodes.sort(compare);
+        for (const entry of context.regions) entry.nodes.sort(compare);
+      }
       const hasArchitecture = context.regions.some(entry => entry.metadata || attr(entry.region, "type") === "architecture");
       context.architecture = hasArchitecture;
       const main = context.regions[0];
@@ -1077,7 +1253,8 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;color:#bccce0}
   }
   function captureView() {
     return { scope: state.viewScope, weights: $("weights").checked, collapse: $("collapse").checked,
-      states: $("states").checked, search: $("search").value, matchIndex: state.matchIndex,
+      states: $("states").checked, layoutPriority: state.layoutPriority,
+      search: $("search").value, matchIndex: state.matchIndex,
       scale: state.scale, x: state.x, y: state.y, selected: state.selected?.key,
       selectedEdge: state.selectedEdge ? {
         from: state.selectedEdge.from.key, to: state.selectedEdge.to.key, role: state.selectedEdge.role,
@@ -1091,6 +1268,7 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;color:#bccce0}
   }
   function restoreView(view) {
     $("scope").value = view.scope;
+    $("layout-priority").value = view.layoutPriority;
     for (const id of ["weights", "collapse", "states"]) $(id).checked = view[id];
     $("search").value = view.search;
     if (!render()) return false;
@@ -1110,8 +1288,8 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;color:#bccce0}
     $("details").scrollTop = view.detailsScroll;
     return true;
   }
-  function navigate(scope, changes = {}, afterRender = null) {
-    if (!state.root) return;
+  async function navigate(scope, changes = {}, afterRender = null) {
+    if (!state.root || state.renderBusy) return;
     const current = captureView();
     if (current.scope === scope && Object.entries(changes).every(([id, value]) => $(id).checked === value)) return;
     if (!Array.from($("scope").options).some(option => option.value === scope)) {
@@ -1119,7 +1297,12 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;color:#bccce0}
     }
     $("scope").value = scope;
     for (const [id, value] of Object.entries(changes)) $(id).checked = value;
-    if (!render()) {
+    const target = state.views.get(scope) || state.contexts.get(scope);
+    const generation = ++state.renderGeneration;
+    const rendered = target?.nodes.length > 500
+      ? await renderProgressively(generation) : render();
+    if (generation !== state.renderGeneration) return;
+    if (!rendered) {
       const failure = state.statusMessage;
       restoreView(current); status(failure, true); return;
     }
@@ -1130,6 +1313,7 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;color:#bccce0}
     updateNavigation();
   }
   function travel(direction) {
+    if (state.renderBusy) return;
     const target = state.historyIndex + direction;
     if (target < 0 || target >= state.history.length) return;
     const current = captureView();
@@ -1151,13 +1335,15 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;color:#bccce0}
     const context = view?.context || state.contexts.get($("scope").value);
     if (!context) throw new ViewerError("missingScope");
     const architectureView = view?.type === "architecture";
+    const logicalPriority = $("layout-priority").value === "logical";
     const selectedNodes = view ? view.nodes : context.nodes;
     const selected = new Set(selectedNodes);
+    const executionPositions = new Map(context.nodes.map((item, index) => [item, index]));
     const resources = context.resources, visible = [], owners = new Map();
     const primitive = item => {
       const target = item.definition && state.contexts.get(item.definition);
       const unitKind = attr(item.element, "unitKind"), barrier = attr(item.element, "operation") === "Barrier";
-      const node = { ...item, key: `node:${item.id}`,
+      const node = { ...item, key: `node:${item.id}`, metadata: child(item.element, "Architecture"),
         label: unitKind ? t("unitLabel", unitKind, attr(item.element, "steps")) : barrier
           ? t("barrierLabel", attr(item.element, "resources").split(/\s+/).filter(Boolean).length)
           : item.definition || attr(item.element, "operation"),
@@ -1255,8 +1441,8 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;color:#bccce0}
       const targetItems = toElement.localName === "Region" ? state.regionMetadata.get(toElement).nodes : [context.nodeMetadata.get(toElement)];
       const source = sourceItems[sourceItems.length - 1], target = targetItems[0];
       if (!source || !target || source === target) throw new ViewerError("invalidDependency", id);
-      if (context.nodes.indexOf(source) >= context.nodes.indexOf(target)) throw new ViewerError("backwardDependency", id);
-      if (selected.has(source) && selected.has(target))
+      if (executionPositions.get(source) >= executionPositions.get(target)) throw new ViewerError("backwardDependency", id);
+      if (!logicalPriority && selected.has(source) && selected.has(target))
         connect(owners.get(source), owners.get(target), { resource: id, port: t("orderDependency"), access: "Order" });
     }
     for (const element of context.elements.values()) {
@@ -1291,7 +1477,9 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;color:#bccce0}
           access: "State(t) → State(t+1)" }, true);
       }
     }
-    const graph = layoutGraph(visible, edges, resources, view?.region || context.scope, [...inputs.values()], architectureView);
+    const graph = layoutGraph(visible, edges, resources, view?.region || context.scope,
+      [...inputs.values()], architectureView, logicalPriority);
+    graph.layoutPriority = logicalPriority ? "logical" : "execution";
     graph.contextId = context.id;
     graph.hasGroups = architectureView && children(view.region, "Region").some(region =>
       Array.from(region.getElementsByTagName("Architecture")).some(metadata => attr(metadata, "repeatGroup") === "true"));
@@ -1299,7 +1487,7 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;color:#bccce0}
     return graph;
   }
 
-  function layoutGraph(all, edges, resources, scope, externals = [], architectureView = false) {
+  function layoutGraph(all, edges, resources, scope, externals = [], architectureView = false, logicalPriority = false) {
     preparePorts(all, edges, resources);
     const pending = new Map(all.map(node => [node, 0]));
     const outgoing = new Map(all.map(node => [node, []]));
@@ -1318,7 +1506,11 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;color:#bccce0}
         if (pending.get(to) === 0) queue.push(to);
       }
     }
-    if (queue.length !== all.length) throw new ViewerError("cycle");
+    if (queue.length !== all.length) {
+      if (!architectureView || !all.some(node => node.region && attr(node.element, "path")))
+        throw new ViewerError("cycle");
+      rankArchitectureGroups(all, outgoing);
+    }
     for (const node of externals) {
       const targets = outgoing.get(node);
       if (targets.length) node.rank = Math.max(0, Math.min(...targets.map(to => to.rank - 1)));
@@ -1330,9 +1522,97 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;color:#bccce0}
       node.y = node.rank * 240 + 30;
       level.push(node); levels.set(node.rank, level);
     }
+    if (logicalPriority) arrangeLogicalRows(levels, outgoing);
     return { nodes: all, edges, resources, scope, architectureView,
       width: Math.max(300, ...all.map(node => node.x + node.width + 30)),
       height: Math.max(160, ...all.map(node => node.y + node.height + 30)) };
+  }
+  function arrangeLogicalRows(levels, outgoing) {
+    const incoming = new Map(Array.from(outgoing.keys(), node => [node, []]));
+    for (const [from, targets] of outgoing)
+      for (const to of targets) incoming.get(to).push(from);
+    const ranks = Array.from(levels.keys()).sort((first, second) => first - second);
+    function arrange(order, neighbors) {
+      for (const rank of order) {
+        const row = levels.get(rank);
+        const centers = new Map(row.map(node => {
+          const connected = neighbors.get(node).filter(other => other.rank !== rank);
+          const center = connected.length
+            ? connected.reduce((sum, other) => sum + other.x + other.width / 2, 0) / connected.length
+            : node.x + node.width / 2;
+          return [node, center];
+        }));
+        row.sort((first, second) => centers.get(first) - centers.get(second));
+        const width = row.reduce((sum, node) => sum + node.width, 0) + (row.length - 1) * 96;
+        let x = Math.max(30, Array.from(centers.values()).reduce((sum, center) => sum + center, 0) /
+          row.length - width / 2);
+        for (const node of row) {
+          node.x = x;
+          x += node.width + 96;
+        }
+      }
+    }
+    for (let pass = 0; pass < 4; pass++) {
+      arrange(ranks, incoming);
+      arrange([...ranks].reverse(), outgoing);
+    }
+  }
+  function rankArchitectureGroups(nodes, outgoing) {
+    // Interleaved architecture groups can form display cycles over an acyclic execution graph.
+    const incoming = new Map(nodes.map(node => [node, []]));
+    for (const [from, targets] of outgoing)
+      for (const to of targets) incoming.get(to).push(from);
+    const visited = new Set(), finished = [];
+    for (const node of nodes) {
+      if (visited.has(node)) continue;
+      visited.add(node);
+      const stack = [{ node, index: 0 }];
+      while (stack.length) {
+        const frame = stack[stack.length - 1], targets = outgoing.get(frame.node);
+        if (frame.index < targets.length) {
+          const next = targets[frame.index++];
+          if (!visited.has(next)) {
+            visited.add(next);
+            stack.push({ node: next, index: 0 });
+          }
+        } else {
+          finished.push(frame.node);
+          stack.pop();
+        }
+      }
+    }
+    const owners = new Map(), groups = [];
+    for (const node of finished.reverse()) {
+      if (owners.has(node)) continue;
+      const group = { nodes: [], targets: new Set(), pending: 0, rank: 0 };
+      groups.push(group);
+      owners.set(node, group);
+      const stack = [node];
+      while (stack.length) {
+        const current = stack.pop();
+        group.nodes.push(current);
+        for (const next of incoming.get(current)) if (!owners.has(next)) {
+          owners.set(next, group);
+          stack.push(next);
+        }
+      }
+    }
+    for (const [from, targets] of outgoing)
+      for (const to of targets) {
+        const source = owners.get(from), target = owners.get(to);
+        if (source !== target && !source.targets.has(target)) {
+          source.targets.add(target);
+          target.pending++;
+        }
+      }
+    const queue = groups.filter(group => group.pending === 0);
+    for (let index = 0; index < queue.length; index++)
+      for (const target of queue[index].targets) {
+        target.rank = Math.max(target.rank, queue[index].rank + 1);
+        if (--target.pending === 0) queue.push(target);
+      }
+    for (const group of groups)
+      for (const node of group.nodes) node.rank = group.rank;
   }
   function preparePorts(nodes, edges, resources) {
     for (const node of nodes) node.ports = [];
@@ -1393,6 +1673,9 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;color:#bccce0}
       state.width = right - state.left; state.height = bottom - state.top;
     }
     function routeEdges() {
+      for (const step of routeEdgeSteps()) { /* Synchronous updates for small views and dragging. */ }
+    }
+    function* routeEdgeSteps() {
       const boxes = state.nodes.map(node => ({ left: node.x - 6, right: node.x + node.width + 6, top: node.y - 12, bottom: node.y + node.height + 12 }));
       const blocked = (a, b) => boxes.some(box => a.x === b.x
         ? a.x > box.left && a.x < box.right && Math.max(a.y, b.y) > box.top && Math.min(a.y, b.y) < box.bottom
@@ -1413,6 +1696,7 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;color:#bccce0}
         const list = escapePorts.get(node.y + direction);
         return 16 + 6 * (list.indexOf(edge) + 1) / (list.length + 1);
       };
+      let routed = 0;
       for (const edge of state.edges) {
         const from = edge.from, to = edge.to;
         const forward = to.y >= from.y + from.height + 26 && from !== to;
@@ -1436,6 +1720,8 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;color:#bccce0}
         edge.points = [start, ...interior, end];
         const d = edge.points.map((point, index) => `${index ? "L" : "M"}${point.x},${point.y}`).join(" ");
         edge.dom.setAttribute("d", d); edge.hit.setAttribute("d", d);
+        if (++routed % 64 === 0)
+          yield { phase: "routeEdges", completed: routed, total: state.edges.length };
       }
       updateBounds();
     }
@@ -1496,20 +1782,59 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;color:#bccce0}
     }
   function shorten(value, max = 29) { return value.length > max ? value.slice(0, max - 1) + "…" : value; }
   function render() {
+    const steps = renderSteps();
+    let result;
+    do { result = steps.next(); } while (!result.done);
+    return result.value;
+  }
+  async function renderProgressively(generation) {
+    setRenderBusy(true);
+    const progress = $("load-progress");
+    progress.hidden = false;
+    try {
+      const steps = renderSteps();
+      let sliceStart = performance.now(), phase = "";
+      while (generation === state.renderGeneration) {
+        const result = steps.next();
+        if (result.done) return result.value;
+        if (result.value.phase !== phase || performance.now() - sliceStart >= 12) {
+          phase = result.value.phase;
+          progress.max = Math.max(1, result.value.total);
+          progress.value = result.value.completed;
+          status(message("switchingView", message(phase),
+            result.value.completed, result.value.total));
+          await new Promise(resolve => setTimeout(resolve, 0));
+          sliceStart = performance.now();
+        }
+      }
+      return false;
+    } finally {
+      if (generation === state.renderGeneration) {
+        progress.hidden = true;
+        setRenderBusy(false);
+      }
+    }
+  }
+  function* renderSteps() {
     if (!state.root) return;
     try {
+      yield { phase: "renderView", completed: 0, total: 1 };
       const graph = buildGraph();
       Object.assign(state, graph, { selected: null, selectedEdge: null, matchIndex: -1 });
-      state.layoutKey = JSON.stringify([$("scope").value, $("weights").checked, $("collapse").checked, $("states").checked]);
+      state.layoutKey = JSON.stringify([$("scope").value, state.layoutPriority,
+        $("weights").checked, $("collapse").checked, $("states").checked]);
       const positions = state.positions.get(state.layoutKey);
       for (const node of state.nodes) {
         const position = positions?.get(node.key);
         if (position) { node.x = position.x; node.y = position.y; }
       }
-      $("collapse").disabled = !state.hasGroups;
-      $("states").disabled = !state.hasStates;
-      $("weights").disabled = false;
+      setRenderControlDisabled("collapse", !state.hasGroups);
+      setRenderControlDisabled("states", !state.hasStates);
+      setRenderControlDisabled("weights", false);
       $("edges").replaceChildren(); $("nodes").replaceChildren();
+      const edgeFragment = document.createDocumentFragment();
+      const nodeFragment = document.createDocumentFragment();
+      let createdEdges = 0;
       for (const edge of state.edges) {
         const path = svgElement("path", { class: `edge ${edge.role || ""}`, "marker-end": "url(#arrow)" });
         if (edge.bindings.every(binding => binding.access === "Order")) path.setAttribute("stroke-dasharray", "5 4");
@@ -1523,8 +1848,11 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;color:#bccce0}
         group.addEventListener("keydown", event => {
           if (event.key === "Enter" || event.key === " ") { event.preventDefault(); selectEdge(edge); }
         });
-        edge.dom = path; edge.hit = hit; $("edges").append(group);
+        edge.dom = path; edge.hit = hit; edgeFragment.append(group);
+        if (++createdEdges % 64 === 0)
+          yield { phase: "createEdges", completed: createdEdges, total: state.edges.length };
       }
+      let createdNodes = 0;
       for (const node of state.nodes) {
         const group = svgElement("g", { transform: `translate(${node.x},${node.y})`,
           class: `node${node.external ? " external" : node.region ? " region" : node.definition ? " call" : ""}${node.kernel ? " kernel" : ""}${node.barrier ? " barrier" : ""}`,
@@ -1558,13 +1886,19 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;color:#bccce0}
         group.addEventListener("keydown", event => {
           if (event.key === "Enter" || event.key === " ") { event.preventDefault(); select(node); }
         });
-        node.dom = group; $("nodes").append(group);
+        node.dom = group; nodeFragment.append(group);
+        if (++createdNodes % 64 === 0)
+          yield { phase: "createNodes", completed: createdNodes, total: state.nodes.length };
       }
-      routeEdges();
+      yield { phase: "routeEdges", completed: 0, total: state.edges.length };
+      yield* routeEdgeSteps();
+      $("edges").append(edgeFragment);
+      $("nodes").append(nodeFragment);
       $("empty").style.display = state.nodes.length ? "none" : "flex";
       state.emptyMessage = state.nodes.length ? null : "noNodes";
       if (!state.nodes.length) $("empty").firstElementChild.textContent = t("noNodes");
-      for (const id of ["fit", "layout", "readable", "plus", "minus"]) $(id).disabled = !state.nodes.length;
+      for (const id of ["fit", "layout", "readable", "plus", "minus"])
+        setRenderControlDisabled(id, !state.nodes.length);
       updateSearch(false); readable(false); overview();
       const identity = child(state.root, "Identity");
       status(message("graphStatus", `${state.filename} · ${graphType()}`, identity ? attr(identity, "name") : "Graph", $("scope").selectedOptions[0].textContent, state.nodes.filter(n => !n.external).length, state.architectureView ? t("modules") : t("executionNodes"), state.nodes.filter(n => n.external).length, state.edges.length));
@@ -1670,6 +2004,7 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;color:#bccce0}
       if (dimensions) table(panel, children(dimensions, "Dimension").map(d => [attr(d, "name"), attr(d, "size")]));
     }
     text(panel, "h3", t("tips"));
+    text(panel, "p", t("helpLayout"), "hint");
     text(panel, "p", t("overviewReadable"), "hint");
     text(panel, "p", t("overviewHistory"), "hint");
     text(panel, "p", t("overviewControls"), "hint");
@@ -1797,6 +2132,7 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;color:#bccce0}
     state.y = (rect.height - state.height * state.scale) / 2 - (state.top || 0) * state.scale; transform();
   }
   function zoom(factor, x, y) {
+    if (state.renderBusy) return;
     const next = Math.max(.0001, Math.min(3, state.scale * factor));
     state.x = x - (x - state.x) * next / state.scale;
     state.y = y - (y - state.y) * next / state.scale;
@@ -1811,7 +2147,7 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;color:#bccce0}
     const query = $("search").value.trim().toLocaleLowerCase();
     state.matches = query ? state.nodes.filter(node => `${node.id} ${node.displayName || ""} ${node.label} ${node.path || ""} ${node.bindings.map(b => `${b.port} ${b.resource}`).join(" ")}`.toLocaleLowerCase().includes(query)) : [];
     for (const node of state.nodes) node.dom.classList.toggle("match", state.matches.includes(node));
-    $("next").disabled = !state.matches.length;
+    setRenderControlDisabled("next", !state.matches.length);
     $("next").textContent = query ? t("nextCount", state.matches.length) : t("next");
     state.matchIndex = -1;
     if (focus && state.matches.length) nextMatch();
@@ -1839,7 +2175,9 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;color:#bccce0}
     }
   });
   function redrawOptions() {
+    if (state.renderBusy) return;
     const view = captureView(), rect = $("canvas").getBoundingClientRect();
+    const modeChanged = view.layoutPriority !== $("layout-priority").value;
     const centerX = (rect.width / 2 - state.x) / state.scale;
     const centerY = (rect.height / 2 - state.y) / state.scale;
     const distance = node => Math.hypot(node.x + node.width / 2 - centerX, node.y + node.height / 2 - centerY);
@@ -1849,7 +2187,13 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;color:#bccce0}
     const anchors = candidates.map(node => ({ key: node.key,
       x: state.x + (node.x + node.width / 2) * state.scale,
       y: state.y + (node.y + node.height / 2) * state.scale }));
-    if (!render()) return;
+    if (!render()) {
+      if (modeChanged) {
+        const failure = state.statusMessage;
+        restoreView(view); status(failure, true);
+      }
+      return;
+    }
     state.scale = view.scale; state.x = view.x; state.y = view.y;
     for (const anchor of anchors) {
       const node = state.nodes.find(item => item.key === anchor.key);
@@ -1869,7 +2213,14 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;color:#bccce0}
     }
     state.matchIndex = view.matchIndex;
     $("details").scrollTop = view.detailsScroll;
+    if (modeChanged) {
+      if (state.historyIndex >= 0) state.history[state.historyIndex] = view;
+      state.history.splice(state.historyIndex + 1);
+      state.history.push(captureView()); state.historyIndex = state.history.length - 1;
+      updateNavigation();
+    }
   }
+  $("layout-priority").addEventListener("change", redrawOptions);
   $("collapse").addEventListener("change", redrawOptions);
   $("states").addEventListener("change", redrawOptions);
   $("weights").addEventListener("change", redrawOptions);
