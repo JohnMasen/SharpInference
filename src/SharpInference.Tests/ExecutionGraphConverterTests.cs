@@ -1,5 +1,6 @@
 using SharpInference.Graphs;
 using SharpInference.Graphs.Core;
+using SharpInference.Vm.Optimization;
 
 namespace SharpInference.Tests;
 
@@ -217,6 +218,60 @@ public sealed class ExecutionGraphConverterTests
         Assert.DoesNotContain(
             replaced.Graphs.Single(graph => graph.Id.Value == "root").Nodes,
             node => node is ExecutionGraphCallNode);
+    }
+
+    [Fact]
+    public void XmlPostprocessorReplacesProgramForMatchingCompilation()
+    {
+        var source = CopyGraph("source").Definition;
+        var replacement = new ExecutionGraphProgram(
+            [Graph(
+                "source",
+                [Resource("input", GraphDefinitionResourceKind.Input)],
+                Operation(
+                    "replacement",
+                    PrimitiveGraphOperations.Copy,
+                    [Binding("input", "input", GraphResourceAccess.Read)]),
+                source: new(source.Id))]);
+        var path = Path.Combine(
+            Path.GetTempPath(),
+            $"sharp-inference-execution-{Guid.NewGuid():N}.xml");
+        try
+        {
+            File.WriteAllText(path, GraphXml.Serialize(replacement));
+            var processor = new XmlExecutionGraphProgramPostprocessor(
+                path, "test-model", "test-backend");
+            var result = processor.Process(
+                new([Graph("original")]),
+                new(source, Context(), 0, processor.Name));
+
+            Assert.Equal(
+                "replacement",
+                Assert.Single(Assert.Single(result.Graphs).Nodes).Id.Value);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void XmlPostprocessorRejectsMismatchedCompilation()
+    {
+        var processor = new XmlExecutionGraphProgramPostprocessor(
+            "unused.xml", "rwkv-7", "cpu-vm");
+
+        var exception = Assert.Throws<InvalidOperationException>(() =>
+            processor.Process(
+                new([Graph("original")]),
+                new(
+                    CopyGraph("source").Definition,
+                    new("rwkv-6", "cpu-vm"),
+                    0,
+                    processor.Name)));
+
+        Assert.Contains("rwkv-7", exception.Message);
+        Assert.Contains("rwkv-6", exception.Message);
     }
 
     [Fact]

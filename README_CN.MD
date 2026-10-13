@@ -23,8 +23,75 @@ SharpInference 是一个实验性的 .NET 推理编译器，提供 CPU 与 Direc
 - Resource、Operation 和 GraphCall 是节点；
 - Dependency、Read 和 Write 是边；
 - 逻辑图与执行图共享遍历、View、模式匹配和批量重写能力。
+- 实验时可显式插入 `XmlExecutionGraphProgramPostprocessor`，用经过校验的预写
+  执行图 XML 替换转换结果。
 
 旧图与旧运行时执行路径已经删除，不保留兼容执行路径，也不会静默回退。
+
+## 可选执行图 Postprocessor
+
+三个 Pass 都不依赖模型名称，需要显式启用；默认 Converter 和 Emitter 不自动
+优化。输入输出都是使用现有节点、边和 GraphCall 的执行图程序：
+
+```csharp
+var compiler = new ExecutionGraphCompiler(
+[
+    new DependencyReductionPostprocessor(),
+    new TemporaryResourceReusePostprocessor(),
+    new OperationTemplateSharingPostprocessor(),
+]);
+var execution = compiler.Compile(logical, context);
+```
+
+- 依赖精简保持所有依赖可达性，正确处理平行边，不改变资源绑定。
+- Temporary 复用要求 TensorDescriptor 完全一致，并由依赖偏序证明生命周期
+  不重叠，不能只根据某次拓扑排序的位置判断。仅处理无外部绑定、父图拥有、
+  由已知完整写入输出的 version-one primitive 初始化的临时资源。GraphCall
+  访问、被调用方对外绑定的资源、未知或部分写入、同 operation 输入输出别名
+  都保守排除。
+- 模板共享将重复 operation 契约替换为共享的单 operation Atomic 子图调用，
+  每次调用仍执行一次。签名包含版本、属性、精度、有序端口、访问模式和
+  TensorDescriptor；实例作用域或带资源别名的绑定不提取。
+
+三个 Pass 可独立省略。Temporary 复用应先于模板共享，以便分析 primitive
+初始化。共享的性能收益依赖后端，CPU 和 D3D12 必须分别评估。不会修改逻辑图、
+VM、后端编译器或 instruction 契约。
+本轮 RWKV-6/7 tiny 实测中，模板共享显著降低 GPU 准备成本；Temporary 复用减少
+slot，但 CPU 稳态执行回退。不能将三个 Pass 全开视为通用的加速配置。
+
+### Postprocessor 收益评分
+
+下列缩写明确对应具体处理器：
+
+| 缩写 | 处理器 | 功能 |
+|---|---|---|
+| D | `DependencyReductionPostprocessor` | 依赖精简 |
+| T | `TemporaryResourceReusePostprocessor` | 临时资源复用 |
+| S | `OperationTemplateSharingPostprocessor` | 操作模板共享 |
+
+各维度采用定性的 1-5 分收益评分，分数越高表示降低效果越好：
+1 分表示无明显收益或存在回退，2 分表示轻微或不稳定收益，3 分表示中等收益，
+4 分表示明显收益，5 分表示显著收益。
+
+- 降低推理时间：包含准备好执行上下文后，每次推理的验证、执行包装和计算。
+- 降低准备时间：考虑 Pass 自身开销、Emit、Compile 和执行器创建，
+  不只看编译时间。
+- 降低推理内存：评价张量和临时缓冲，不把编译缓存或生成代码的减少
+  等同于推理内存减少。
+
+| 后端 | 处理器 | 降低推理时间 | 降低准备时间 | 降低推理内存 |
+|---|---|---:|---:|---:|
+| CPU | D | 1 | 1 | 1 |
+| CPU | T | 1 | 2 | 4 |
+| CPU | S | 4 | 2 | 1 |
+| D3D12 | D | 1 | 1 | 1 |
+| D3D12 | T | 2 | 2 | 4 |
+| D3D12 | S | 1 | 5 | 1 |
+
+评分针对当前实现单独开启时的 RWKV-6/7 tiny 实验，不保证其他模型或硬件
+得到相同收益。T 指当前最大复用处理器，不包含实验性的有限复用执行图。
+内存评分为定性评价：尚未测量完整峰值内存，不能将 slot 数量下降比例
+直接当作内存下降比例。组合方案需要独立评估，分数不能相加。
 
 ## 当前验证范围
 
@@ -33,8 +100,25 @@ SharpInference 是一个实验性的 .NET 推理编译器，提供 CPU 与 Direc
 - Direct3D 12 VM shader 编译与执行；
 - Phi-4 图构建以及 tokenizer/GGUF 组件。
 
-测试包含 RWKV-7 tiny 模型在 CPU 和 D3D12 上的端到端 logits 对比。外部模型
-文件不包含在仓库中。
+测试包含 RWKV-6/7 tiny 模型在 CPU、D3D12 上的全部八种 Pass 开关组合。
+逐一验证三个 token 的 logits 与未优化配置逐位一致，并记录 Pass、Emit、
+编译、Executor 创建时间，以及 slot、kernel、dependency 和稳态 forward。
+外部模型文件不包含在仓库中。
+
+复现独立矩阵（每种配置预热 30 次、采样 200 次，正反两种配置顺序）：
+
+```powershell
+$env:DOTNET_TieredCompilation = "0"
+dotnet test src\SharpInference.Tests\SharpInference.Tests.csproj -c Release `
+  -p:RwkvTestModelDirectory="D:\GithubRoot\rwkvcpp\tests" `
+  --filter FullyQualifiedName~RwkvPostprocessorTests `
+  --logger "console;verbosity=detailed"
+```
+
+开关 bitmask：`1` 为依赖精简，`2` 为 Temporary 复用，`4` 为模板共享；
+`0` 全关，`7` 全开。GPU forward 不包含上传和读回；编译时间包含后端源码生成。
+性能数据用于诊断，不作为测试通过阈值，应比较重复实验，避免冷启动和单次噪声。
+未设置模型目录属性时，外部模型测试会直接返回，不执行推理。
 
 ## 环境要求
 

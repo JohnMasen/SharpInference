@@ -7,5 +7,6 @@
   <ItemGroup>
     <ProjectReference Include="..\SharpInference.Vm\SharpInference.Vm.csproj" />
     <ProjectReference Include="..\SharpInference.Graphs\SharpInference.Graphs.csproj" />
+    <ProjectReference Include="..\SharpInference.Instructions\SharpInference.Instructions.csproj" />
   </ItemGroup>
 </Project>
