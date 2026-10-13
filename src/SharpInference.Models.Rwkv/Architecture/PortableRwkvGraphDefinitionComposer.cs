@@ -20,7 +20,11 @@ internal static class RwkvPortableTensorOperations
 
     internal static IReadOnlyDictionary<string, string> FillAttributes(float value)
     {
-        if (!float.IsFinite(value)) throw new ArgumentOutOfRangeException(nameof(value));
+        if (!float.IsFinite(value))
+        {
+            throw new ArgumentOutOfRangeException(nameof(value));
+        }
+
         return new Dictionary<string, string>
         {
             ["value"] = value.ToString("R", CultureInfo.InvariantCulture),
@@ -33,7 +37,10 @@ internal static class RwkvPortableTensorOperations
         int length)
     {
         if (axis < 0 || start < 0 || length <= 0)
+        {
             throw new ArgumentOutOfRangeException(nameof(length));
+        }
+
         return new Dictionary<string, string>
         {
             ["axis"] = axis.ToString(CultureInfo.InvariantCulture),
@@ -173,17 +180,28 @@ internal sealed class PortableRwkvGraphDefinitionComposer
             {
                 var resource = Get(input.Resource);
                 if (resource.Resource.Kind == GraphDefinitionResourceKind.State)
+                {
                     node.AddInOut(input.Port, resource);
+                }
                 else
+                {
                     node.AddInput(input.Port, resource);
+                }
             }
             node.AddOutput("output", Get(output));
             if (attributes is not null)
+            {
                 foreach (var attribute in attributes)
+                {
                     node.AddAttribute(attribute.Key, attribute.Value);
+                }
+            }
+
             node.RequirePrecision(requirements);
             if (previous is { } dependency)
+            {
                 node.DependsOn(dependency);
+            }
         }, CurrentAnnotation());
         previous = new(id);
     }
@@ -230,7 +248,10 @@ internal sealed class PortableRwkvGraphDefinitionComposer
             ["architecture.name"] = leaf.Name,
         };
         if (leaf.Annotation?.Formula is { Length: > 0 } formula)
+        {
             attributes.Add("architecture.formula", formula);
+        }
+
         return new(leaf.Name, leaf.Annotation?.Role, leaf.Annotation?.Description, attributes);
     }
 }

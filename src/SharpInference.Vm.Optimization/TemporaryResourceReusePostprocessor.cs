@@ -51,13 +51,19 @@ public sealed class TemporaryResourceReusePostprocessor : IExecutionGraphPostpro
                 resource.Kind != GraphDefinitionResourceKind.Temporary ||
                 resource.Resource.BindingKey is not null ||
                 boundPorts.Contains(resource.Resource.Id.Value))
+            {
                 continue;
+            }
+
             var accesses = graph.Structure.Readers(resource)
                 .Concat(graph.Structure.Writers(resource))
                 .DistinctBy(node => node.GraphId).OfType<ExecutionGraphNode>().ToArray();
             if (accesses.Length == 0 ||
                 accesses.Any(node => node is not ExecutionOperationNode))
+            {
                 continue;
+            }
+
             var first = accesses.OrderBy(node => analysis.Position(node.GraphId)).First();
             var firstBindings = graph.Bindings(first).Where(value =>
                 value.Resource == resource.ResourceNodeId).ToArray();
@@ -68,7 +74,10 @@ public sealed class TemporaryResourceReusePostprocessor : IExecutionGraphPostpro
                 operation.Operation.Version != 1 ||
                 !CompleteOutputOperations.Contains(operation.Operation.Name) ||
                 accesses.Any(node => node != first && !analysis.Before(first.GraphId, node.GraphId)))
+            {
                 continue;
+            }
+
             var last = accesses.Where(node => !accesses.Any(other =>
                 analysis.Before(node.GraphId, other.GraphId))).Select(node => node.GraphId).ToArray();
             lifetimes.Add(new(resource, first.GraphId, last));
@@ -91,7 +100,9 @@ public sealed class TemporaryResourceReusePostprocessor : IExecutionGraphPostpro
             slots[slotIndex] = lifetime with { Resource = slot.Resource };
         }
         if (replacements.Count == 0)
+        {
             return graph;
+        }
 
         GraphNodeId Map(GraphNodeId id) => replacements.GetValueOrDefault(id, id);
         var structure = new Graph<ExecutionGraphStructureNode, ExecutionGraphEdge>(

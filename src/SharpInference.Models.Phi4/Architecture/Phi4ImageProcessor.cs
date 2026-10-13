@@ -55,10 +55,15 @@ public sealed class Phi4ImageProcessor(int maximumTiles = 36)
         Phi4PixelFormat format)
     {
         if (width <= 0 || height <= 0)
+        {
             throw new ArgumentOutOfRangeException(nameof(width));
+        }
+
         var bytesPerPixel = format is Phi4PixelFormat.Rgb24 or Phi4PixelFormat.Bgr24 ? 3 : 4;
         if (stride < checked(width * bytesPerPixel) || pixels.Length < checked(stride * height))
+        {
             throw new ArgumentException("Pixel buffer is smaller than its dimensions and stride.", nameof(pixels));
+        }
 
         var (horizontalTiles, verticalTiles) = SelectTileGrid(width, height);
         var targetWidth = checked(horizontalTiles * CropSize);
@@ -78,7 +83,9 @@ public sealed class Phi4ImageProcessor(int maximumTiles = 36)
             resizedHeight = targetHeight;
         }
         if (resizedWidth < 10 || resizedHeight < 10)
+        {
             throw new ArgumentException("The image aspect ratio is too extreme.", nameof(pixels));
+        }
 
         var normalized = new float[checked(3 * targetWidth * targetHeight)];
         normalized.AsSpan().Fill(1f);
@@ -109,20 +116,27 @@ public sealed class Phi4ImageProcessor(int maximumTiles = 36)
         var horizontal = DivideRoundUp(width, CropSize);
         var vertical = DivideRoundUp(height, CropSize);
         if (horizontal * vertical <= MaximumTiles)
+        {
             return (horizontal, vertical);
+        }
 
         var aspect = width / (double)height;
         var area = (long)width * height;
         var bestDifference = double.PositiveInfinity;
         var best = (Width: 1, Height: 1);
         for (var count = 1; count <= MaximumTiles; count++)
-        for (var candidateWidth = 1; candidateWidth <= count; candidateWidth++)
-        for (var candidateHeight = 1; candidateHeight <= count; candidateHeight++)
+        {
+            for (var candidateWidth = 1; candidateWidth <= count; candidateWidth++)
+            {
+                for (var candidateHeight = 1; candidateHeight <= count; candidateHeight++)
         {
             var tiles = candidateWidth * candidateHeight;
             if (tiles > MaximumTiles || tiles < 1)
-                continue;
-            var difference = Math.Abs(aspect - candidateWidth / (double)candidateHeight);
+                    {
+                        continue;
+                    }
+
+                    var difference = Math.Abs(aspect - candidateWidth / (double)candidateHeight);
             if (difference < bestDifference ||
                 difference == bestDifference &&
                 area > (long)CropSize * CropSize * candidateWidth * candidateHeight / 2)
@@ -131,6 +145,9 @@ public sealed class Phi4ImageProcessor(int maximumTiles = 36)
                 best = (candidateWidth, candidateHeight);
             }
         }
+            }
+        }
+
         return best;
     }
 
@@ -204,7 +221,8 @@ public sealed class Phi4ImageProcessor(int maximumTiles = 36)
         var sourcePlane = sourceWidth * sourceHeight;
         var targetPlane = CropSize * CropSize;
         for (var channel = 0; channel < 3; channel++)
-        for (var y = 0; y < CropSize; y++)
+        {
+            for (var y = 0; y < CropSize; y++)
         {
             var sourceY = (y + 0.5) * sourceHeight / CropSize - 0.5;
             var yBase = (int)Math.Floor(sourceY);
@@ -229,13 +247,17 @@ public sealed class Phi4ImageProcessor(int maximumTiles = 36)
                 target[channel * targetPlane + y * CropSize + x] = value / weightSum;
             }
         }
+        }
 
         static float Cubic(float value)
         {
             const float a = -0.75f;
             value = MathF.Abs(value);
             if (value <= 1)
+            {
                 return (a + 2) * value * value * value - (a + 3) * value * value + 1;
+            }
+
             return value < 2
                 ? a * value * value * value - 5 * a * value * value + 8 * a * value - 4 * a
                 : 0;
@@ -255,14 +277,20 @@ public sealed class Phi4ImageProcessor(int maximumTiles = 36)
         var cropStride = 3 * cropPlane;
         var crop = 1;
         for (var tileY = 0; tileY < verticalTiles; tileY++)
-        for (var tileX = 0; tileX < horizontalTiles; tileX++, crop++)
-        for (var channel = 0; channel < 3; channel++)
-        for (var y = 0; y < CropSize; y++)
+        {
+            for (var tileX = 0; tileX < horizontalTiles; tileX++, crop++)
+            {
+                for (var channel = 0; channel < 3; channel++)
+                {
+                    for (var y = 0; y < CropSize; y++)
         {
             var sourceOffset = channel * sourcePlane +
                 (tileY * CropSize + y) * sourceWidth + tileX * CropSize;
             var targetOffset = crop * cropStride + channel * cropPlane + y * CropSize;
             source.Slice(sourceOffset, CropSize).CopyTo(target[targetOffset..]);
+        }
+                }
+            }
         }
     }
 
@@ -279,10 +307,18 @@ public sealed class Phi4ImageProcessor(int maximumTiles = 36)
         var maskedColumns = paddingWidth >= 14 ? paddingWidth / 14 : 0;
         var maskedRows = paddingHeight >= 14 ? paddingHeight / 14 : 0;
         if (maskedColumns > 0)
+        {
             for (var y = 0; y < height; y++)
+            {
                 result.AsSpan(y * width + width - maskedColumns, maskedColumns).Clear();
+            }
+        }
+
         if (maskedRows > 0)
+        {
             result.AsSpan((height - maskedRows) * width).Clear();
+        }
+
         return result;
     }
 
@@ -295,14 +331,28 @@ public sealed class Phi4ImageProcessor(int maximumTiles = 36)
         var sum = 0;
         var firstColumn = 0;
         for (var tileY = 0; tileY < verticalTiles; tileY++)
-        for (var localY = 0; localY < MaskSize; localY += 2)
-        for (var tileX = 0; tileX < horizontalTiles; tileX++)
-        for (var localX = 0; localX < MaskSize; localX += 2)
+        {
+            for (var localY = 0; localY < MaskSize; localY += 2)
+            {
+                for (var tileX = 0; tileX < horizontalTiles; tileX++)
+                {
+                    for (var localX = 0; localX < MaskSize; localX += 2)
         {
             var value = mask[(tileY * MaskSize + localY) * maskWidth + tileX * MaskSize + localX] != 0;
-            if (value) sum++;
-            if (tileX == 0 && localX == 0 && value) firstColumn++;
+            if (value)
+                        {
+                            sum++;
+                        }
+
+                        if (tileX == 0 && localX == 0 && value)
+                        {
+                            firstColumn++;
+                        }
+                    }
+                }
+            }
         }
+
         return checked(256 + 1 + sum + firstColumn + 16);
     }
 
@@ -316,12 +366,16 @@ public sealed class Phi4ImageProcessor(int maximumTiles = 36)
         var cropStride = MaskSize * MaskSize;
         var crop = 1;
         for (var tileY = 0; tileY < verticalTiles; tileY++)
-        for (var tileX = 0; tileX < horizontalTiles; tileX++, crop++)
-        for (var y = 0; y < MaskSize; y++)
+        {
+            for (var tileX = 0; tileX < horizontalTiles; tileX++, crop++)
+            {
+                for (var y = 0; y < MaskSize; y++)
         {
             var sourceOffset = (tileY * MaskSize + y) * sourceWidth + tileX * MaskSize;
             source.Slice(sourceOffset, MaskSize)
                 .CopyTo(target[(crop * cropStride + y * MaskSize)..]);
+        }
+            }
         }
     }
 

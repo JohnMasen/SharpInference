@@ -24,7 +24,10 @@ try
 {
     var tokenMode = args[1] == "--tokens";
     if (tokenMode && args.Length < 3 || !tokenMode && args.Length > 3)
+    {
         throw new ArgumentException("Invalid template arguments.");
+    }
+
     var maximum = !tokenMode && args.Length == 3 ? int.Parse(args[2], System.Globalization.CultureInfo.InvariantCulture) : 32;
     var files = new Dictionary<string, byte[]>(StringComparer.Ordinal);
     var assembly = Assembly.GetExecutingAssembly();
@@ -56,7 +59,10 @@ try
     modules.Register(new Rwkv7ModelModule());
     var architecture = modules.Resolve(catalog).ArchitectureId;
     if (artifact.Program.Abi != $"vm:{architecture}.state.fp32@1")
+    {
         throw new InvalidDataException("The embedded VM and weight model have incompatible State ABIs.");
+    }
+
     await using var engine = await VmInferenceEngine.CreateAsync(artifact.Program, "token", "logits",
         (slot, storage) => VmModelBindings.InitializeGlobal(catalog, slot, storage),
         factory, new(16, 16)
@@ -69,7 +75,11 @@ try
     {
         var dxcLoaded = process.Modules.Cast<System.Diagnostics.ProcessModule>().Any(module =>
             string.Equals(module.ModuleName, "dxcompiler.dll", StringComparison.OrdinalIgnoreCase));
-        if (dxcLoaded) throw new InvalidOperationException("Static DXIL deployment unexpectedly loaded DXC.");
+        if (dxcLoaded)
+        {
+            throw new InvalidOperationException("Static DXIL deployment unexpectedly loaded DXC.");
+        }
+
         Console.Error.WriteLine("DXC loaded: False.");
     }
 #endif
@@ -79,17 +89,26 @@ try
         var tokens = args[2].Split(',').Select(value => int.Parse(value, System.Globalization.CultureInfo.InvariantCulture)).ToArray();
         var logits = await session.PrefillAsync(tokens);
         if (args.Length == 4)
+        {
             File.WriteAllBytes(args[3], MemoryMarshal.AsBytes(logits.AsSpan()).ToArray());
+        }
+
         Console.WriteLine("logits: " + string.Join(",", logits.Take(8).Select(value =>
             value.ToString("R", System.Globalization.CultureInfo.InvariantCulture))));
         return;
     }
     var tokenizer = RwkvTokenizerResolver.LoadForArchitecture(architecture);
     if (tokenizer.TokenIds.Any(token => token >= engine.VocabularySize))
+    {
         throw new InvalidDataException("This model does not cover the bundled tokenizer; use raw-token mode or a full-vocabulary model.");
+    }
+
     await foreach (var text in RwkvTextGenerator.GenerateAsync(new GenerationSession(session), tokenizer, args[1],
         new RwkvGenerationOptions { MaxTokens = maximum, TopK = 1 }))
+    {
         Console.Write(text);
+    }
+
     Console.WriteLine();
 }
 catch (Exception error) when (error is IOException or ArgumentException or InvalidOperationException or NotSupportedException or FormatException or OverflowException)

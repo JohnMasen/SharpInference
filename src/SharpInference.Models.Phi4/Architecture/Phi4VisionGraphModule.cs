@@ -15,10 +15,26 @@ public sealed class Phi4VisionGraphModule : IPhi4GraphModule
     /// <summary>Initializes a vision graph for the specified crop count, projected token count, attention heads, and layers.</summary>
     public Phi4VisionGraphModule(int crops, int imageTokens, int heads = 16, int layers = 26)
     {
-        if (crops <= 0) throw new ArgumentOutOfRangeException(nameof(crops));
-        if (imageTokens <= 0) throw new ArgumentOutOfRangeException(nameof(imageTokens));
-        if (heads <= 0) throw new ArgumentOutOfRangeException(nameof(heads));
-        if (layers is <= 0 or > 26) throw new ArgumentOutOfRangeException(nameof(layers));
+        if (crops <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(crops));
+        }
+
+        if (imageTokens <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(imageTokens));
+        }
+
+        if (heads <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(heads));
+        }
+
+        if (layers is <= 0 or > 26)
+        {
+            throw new ArgumentOutOfRangeException(nameof(layers));
+        }
+
         this.crops = crops;
         this.imageTokens = imageTokens;
         this.heads = heads;
@@ -42,12 +58,18 @@ public sealed class Phi4VisionGraphModule : IPhi4GraphModule
         if (patch.Dimensions.Count != 4 || patch.Dimensions[0] <= 0 || patch.Dimensions[1] != 3 ||
             patch.Dimensions[2] <= 0 || patch.Dimensions[2] != patch.Dimensions[3] ||
             position.Dimensions.Count != 2 || position.Dimensions[0] <= 0)
+        {
             throw new InvalidDataException("Phi4 vision requires square RGB patch weights and a positional matrix.");
+        }
+
         var width = patch.Dimensions[0];
         var patchSize = patch.Dimensions[2];
         var grid = (int)Math.Sqrt(position.Dimensions[0]);
         if (checked(grid * grid) != position.Dimensions[0] || grid % 2 != 0 || width % heads != 0)
+        {
             throw new InvalidDataException("Phi4 vision requires an even square patch grid and width divisible by heads.");
+        }
+
         Require("v.patch_embd.weight", [width, 3, patchSize, patchSize], half: true);
         Require("v.patch_embd.bias", [width], half: true);
         Require("v.position_embd.weight", [checked(grid * grid), width], half: true);
@@ -56,7 +78,10 @@ public sealed class Phi4VisionGraphModule : IPhi4GraphModule
         var up = tensors.GetRequired("v.blk.0.ffn_up.weight");
         var projected = tensors.GetRequired("mm.0.weight");
         if (up.Dimensions.Count != 2 || up.Dimensions[0] <= 0 || projected.Dimensions.Count != 2 || projected.Dimensions[0] <= 0)
+        {
             throw new InvalidDataException("Phi4 vision requires positive feed-forward and projector matrix dimensions.");
+        }
+
         var intermediate = up.Dimensions[0];
         var textWidth = projected.Dimensions[0];
         for (var layer = 0; layer < layers; layer++)
@@ -67,7 +92,11 @@ public sealed class Phi4VisionGraphModule : IPhi4GraphModule
                 Require(prefix + part + ".weight", [width], half: true);
                 Require(prefix + part + ".bias", [width], half: true);
             }
-            foreach (var part in new[] { "attn_q", "attn_k", "attn_v", "attn_out" }) Linear(prefix + part, width, width);
+            foreach (var part in new[] { "attn_q", "attn_k", "attn_v", "attn_out" })
+            {
+                Linear(prefix + part, width, width);
+            }
+
             Linear(prefix + "ffn_up", width, intermediate);
             Linear(prefix + "ffn_down", intermediate, width);
         }
@@ -92,7 +121,9 @@ public sealed class Phi4VisionGraphModule : IPhi4GraphModule
             var tensor = tensors.GetRequired(name);
             if (!tensor.Dimensions.SequenceEqual(shape) ||
                 (half ? tensor.DataType != TensorDataType.Float16 : tensor.DataType is not (TensorDataType.Float16 or TensorDataType.Float32)))
+            {
                 throw new InvalidDataException($"Phi4 vision tensor '{name}' has an incompatible type or shape.");
+            }
         }
         void Linear(string prefix, int input, int output)
         {
@@ -239,8 +270,16 @@ public sealed class Phi4VisionGraphModule : IPhi4GraphModule
                 descriptors.Add(id, descriptor);
                 weights.Add(name, id);
             }
-            if (!fp32 || descriptors[id].ElementType == GraphElementType.Float32) return id;
-            if (converted.TryGetValue(name, out var existing)) return existing;
+            if (!fp32 || descriptors[id].ElementType == GraphElementType.Float32)
+            {
+                return id;
+            }
+
+            if (converted.TryGetValue(name, out var existing))
+            {
+                return existing;
+            }
+
             var destination = Temporary(descriptors[id].Dimensions.ToArray());
             Emit(scope, PortableTensorOperationContracts.CastFp16ToFp32,
                 [GraphBindings.Read("input", id), GraphBindings.Write("output", destination)]);

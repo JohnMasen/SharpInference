@@ -7,7 +7,11 @@ internal sealed class GpuTierZeroInstruction(Guid id,string name) : TierZeroInst
 {
     protected override void ValidateExecutionConfiguration(InstructionExecutionConfiguration? configuration)
     {
-        if (configuration is null) return;
+        if (configuration is null)
+        {
+            return;
+        }
+
         var valid = Name switch
         {
             "core.mat-vec" =>
@@ -20,28 +24,43 @@ internal sealed class GpuTierZeroInstruction(Guid id,string name) : TierZeroInst
             _ => false,
         };
         if (!valid)
+        {
             throw new InstructionAdaptationException(
                 CollectionId, Name, "Unsupported GPU execution configuration.");
+        }
     }
 
     protected override InstructionRecording GenerateConfigured(InstructionParameter[] values,
         InstructionExecutionConfiguration? configuration)
     {
         if (Name == "core.matrix-multiply")
+        {
             return GenerateMatrixMultiply(
                 values,
                 addBias: false,
                 cooperative: configuration == GpuMatrixMultiplyExecution.Cooperative,
                 tiled: configuration == GpuMatrixMultiplyExecution.Tiled);
+        }
+
         if (Name == "core.affine")
+        {
             return GenerateMatrixMultiply(
                 values,
                 addBias: true,
                 cooperative: configuration == GpuMatrixMultiplyExecution.Cooperative,
                 tiled: configuration == GpuMatrixMultiplyExecution.Tiled);
+        }
+
         if (Name == "core.bias-add")
+        {
             return GenerateBiasAdd(values);
-        if (configuration != GpuMatVecExecution.Cooperative) return Generate(values);
+        }
+
+        if (configuration != GpuMatVecExecution.Cooperative)
+        {
+            return Generate(values);
+        }
+
         var tensors = values.OfType<InstructionTensorParameter>().ToDictionary(parameter => parameter.Name);
         var matrix = tensors.GetValueOrDefault("weight") ?? tensors["matrix"];
         var input = tensors["input"];
@@ -145,12 +164,15 @@ internal sealed class GpuTierZeroInstruction(Guid id,string name) : TierZeroInst
             }
             """;
         if (!cooperative && !tiled)
+        {
             return new(serialSource,
             [
                 GpuInstructionHelpers.Load32,
                 new("t0.matrix.load16",
                     "float load16(RWByteAddressBuffer b,uint o,uint i){uint a=o+i*2u;return f16tof32((b.Load(a&~3u)>>((a&2u)*8u))&65535u);}")
             ]);
+        }
+
         if (tiled)
         {
             var tiledResult = bias is null
@@ -324,24 +346,37 @@ internal sealed class GpuTierZeroInstruction(Guid id,string name) : TierZeroInst
         var args = op.Arguments.ToDictionary(a => a.Parameter, StringComparer.Ordinal);
         (VmTensor Tensor, string Buffer, string Offset) Get(string port)
         {
-            if (!args.TryGetValue(port, out var a)) throw Error($"missing port '{port}'.");
+            if (!args.TryGetValue(port, out var a))
+            {
+                throw Error($"missing port '{port}'.");
+            }
+
             var (p, name) = parameters[a.Source];
             if (a.ByteOffset != 0)
+            {
                 throw Error("operator views require a typed helper parameter; use a VmCall view instead.");
+            }
+
             return (p.Tensor, name, offsets[a.Source]);
         }
         string Load(string port, string index)
         {
             var (tensor, buffer, offset) = Get(port);
             if (tensor.ElementType is not (VmElementType.Float32 or VmElementType.Float16))
+            {
                 throw Error($"'{port}' must be floating point.");
+            }
+
             return $"load{(tensor.ElementType == VmElementType.Float16 ? 16 : 32)}({buffer}, {offset}, {index})";
         }
         var output = Get("output");
         var outputArg = args["output"];
         if (parameters[outputArg.Source].p.Access != VmAccess.ReadWrite ||
             output.Tensor.ElementType is not (VmElementType.Float32 or VmElementType.Float16))
+        {
             throw Error("output must be writable FP32.");
+        }
+
         var n = output.Tensor.ElementCount;
         string Store(string expression) => output.Tensor.ElementType==VmElementType.Float16
             ? $"if(i<{n}u) store16({output.Buffer},{output.Offset},i,{expression});"
@@ -364,21 +399,33 @@ internal sealed class GpuTierZeroInstruction(Guid id,string name) : TierZeroInst
         {
             ports = ["left", "right"];
             foreach (var p in ports)
+            {
                 if (!Get(p).Tensor.Dimensions.SequenceEqual(output.Tensor.Dimensions))
+                {
                     throw Error("elementwise shapes differ.");
+                }
+            }
+
             body = Store(string.Format(CultureInfo.InvariantCulture, expression, Load("left", "i"), Load("right", "i")));
         }
         else if (unary.TryGetValue(op.Operation, out expression))
         {
             ports = ["input"];
             if (!Get("input").Tensor.Dimensions.SequenceEqual(output.Tensor.Dimensions))
+            {
                 throw Error("elementwise shapes differ.");
+            }
+
             body = Store(string.Format(CultureInfo.InvariantCulture, expression, Load("input", "i")));
         }
         else if (op.Operation is "core.reduce-sum" or "core.reduce-mean")
         {
             ports = ["input"];
-            if (n != 1) throw Error("reduction output must contain one element.");
+            if (n != 1)
+            {
+                throw Error("reduction output must contain one element.");
+            }
+
             var count = Get("input").Tensor.ElementCount;
             body = $"if(i == 0u) {{ precise float sum=0.0f, correction=0.0f; for(uint j=0;j<{count}u;j++) add32(sum,correction,{Load("input", "j")}); sum+=correction; " +
                 Store(op.Operation == "core.reduce-mean" ? $"sum/{count}.0f" : "sum") + " }";
@@ -390,7 +437,10 @@ internal sealed class GpuTierZeroInstruction(Guid id,string name) : TierZeroInst
             var matrix = Get(matrixPort).Tensor.Dimensions;
             if (matrix.Count != 2 || (ulong)matrix[0] != n ||
                 Get("input").Tensor.ElementCount != (ulong)matrix[1])
+            {
                 throw Error("invalid matrix/vector shapes.");
+            }
+
             body = $"if(i<{n}u) {{ precise float sum=0.0f, correction=0.0f; for(uint j=0;j<{matrix[1]}u;j++) add32(sum,correction," +
                 $"{Load(matrixPort, $"i*{matrix[1]}u+j")}*{Load("input", "j")}); sum+=correction; {Store("sum")} }}";
         }
@@ -401,7 +451,9 @@ internal sealed class GpuTierZeroInstruction(Guid id,string name) : TierZeroInst
             var index = Get("index");
             if (table.Count != 2 || (ulong)table[1] != n ||
                 index.Tensor.ElementType != VmElementType.Int32 || index.Tensor.ElementCount != 1)
+            {
                 throw Error("invalid table/index shapes.");
+            }
             // Invalid dynamic indices produce a visible NaN, rather than an out-of-bounds load.
             body = $"int row=asint({index.Buffer}.Load({index.Offset})); " +
                 Store($"(row>=0 && row<{table[0]} ? {Load("table", $"uint(row)*{n}u+i")} : asfloat(0x7fc00000u))");
@@ -409,7 +461,10 @@ internal sealed class GpuTierZeroInstruction(Guid id,string name) : TierZeroInst
         else if (op.Operation.StartsWith("core.tensor.", StringComparison.Ordinal))
         {
             if (op.Version != 1)
+            {
                 throw Error("unsupported tensor operation version.");
+            }
+
             ports = TierZeroInstruction.InputPorts(op.Operation).ToArray();
             var dims = output.Tensor.Dimensions;
             switch (op.Operation)
@@ -426,14 +481,20 @@ internal sealed class GpuTierZeroInstruction(Guid id,string name) : TierZeroInst
                     var inputDims = Get("input").Tensor.Dimensions;
                     var coordinate = new StringBuilder("uint flat=i; ");
                     for (var a = dims.Count - 1; a >= 0; a--)
+                    {
                         coordinate.Append($"uint c{a}=flat%{dims[a]}u; flat/={dims[a]}u; ");
+                    }
+
                     coordinate.Append("uint s=0u; ");
                     var shift = dims.Count - inputDims.Count;
                     for (var a = 0; a < inputDims.Count; a++)
                     {
                         var c = op.Operation == "core.tensor.broadcast" && inputDims[a] == 1 ? "0u" : $"c{a + shift}";
                         if (op.Operation == "core.tensor.slice" && a == int.Parse(op.Attributes["axis"], CultureInfo.InvariantCulture))
+                        {
                             c += $"+{op.Attributes["start"]}u";
+                        }
+
                         coordinate.Append($"s=s*{inputDims[a]}u+({c}); ");
                     }
                     body = $"if(i<{n}u) {{ {coordinate} {Store(Load("input", "s"))} }}";
@@ -456,14 +517,29 @@ internal sealed class GpuTierZeroInstruction(Guid id,string name) : TierZeroInst
                 default: throw Error("unsupported tensor operation.");
             }
         }
-        else throw Error("unsupported operation.");
+        else
+        {
+            throw Error("unsupported operation.");
+        }
+
         if (!ports.Append("output").ToHashSet(StringComparer.Ordinal).SetEquals(args.Keys))
+        {
             throw Error("unexpected ports.");
+        }
+
         if (!op.Operation.StartsWith("core.tensor.", StringComparison.Ordinal) && op.Attributes.Count != 0)
+        {
             throw Error("unexpected attributes.");
+        }
+
         foreach (var p in ports)
+        {
             if (args[p].Source == outputArg.Source)
+            {
                 throw Error("in-place operator writes are unsupported.");
+            }
+        }
+
         return body;
     }
 

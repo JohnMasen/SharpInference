@@ -81,7 +81,10 @@ public sealed class VmInferenceEngine : IAsyncDisposable
         if (prefill.Program.Abi != inference.Program.Abi ||
             prefill.Program.Slots.Single(slot => slot.Id == prefill.OutputSlot).Tensor.ElementCount !=
             inference.Program.Slots.Single(slot => slot.Id == inference.OutputSlot).Tensor.ElementCount)
+        {
             throw new InvalidDataException("Prefill and inference programs require matching model/output ABIs.");
+        }
+
         var manager = new VmResourceManager(initializeGlobal, allocate);
         VmEngine<Worker>? queue = null;
         try
@@ -95,9 +98,15 @@ public sealed class VmInferenceEngine : IAsyncDisposable
                     executable = component.CreateExecutable() ??
                         throw new InvalidOperationException("A VM executable factory returned null.");
                     if (VmProgramXml.Serialize(executable.Program) != VmProgramXml.Serialize(component.Program))
+                    {
                         throw new InvalidDataException("The executable and resource program do not match.");
+                    }
+
                     if (component.Program.Target == VmTarget.Direct3D12 && executable is not IVmTaskExecutable)
+                    {
                         throw new NotSupportedException("GPU inference requires queued-task execution support.");
+                    }
+
                     return new Worker(bindings, executable, component.InputSlot, component.OutputSlot);
                 }
                 catch (Exception error)
@@ -107,7 +116,11 @@ public sealed class VmInferenceEngine : IAsyncDisposable
                     catch (Exception cleanup) { errors.Add(cleanup); }
                     try { executable?.Dispose(); }
                     catch (Exception cleanup) { errors.Add(cleanup); }
-                    if (errors.Count > 1) throw new AggregateException("VM worker construction failed.", errors);
+                    if (errors.Count > 1)
+                    {
+                        throw new AggregateException("VM worker construction failed.", errors);
+                    }
+
                     throw;
                 }
             }
@@ -125,7 +138,11 @@ public sealed class VmInferenceEngine : IAsyncDisposable
             }
             try { manager.Dispose(); }
             catch (Exception cleanup) { errors.Add(cleanup); }
-            if (errors.Count > 1) throw new AggregateException("Inference engine construction failed.", errors);
+            if (errors.Count > 1)
+            {
+                throw new AggregateException("Inference engine construction failed.", errors);
+            }
+
             throw;
         }
 
@@ -136,10 +153,15 @@ public sealed class VmInferenceEngine : IAsyncDisposable
             var output = component.Program.Slots.SingleOrDefault(slot => slot.Id == component.OutputSlot);
             if (input?.Tensor.ElementType != VmElementType.Int32 ||
                 output?.Tensor.ElementType != VmElementType.Float32)
+            {
                 throw new ArgumentException("Inference requires an Int32 token slot and Float32 logits slot.");
+            }
+
             var entry = isPrefill ? "prefill.1" : "forward";
             if (!component.Program.Entries.Any(candidate => candidate.Name == entry))
+            {
                 throw new InvalidDataException($"The VM program has no required '{entry}' entry.");
+            }
         }
     }
 
@@ -155,7 +177,11 @@ public sealed class VmInferenceEngine : IAsyncDisposable
         }
     }
 
-    internal void Remove(VmInferenceSession session) { lock (gate) sessions.Remove(session); }
+    internal void Remove(VmInferenceSession session) { lock (gate)
+        {
+            sessions.Remove(session);
+        }
+    }
 
     internal async ValueTask<float[]> PrefillAsync(VmSessionResources state, int[] tokens, CancellationTokenSource cancellation)
     {
@@ -171,7 +197,10 @@ public sealed class VmInferenceEngine : IAsyncDisposable
                 cancellation.Token.ThrowIfCancellationRequested();
                 var entry = entries.FirstOrDefault(entry => entry.Tokens <= tokens.Length - offset);
                 if (entry.Name is null)
+                {
                     throw new InvalidDataException("The prefill program cannot execute this token count.");
+                }
+
                 var request = new InferenceRequest(state, entry.Name, tokens.AsSpan(offset, entry.Tokens).ToArray(), cancellation);
                 result = await queue.PrefillAsync((worker, token) => ExecuteRequest(worker, request, token),
                     cancellation.Token).ConfigureAwait(false);
@@ -217,7 +246,10 @@ public sealed class VmInferenceEngine : IAsyncDisposable
 
     internal void ValidateToken(int token)
     {
-        if (token < 0 || token >= VocabularySize) throw new ArgumentOutOfRangeException(nameof(token));
+        if (token < 0 || token >= VocabularySize)
+        {
+            throw new ArgumentOutOfRangeException(nameof(token));
+        }
     }
 
     private float[] Run(Worker worker, string entry, ReadOnlySpan<int> tokens, CancellationToken cancellation)
@@ -230,9 +262,14 @@ public sealed class VmInferenceEngine : IAsyncDisposable
             var output = worker.Bindings.Program.Slots[worker.OutputIndex];
             access.GetStorage(input).Write(0, MemoryMarshal.AsBytes(tokens));
             if (worker.Executable is IVmTaskExecutable tasks)
+            {
                 tasks.ExecuteTask(entry, access, cancellation);
+            }
             else
+            {
                 worker.Executable.Execute(entry, access.GetBuffers());
+            }
+
             cancellation.ThrowIfCancellationRequested();
             var result = new float[checked((int)output.Tensor.ElementCount)];
             access.Read(output.Id, 0, MemoryMarshal.AsBytes(result.AsSpan()));
@@ -259,8 +296,16 @@ public sealed class VmInferenceEngine : IAsyncDisposable
     {
         await Task.Yield();
         VmInferenceSession[] snapshot;
-        lock (gate) snapshot = sessions.ToArray();
-        foreach (var session in snapshot) session.Stop();
+        lock (gate)
+        {
+            snapshot = sessions.ToArray();
+        }
+
+        foreach (var session in snapshot)
+        {
+            session.Stop();
+        }
+
         List<Exception>? errors = null;
         try { await queue.DisposeAsync().ConfigureAwait(false); }
         catch (Exception error) { (errors ??= []).Add(error); }
@@ -271,7 +316,10 @@ public sealed class VmInferenceEngine : IAsyncDisposable
         }
         try { manager.Dispose(); }
         catch (Exception error) { (errors ??= []).Add(error); }
-        if (errors is not null) throw new AggregateException("Inference engine shutdown failed.", errors);
+        if (errors is not null)
+        {
+            throw new AggregateException("Inference engine shutdown failed.", errors);
+        }
     }
 
     internal sealed class Worker : IDisposable
@@ -288,7 +336,10 @@ public sealed class VmInferenceEngine : IAsyncDisposable
                 if (!int.TryParse(entry.Name.AsSpan("prefill.".Length), System.Globalization.NumberStyles.None,
                     System.Globalization.CultureInfo.InvariantCulture, out var tokens) ||
                     tokens <= 0 || (ulong)tokens > bindings.Program.Slots[InputIndex].Tensor.ElementCount)
+                {
                     throw new InvalidDataException($"Invalid prefill entry '{entry.Name}'.");
+                }
+
                 entries.Add((entry.Name, tokens));
             }
             PrefillEntries = entries.OrderByDescending(entry => entry.Tokens).ToArray();
@@ -330,12 +381,25 @@ public sealed class VmInferenceSession : IAsyncDisposable
     /// <param name="cancellation">The token used to cancel the operation.</param>
     public async ValueTask<float[]> PrefillAsync(ReadOnlyMemory<int> tokens, CancellationToken cancellation = default)
     {
-        if (tokens.IsEmpty) throw new ArgumentException("At least one token is required.", nameof(tokens));
+        if (tokens.IsEmpty)
+        {
+            throw new ArgumentException("At least one token is required.", nameof(tokens));
+        }
+
         if (tokens.Length > engine.MaximumPrefillTokens)
+        {
             throw new ArgumentOutOfRangeException(nameof(tokens), "Prefill exceeds the configured token budget.");
+        }
+
         var snapshot = tokens.ToArray();
         foreach (var token in snapshot)
-            if (token < 0 || token >= engine.VocabularySize) throw new ArgumentOutOfRangeException(nameof(tokens));
+        {
+            if (token < 0 || token >= engine.VocabularySize)
+            {
+                throw new ArgumentOutOfRangeException(nameof(tokens));
+            }
+        }
+
         using var linked = Link(cancellation);
         await operations.WaitAsync(linked.Token).ConfigureAwait(false);
         try { return await engine.PrefillAsync(state, snapshot, linked).ConfigureAwait(false); }
@@ -360,7 +424,11 @@ public sealed class VmInferenceSession : IAsyncDisposable
         }
         catch
         {
-            if (acquired) operations.Release();
+            if (acquired)
+            {
+                operations.Release();
+            }
+
             linked.Dispose();
             throw;
         }
@@ -376,7 +444,10 @@ public sealed class VmInferenceSession : IAsyncDisposable
         lock (gate)
         {
             if (!ReferenceEquals(generation, scope))
+            {
                 throw new InvalidOperationException("The generation scope does not own this session.");
+            }
+
             generation = null;
             operations.Release();
         }
@@ -439,7 +510,10 @@ public sealed class VmInferenceSession : IAsyncDisposable
             using var bindings = state.CreateStateBindings();
             using var access = bindings.BeginStateAccess();
             foreach (var slot in state.StateProgram.Slots)
+            {
                 access.WriteState(slot.Id, new byte[checked((int)slot.Tensor.ByteLength)]);
+            }
+
             access.ValidateState();
         }
         finally { operations.Release(); }
@@ -458,7 +532,11 @@ public sealed class VmInferenceSession : IAsyncDisposable
         {
             using var bindings = state.CreateStateBindings();
             using var access = bindings.BeginStateAccess();
-            if (!access.StateValid) throw new InvalidOperationException("Cannot read an invalid session state.");
+            if (!access.StateValid)
+            {
+                throw new InvalidOperationException("Cannot read an invalid session state.");
+            }
+
             var values = new Dictionary<string, byte[]>(StringComparer.Ordinal);
             foreach (var slot in state.StateProgram.Slots)
             {
@@ -481,7 +559,10 @@ public sealed class VmInferenceSession : IAsyncDisposable
         if (values.Count != state.StateProgram.Slots.Count ||
             state.StateProgram.Slots.Any(slot => !values.TryGetValue(slot.Id, out var bytes) ||
                 bytes is null || (ulong)bytes.Length != slot.Tensor.ByteLength))
+        {
             throw new InvalidDataException("State entries do not match the session schema.");
+        }
+
         var snapshot = values.ToDictionary(pair => pair.Key, pair => pair.Value.ToArray(), StringComparer.Ordinal);
         using var linked = Link(cancellation);
         await operations.WaitAsync(linked.Token).ConfigureAwait(false);
@@ -492,7 +573,10 @@ public sealed class VmInferenceSession : IAsyncDisposable
             try
             {
                 foreach (var slot in state.StateProgram.Slots)
+                {
                     access.WriteState(slot.Id, snapshot[slot.Id]);
+                }
+
                 access.ValidateState();
             }
             catch
@@ -517,7 +601,10 @@ public sealed class VmInferenceSession : IAsyncDisposable
     {
         lock (gate)
         {
-            if (!lifetimeDisposed) lifetime.Cancel();
+            if (!lifetimeDisposed)
+            {
+                lifetime.Cancel();
+            }
         }
     }
 
@@ -536,7 +623,11 @@ public sealed class VmInferenceSession : IAsyncDisposable
         await Task.Yield();
         Stop();
         VmGenerationLease? active;
-        lock (gate) active = generation;
+        lock (gate)
+        {
+            active = generation;
+        }
+
         if (active is not null)
         {
             try { await active.DisposeAsync().ConfigureAwait(false); }
@@ -597,7 +688,11 @@ public sealed class VmGenerationLease : IAsyncDisposable
         try { return await session.ForwardScopedAsync(token, linked).ConfigureAwait(false); }
         catch (Exception error)
         {
-            lock (gate) failure ??= error;
+            lock (gate)
+            {
+                failure ??= error;
+            }
+
             throw;
         }
         finally { steps.Release(); }
@@ -606,20 +701,34 @@ public sealed class VmGenerationLease : IAsyncDisposable
     /// <summary>Cancels active token work, waits for completion, and releases the session's generation reservation.</summary>
     public ValueTask DisposeAsync()
     {
-        lock (gate) return new ValueTask(shutdown ??= DisposeCoreAsync());
+        lock (gate)
+        {
+            return new ValueTask(shutdown ??= DisposeCoreAsync());
+        }
     }
 
     private async Task DisposeCoreAsync()
     {
         await Task.Yield();
-        if (steps.CurrentCount == 0) cancellation.Cancel();
+        if (steps.CurrentCount == 0)
+        {
+            cancellation.Cancel();
+        }
+
         await steps.WaitAsync().ConfigureAwait(false);
         var cancelled = cancellation.IsCancellationRequested;
         try
         {
             session.EndGeneration(this);
-            if (failure is { } error) System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(error).Throw();
-            if (cancelled) throw new OperationCanceledException(cancellation.Token);
+            if (failure is { } error)
+            {
+                System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(error).Throw();
+            }
+
+            if (cancelled)
+            {
+                throw new OperationCanceledException(cancellation.Token);
+            }
         }
         finally
         {

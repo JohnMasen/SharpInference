@@ -60,8 +60,16 @@ public sealed record ProcessorTextCapabilities
     /// <param name="maximumBatchSize">The maximum number of items in a text batch.</param>
     public ProcessorTextCapabilities(int maximumContextLength, int maximumBatchSize = 1)
     {
-        if (maximumContextLength <= 0) throw new ArgumentOutOfRangeException(nameof(maximumContextLength));
-        if (maximumBatchSize <= 0) throw new ArgumentOutOfRangeException(nameof(maximumBatchSize));
+        if (maximumContextLength <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(maximumContextLength));
+        }
+
+        if (maximumBatchSize <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(maximumBatchSize));
+        }
+
         MaximumContextLength = maximumContextLength;
         MaximumBatchSize = maximumBatchSize;
     }
@@ -90,11 +98,30 @@ public sealed record ProcessorImageCapabilities
     {
         ArgumentNullException.ThrowIfNull(pixelFormats);
         if (pixelFormats.Count == 0 || pixelFormats.Any(format => !Enum.IsDefined(format)))
+        {
             throw new ArgumentException("At least one valid pixel format is required.", nameof(pixelFormats));
-        if (maximumWidth <= 0) throw new ArgumentOutOfRangeException(nameof(maximumWidth));
-        if (maximumHeight <= 0) throw new ArgumentOutOfRangeException(nameof(maximumHeight));
-        if (maximumImageCount <= 0) throw new ArgumentOutOfRangeException(nameof(maximumImageCount));
-        if (maximumTileCount <= 0) throw new ArgumentOutOfRangeException(nameof(maximumTileCount));
+        }
+
+        if (maximumWidth <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(maximumWidth));
+        }
+
+        if (maximumHeight <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(maximumHeight));
+        }
+
+        if (maximumImageCount <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(maximumImageCount));
+        }
+
+        if (maximumTileCount <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(maximumTileCount));
+        }
+
         PixelFormats = new HashSet<ProcessorPixelFormat>(pixelFormats);
         MaximumWidth = maximumWidth;
         MaximumHeight = maximumHeight;
@@ -131,11 +158,25 @@ public sealed record ProcessorAudioCapabilities
         ArgumentNullException.ThrowIfNull(sampleFormats);
         ArgumentNullException.ThrowIfNull(sampleRates);
         if (sampleFormats.Count == 0 || sampleFormats.Any(format => !Enum.IsDefined(format)))
+        {
             throw new ArgumentException("At least one valid sample format is required.", nameof(sampleFormats));
+        }
+
         if (sampleRates.Count == 0 || sampleRates.Any(rate => rate <= 0))
+        {
             throw new ArgumentException("At least one positive sample rate is required.", nameof(sampleRates));
-        if (maximumChannels <= 0) throw new ArgumentOutOfRangeException(nameof(maximumChannels));
-        if (maximumDuration <= TimeSpan.Zero) throw new ArgumentOutOfRangeException(nameof(maximumDuration));
+        }
+
+        if (maximumChannels <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(maximumChannels));
+        }
+
+        if (maximumDuration <= TimeSpan.Zero)
+        {
+            throw new ArgumentOutOfRangeException(nameof(maximumDuration));
+        }
+
         SampleFormats = new HashSet<ProcessorAudioSampleFormat>(sampleFormats);
         SampleRates = new HashSet<int>(sampleRates);
         MaximumChannels = maximumChannels;
@@ -167,12 +208,21 @@ public sealed record ProcessorExecutionCapabilities
         bool requiresResidentSessionAdmission = false)
     {
         if (maximumConcurrentSessions <= 0)
+        {
             throw new ArgumentOutOfRangeException(nameof(maximumConcurrentSessions));
+        }
+
         if (maximumParallelComponents <= 0)
+        {
             throw new ArgumentOutOfRangeException(nameof(maximumParallelComponents));
+        }
+
         ArgumentNullException.ThrowIfNull(storageDomains);
         if (storageDomains.Any(string.IsNullOrWhiteSpace))
+        {
             throw new ArgumentException("Storage domain names must be non-empty.", nameof(storageDomains));
+        }
+
         MaximumConcurrentSessions = maximumConcurrentSessions;
         MaximumParallelComponents = maximumParallelComponents;
         StorageDomains = new HashSet<string>(storageDomains, StringComparer.Ordinal);
@@ -314,15 +364,36 @@ public sealed record ImageInputPart : ProcessorInputPart
         int stride,
         ProcessorPixelFormat pixelFormat)
     {
-        if (width <= 0) throw new ArgumentOutOfRangeException(nameof(width));
-        if (height <= 0) throw new ArgumentOutOfRangeException(nameof(height));
-        if (stride <= 0) throw new ArgumentOutOfRangeException(nameof(stride));
-        if (!Enum.IsDefined(pixelFormat)) throw new ArgumentOutOfRangeException(nameof(pixelFormat));
+        if (width <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(width));
+        }
+
+        if (height <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(height));
+        }
+
+        if (stride <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(stride));
+        }
+
+        if (!Enum.IsDefined(pixelFormat))
+        {
+            throw new ArgumentOutOfRangeException(nameof(pixelFormat));
+        }
+
         var minimumStride = checked(width * BytesPerPixel(pixelFormat));
         if (stride < minimumStride)
+        {
             throw new ArgumentException("Image stride is smaller than the packed row size.", nameof(stride));
+        }
+
         if (pixels.Length < checked(stride * height))
+        {
             throw new ArgumentException("The pixel buffer does not contain every image row.", nameof(pixels));
+        }
 
         Pixels = pixels;
         Width = width;
@@ -365,13 +436,27 @@ public sealed record AudioInputPart : ProcessorInputPart
         int sampleRate,
         int channels)
     {
-        if (!Enum.IsDefined(sampleFormat)) throw new ArgumentOutOfRangeException(nameof(sampleFormat));
-        if (sampleRate <= 0) throw new ArgumentOutOfRangeException(nameof(sampleRate));
-        if (channels <= 0) throw new ArgumentOutOfRangeException(nameof(channels));
+        if (!Enum.IsDefined(sampleFormat))
+        {
+            throw new ArgumentOutOfRangeException(nameof(sampleFormat));
+        }
+
+        if (sampleRate <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(sampleRate));
+        }
+
+        if (channels <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(channels));
+        }
+
         var frameSize = checked(channels * (sampleFormat == ProcessorAudioSampleFormat.Signed16 ? 2 : 4));
         if (samples.Length == 0 || samples.Length % frameSize != 0)
+        {
             throw new ArgumentException("PCM data must contain a whole number of non-empty sample frames.",
                 nameof(samples));
+        }
 
         Samples = samples;
         SampleFormat = sampleFormat;
@@ -402,7 +487,10 @@ public sealed class ProcessorInput
         ArgumentNullException.ThrowIfNull(parts);
         var values = parts.ToArray();
         if (values.Length == 0 || values.Any(static part => part is null))
+        {
             throw new ArgumentException("Processor input requires at least one ordered part.", nameof(parts));
+        }
+
         Parts = Array.AsReadOnly(values);
         Modalities = values.Aggregate(ProcessorInputModality.None, static (result, part) => result | (part switch
         {

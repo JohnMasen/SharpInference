@@ -29,11 +29,17 @@ public sealed class OperationTemplateSharingPostprocessor : IExecutionGraphPostp
                 // Alias-bearing and instance-scoped contracts remain untouched.
                 if (ports.Count == 0 || ports.Any(port => !port.Resource.Owner.IsParent) ||
                     ports.Select(port => port.Resource).Distinct().Count() != ports.Count)
+                {
                     continue;
+                }
+
                 bindings.Add(operation.Id, ports);
                 var key = Signature(graph, operation, ports);
                 if (!groups.TryGetValue(key, out var group))
+                {
                     groups.Add(key, group = []);
+                }
+
                 group.Add(operation);
             }
 
@@ -44,7 +50,10 @@ public sealed class OperationTemplateSharingPostprocessor : IExecutionGraphPostp
                     SHA256.HashData(Encoding.UTF8.GetBytes(graph.Id.Value + "\n" + key)));
                 var id = new ExecutionGraphId(idBase);
                 for (var suffix = 1; !graphIds.Add(id); suffix++)
+                {
                     id = new(idBase + "." + suffix);
+                }
+
                 var exemplar = operations[0];
                 var ports = bindings[exemplar.Id];
                 var builder = new ExecutionGraphBuilder(id, GraphCompileBoundary.Atomic);
@@ -71,8 +80,10 @@ public sealed class OperationTemplateSharingPostprocessor : IExecutionGraphPostp
                 }));
                 templates.Add(builder.Build());
                 foreach (var operation in operations)
+                {
                     calls.Add(operation.Id, new(operation.Id, id, GraphCompileBoundary.Atomic,
                         operation.Source with { Transformation = Name }, operation.Architecture));
+                }
             }
             result.Add(calls.Count == 0 ? graph : ExecutionDependencyAnalysis.WithStructure(graph,
                 new Graph<ExecutionGraphStructureNode, ExecutionGraphEdge>(

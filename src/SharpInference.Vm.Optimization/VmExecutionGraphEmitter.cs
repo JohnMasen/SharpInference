@@ -52,16 +52,24 @@ public sealed class VmExecutionGraphEmitter
             string.IsNullOrWhiteSpace(options.Entry) ||
             string.IsNullOrWhiteSpace(options.StateSchema) ||
             options.StateVersion <= 0)
+        {
             throw new ArgumentException("VM artifact, entry, and state identities must be nonempty and versioned.", nameof(options));
+        }
+
         if (options.DefaultGpuThreads is 0 or > 1024)
+        {
             throw new ArgumentOutOfRangeException(nameof(options), "GPU thread count must be between 1 and 1024.");
+        }
 
         var graphs = program.Graphs.ToDictionary(graph => graph.Id);
         var frames = new Dictionary<ExecutionGraphId, Frame>();
         Frame BuildFrame(ExecutionGraphId id)
         {
             if (frames.TryGetValue(id, out var existing))
+            {
                 return existing;
+            }
+
             var graph = graphs[id];
             var parameters = graph.Resources.Select(resource =>
                 new FrameParameter(resource.Id.Value, resource.Tensor, resource.Kind, resource.BindingKey)).ToList();
@@ -71,11 +79,13 @@ public sealed class VmExecutionGraphEmitter
                 var boundPorts = graph.Bindings(call).Select(binding => binding.Port)
                     .ToHashSet(StringComparer.Ordinal);
                 foreach (var parameter in child.Parameters.Where(parameter => !boundPorts.Contains(parameter.Name)))
+                {
                     parameters.Add(parameter with
                     {
                         Name = InstanceName(call.Id, parameter.Name),
                         BindingKey = null,
                     });
+                }
             }
             EnsureUnique(parameters.Select(parameter => parameter.Name),
                 $"graph '{graph.Id}' VM parameters");
@@ -86,11 +96,15 @@ public sealed class VmExecutionGraphEmitter
 
         var root = BuildFrame(program.RootGraph);
         foreach (var graph in program.Graphs)
+        {
             BuildFrame(graph.Id);
+        }
 
         var definitions = new List<VmDefinition>();
         foreach (var graph in program.Graphs)
+        {
             EmitGraph(frames[graph.Id], frames, definitions, options);
+        }
 
         var slots = root.Parameters.Select(parameter => new VmSlot(
             parameter.Name,
@@ -196,7 +210,10 @@ public sealed class VmExecutionGraphEmitter
     private GraphInstructionBinding Resolve(ExecutionOperationNode operation, Frame frame)
     {
         if (bindings.TryGetValue(operation.Operation, out var binding))
+        {
             return binding;
+        }
+
         var output = frame.Graph.Bindings(operation).FirstOrDefault(binding =>
             binding.Access != GraphResourceAccess.Read);
         var collection = output is not null
@@ -278,8 +295,11 @@ public sealed class VmExecutionGraphEmitter
         var groups = checked((uint)((count + options.DefaultGpuThreads - 1) /
             options.DefaultGpuThreads));
         if (groups is 0 or > 65535)
+        {
             throw new NotSupportedException(
                 $"Operation '{operation.Id}' exceeds the default one-dimensional D3D12 dispatch grid.");
+        }
+
         return new(new VmThreadGroup(options.DefaultGpuThreads), new VmThreadGroup(groups));
     }
 
@@ -294,8 +314,10 @@ public sealed class VmExecutionGraphEmitter
             dispatch.GroupsX is 0 or > 65535 ||
             dispatch.GroupsY is 0 or > 65535 ||
             dispatch.GroupsZ is 0 or > 65535)
+        {
             throw new InvalidDataException(
                 $"Operation '{operation.Id}' has an invalid registered D3D12 dispatch configuration.");
+        }
     }
 
     private static string ResolveCallSource(
@@ -356,7 +378,10 @@ public sealed class VmExecutionGraphEmitter
     private static VmTensor Tensor(TensorDescriptor tensor)
     {
         if (!string.Equals(tensor.Layout, "dense", StringComparison.Ordinal))
+        {
             throw new NotSupportedException($"VM emission does not support tensor layout '{tensor.Layout}'.");
+        }
+
         return new VmTensor(tensor.ElementType switch
         {
             GraphElementType.Byte => VmElementType.Byte,
@@ -379,7 +404,9 @@ public sealed class VmExecutionGraphEmitter
         var duplicate = values.GroupBy(value => value, StringComparer.Ordinal)
             .FirstOrDefault(group => group.Count() != 1);
         if (duplicate is not null)
+        {
             throw new InvalidDataException($"Duplicate {description} identifier '{duplicate.Key}'.");
+        }
     }
 
     private sealed record Frame(ExecutionGraph Graph, IReadOnlyList<FrameParameter> Parameters);

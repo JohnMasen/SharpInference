@@ -22,7 +22,10 @@ public sealed class RwkvTinyExecutionPipelineTests
     {
         var directory = ModelDirectory();
         if (directory is null)
+        {
             return;
+        }
+
         using var catalog = GgmlModelFile.Open(Path.Combine(directory, fileName));
         var logical = architecture == "rwkv-6"
             ? new PortableRwkv6GraphProvider().Build(catalog)
@@ -55,7 +58,10 @@ public sealed class RwkvTinyExecutionPipelineTests
     {
         var directory = ModelDirectory();
         if (directory is null)
+        {
             return;
+        }
+
         using var catalog = GgmlModelFile.Open(
             Path.Combine(directory, "tiny-rwkv-7v0-834K-FP32.bin"));
         var logical = new PortableRwkv7GraphProvider().Build(catalog);
@@ -76,7 +82,10 @@ public sealed class RwkvTinyExecutionPipelineTests
         {
             var slot = program.Slots[index];
             if (slot.Scope != VmSlotScope.Global)
+            {
                 continue;
+            }
+
             using var storage = new VmMemoryStorage(buffers[index].Length);
             VmModelBindings.InitializeGlobal(catalog, slot, storage);
             storage.Read(0, buffers[index]);
@@ -111,7 +120,10 @@ public sealed class RwkvTinyExecutionPipelineTests
     {
         var directory = ModelDirectory();
         if (directory is null)
+        {
             return;
+        }
+
         using var catalog = GgmlModelFile.Open(
             Path.Combine(directory, "tiny-rwkv-7v0-834K-FP32.bin"));
         var logical = new PortableRwkv7GraphProvider().Build(catalog);
@@ -133,7 +145,10 @@ public sealed class RwkvTinyExecutionPipelineTests
         {
             var slot = program.Slots[index];
             if (slot.Scope != VmSlotScope.Global)
+            {
                 continue;
+            }
+
             using var storage = new VmMemoryStorage(buffers[index].Length);
             VmModelBindings.InitializeGlobal(catalog, slot, storage);
             storage.Read(0, buffers[index]);
@@ -170,10 +185,16 @@ public sealed class RwkvTinyExecutionPipelineTests
             .SingleOrDefault(attribute =>
                 attribute.Key == "RwkvTestModelDirectory")?.Value;
         if (string.IsNullOrWhiteSpace(value))
+        {
             return null;
+        }
+
         if (!Path.IsPathFullyQualified(value) || !Directory.Exists(value))
+        {
             throw new InvalidOperationException(
                 "RwkvTestModelDirectory must identify an existing absolute directory.");
+        }
+
         return value;
     }
 }

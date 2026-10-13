@@ -93,7 +93,10 @@ public static class GgufStateFile
         ArgumentNullException.ThrowIfNull(stream);
         ArgumentNullException.ThrowIfNull(state);
         if (!stream.CanWrite || !stream.CanSeek)
+        {
             throw new ArgumentException("The stream must be writable and seekable.", nameof(stream));
+        }
+
         var start = stream.Position;
 
         var names = new HashSet<string>(StringComparer.Ordinal);
@@ -103,10 +106,17 @@ public static class GgufStateFile
         {
             var tensor = state.Tensors[i];
             ArgumentNullException.ThrowIfNull(tensor);
-            if (!names.Add(tensor.Name)) throw new ArgumentException($"Duplicate tensor name '{tensor.Name}'.", nameof(state));
+            if (!names.Add(tensor.Name))
+            {
+                throw new ArgumentException($"Duplicate tensor name '{tensor.Name}'.", nameof(state));
+            }
+
             var bytes = TensorLength(tensor.Type, tensor.Dimensions);
             if (bytes != (ulong)tensor.Data.Length)
+            {
                 throw new ArgumentException($"Tensor '{tensor.Name}' has {tensor.Data.Length} bytes, expected {bytes}.", nameof(state));
+            }
+
             offsets[i] = Align(end);
             end = checked(offsets[i] + bytes);
         }
@@ -123,7 +133,11 @@ public static class GgufStateFile
             var tensor = state.Tensors[i];
             WriteString(writer, tensor.Name);
             writer.Write((uint)tensor.Dimensions.Count);
-            foreach (var dimension in tensor.Dimensions) writer.Write(dimension);
+            foreach (var dimension in tensor.Dimensions)
+            {
+                writer.Write(dimension);
+            }
+
             writer.Write((uint)tensor.Type);
             writer.Write(offsets[i]);
         }
@@ -145,34 +159,61 @@ public static class GgufStateFile
     public static GgufState Read(Stream stream)
     {
         ArgumentNullException.ThrowIfNull(stream);
-        if (!stream.CanRead || !stream.CanSeek) throw new ArgumentException("The stream must be readable and seekable.", nameof(stream));
+        if (!stream.CanRead || !stream.CanSeek)
+        {
+            throw new ArgumentException("The stream must be readable and seekable.", nameof(stream));
+        }
+
         try
         {
             using var reader = new BinaryReader(stream, Utf8, leaveOpen: true);
             var start = stream.Position;
             if (reader.ReadUInt32() != Magic || reader.ReadUInt32() != Version)
+            {
                 throw new InvalidDataException("Expected a GGUF v3 header.");
+            }
+
             var tensorCount = reader.ReadUInt64();
             var metadataCount = reader.ReadUInt64();
             if (tensorCount > (ulong)(stream.Length - stream.Position) / 24 ||
                 metadataCount > (ulong)(stream.Length - stream.Position) / 16)
+            {
                 throw new InvalidDataException("GGUF entry count exceeds file length.");
+            }
 
             string? architecture = null, schema = null;
             var keys = new HashSet<string>(StringComparer.Ordinal);
             for (ulong i = 0; i < metadataCount; i++)
             {
                 var key = ReadString(reader);
-                if (!keys.Add(key)) throw new InvalidDataException($"Duplicate GGUF metadata key '{key}'.");
+                if (!keys.Add(key))
+                {
+                    throw new InvalidDataException($"Duplicate GGUF metadata key '{key}'.");
+                }
+
                 if (reader.ReadUInt32() != StringValueType)
+                {
                     throw new InvalidDataException($"Metadata '{key}' must be a GGUF string.");
+                }
+
                 var value = ReadString(reader);
-                if (key == ArchitectureKey) architecture = value;
-                else if (key == SchemaKey) schema = value;
-                else throw new InvalidDataException($"Unexpected state metadata '{key}'.");
+                if (key == ArchitectureKey)
+                {
+                    architecture = value;
+                }
+                else if (key == SchemaKey)
+                {
+                    schema = value;
+                }
+                else
+                {
+                    throw new InvalidDataException($"Unexpected state metadata '{key}'.");
+                }
             }
             if (architecture != Architecture || string.IsNullOrWhiteSpace(schema))
+            {
                 throw new InvalidDataException("GGUF state requires sharpinference architecture and a schema name.");
+            }
 
             var count = checked((int)tensorCount);
             var entries = new (string Name, GgufTensorType Type, ulong[] Dimensions, ulong Offset, ulong Length)[count];
@@ -181,11 +222,22 @@ public static class GgufStateFile
             {
                 var name = ReadString(reader);
                 if (string.IsNullOrWhiteSpace(name) || !names.Add(name))
+                {
                     throw new InvalidDataException("Empty or duplicate GGUF tensor name.");
+                }
+
                 var dimensionCount = reader.ReadUInt32();
-                if (dimensionCount is < 1 or > 4) throw new InvalidDataException("Unsupported GGUF tensor dimension count.");
+                if (dimensionCount is < 1 or > 4)
+                {
+                    throw new InvalidDataException("Unsupported GGUF tensor dimension count.");
+                }
+
                 var dimensions = new ulong[dimensionCount];
-                for (var j = 0; j < dimensions.Length; j++) dimensions[j] = reader.ReadUInt64();
+                for (var j = 0; j < dimensions.Length; j++)
+                {
+                    dimensions[j] = reader.ReadUInt64();
+                }
+
                 var type = (GgufTensorType)reader.ReadUInt32();
                 var offset = reader.ReadUInt64();
                 ulong length;
@@ -197,7 +249,11 @@ public static class GgufStateFile
 
             var headerLength = stream.Position - start;
             var dataStart = checked(start + (long)Align((ulong)headerLength));
-            if (dataStart > stream.Length) throw new InvalidDataException("Truncated GGUF header padding.");
+            if (dataStart > stream.Length)
+            {
+                throw new InvalidDataException("Truncated GGUF header padding.");
+            }
+
             CheckZeros(reader, dataStart - stream.Position);
             ulong expected = 0;
             var tensors = new GgufStateTensor[count];
@@ -207,15 +263,25 @@ public static class GgufStateFile
                 if (entry.Offset != Align(expected) || entry.Length > int.MaxValue ||
                     entry.Offset > (ulong)(stream.Length - dataStart) ||
                     entry.Length > (ulong)(stream.Length - dataStart) - entry.Offset)
+                {
                     throw new InvalidDataException($"Invalid GGUF tensor offset or data length for '{entry.Name}'.");
+                }
+
                 CheckZeros(reader, checked((long)(entry.Offset - expected)));
                 var data = reader.ReadBytes((int)entry.Length);
-                if (data.Length != (int)entry.Length) throw new InvalidDataException($"Truncated tensor '{entry.Name}'.");
+                if (data.Length != (int)entry.Length)
+                {
+                    throw new InvalidDataException($"Truncated tensor '{entry.Name}'.");
+                }
+
                 tensors[i] = new GgufStateTensor(entry.Name, entry.Type, entry.Dimensions, data);
                 expected = checked(entry.Offset + entry.Length);
             }
             if (stream.Position != stream.Length)
+            {
                 throw new InvalidDataException("GGUF tensor data length does not match the file length.");
+            }
+
             return new GgufState(schema, tensors);
         }
         catch (EndOfStreamException exception)
@@ -235,7 +301,10 @@ public static class GgufStateFile
     private static ulong TensorLength(GgufTensorType type, IReadOnlyList<ulong> dimensions)
     {
         if (dimensions.Count is < 1 or > 4 || dimensions.Any(static d => d == 0))
+        {
             throw new ArgumentException("GGUF tensors require one to four positive dimensions.");
+        }
+
         var size = type switch
         {
             GgufTensorType.Int8 => 1UL,
@@ -244,7 +313,11 @@ public static class GgufStateFile
             GgufTensorType.Float64 or GgufTensorType.Int64 => 8UL,
             _ => throw new ArgumentException($"Unsupported GGML tensor type {(uint)type}."),
         };
-        foreach (var dimension in dimensions) size = checked(size * dimension);
+        foreach (var dimension in dimensions)
+        {
+            size = checked(size * dimension);
+        }
+
         return size;
     }
 
@@ -261,7 +334,10 @@ public static class GgufStateFile
     {
         var size = reader.ReadUInt64();
         if (size > int.MaxValue || size > (ulong)(reader.BaseStream.Length - reader.BaseStream.Position))
+        {
             throw new InvalidDataException("GGUF string exceeds remaining file length.");
+        }
+
         return Utf8.GetString(reader.ReadBytes((int)size));
     }
 
@@ -274,12 +350,20 @@ public static class GgufStateFile
 
     private static void WritePadding(BinaryWriter writer, int count)
     {
-        if (count > 0) writer.Write(new byte[count]);
+        if (count > 0)
+        {
+            writer.Write(new byte[count]);
+        }
     }
 
     private static void CheckZeros(BinaryReader reader, long count)
     {
         while (count-- > 0)
-            if (reader.ReadByte() != 0) throw new InvalidDataException("Nonzero GGUF alignment padding.");
+        {
+            if (reader.ReadByte() != 0)
+            {
+                throw new InvalidDataException("Nonzero GGUF alignment padding.");
+            }
+        }
     }
 }

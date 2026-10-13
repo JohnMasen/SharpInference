@@ -20,13 +20,18 @@ public sealed class PortableRwkv6GraphProvider
         if (!tensors.TryGet("blocks.0.att.time_maa_x", out _) ||
             !tensors.TryGet("blocks.0.att.time_faaaa", out var first) ||
             tensors.TryGet("blocks.0.att.k_k", out _))
+        {
             throw new InvalidDataException("The tensor catalog does not satisfy the RWKV-6 x060 contract.");
+        }
 
         var width = modelDimensions.EmbeddingSize;
         if (first.Dimensions.Count != 3 || first.Dimensions[0] != 1 ||
             first.Dimensions[1] <= 0 || first.Dimensions[2] <= 0 ||
             checked(first.Dimensions[1] * first.Dimensions[2]) != width)
+        {
             throw new InvalidDataException("RWKV-6 time_faaaa has incompatible head dimensions.");
+        }
+
         var size = first.Dimensions[1];
         var heads = first.Dimensions[2];
         return PortableRwkvGraphDefinitionComposer.Define(
@@ -46,8 +51,11 @@ public sealed class PortableRwkv6GraphProvider
         {
             var tensor = tensors.GetRequired(name);
             if (tensor.DataType is not (TensorDataType.Float16 or TensorDataType.Float32))
-                throw new InvalidDataException($"Tensor '{name}' must be FP16 or FP32.");
-            var id = $"weight.{name}";
+                {
+                    throw new InvalidDataException($"Tensor '{name}' must be FP16 or FP32.");
+                }
+
+                var id = $"weight.{name}";
             var type = tensor.DataType == TensorDataType.Float16
                 ? GraphElementType.Float16 : GraphElementType.Float32;
             builder.AddWeight(id, name, new TensorDescriptor(type, tensor.Dimensions), name);
@@ -83,8 +91,10 @@ public sealed class PortableRwkv6GraphProvider
             {
                 if (!existing.SequenceEqual(resultShape) ||
                     (types.TryGetValue(resultId, out var existingType) && existingType != type))
-                    throw new InvalidDataException($"Resource '{resultId}' has incompatible dimensions or type.");
-            }
+                    {
+                        throw new InvalidDataException($"Resource '{resultId}' has incompatible dimensions or type.");
+                    }
+                }
             else
             {
                 builder.AddTemporary(resultId, new TensorDescriptor(type, resultShape));
@@ -101,8 +111,11 @@ public sealed class PortableRwkv6GraphProvider
         string Reshape(string input, params int[] dimensions)
         {
             if (Count(Shape(input)) != Count(dimensions))
-                throw new InvalidDataException($"Cannot reshape '{input}'.");
-            return Shape(input).SequenceEqual(dimensions) ? input :
+                {
+                    throw new InvalidDataException($"Cannot reshape '{input}'.");
+                }
+
+                return Shape(input).SequenceEqual(dimensions) ? input :
                 Node(TensorOps.Reshape, [("input", input)], dimensions);
         }
         string Broadcast(string input, params int[] dimensions) =>
@@ -113,24 +126,33 @@ public sealed class PortableRwkv6GraphProvider
         {
             var id = $"weight.{name}";
             if (!types.TryGetValue(id, out var type))
-                throw new InvalidDataException($"Missing RWKV-6 tensor '{name}'.");
-            return type == GraphElementType.Float32 ? id :
+                {
+                    throw new InvalidDataException($"Missing RWKV-6 tensor '{name}'.");
+                }
+
+                return type == GraphElementType.Float32 ? id :
                 Node(TensorOps.CastFp16ToFp32, [("input", id)], Shape(id));
         }
         string VectorWeight(string name, int length)
         {
             var weight = Weight(name);
             if (Count(Shape(weight)) != length)
-                throw new InvalidDataException($"Tensor '{name}' must contain {length} values.");
-            return Reshape(weight, length);
+                {
+                    throw new InvalidDataException($"Tensor '{name}' must contain {length} values.");
+                }
+
+                return Reshape(weight, length);
         }
         string Unary(GraphOperationId op, string input) =>
             Node(op, [("input", input)], Shape(input));
         string Binary(GraphOperationId op, string left, string right)
         {
             if (!Shape(left).SequenceEqual(Shape(right)))
-                throw new InvalidDataException($"Incompatible elementwise dimensions: '{left}', '{right}'.");
-            return Node(op, [("left", left), ("right", right)], Shape(left));
+                {
+                    throw new InvalidDataException($"Incompatible elementwise dimensions: '{left}', '{right}'.");
+                }
+
+                return Node(op, [("left", left), ("right", right)], Shape(left));
         }
         string Add(string left, string right) => Binary(PrimitiveGraphOperations.Add, left, right);
         string Sub(string left, string right) => Binary(PrimitiveGraphOperations.Subtract, left, right);
@@ -144,15 +166,20 @@ public sealed class PortableRwkv6GraphProvider
             var weight = Weight(name);
             var dimensions = Shape(weight);
             if (dimensions.Length != 2 || dimensions[0] != inputLength)
-                throw new InvalidDataException($"Tensor '{name}' has invalid projection dimensions.");
-            // GGML dimensions [input,output] store consecutive rows of input elements.
-            return Reshape(weight, dimensions[1], dimensions[0]);
+                {
+                    throw new InvalidDataException($"Tensor '{name}' has invalid projection dimensions.");
+                }
+                // GGML dimensions [input,output] store consecutive rows of input elements.
+                return Reshape(weight, dimensions[1], dimensions[0]);
         }
         string Project(string name, string input)
         {
             if (Shape(input).Length != 1)
-                throw new InvalidDataException($"Projection input '{input}' must be a vector.");
-            var matrix = Matrix(name, Shape(input)[0]);
+                {
+                    throw new InvalidDataException($"Projection input '{input}' must be a vector.");
+                }
+
+                var matrix = Matrix(name, Shape(input)[0]);
             return Node(PrimitiveGraphOperations.MatVec,
                 [("matrix", matrix), ("input", input)], [Shape(matrix)[0]]);
         }
@@ -189,7 +216,10 @@ public sealed class PortableRwkv6GraphProvider
         {
             var embedding = Matrix("emb.weight", width);
             if (Shape(embedding)[0] != modelDimensions.VocabularySize)
+            {
                 throw new InvalidDataException("The embedding does not match the vocabulary size.");
+            }
+
             var embedded = Node(PrimitiveGraphOperations.GatherRow,
                 [("table", embedding), ("index", "token")], [width]);
             return Affine(Normalize(embedded, 1e-5f), "blocks.0.ln0.weight", "blocks.0.ln0.bias");
@@ -221,11 +251,17 @@ public sealed class PortableRwkv6GraphProvider
                         var maaInput = Mix(normalized, delta, VectorWeight(Att("time_maa_x"), width));
                         var w1 = Project(Att("time_maa_w1"), maaInput);
                         if (Shape(w1)[0] % 5 != 0)
+                        {
                             throw new InvalidDataException($"Tensor '{Att("time_maa_w1")}' must have five hidden groups.");
+                        }
+
                         var hidden = Shape(w1)[0] / 5;
                         var w2 = Weight(Att("time_maa_w2"));
                         if (!Shape(w2).SequenceEqual(new[] { hidden, width, 5 }))
+                        {
                             throw new InvalidDataException($"Tensor '{Att("time_maa_w2")}' has invalid grouped projection dimensions.");
+                        }
+
                         var groupedWeights = Reshape(w2, 5, width, hidden);
                         var groupedInput = Reshape(Unary(PrimitiveGraphOperations.Tanh, w1), 5, hidden);
                         var maa = Node(TensorOps.BatchedMatVec, [("matrix", groupedWeights), ("vector", groupedInput)], [5, width]);

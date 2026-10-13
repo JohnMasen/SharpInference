@@ -17,7 +17,11 @@ public sealed class Phi4FusionGraphModule : IPhi4GraphModule
     /// <summary>Initializes embedding fusion for the specified prompt length and non-overlapping embedding segments.</summary>
     public Phi4FusionGraphModule(int tokenCount, IEnumerable<Phi4FusionSegment> segments)
     {
-        if (tokenCount <= 0) throw new ArgumentOutOfRangeException(nameof(tokenCount));
+        if (tokenCount <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(tokenCount));
+        }
+
         ArgumentNullException.ThrowIfNull(segments);
         this.tokenCount = tokenCount;
         this.segments = segments.OrderBy(segment => segment.Start).ToArray();
@@ -26,12 +30,21 @@ public sealed class Phi4FusionGraphModule : IPhi4GraphModule
         foreach (var segment in this.segments)
         {
             if (segment.Start != end || segment.TokenCount <= 0 || segment.TokenCount > tokenCount - end)
+            {
                 throw new ArgumentException("Fusion segments must cover the prompt exactly without gaps or overlaps.", nameof(segments));
+            }
+
             if (segment.EmbeddingPort is { } port && (string.IsNullOrWhiteSpace(port) || port is "token_ids" or "output" || !ports.Add(port)))
+            {
                 throw new ArgumentException("Media ports must have unique non-reserved names.", nameof(segments));
+            }
+
             end = checked(end + segment.TokenCount);
         }
-        if (end != tokenCount) throw new ArgumentException("Fusion segments do not cover the prompt.", nameof(segments));
+        if (end != tokenCount)
+        {
+            throw new ArgumentException("Fusion segments do not cover the prompt.", nameof(segments));
+        }
     }
 
     /// <inheritdoc/>
@@ -43,7 +56,10 @@ public sealed class Phi4FusionGraphModule : IPhi4GraphModule
     {
         var embedding = tensors.GetRequired("text.token_embd.weight");
         if (embedding.Dimensions.Count != 2 || embedding.DataType is not (TensorDataType.Float16 or TensorDataType.Float32))
+        {
             throw new InvalidDataException("Phi4 fusion requires FP16/FP32 vocabulary-by-width embeddings.");
+        }
+
         return new(ArchitectureId, new Dictionary<string, long>
         {
             ["tokens"] = tokenCount,
@@ -90,11 +106,13 @@ public sealed class Phi4FusionGraphModule : IPhi4GraphModule
                     else
                     {
                         for (var row = segment.Start; row < segment.Start + segment.TokenCount; row++)
+                        {
                             Emit(scope, PrimitiveGraphOperations.GatherRow,
                                 [GraphBindings.Read("table", "token_embedding"), new("index", new("token_ids"), GraphResourceAccess.Read,
                                 View: new(checked((ulong)row * sizeof(int)), new TensorDescriptor(GraphElementType.Int32, [1]))),
                              new("output", new("output"), GraphResourceAccess.Write,
                                 View: new(checked((ulong)row * (ulong)width * sizeof(float)), new TensorDescriptor(GraphElementType.Float32, [width])))]);
+                        }
                     }
                 }, architecture: new(Description: $"Writes prompt rows [{segment.Start}, {segment.Start + segment.TokenCount}) using the actual tensor-view bindings."));
             }
@@ -113,7 +131,10 @@ public sealed class Phi4FusionGraphModule : IPhi4GraphModule
     {
         ArgumentNullException.ThrowIfNull(legacy);
         if (legacy.ElementType != GraphElementType.Float32 || legacy.Dimensions.Count != 2 || legacy.Layout is not ("dense" or "token-major"))
+        {
             throw new ArgumentException("Phi4 embedding ports require contiguous FP32 token-by-width storage.", nameof(legacy));
+        }
+
         return new(GraphElementType.Float32, legacy.Dimensions);
     }
 }

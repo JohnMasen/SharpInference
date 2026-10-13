@@ -18,12 +18,16 @@ internal sealed class ExecutionDependencyAnalysis
             .Select(successor => positions[successor.GraphId]).Distinct().ToArray()).ToArray();
         reachable = Order.Select(_ => new ulong[(Order.Count + 63) / 64]).ToArray();
         for (var index = Order.Count - 1; index >= 0; index--)
+        {
             foreach (var successor in Successors[index])
             {
                 reachable[index][successor / 64] |= 1UL << (successor % 64);
                 for (var word = 0; word < reachable[index].Length; word++)
+                {
                     reachable[index][word] |= reachable[successor][word];
+                }
             }
+        }
     }
 
     public IReadOnlyList<ExecutionGraphNode> Order { get; }

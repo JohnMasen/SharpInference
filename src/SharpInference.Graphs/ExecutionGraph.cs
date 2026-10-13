@@ -113,10 +113,16 @@ public sealed class ExecutionGraph
         ExecutionGraphSource? source = null)
     {
         if (string.IsNullOrWhiteSpace(id.Value))
+        {
             throw new ArgumentException(
                 "An execution graph identifier is required.", nameof(id));
+        }
+
         if (!Enum.IsDefined(defaultCompileBoundary))
+        {
             throw new ArgumentOutOfRangeException(nameof(defaultCompileBoundary));
+        }
+
         Id = id;
         Structure = structure ?? throw new ArgumentNullException(nameof(structure));
         DefaultCompileBoundary = defaultCompileBoundary;
@@ -152,15 +158,20 @@ public sealed class ExecutionGraph
             foreach (var binding in Bindings(node))
             {
                 if (!ports.Add(binding.Port))
+                {
                     throw new InvalidDataException(
                         $"Node '{Id}/{node.Id}' has duplicate port '{binding.Port}'.");
+                }
+
                 if (!binding.Resource.Owner.IsParent &&
                     Structure.GetNode(binding.Resource.Owner.Call is { } call
                         ? ExecutionGraphNode.NodeGraphId(new ExecutionNodeId(call.Value))
                         : throw new InvalidDataException()) is not ExecutionGraphCallNode)
+                {
                     throw new InvalidDataException(
                         $"Node '{Id}/{node.Id}' references unknown graph-call instance " +
                         $"'{binding.Resource.Owner}'.");
+                }
             }
         }
         try
@@ -247,25 +258,32 @@ public sealed class ExecutionGraphBuilder
         foreach (var binding in bindings)
         {
             if (binding.Access != GraphResourceAccess.Write)
+            {
                 edges.Add(new ExecutionResourceReadEdge(
                     new($"binding:{binding.BindingId}:read"),
                     binding.Resource.GraphId,
                     node.GraphId,
                     binding.Port,
                     binding.BindingId));
+            }
+
             if (binding.Access != GraphResourceAccess.Read)
+            {
                 edges.Add(new ExecutionResourceWriteEdge(
                     new($"binding:{binding.BindingId}:write"),
                     node.GraphId,
                     binding.Resource.GraphId,
                     binding.Port,
                     binding.BindingId));
+            }
         }
         foreach (var dependency in dependencies ?? [])
+        {
             edges.Add(new ExecutionDependencyEdge(
                 new($"dependency:{dependency.Value}:{node.Id.Value}"),
                 ExecutionGraphNode.NodeGraphId(dependency),
                 node.GraphId));
+        }
     }
 }
 
@@ -281,12 +299,19 @@ public sealed class ExecutionGraphProgram
     {
         var values = graphs?.ToArray() ?? throw new ArgumentNullException(nameof(graphs));
         if (values.Length == 0)
+        {
             throw new ArgumentException(
                 "An execution graph program requires at least one graph.", nameof(graphs));
+        }
+
         var map = new Dictionary<ExecutionGraphId, ExecutionGraph>();
         foreach (var graph in values)
+        {
             if (!map.TryAdd(graph.Id, graph))
+            {
                 throw new InvalidDataException($"Duplicate execution graph '{graph.Id}'.");
+            }
+        }
 
         var relations = values.SelectMany(graph =>
             graph.Nodes.OfType<ExecutionGraphCallNode>().Select(call =>
@@ -296,15 +321,23 @@ public sealed class ExecutionGraphProgram
                     call.Target,
                     call.Id))).ToArray();
         foreach (var relation in relations)
+        {
             if (!map.ContainsKey(relation.Target))
+            {
                 throw new InvalidDataException(
                     $"Graph call '{relation.Source}/{relation.Call}' targets unknown graph " +
                     $"'{relation.Target}'.");
+            }
+        }
+
         var referenced = relations.Select(relation => relation.Target).ToHashSet();
         var roots = values.Where(graph => !referenced.Contains(graph.Id)).ToArray();
         if (roots.Length != 1)
+        {
             throw new InvalidDataException(
                 $"An execution graph program requires exactly one root; found {roots.Length}.");
+        }
+
         ValidateCallDag(roots[0].Id, map, relations);
         Graphs = Array.AsReadOnly(values);
         Calls = Array.AsReadOnly(relations);
@@ -363,9 +396,12 @@ public sealed class ExecutionGraphProgram
             if (states.TryGetValue(id, out var state))
             {
                 if (state == 1)
+                {
                     throw new InvalidDataException(
                         $"Execution graph call cycle detected: " +
                         $"{string.Join(" -> ", path.Reverse())} -> {id}.");
+                }
+
                 return;
             }
             states[id] = 1;
@@ -373,7 +409,10 @@ public sealed class ExecutionGraphProgram
             path.Push(id);
             foreach (var target in relations.Where(relation => relation.Source == id)
                 .Select(relation => relation.Target).Distinct())
+            {
                 Visit(target);
+            }
+
             path.Pop();
             states[id] = 2;
         }

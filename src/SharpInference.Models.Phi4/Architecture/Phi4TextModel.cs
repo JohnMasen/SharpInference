@@ -52,12 +52,17 @@ public sealed class Phi4TextModel
     internal void Embed(int token, Span<float> output)
     {
         if ((uint)token >= VocabularySize)
+        {
             throw new ArgumentOutOfRangeException(nameof(token));
+        }
+
         RequireLength(output, EmbeddingSize, nameof(output));
         var values = text.GetTensor("token_embd.weight").HalfValues;
         var offset = checked(token * EmbeddingSize);
         for (var index = 0; index < output.Length; index++)
+        {
             output[index] = (float)values[offset + index];
+        }
     }
 
     internal void ForwardLayer(
@@ -102,9 +107,14 @@ public sealed class Phi4TextModel
         var logits = new float[VocabularySize];
         var weight = Tensor("token_embd.weight");
         if (matrixProjector is null)
+        {
             Linear(workspace.Normalized, 0, EmbeddingSize, weight, null, logits, workspace, null);
+        }
         else
+        {
             matrixProjector.Project(weight, workspace.Normalized, logits);
+        }
+
         return logits;
     }
 
@@ -115,19 +125,26 @@ public sealed class Phi4TextModel
     {
         var sum = 0f;
         for (var index = 0; index < input.Length; index++)
+        {
             sum += input[index] * input[index];
+        }
+
         var scale = 1f / MathF.Sqrt(sum / input.Length + rmsEpsilon);
         if (weight.Type == GgufModelTensorType.Float32)
         {
             var values = weight.FloatValues;
             for (var index = 0; index < input.Length; index++)
+            {
                 output[index] = input[index] * scale * values[index];
+            }
         }
         else
         {
             var values = weight.HalfValues;
             for (var index = 0; index < input.Length; index++)
+            {
                 output[index] = input[index] * scale * (float)values[index];
+            }
         }
     }
 
@@ -144,23 +161,39 @@ public sealed class Phi4TextModel
         var inputSize = checked((int)weight.Dimensions[0]);
         var outputSize = checked((int)weight.Dimensions[1]);
         if (inputLength != inputSize || inputOffset < 0 || inputOffset > input.Length - inputLength)
+        {
             throw new ArgumentException("Linear input does not match the matrix.", nameof(input));
+        }
+
         if (output.Length < outputSize)
+        {
             throw new ArgumentException("Linear output does not match the matrix.", nameof(output));
+        }
+
         if (matrixProjector is null)
+        {
             Multiply(input, inputOffset, inputLength, weight, output);
+        }
         else
+        {
             matrixProjector.Project(
                 weight,
                 input.AsSpan(inputOffset, inputLength),
                 output.AsSpan(0, outputSize));
+        }
+
         if (adapter is not { } lora)
+        {
             return;
+        }
+
         var rank = checked((int)lora.A.Dimensions[1]);
         Multiply(input, inputOffset, inputLength, lora.A, workspace.LoraTemporary);
         Multiply(workspace.LoraTemporary, 0, rank, lora.B, workspace.LoraUpdate);
         for (var index = 0; index < outputSize; index++)
+        {
             output[index] += workspace.LoraUpdate[index] * lora.Scale;
+        }
     }
 
     private static unsafe void Multiply(
@@ -173,7 +206,10 @@ public sealed class Phi4TextModel
         var inputSize = checked((int)matrix.Dimensions[0]);
         var outputSize = checked((int)matrix.Dimensions[1]);
         if (inputLength != inputSize || output.Length < outputSize)
+        {
             throw new ArgumentException("Matrix dimensions do not match the supplied buffers.");
+        }
+
         if (matrix.Type == GgufModelTensorType.Float16)
         {
             var address = matrix.DataAddress;
@@ -249,8 +285,11 @@ public sealed class Phi4TextModel
                 {
                     var score = 0f;
                     for (var index = 0; index < HeadSize; index++)
+                    {
                         score += query[head * HeadSize + index] *
                             cache.GetKey(token, keyValueHead, index);
+                    }
+
                     score /= MathF.Sqrt(HeadSize);
                     scores[token] = score;
                     maximum = MathF.Max(maximum, score);
@@ -265,8 +304,10 @@ public sealed class Phi4TextModel
                 {
                     var probability = scores[token] / denominator;
                     for (var index = 0; index < HeadSize; index++)
+                    {
                         output[head * HeadSize + index] +=
                             probability * cache.GetValue(token, keyValueHead, index);
+                    }
                 }
             }
             finally
@@ -290,7 +331,10 @@ public sealed class Phi4TextModel
             _ => throw new ArgumentOutOfRangeException(nameof(adapter)),
         };
         if (file is null)
+        {
             return null;
+        }
+
         var a = file.GetTensor(name + ".lora_a");
         var b = file.GetTensor(name + ".lora_b");
         var rank = checked((int)a.Dimensions[1]);
@@ -301,13 +345,17 @@ public sealed class Phi4TextModel
     private static void Add(Span<float> destination, ReadOnlySpan<float> source)
     {
         for (var index = 0; index < destination.Length; index++)
+        {
             destination[index] += source[index];
+        }
     }
 
     private static void RequireLength(ReadOnlySpan<float> value, int expected, string parameter)
     {
         if (value.Length != expected)
+        {
             throw new ArgumentException($"Expected {expected} values, received {value.Length}.", parameter);
+        }
     }
 }
 
@@ -344,10 +392,16 @@ public sealed class Phi4TextSession
     public float[] ForwardEmbedding(ReadOnlySpan<float> embedding)
     {
         if (embedding.Length != hidden.Length)
+        {
             throw new ArgumentException("Embedding size does not match Phi-4.", nameof(embedding));
+        }
+
         embedding.CopyTo(hidden);
         for (var layer = 0; layer < caches.Length; layer++)
+        {
             model.ForwardLayer(layer, Position, hidden, Adapter, caches[layer], workspace);
+        }
+
         Position++;
         return model.GetLogits(hidden, workspace);
     }
@@ -378,7 +432,10 @@ internal sealed class Phi4KeyValueCache
     public void Append(ReadOnlySpan<float> key, ReadOnlySpan<float> value)
     {
         if (key.Length != Width || value.Length != Width)
+        {
             throw new ArgumentException("KV width does not match Phi-4.");
+        }
+
         var required = checked((Length + 1) * Width);
         if (keys.Length < required)
         {

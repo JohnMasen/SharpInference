@@ -22,11 +22,15 @@ internal static class D3D12VmSchedule
         void Walk(VmDefinition definition, Dictionary<string, D3D12VmBinding> bindings)
         {
             foreach (var node in definition.Nodes)
+            {
                 if (node.Instruction is VmCall call)
+                {
                     Walk(definitions[call.Definition], call.Arguments.ToDictionary(a => a.Parameter,
                         a => bindings[a.Source] with { Offset = checked(bindings[a.Source].Offset + a.ByteOffset) }, StringComparer.Ordinal));
+                }
                 else if (node.Instruction is VmOperator op)
-                foreach (var bound in op.IndexBounds)
+                {
+                    foreach (var bound in op.IndexBounds)
                 {
                     var indexArgument = op.Arguments.Single(a => a.Parameter == bound.IndexPort);
                     var index = bindings[indexArgument.Source];
@@ -36,6 +40,8 @@ internal static class D3D12VmSchedule
                     result.Add(new(index.Slot, checked(index.Offset + indexArgument.ByteOffset), table.Tensor.Dimensions[bound.Axis],
                         checked((int)indices.Tensor.ElementCount), bound.MinimumIndex));
                 }
+                }
+            }
         }
         var commands = entry is null ? schedules.Values.SelectMany(v => v) : schedules[entry];
         foreach (var dispatch in commands.OfType<D3D12VmDispatch>())
@@ -55,7 +61,10 @@ internal static class D3D12VmSchedule
         foreach (var entry in program.Entries)
         {
             if (definitions[entry.Definition].Kind != VmDefinitionKind.Orchestration)
+            {
                 throw new NotSupportedException($"GPU entry '{entry.Name}' requires an explicit orchestration definition.");
+            }
+
             var commands = new List<D3D12VmCommand>();
             var pendingWrites = new HashSet<int>();
             void Walk(VmDefinition definition, Dictionary<string, D3D12VmBinding> bindings)
@@ -67,6 +76,7 @@ internal static class D3D12VmSchedule
                         return source with { Offset = checked(source.Offset + a.ByteOffset) };
                     }, StringComparer.Ordinal);
                 foreach (var node in definition.Nodes)
+                {
                     switch (node.Instruction)
                     {
                         case VmCall call:
@@ -81,29 +91,45 @@ internal static class D3D12VmSchedule
                             var kernel = definitions[dispatch.Definition];
                             if ((ulong)dispatch.Groups.X * kernel.Threads!.X * dispatch.Groups.Y * kernel.Threads.Y *
                                 dispatch.Groups.Z * kernel.Threads.Z > uint.MaxValue)
+                            {
                                 throw new NotSupportedException($"Dispatch '{node.Id}' exceeds 32-bit linear thread indexing.");
+                            }
+
                             var map = Bind(dispatch.Arguments);
                             var bound = kernel.Parameters.Select(p => map[p.Name]).ToArray();
                             foreach (var binding in bound)
+                            {
                                 if (pendingWrites.Contains(binding.Slot))
+                                {
                                     throw new InvalidDataException($"Dispatch '{node.Id}' accesses a pending UAV write; an explicit VmBarrier is required.");
+                                }
+                            }
+
                             for (var i = 0; i < bound.Length; i++)
                             {
                                 var p = kernel.Parameters[i];
                                 for (var j = i + 1; j < bound.Length; j++)
+                                {
                                     if (bound[i].Slot == bound[j].Slot &&
                                         (p.Access == VmAccess.ReadWrite || kernel.Parameters[j].Access == VmAccess.ReadWrite) &&
                                         bound[i].Offset < bound[j].Offset + kernel.Parameters[j].Tensor.ByteLength &&
                                         bound[j].Offset < bound[i].Offset + p.Tensor.ByteLength)
+                                    {
                                         throw new NotSupportedException($"Dispatch '{node.Id}' aliases writable kernel parameters.");
+                                    }
+                                }
+
                                 if (p.Access == VmAccess.ReadWrite)
+                                {
                                     pendingWrites.Add(bound[i].Slot);
+                                }
                             }
                             commands.Add(new D3D12VmDispatch(kernel.Id, dispatch.Groups, bound));
                             break;
                         default:
                             throw new NotSupportedException($"Orchestration '{definition.Id}' contains an unsupported instruction.");
                     }
+                }
             }
             Walk(definitions[entry.Definition], entry.Arguments.ToDictionary(a => a.Parameter,
                 a => new D3D12VmBinding(slots[a.Source], a.ByteOffset), StringComparer.Ordinal));

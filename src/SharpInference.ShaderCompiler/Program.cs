@@ -64,7 +64,9 @@ var generationStages = new[]
     "StopPatternCheck", "StopFinalize",
 };
 foreach (var stage in generationStages)
+{
     shaders.Add(new($"Rwkv6{stage}.hlsl", $"Rwkv6{stage}.hlsl.dxil", DxcShaderModel.Model6_0, DefineFp16Weights: true));
+}
 
 foreach (var shader in shaders)
 {
@@ -79,7 +81,10 @@ foreach (var shader in shaders)
     }
 
     if (shader.DefineFp16Weights)
+    {
         source = "#define RWKV_FP16_WEIGHTS\n" + source;
+    }
+
     using var compilation = DxcCompiler.Compile(
         DxcShaderStage.Compute,
         source,
@@ -104,11 +109,19 @@ static string ExpandIncludes(
     sourcePath = Path.GetFullPath(sourcePath);
     var root = Path.TrimEndingDirectorySeparator(shaderDirectory) + Path.DirectorySeparatorChar;
     if (!sourcePath.StartsWith(root, StringComparison.OrdinalIgnoreCase))
+    {
         throw new InvalidOperationException($"Include escapes shader directory: '{sourcePath}'.");
+    }
+
     if (includeStack.Contains(sourcePath, StringComparer.OrdinalIgnoreCase))
+    {
         throw new InvalidOperationException($"Circular include: {string.Join(" -> ", includeStack.Reverse().Append(sourcePath))}");
+    }
+
     if (!File.Exists(sourcePath))
+    {
         throw new FileNotFoundException($"Shader source or include not found: '{sourcePath}'.", sourcePath);
+    }
 
     dependencies.Add(sourcePath);
     includeStack.Push(sourcePath);

@@ -20,7 +20,9 @@ public sealed record Phi4TextGraphParameters(int Layers, int QueryHeads, int Key
             embeddingWidth <= 0 || embeddingWidth % QueryHeads != 0 || RotarySize <= 0 || RotarySize % 2 != 0 ||
             RotarySize > embeddingWidth / QueryHeads || !float.IsFinite(RopeBase) || RopeBase <= 0 ||
             !float.IsFinite(RmsEpsilon) || RmsEpsilon <= 0 || !float.IsFinite(RopeScale) || RopeScale <= 0)
+        {
             throw new InvalidDataException("Phi4 text graph parameters have incompatible heads, rotary dimensions or normalization constants.");
+        }
     }
 }
 
@@ -44,14 +46,20 @@ public sealed class Phi4PackageTensorCatalog : IModelFile
         ArgumentNullException.ThrowIfNull(speechAdapter);
         var embedding = text.GetRequired("token_embd.weight");
         if (embedding.Dimensions.Count != 2 || embedding.Dimensions.Any(size => size <= 0))
+        {
             throw new InvalidDataException("Phi4 text embeddings require a positive vocabulary-by-width matrix.");
+        }
+
         parameters.Validate(embedding.Dimensions[1]);
         Path = path;
         TextParameters = parameters;
         Tokenizer = tokenizer;
         if (visionAdapterAlpha is { } visionAlpha && (!float.IsFinite(visionAlpha) || visionAlpha <= 0) ||
             speechAdapterAlpha is { } speechAlpha && (!float.IsFinite(speechAlpha) || speechAlpha <= 0))
+        {
             throw new InvalidDataException("Phi4 adapter alpha must be finite and positive.");
+        }
+
         VisionAdapterAlpha = visionAdapterAlpha;
         SpeechAdapterAlpha = speechAdapterAlpha;
         sources = [text, omni, visionAdapter, speechAdapter];
@@ -62,9 +70,15 @@ public sealed class Phi4PackageTensorCatalog : IModelFile
         var frequencies = Enumerable.Range(0, parameters.RotarySize / 2)
             .Select(index => 1f / MathF.Pow(parameters.RopeBase, 2f * index / parameters.RotarySize)).ToArray();
         if (frequencies.Any(value => !float.IsFinite(value) || value <= 0))
+        {
             throw new InvalidDataException("Phi4 rotary frequencies must be finite and positive.");
+        }
+
         if (!tensors.TryAdd("text.rope_frequencies", new FrequencyTensor(this, frequencies)))
+        {
             throw new InvalidDataException("Phi4 package contains a reserved generated tensor name.");
+        }
+
         Names = Array.AsReadOnly(tensors.Keys.ToArray());
 
         void Add(string scope, IModelFile file, bool aliases)
@@ -75,7 +89,9 @@ public sealed class Phi4PackageTensorCatalog : IModelFile
                 var scoped = scope + "." + name;
                 if (!tensors.TryAdd(scoped, new Tensor(this, scoped, source)) ||
                     aliases && !tensors.TryAdd(name, new Tensor(this, name, source)))
+                {
                     throw new InvalidDataException($"Duplicate Phi4 package tensor name '{scoped}'.");
+                }
             }
         }
     }
@@ -101,17 +117,28 @@ public sealed class Phi4PackageTensorCatalog : IModelFile
     /// <inheritdoc/>
     public void Dispose()
     {
-        if (disposed) return;
+        if (disposed)
+        {
+            return;
+        }
+
         disposed = true;
         List<Exception>? errors = null;
         var released = new HashSet<IModelFile>(ReferenceEqualityComparer.Instance);
         foreach (var source in sources.Reverse())
         {
-            if (!released.Add(source)) continue;
+            if (!released.Add(source))
+            {
+                continue;
+            }
+
             try { source.Dispose(); }
             catch (Exception error) { (errors ??= []).Add(error); }
         }
-        if (errors is not null) throw new AggregateException("Phi4 package source disposal failed.", errors);
+        if (errors is not null)
+        {
+            throw new AggregateException("Phi4 package source disposal failed.", errors);
+        }
     }
 
     private sealed class Tensor(Phi4PackageTensorCatalog owner, string name, IModelTensor source) : IModelTensor
@@ -188,7 +215,11 @@ public sealed class Phi4PackageGraphReader : IModelReader
         public IModelTensor GetRequired(string name) => tensors.TryGetValue(name, out var tensor) ? tensor : throw new InvalidDataException(name);
         public void Dispose()
         {
-            if (disposed) return;
+            if (disposed)
+            {
+                return;
+            }
+
             disposed = true;
             file.Dispose();
         }

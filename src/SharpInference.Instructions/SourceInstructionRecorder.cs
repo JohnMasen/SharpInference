@@ -22,20 +22,36 @@ public sealed class SourceInstructionRecorder(InstructionTarget target) : IInstr
     {
         ArgumentNullException.ThrowIfNull(recording);
         if (!Enum.IsDefined(recording.Synchronization))
+        {
             throw new InvalidDataException("Unknown instruction synchronization.");
+        }
+
         if (Target == InstructionTarget.Cpu && recording.Synchronization != InstructionSynchronization.None)
+        {
             throw new NotSupportedException("CPU recorder does not support GPU group synchronization.");
+        }
+
         var additions = new Dictionary<string, InstructionHelper>(StringComparer.Ordinal);
         foreach (var helper in recording.Helpers)
         {
             if (string.IsNullOrWhiteSpace(helper.Name) || string.IsNullOrWhiteSpace(helper.Source))
+            {
                 throw new InvalidDataException("Instruction helpers require a name and source.");
+            }
+
             if (helpers.TryGetValue(helper.Name, out var existing) && existing.Source != helper.Source ||
                 additions.TryGetValue(helper.Name, out existing) && existing.Source != helper.Source)
+            {
                 throw new InvalidDataException($"Conflicting instruction helper '{helper.Name}'.");
+            }
+
             additions.TryAdd(helper.Name, helper);
         }
-        foreach (var helper in additions.Values) helpers.TryAdd(helper.Name, helper);
+        foreach (var helper in additions.Values)
+        {
+            helpers.TryAdd(helper.Name, helper);
+        }
+
         recordings.Add(recording);
     }
 

@@ -31,7 +31,10 @@ public sealed class Phi4Tokenizer
         this.vocabulary = vocabulary;
         var inverse = vocabulary.ToDictionary(static item => item.Value, static item => item.Key);
         foreach (var (token, id) in addedTokens)
+        {
             inverse[id] = token;
+        }
+
         tokensById = inverse;
         this.mergeRanks = mergeRanks;
         this.addedTokens = addedTokens;
@@ -68,7 +71,9 @@ public sealed class Phi4Tokenizer
 
         var vocabulary = new Dictionary<string, int>(StringComparer.Ordinal);
         foreach (var property in model.GetProperty("vocab").EnumerateObject())
+        {
             vocabulary.Add(property.Name, property.Value.GetInt32());
+        }
 
         var mergeRanks = new Dictionary<(string, string), int>();
         var rank = 0;
@@ -80,7 +85,10 @@ public sealed class Phi4Tokenizer
             {
                 var parts = merge.EnumerateArray().ToArray();
                 if (parts.Length != 2)
+                {
                     throw new InvalidDataException("A tokenizer merge must contain exactly two symbols.");
+                }
+
                 left = parts[0].GetString()!;
                 right = parts[1].GetString()!;
             }
@@ -88,12 +96,17 @@ public sealed class Phi4Tokenizer
             {
                 var parts = merge.GetString()!.Split(' ', 2);
                 if (parts.Length != 2)
+                {
                     throw new InvalidDataException("A tokenizer merge must contain exactly two symbols.");
+                }
+
                 left = parts[0];
                 right = parts[1];
             }
             if (!mergeRanks.TryAdd((left, right), rank++))
+            {
                 throw new InvalidDataException($"Duplicate tokenizer merge '{left} {right}'.");
+            }
         }
 
         var addedTokens = new Dictionary<string, int>(StringComparer.Ordinal);
@@ -138,7 +151,10 @@ public sealed class Phi4Tokenizer
         void FlushBytes()
         {
             if (bytes.Count == 0)
+            {
                 return;
+            }
+
             text.Append(Encoding.UTF8.GetString(bytes.ToArray()));
             bytes.Clear();
         }
@@ -146,19 +162,28 @@ public sealed class Phi4Tokenizer
         foreach (var id in tokenIds)
         {
             if (!tokensById.TryGetValue(id, out var token))
+            {
                 throw new ArgumentOutOfRangeException(nameof(tokenIds), $"Unknown token ID {id}.");
+            }
+
             if (token.StartsWith("<|", StringComparison.Ordinal) &&
                 token.EndsWith("|>", StringComparison.Ordinal))
             {
                 FlushBytes();
                 if (!skipSpecialTokens)
+                {
                     text.Append(token);
+                }
+
                 continue;
             }
             foreach (var character in token)
             {
                 if (!ByteDecoder.TryGetValue(character, out var value))
+                {
                     throw new InvalidDataException($"Token {id} contains an invalid ByteLevel character.");
+                }
+
                 bytes.Add(value);
             }
         }
@@ -177,7 +202,10 @@ public sealed class Phi4Tokenizer
         {
             ArgumentNullException.ThrowIfNull(message);
             if (string.IsNullOrWhiteSpace(message.Role) || message.Content is null)
+            {
                 throw new ArgumentException("Chat messages require a role and content.", nameof(messages));
+            }
+
             builder.Append("<|").Append(message.Role).Append("|>")
                 .Append(message.Content).Append("<|end|>");
         }
@@ -194,12 +222,17 @@ public sealed class Phi4Tokenizer
             var encoded = string.Create(bytes.Length, bytes, static (span, source) =>
             {
                 for (var index = 0; index < source.Length; index++)
+                {
                     span[index] = ByteEncoder[source[index]];
+                }
             });
             foreach (var piece in cache.GetOrAdd(encoded, ApplyBpe))
             {
                 if (!vocabulary.TryGetValue(piece, out var id))
+                {
                     throw new InvalidDataException($"Tokenizer vocabulary does not contain BPE piece '{piece}'.");
+                }
+
                 destination.Add(id);
             }
         }
@@ -222,7 +255,9 @@ public sealed class Phi4Tokenizer
                 }
             }
             if (bestRank == int.MaxValue)
+            {
                 break;
+            }
 
             var merged = new List<string>(symbols.Count);
             for (var index = 0; index < symbols.Count;)
@@ -246,8 +281,13 @@ public sealed class Phi4Tokenizer
     private string? FindAddedToken(string text, int position)
     {
         foreach (var token in addedTokenOrder)
+        {
             if (text.AsSpan(position).StartsWith(token, StringComparison.Ordinal))
+            {
                 return token;
+            }
+        }
+
         return null;
     }
 
@@ -258,7 +298,9 @@ public sealed class Phi4Tokenizer
         {
             var index = text.IndexOf(token, position, StringComparison.Ordinal);
             if (index >= 0 && index < result)
+            {
                 result = index;
+            }
         }
         return result;
     }
@@ -274,7 +316,10 @@ public sealed class Phi4Tokenizer
         for (var value = 0; value < 256; value++)
         {
             if (values.Contains(value))
+            {
                 continue;
+            }
+
             values.Add(value);
             characters.Add(256 + extra++);
         }

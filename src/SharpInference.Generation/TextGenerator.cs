@@ -239,7 +239,11 @@ public static class TextGenerator
 
         private string Decode(ReadOnlySpan<byte> bytes, bool flush)
         {
-            if (bytes.IsEmpty && !flush) return string.Empty;
+            if (bytes.IsEmpty && !flush)
+            {
+                return string.Empty;
+            }
+
             var chars = new char[Encoding.UTF8.GetMaxCharCount(bytes.Length)];
             decoder.Convert(bytes, chars, flush, out _, out var charsUsed, out _);
             return new string(chars, 0, charsUsed);
@@ -370,17 +374,31 @@ public static class TextGenerator
             random = options.Seed is { } seed ? new Random(seed) : Random.Shared;
             this.tokenIds = tokenIds.Distinct().Order().ToArray();
             if (this.tokenIds.Length == 0 || this.tokenIds[0] < 0)
+            {
                 throw new ArgumentException("A tokenizer must provide non-negative token identifiers.", nameof(tokenIds));
+            }
+
             ranking = new LogitEntry[this.tokenIds.Length];
         }
 
         public int Sample(ReadOnlySpan<float> logits)
         {
-            if (tokenIds.Length == 0 || tokenIds[^1] >= logits.Length) throw new ArgumentException("The logits do not cover every tokenizer token.", nameof(logits));
-            if (options.Temperature == 0) return ArgMax(logits, tokenIds);
+            if (tokenIds.Length == 0 || tokenIds[^1] >= logits.Length)
+            {
+                throw new ArgumentException("The logits do not cover every tokenizer token.", nameof(logits));
+            }
+
+            if (options.Temperature == 0)
+            {
+                return ArgMax(logits, tokenIds);
+            }
 
             var count = options.TopK == 0 ? ranking.Length : Math.Min(options.TopK, ranking.Length);
-            for (var index = 0; index < tokenIds.Length; index++) ranking[index] = new LogitEntry(tokenIds[index], logits[tokenIds[index]]);
+            for (var index = 0; index < tokenIds.Length; index++)
+            {
+                ranking[index] = new LogitEntry(tokenIds[index], logits[tokenIds[index]]);
+            }
+
             Array.Sort(ranking, static (left, right) => right.Logit.CompareTo(left.Logit));
 
             var maximum = ranking[0].Logit;
@@ -409,7 +427,10 @@ public static class TextGenerator
             for (var index = 0; index < retained; index++)
             {
                 cumulative += Math.Exp((ranking[index].Logit - maximum) / options.Temperature);
-                if (sample < cumulative) return ranking[index].Token;
+                if (sample < cumulative)
+                {
+                    return ranking[index].Token;
+                }
             }
 
             return ranking[retained - 1].Token;
@@ -420,7 +441,10 @@ public static class TextGenerator
             var result = candidates[0];
             for (var index = 1; index < candidates.Length; index++)
             {
-                if (values[candidates[index]] > values[result]) result = candidates[index];
+                if (values[candidates[index]] > values[result])
+                {
+                    result = candidates[index];
+                }
             }
 
             return result;

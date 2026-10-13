@@ -38,8 +38,11 @@ public sealed class GraphRewriteTarget<TNode, TEdge>
         ArgumentNullException.ThrowIfNull(nodeIds);
         var selected = nodeIds.ToHashSet();
         if (selected.Count == 0)
+        {
             throw new ArgumentException(
                 "A rewrite target requires at least one node.", nameof(nodeIds));
+        }
+
         var nodes = graph.Nodes.Where(node => selected.Contains(node.Id)).ToArray();
         if (nodes.Length != selected.Count)
         {
@@ -86,7 +89,10 @@ public sealed class GraphRewritePlan<TNode, TEdge>
     {
         ArgumentNullException.ThrowIfNull(target);
         foreach (var node in target.Nodes)
+        {
             removedNodes.Add(node.Id);
+        }
+
         return this;
     }
 

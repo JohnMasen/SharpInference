@@ -67,6 +67,7 @@ public static class CpuTierOneNumerics
         Validate(a, output);
         var index = 0;
         if (Vector.IsHardwareAccelerated)
+        {
             for (; index <= output.Length - Vector<float>.Count; index += Vector<float>.Count)
             {
                 var value = new Vector<float>(a[index..]);
@@ -74,6 +75,8 @@ public static class CpuTierOneNumerics
                 var relu = Vector.ConditionalSelect(Vector.Equals(value, value), positive, value);
                 (relu * relu).CopyTo(output[index..]);
             }
+        }
+
         for (; index < output.Length; index++)
         {
             var relu = float.Max(a[index], 0f);
@@ -187,9 +190,14 @@ public static class CpuTierOneNumerics
     private static void Validate(ReadOnlySpan<float> input, Span<float> output)
     {
         if (output.IsEmpty || input.Length != output.Length)
+        {
             throw new ArgumentException("T1 pointwise spans must have identical positive lengths.");
+        }
+
         if (input.Overlaps(output))
+        {
             throw new ArgumentException("T1 pointwise output must not overlap its inputs.");
+        }
     }
 
     private interface ITernaryOperator
@@ -212,10 +220,17 @@ public static class CpuTierOneNumerics
         Validate(c, output);
         var index = 0;
         if (Vector.IsHardwareAccelerated)
+        {
             for (; index <= output.Length - Vector<float>.Count; index += Vector<float>.Count)
+            {
                 TOperator.Invoke(new Vector<float>(a[index..]), new Vector<float>(b[index..]), new Vector<float>(c[index..])).CopyTo(output[index..]);
+            }
+        }
+
         for (; index < output.Length; index++)
+        {
             output[index] = TOperator.Invoke(a[index], b[index], c[index]);
+        }
     }
 
     private static void Quaternary<TOperator>(ReadOnlySpan<float> a, ReadOnlySpan<float> b, ReadOnlySpan<float> c,
@@ -227,10 +242,17 @@ public static class CpuTierOneNumerics
         Validate(d, output);
         var index = 0;
         if (Vector.IsHardwareAccelerated)
+        {
             for (; index <= output.Length - Vector<float>.Count; index += Vector<float>.Count)
+            {
                 TOperator.Invoke(new Vector<float>(a[index..]), new Vector<float>(b[index..]), new Vector<float>(c[index..]), new Vector<float>(d[index..])).CopyTo(output[index..]);
+            }
+        }
+
         for (; index < output.Length; index++)
+        {
             output[index] = TOperator.Invoke(a[index], b[index], c[index], d[index]);
+        }
     }
 
     private readonly struct DifferenceMixOperator : ITernaryOperator

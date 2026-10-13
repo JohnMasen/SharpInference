@@ -13,7 +13,11 @@ public sealed class Phi4AudioSubsamplingGraphModule : IPhi4GraphModule
     /// <summary>Initializes the audio subsampling graph with the specified input frame capacity.</summary>
     public Phi4AudioSubsamplingGraphModule(int frames = 352)
     {
-        if (frames <= 0) throw new ArgumentOutOfRangeException(nameof(frames));
+        if (frames <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(frames));
+        }
+
         this.frames = frames;
     }
 
@@ -32,13 +36,19 @@ public sealed class Phi4AudioSubsamplingGraphModule : IPhi4GraphModule
         ArgumentNullException.ThrowIfNull(tensors);
         var mean = tensors.GetRequired("a.global_mean");
         if (mean.Dimensions.Count != 1 || mean.Dimensions[0] <= 0)
+        {
             throw new InvalidDataException("Phi4 audio feature means must be a positive vector.");
+        }
+
         var features = mean.Dimensions[0];
         Require("a.global_mean", [features]);
         Require("a.global_invstd", [features]);
         var first = tensors.GetRequired(Prefixes[0] + ".weight");
         if (first.Dimensions.Count != 4 || first.Dimensions[0] <= 0)
+        {
             throw new InvalidDataException("Phi4 audio subsampling requires a four-dimensional first convolution weight.");
+        }
+
         var channels = first.Dimensions[0];
         for (var index = 0; index < Prefixes.Length; index++)
         {
@@ -59,7 +69,9 @@ public sealed class Phi4AudioSubsamplingGraphModule : IPhi4GraphModule
             var tensor = tensors.GetRequired(name);
             if (tensor.DataType is not (TensorDataType.Float16 or TensorDataType.Float32) ||
                 !tensor.Dimensions.SequenceEqual(dimensions))
+            {
                 throw new InvalidDataException($"Phi4 audio tensor '{name}' has an incompatible type or shape.");
+            }
         }
     }
 
@@ -140,7 +152,11 @@ public sealed class Phi4AudioSubsamplingGraphModule : IPhi4GraphModule
             builder.AddResource(id, name, GraphResourceKind.Weight, GraphResourceLifetime.Model,
                 new TensorDescriptor(tensor.DataType == TensorDataType.Float16 ? GraphElementType.Float16 : GraphElementType.Float32,
                     tensor.Dimensions), name);
-            if (tensor.DataType == TensorDataType.Float32) return id;
+            if (tensor.DataType == TensorDataType.Float32)
+            {
+                return id;
+            }
+
             var converted = "cast." + name + "_output";
             Temporary(converted, tensor.Dimensions.ToArray());
             Emit(scope, "cast." + name, PortableTensorOperationContracts.CastFp16ToFp32,

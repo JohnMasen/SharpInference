@@ -21,7 +21,11 @@ internal sealed class CpuVmSourceGenerator
     internal CpuVmSourceGenerator(VmProgram program, InstructionRegistry registry, VmProgram? contracts = null)
     {
         VmProgramValidator.Validate(program);
-        if (program.Target != VmTarget.Cpu) throw new NotSupportedException("CPU VM requires a CPU program.");
+        if (program.Target != VmTarget.Cpu)
+        {
+            throw new NotSupportedException("CPU VM requires a CPU program.");
+        }
+
         this.program = program;
         this.contracts = contracts ?? program;
         this.registry = registry;
@@ -29,7 +33,12 @@ internal sealed class CpuVmSourceGenerator
             .ToDictionary(item => item.Id, item => item.Name);
         foreach (var tensor in program.Slots.Select(slot => slot.Tensor)
                      .Concat(program.Definitions.SelectMany(definition => definition.Parameters.Select(parameter => parameter.Tensor))))
-            if (tensor.ByteLength > int.MaxValue) throw new NotSupportedException("CPU spans require Int32-sized tensors.");
+        {
+            if (tensor.ByteLength > int.MaxValue)
+            {
+                throw new NotSupportedException("CPU spans require Int32-sized tensors.");
+            }
+        }
     }
 
     internal string Generate()
@@ -47,8 +56,15 @@ internal sealed class CpuVmSourceGenerator
                 {
                     code.AppendLine($"{methods[call.Definition]}(context, frame.GetCall({callIndex++}));");
                 }
-                else if (node.Instruction is VmOperator operation) Emit(definition, node, operation);
-                else throw new NotSupportedException($"Unsupported CPU instruction at '{definition.Id}/{node.Id}'.");
+                else if (node.Instruction is VmOperator operation)
+                {
+                    Emit(definition, node, operation);
+                }
+                else
+                {
+                    throw new NotSupportedException($"Unsupported CPU instruction at '{definition.Id}/{node.Id}'.");
+                }
+
                 code.AppendLine("#line default");
             }
             code.AppendLine("}");
@@ -64,7 +80,11 @@ internal sealed class CpuVmSourceGenerator
             Accesses.Add(entry.Name, accesses);
         }
         code.AppendLine("default: throw new ArgumentException(\"Unknown CPU VM entry.\", nameof(entry)); } }");
-        foreach (var helper in recorder.Helpers) code.AppendLine(helper.Source);
+        foreach (var helper in recorder.Helpers)
+        {
+            code.AppendLine(helper.Source);
+        }
+
         code.AppendLine("}");
         return code.ToString();
     }
@@ -94,7 +114,9 @@ internal sealed class CpuVmSourceGenerator
         var start = recorder.Recordings.Count;
         instruction.Invoke(recorder,parameters,operation.Precision,operation.ExecutionConfiguration);
         foreach (var recording in recorder.Recordings.Skip(start))
+        {
             code.AppendLine(recording.Source);
+        }
     }
 
     private CpuVmCallFrame Expand(VmDefinition definition, Dictionary<string, (int Slot, int Offset)> bindings, List<CpuVmAccess> accesses)
@@ -122,9 +144,16 @@ internal sealed class CpuVmSourceGenerator
                         Length: checked((int)tensor.ByteLength));
                 }).ToArray();
                 foreach (var output in views.Where(v => v.Access != GraphResourceAccess.Read))
+                {
                     foreach (var input in views.Where(v => v.Access != GraphResourceAccess.Write && v.Name != output.Name))
+                    {
                         if (input.Slot == output.Slot && input.Offset < output.Offset + output.Length && output.Offset < input.Offset + input.Length)
+                        {
                             throw new InvalidDataException($"Overlapping input/output at '{definition.Id}/{node.Id}'.");
+                        }
+                    }
+                }
+
                 accesses.AddRange(views.Where(v => v.Access != GraphResourceAccess.Write)
                     .Select(v => new CpuVmAccess(v.Slot, v.Offset, v.Length, false)));
                 accesses.AddRange(views.Where(v => v.Access != GraphResourceAccess.Read)

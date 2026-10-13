@@ -10,7 +10,10 @@ public sealed record InstructionImplementationId
         ArgumentException.ThrowIfNullOrWhiteSpace(value);
         if (value.Length > 128 || value.Any(character =>
                 !char.IsAsciiLetterOrDigit(character) && character is not ('.' or '-' or '_')))
+        {
             throw new ArgumentException("Implementation identifiers require ASCII letters, digits, '.', '-' or '_'.", nameof(value));
+        }
+
         Value = value;
     }
 

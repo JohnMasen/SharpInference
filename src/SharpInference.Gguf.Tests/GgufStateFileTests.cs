@@ -47,7 +47,10 @@ public sealed class GgufStateFileTests
         var restored = GgufStateFile.Read(stream);
         Assert.Equal(Sample.SchemaName, restored.SchemaName);
         for (var i = 0; i < Sample.Tensors.Count; i++)
+        {
             Assert.Equal(Sample.Tensors[i].Data.ToArray(), restored.Tensors[i].Data.ToArray());
+        }
+
         Assert.Equal(stream.Length, stream.Position);
         Assert.True(stream.CanRead);
     }
@@ -309,7 +312,11 @@ public sealed class GgufStateFileTests
         public override void Write(byte[] buffer, int offset, int count) => inner.Write(buffer, offset, count);
         protected override void Dispose(bool disposing)
         {
-            if (disposing) inner.Dispose();
+            if (disposing)
+            {
+                inner.Dispose();
+            }
+
             base.Dispose(disposing);
         }
     }

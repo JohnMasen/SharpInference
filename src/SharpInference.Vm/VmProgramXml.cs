@@ -18,7 +18,10 @@ public static class VmProgramXml
         VmProgramValidator.Validate(program);
         if (program.Definitions.SelectMany(definition => definition.Nodes).Select(node => node.Instruction)
             .OfType<VmOperator>().Any(operation => operation.Version != 1))
+        {
             throw new NotSupportedException("Instruction versions cannot be serialized; use a distinct IC GUID.");
+        }
+
         var root = new XElement("VmProgram",
             new XAttribute("name", program.Name),
             new XAttribute("abi", program.Abi), new XAttribute("target", program.Target),
@@ -63,8 +66,12 @@ public static class VmProgramXml
             {
                 var elements = 0;
                 while (probe.Read())
+                {
                     if (probe.NodeType == XmlNodeType.Element && (++elements > 100_000 || probe.Depth > 64))
+                    {
                         throw new InvalidDataException("VM XML exceeds element or nesting limits.");
+                    }
+                }
             }
             using var reader = XmlReader.Create(new StringReader(xml), settings);
             var root = XDocument.Load(reader).Root ?? throw new InvalidDataException("Missing VM program.");
@@ -197,7 +204,10 @@ public static class VmProgramXml
         }).ToArray();
         var instructions = node.Elements().Where(element => element.Name != "Dependencies").ToArray();
         if (instructions.Length != 1)
+        {
             throw new InvalidDataException("A node must contain exactly one instruction.");
+        }
+
         var instruction = instructions[0];
         VmInstruction result;
         switch (instruction.Name.LocalName)
@@ -234,10 +244,15 @@ public static class VmProgramXml
                 {
                     Check(attribute, "Attribute", ["name", "value"], []);
                     if (!attributes.TryAdd(Required(attribute, "name"), Required(attribute, "value")))
+                    {
                         throw new InvalidDataException("Duplicate operator attribute.");
+                    }
                 }
                 if (!Guid.TryParseExact(Required(instruction, "collection"), "D", out var collection))
+                {
                     throw new InvalidDataException("Instruction collection must be a canonical GUID.");
+                }
+
                 result = new VmOperator(requirement, collection, Required(instruction, "name"),
                     ReadArguments(instruction), attributes,
                     OptionalOne(instruction, "IndexBounds")?.Elements().Select(bound =>
@@ -283,7 +298,9 @@ public static class VmProgramXml
             element.Elements().Any(child => child.Name.Namespace != XNamespace.None ||
                 !children.Contains(child.Name.LocalName, StringComparer.Ordinal)) ||
             element.Nodes().OfType<XText>().Any(text => !string.IsNullOrWhiteSpace(text.Value)))
+        {
             throw new InvalidDataException($"Unexpected XML content in '{name}'.");
+        }
     }
 
     private static IEnumerable<XElement> Container(XElement parent, string name, string child)
@@ -300,7 +317,10 @@ public static class VmProgramXml
     {
         var elements = parent.Elements(name).ToArray();
         if (elements.Length > 1)
+        {
             throw new InvalidDataException($"Duplicate '{name}'.");
+        }
+
         return elements.SingleOrDefault();
     }
 
@@ -317,7 +337,10 @@ public static class VmProgramXml
     {
         var text = Required(element, attribute);
         if (!Enum.GetNames<T>().Contains(text, StringComparer.Ordinal))
+        {
             throw new InvalidDataException($"Invalid '{attribute}' value '{text}'.");
+        }
+
         return Enum.Parse<T>(text);
     }
 }

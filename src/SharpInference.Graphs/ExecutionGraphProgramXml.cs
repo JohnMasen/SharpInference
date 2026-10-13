@@ -31,9 +31,12 @@ public static partial class GraphXml
             Children(RequiredChild(root, "Graphs"), "ExecutionGraph")
                 .Select(ReadExecutionGraph));
         if (result.RootGraph != rootId)
+        {
             throw new InvalidDataException(
                 $"Declared execution root '{rootId}' does not match inferred root " +
                 $"'{result.RootGraph}'.");
+        }
+
         return result;
     }
 
@@ -212,7 +215,10 @@ public static partial class GraphXml
     private static XElement? WriteArchitecture(GraphArchitecture? architecture)
     {
         if (architecture is null)
+        {
             return null;
+        }
+
         return new XElement(
             "Architecture",
             Optional("name", architecture.Name),
@@ -228,7 +234,10 @@ public static partial class GraphXml
     private static GraphArchitecture? ReadArchitecture(XElement? element)
     {
         if (element is null)
+        {
             return null;
+        }
+
         Check(element, "Architecture", "name", "role", "description");
         return new(
             (string?)element.Attribute("name"),

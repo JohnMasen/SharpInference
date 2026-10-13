@@ -49,23 +49,26 @@ public sealed class D3D12VmResourcePool : IDisposable
         Device = device ?? throw new ArgumentNullException(nameof(device));
 
     /// <summary>Live, aligned buffer lengths; excludes committed-heap alignment and driver overhead.</summary>
-    public ulong AllocatedGpuBytes { get { lock (Gate) return allocatedGpuBytes; } }
+    public ulong AllocatedGpuBytes { get { lock (Gate) { return allocatedGpuBytes; } } }
     /// <summary>Gets the number of live CPU-shadow and GPU-resource allocation pairs.</summary>
-    public int AllocationCount { get { lock (Gate) return storage.Count; } }
+    public int AllocationCount { get { lock (Gate) { return storage.Count; } } }
     /// <summary>Gets the number of executors currently attached to this pool.</summary>
-    public int ExecutorCount { get { lock (Gate) return executors; } }
+    public int ExecutorCount { get { lock (Gate) { return executors; } } }
     /// <summary>Gets the cumulative number of read-only global resource uploads.</summary>
-    public ulong GlobalUploadCount { get { lock (Gate) return globalUploadCount; } }
+    public ulong GlobalUploadCount { get { lock (Gate) { return globalUploadCount; } } }
     /// <summary>Gets the cumulative bytes uploaded for read-only global resources.</summary>
-    public ulong GlobalUploadBytes { get { lock (Gate) return globalUploadBytes; } }
+    public ulong GlobalUploadBytes { get { lock (Gate) { return globalUploadBytes; } } }
     /// <summary>Gets a consistent snapshot of cumulative task recordings, transfers, and wall-clock timings.</summary>
     public D3D12VmTaskStatistics TaskStatistics
     {
         get
         {
-            lock (Gate) return new(completedTasks, computeRecordings, inputUploadBytes,
+            lock (Gate)
+            {
+                return new(completedTasks, computeRecordings, inputUploadBytes,
                 initialStateUploadBytes, initialLocalUploadBytes, stateLoadBytes, stateCommitBytes, cpuReadbackBytes,
                 preparationMilliseconds, computeMilliseconds, commitMilliseconds);
+            }
         }
     }
 
@@ -93,9 +96,15 @@ public sealed class D3D12VmResourcePool : IDisposable
     {
         ArgumentNullException.ThrowIfNull(slot);
         if (slot.Tensor is null || !Enum.IsDefined(slot.Scope) || !Enum.IsDefined(slot.Access))
+        {
             throw new ArgumentException("Invalid VM slot descriptor.", nameof(slot));
+        }
+
         if (slot.Tensor.ByteLength > int.MaxValue)
+        {
             throw new NotSupportedException("Pooled storage exceeds the managed byte[] limit.");
+        }
+
         lock (Gate)
         {
             ThrowIfDisposed();
@@ -127,7 +136,10 @@ public sealed class D3D12VmResourcePool : IDisposable
     /// <param name="buffer">The CPU backing array that identifies a live pool allocation.</param>
     public ulong GetGpuVirtualAddress(byte[] buffer)
     {
-        lock (Gate) return Find(buffer).Resource.GPUVirtualAddress;
+        lock (Gate)
+        {
+            return Find(buffer).Resource.GPUVirtualAddress;
+        }
     }
 
     /// <summary>Reports whether a CPU backing array identifies a live allocation in this pool.</summary>
@@ -164,7 +176,10 @@ public sealed class D3D12VmResourcePool : IDisposable
             slot.Access == VmAccess.ReadWrite && descriptor.Access != VmAccess.ReadWrite ||
             descriptor.Tensor.ElementType != slot.Tensor.ElementType ||
             !descriptor.Tensor.Dimensions.SequenceEqual(slot.Tensor.Dimensions))
+        {
             throw new ArgumentException($"Pooled backing for slot '{slot.Id}' has a different scope, access, type or shape.", nameof(buffer));
+        }
+
         return allocation;
     }
 
@@ -172,7 +187,9 @@ public sealed class D3D12VmResourcePool : IDisposable
     {
         ThrowIfDisposed();
         if (!storage.TryGetValue(allocation.RawBuffer, out var current) || !ReferenceEquals(allocation, current))
+        {
             throw new ObjectDisposedException(nameof(IVmStorage), "The pooled allocation is no longer registered.");
+        }
     }
 
     internal D3D12VmPooledStorage Resolve(ulong allocationId)
@@ -192,9 +209,16 @@ public sealed class D3D12VmResourcePool : IDisposable
     internal void EnsureCpuCurrent(D3D12VmPooledStorage allocation)
     {
         ValidateLive(allocation);
-        if (allocation.CpuCurrent) return;
+        if (allocation.CpuCurrent)
+        {
+            return;
+        }
+
         if (!allocation.GpuInitialized)
+        {
             throw new InvalidOperationException("The GPU state has no valid CPU or device representation.");
+        }
+
         if (readQueue is null)
         {
             readQueue = Device.CreateCommandQueue(CommandListType.Compute);
@@ -224,7 +248,10 @@ public sealed class D3D12VmResourcePool : IDisposable
         if (readFence!.CompletedValue < value)
         {
             readFence.SetEventOnCompletion(value, readCompletion!).CheckError();
-            while (!readCompletion!.WaitOne(TimeSpan.FromSeconds(1))) Device.DeviceRemovedReason.CheckError();
+            while (!readCompletion!.WaitOne(TimeSpan.FromSeconds(1)))
+            {
+                Device.DeviceRemovedReason.CheckError();
+            }
         }
         Device.DeviceRemovedReason.CheckError();
         readStaging!.GetData<byte>(allocation.RawBuffer);
@@ -245,7 +272,11 @@ public sealed class D3D12VmResourcePool : IDisposable
     {
         lock (Gate)
         {
-            if (executors <= 0) throw new InvalidOperationException("Unbalanced pooled executor lifetime.");
+            if (executors <= 0)
+            {
+                throw new InvalidOperationException("Unbalanced pooled executor lifetime.");
+            }
+
             executors--;
         }
     }
@@ -271,9 +302,16 @@ public sealed class D3D12VmResourcePool : IDisposable
     {
         lock (Gate)
         {
-            if (allocation.Disposed) return;
+            if (allocation.Disposed)
+            {
+                return;
+            }
+
             if (!storage.Remove(allocation.RawBuffer))
+            {
                 throw new InvalidOperationException("Pooled allocation registration is missing.");
+            }
+
             allocations.Remove(allocation.Id);
             allocatedGpuBytes -= allocation.Resource.Description.Width;
             allocation.Release();
@@ -296,10 +334,21 @@ public sealed class D3D12VmResourcePool : IDisposable
     {
         lock (Gate)
         {
-            if (disposed) return;
+            if (disposed)
+            {
+                return;
+            }
+
             if (executors != 0)
+            {
                 throw new InvalidOperationException("Dispose all pooled executors before disposing their resource pool.");
-            foreach (var allocation in storage.Values) allocation.Release();
+            }
+
+            foreach (var allocation in storage.Values)
+            {
+                allocation.Release();
+            }
+
             readStaging?.Dispose();
             readCommands?.Dispose();
             readAllocator?.Dispose();
@@ -318,7 +367,11 @@ public sealed class D3D12VmResourcePool : IDisposable
         private bool released;
         public void Dispose()
         {
-            if (released) return;
+            if (released)
+            {
+                return;
+            }
+
             released = true;
             Monitor.Exit(gate);
         }
@@ -364,7 +417,11 @@ internal sealed class D3D12VmPooledStorage(
     {
         lock (pool.Gate)
         {
-            if (offset != 0 || (ulong)source.Length != ByteLength) pool.EnsureCpuCurrent(this);
+            if (offset != 0 || (ulong)source.Length != ByteLength)
+            {
+                pool.EnsureCpuCurrent(this);
+            }
+
             source.CopyTo(Data(offset, source.Length));
             CpuModified();
         }
@@ -384,7 +441,10 @@ internal sealed class D3D12VmPooledStorage(
     {
         var bytes = data ?? throw new ObjectDisposedException(nameof(IVmStorage));
         if (offset > ByteLength || (ulong)length > ByteLength - offset)
+        {
             throw new ArgumentOutOfRangeException(nameof(offset), "Storage access exceeds capacity.");
+        }
+
         return bytes.AsSpan(checked((int)offset), length);
     }
     internal void Release()

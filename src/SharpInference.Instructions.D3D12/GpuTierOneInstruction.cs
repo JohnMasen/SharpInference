@@ -11,7 +11,10 @@ internal sealed class GpuTierOneInstruction(string name)
         var output = tensors["output"];
         var count = output.Tensor.Dimensions.Aggregate(1UL, (value, dimension) => checked(value * (ulong)dimension));
         if (count > uint.MaxValue)
+        {
             throw new InstructionAdaptationException(CollectionId, Name, "Element count exceeds the shader index range.");
+        }
+
         var code = new StringBuilder($"{{ if(i<{count}u) {{\n");
         foreach (var (port, index) in Definition.Inputs.Select((port, index) => (port, index)))
         {

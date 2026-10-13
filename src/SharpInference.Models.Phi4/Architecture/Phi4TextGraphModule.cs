@@ -16,10 +16,21 @@ public sealed class Phi4TextGraphModule : IPhi4GraphModule
     public Phi4TextGraphModule(int maximumContext = 4096, bool embeddingInput = false,
         Phi4Adapter adapter = Phi4Adapter.None, float? adapterScale = null)
     {
-        if (maximumContext <= 0) throw new ArgumentOutOfRangeException(nameof(maximumContext));
-        if (!Enum.IsDefined(adapter)) throw new ArgumentOutOfRangeException(nameof(adapter));
+        if (maximumContext <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(maximumContext));
+        }
+
+        if (!Enum.IsDefined(adapter))
+        {
+            throw new ArgumentOutOfRangeException(nameof(adapter));
+        }
+
         if (adapterScale is { } scale && (!float.IsFinite(scale) || scale <= 0))
+        {
             throw new ArgumentException("An explicit adapter scale must be finite and positive.", nameof(adapterScale));
+        }
+
         context = maximumContext;
         this.embeddingInput = embeddingInput;
         this.adapter = adapter;
@@ -37,18 +48,32 @@ public sealed class Phi4TextGraphModule : IPhi4GraphModule
     public ModelMetadata ReadMetadata(IModelTensorCatalog tensors)
     {
         if (tensors is not Phi4PackageTensorCatalog package)
+        {
             throw new InvalidDataException("Phi4 text requires a model-owned package catalog with decoder metadata.");
+        }
+
         var embedding = tensors.GetRequired("text.token_embd.weight");
-        if (embedding.Dimensions.Count != 2) throw new InvalidDataException("Phi4 embedding must be vocabulary-by-width.");
+        if (embedding.Dimensions.Count != 2)
+        {
+            throw new InvalidDataException("Phi4 embedding must be vocabulary-by-width.");
+        }
+
         var vocabulary = embedding.Dimensions[0];
         var width = embedding.Dimensions[1];
-        if (vocabulary <= 0) throw new InvalidDataException("Phi4 vocabulary must be positive.");
+        if (vocabulary <= 0)
+        {
+            throw new InvalidDataException("Phi4 vocabulary must be positive.");
+        }
+
         var p = package.TextParameters;
         p.Validate(width);
         var kv = checked(p.KeyValueHeads * (width / p.QueryHeads));
         var up = tensors.GetRequired("text.blk.0.ffn_up.weight");
         if (up.Dimensions.Count != 2 || up.Dimensions[0] <= 0 || up.Dimensions[0] % 2 != 0)
+        {
             throw new InvalidDataException("Phi4 gate/up must contain equal positive gate and value halves.");
+        }
+
         var intermediate = up.Dimensions[0] / 2;
         Require("text.token_embd.weight", [vocabulary, width]);
         Require("text.output_norm.weight", [width]);
@@ -79,15 +104,24 @@ public sealed class Phi4TextGraphModule : IPhi4GraphModule
         {
             var tensor = tensors.GetRequired(name);
             if (!tensor.Dimensions.SequenceEqual(shape) || tensor.DataType is not (TensorDataType.Float16 or TensorDataType.Float32))
+            {
                 throw new InvalidDataException($"Phi4 text tensor '{name}' has incompatible type or shape.");
+            }
         }
         void Linear(string name, int input, int output)
         {
             Require(name, [output, input]);
-            if (adapter == Phi4Adapter.None) return;
+            if (adapter == Phi4Adapter.None)
+            {
+                return;
+            }
+
             var a = tensors.GetRequired(AdapterName(name) + ".lora_a");
             if (a.Dimensions.Count != 2 || a.Dimensions[0] <= 0)
+            {
                 throw new InvalidDataException("Phi4 adapter rank must be positive.");
+            }
+
             Require(a.Name, [a.Dimensions[0], input]);
             Require(AdapterName(name) + ".lora_b", [output, a.Dimensions[0]]);
             _ = AdapterScale(package, a.Dimensions[0]);
@@ -237,8 +271,16 @@ public sealed class Phi4TextGraphModule : IPhi4GraphModule
                 descriptors.Add(id, descriptor);
                 weights.Add(name, id);
             }
-            if (!fp32 || descriptors[id].ElementType == GraphElementType.Float32) return id;
-            if (converted.TryGetValue(name, out var existing)) return existing;
+            if (!fp32 || descriptors[id].ElementType == GraphElementType.Float32)
+            {
+                return id;
+            }
+
+            if (converted.TryGetValue(name, out var existing))
+            {
+                return existing;
+            }
+
             var destination = Temporary(descriptors[id].Dimensions.ToArray());
             Emit(scope, PortableTensorOperationContracts.CastFp16ToFp32, [GraphBindings.Read("input", id), GraphBindings.Write("output", destination)]);
             converted.Add(name, destination);
@@ -262,7 +304,11 @@ public sealed class Phi4TextGraphModule : IPhi4GraphModule
         string Linear(Phi4GraphDefinitionBuilder.Phi4DefinitionScope scope, string source, string name, int outputWidth)
         {
             var output = Project(scope, source, name, outputWidth);
-            if (adapter == Phi4Adapter.None) return output;
+            if (adapter == Phi4Adapter.None)
+            {
+                return output;
+            }
+
             var a = AdapterName(name) + ".lora_a";
             var low = Project(scope, source, a, tensors.GetRequired(a).Dimensions[0]);
             var update = Project(scope, low, AdapterName(name) + ".lora_b", outputWidth);

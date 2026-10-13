@@ -14,7 +14,11 @@ public sealed class Phi4AudioGraphModule : IPhi4GraphModule
     /// <summary>Initializes an audio encoder graph with the specified projector, frame capacity, and conformer layer count.</summary>
     public Phi4AudioGraphModule(Phi4AudioProjector projector = Phi4AudioProjector.Speech, int frames = 352, int layers = 24)
     {
-        if (layers is <= 0 or > 24) throw new ArgumentOutOfRangeException(nameof(layers));
+        if (layers is <= 0 or > 24)
+        {
+            throw new ArgumentOutOfRangeException(nameof(layers));
+        }
+
         this.layers = layers;
         subsampling = new(frames);
         projection = new(projector, frames / 8 + (frames % 8 == 0 ? 0 : 1));
@@ -37,17 +41,30 @@ public sealed class Phi4AudioGraphModule : IPhi4GraphModule
         var projected = projection.ReadMetadata(tensors);
         var width = checked((int)sub.Dimensions["channels"]);
         var frequency = checked((int)sub.Dimensions["features"]);
-        for (var index = 0; index < 3; index++) frequency = frequency / 2 + frequency % 2;
+        for (var index = 0; index < 3; index++)
+        {
+            frequency = frequency / 2 + frequency % 2;
+        }
+
         if (projected.Dimensions["audio_width"] != width)
+        {
             throw new InvalidDataException("Phi4 audio projector input width does not match the Conformer width.");
+        }
+
         var relative = tensors.GetRequired("a.rel_attn_bias");
         if (relative.Dimensions.Count != 2 || relative.Dimensions[0] != 1000 || relative.Dimensions[1] <= 0 ||
             width % relative.Dimensions[1] != 0)
+        {
             throw new InvalidDataException("Phi4 audio relative bias requires [1000, heads] and width divisible by heads.");
+        }
+
         Require(relative.Name, relative.Dimensions.ToArray());
         var up = tensors.GetRequired("a.blk.0.ffn_in.up.weight");
         if (up.Dimensions.Count != 2 || up.Dimensions[0] <= 0 || up.Dimensions[0] % 2 != 0)
+        {
             throw new InvalidDataException("Phi4 audio feed-forward expansion must have positive, paired channels.");
+        }
+
         var intermediate = up.Dimensions[0] / 2;
         Linear("a.conv1d.out", checked(width * frequency), width);
         for (var layer = 0; layer < layers; layer++)
@@ -59,8 +76,16 @@ public sealed class Phi4AudioGraphModule : IPhi4GraphModule
                 Linear(prefix + part + ".up", width, checked(intermediate * 2));
                 Linear(prefix + part + ".down", intermediate, width);
             }
-            foreach (var part in new[] { "ln_att", "conv.ln", "ln" }) Norm(prefix + part);
-            foreach (var part in new[] { "attn_q", "attn_k", "attn_v", "attn_out" }) Linear(prefix + part, width, width);
+            foreach (var part in new[] { "ln_att", "conv.ln", "ln" })
+            {
+                Norm(prefix + part);
+            }
+
+            foreach (var part in new[] { "attn_q", "attn_k", "attn_v", "attn_out" })
+            {
+                Linear(prefix + part, width, width);
+            }
+
             Linear(prefix + "conv.glu.pw", width, checked(width * 2));
             Require(prefix + "conv.glu.b1", [width]);
             Require(prefix + "conv.glu.b2", [width]);
@@ -84,7 +109,9 @@ public sealed class Phi4AudioGraphModule : IPhi4GraphModule
         {
             var tensor = tensors.GetRequired(name);
             if (tensor.DataType is not (TensorDataType.Float16 or TensorDataType.Float32) || !tensor.Dimensions.SequenceEqual(shape))
+            {
                 throw new InvalidDataException($"Phi4 audio tensor '{name}' has an incompatible type or shape.");
+            }
         }
         void Norm(string prefix)
         {
@@ -235,7 +262,11 @@ public sealed class Phi4AudioGraphModule : IPhi4GraphModule
         }
         string Weight(Phi4GraphDefinitionBuilder.Phi4DefinitionScope scope, string name)
         {
-            if (weights.TryGetValue(name, out var found)) return found;
+            if (weights.TryGetValue(name, out var found))
+            {
+                return found;
+            }
+
             var tensor = tensors.GetRequired(name);
             var id = "weight." + name;
             var descriptor = new TensorDescriptor(tensor.DataType == TensorDataType.Float16 ? GraphElementType.Float16 : GraphElementType.Float32,
@@ -254,7 +285,11 @@ public sealed class Phi4AudioGraphModule : IPhi4GraphModule
         }
         string Zero(Phi4GraphDefinitionBuilder.Phi4DefinitionScope scope, int size)
         {
-            if (zeros.TryGetValue(size, out var found)) return found;
+            if (zeros.TryGetValue(size, out var found))
+            {
+                return found;
+            }
+
             var id = Temporary(size);
             Emit(scope, PortableTensorOperationContracts.Fill, [GraphBindings.Write("output", id)], new TensorFillValue(0).ToAttributes());
             zeros.Add(size, id);

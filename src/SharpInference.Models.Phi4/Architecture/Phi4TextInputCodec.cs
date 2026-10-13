@@ -20,7 +20,11 @@ public static class Phi4TextInputCodec
     {
         RequireLimit(vocabularySize, nameof(vocabularySize));
         RequireLimit(maximumContext, nameof(maximumContext));
-        if (control.Length != 2 * sizeof(int)) throw new ArgumentException("Token control requires exactly two Int32 values.", nameof(control));
+        if (control.Length != 2 * sizeof(int))
+        {
+            throw new ArgumentException("Token control requires exactly two Int32 values.", nameof(control));
+        }
+
         var token = BinaryPrimitives.ReadInt32LittleEndian(control);
         var position = BinaryPrimitives.ReadInt32LittleEndian(control[sizeof(int)..]);
         ValidateToken(token, vocabularySize, nameof(control));
@@ -38,12 +42,20 @@ public static class Phi4TextInputCodec
         RequireLimit(embeddingWidth, nameof(embeddingWidth));
         RequireLimit(maximumContext, nameof(maximumContext));
         if (control.Length != checked((embeddingWidth + 1) * sizeof(float)))
+        {
             throw new ArgumentException("Embedding control requires one Int32 position followed by the complete FP32 embedding.", nameof(control));
+        }
+
         var position = BinaryPrimitives.ReadInt32LittleEndian(control);
         ValidatePosition(position, maximumContext, nameof(control));
         for (var index = 0; index < embeddingWidth; index++)
+        {
             if (!float.IsFinite(BinaryPrimitives.ReadSingleLittleEndian(control.Slice((index + 1) * sizeof(float), sizeof(float)))))
+            {
                 throw new ArgumentException("Embedding values must be finite.", nameof(control));
+            }
+        }
+
         return new Dictionary<string, ReadOnlyMemory<byte>>
         {
             ["position"] = Int32(position), ["embedding"] = control[sizeof(int)..].ToArray(),
@@ -70,11 +82,20 @@ public static class Phi4TextInputCodec
         RequireLimit(maximumContext, nameof(maximumContext));
         ValidatePosition(position, maximumContext, nameof(position));
         foreach (var value in embedding)
-            if (!float.IsFinite(value)) throw new ArgumentException("Embedding values must be finite.", nameof(embedding));
+        {
+            if (!float.IsFinite(value))
+            {
+                throw new ArgumentException("Embedding values must be finite.", nameof(embedding));
+            }
+        }
+
         var bytes = new byte[checked((embedding.Length + 1) * sizeof(float))];
         BinaryPrimitives.WriteInt32LittleEndian(bytes, position);
         for (var index = 0; index < embedding.Length; index++)
+        {
             BinaryPrimitives.WriteSingleLittleEndian(bytes.AsSpan((index + 1) * sizeof(float)), embedding[index]);
+        }
+
         return bytes;
     }
 
@@ -87,16 +108,25 @@ public static class Phi4TextInputCodec
 
     private static void ValidateToken(int token, int vocabularySize, string name)
     {
-        if ((uint)token >= (uint)vocabularySize) throw new ArgumentOutOfRangeException(name, "Token is outside the vocabulary.");
+        if ((uint)token >= (uint)vocabularySize)
+        {
+            throw new ArgumentOutOfRangeException(name, "Token is outside the vocabulary.");
+        }
     }
 
     private static void ValidatePosition(int position, int maximumContext, string name)
     {
-        if ((uint)position >= (uint)maximumContext) throw new ArgumentOutOfRangeException(name, "Position is outside the context.");
+        if ((uint)position >= (uint)maximumContext)
+        {
+            throw new ArgumentOutOfRangeException(name, "Position is outside the context.");
+        }
     }
 
     private static void RequireLimit(int value, string name)
     {
-        if (value <= 0) throw new ArgumentOutOfRangeException(name);
+        if (value <= 0)
+        {
+            throw new ArgumentOutOfRangeException(name);
+        }
     }
 }

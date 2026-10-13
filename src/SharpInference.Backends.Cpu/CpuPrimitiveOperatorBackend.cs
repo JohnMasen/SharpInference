@@ -68,7 +68,10 @@ public sealed class CpuPrimitiveOperatorBackend
     public void Sigmoid(ReadOnlySpan<float> input, Span<float> output)
     {
         RequireOutput(input.Length, output.Length);
-        if (!input.IsEmpty) TensorPrimitives.Sigmoid(input, output);
+        if (!input.IsEmpty)
+        {
+            TensorPrimitives.Sigmoid(input, output);
+        }
     }
 
     /// <inheritdoc/>
@@ -157,9 +160,13 @@ public sealed class CpuPrimitiveOperatorBackend
     {
         RequireOutput(input.Length, output.Length);
         if (Vector128.IsHardwareAccelerated && input.Length >= Vector128<short>.Count)
+        {
             TensorPrimitives.Sigmoid(input, output);
+        }
         else
+        {
             PromotedHalfUnary(input, output, sigmoid: true);
+        }
     }
 
     /// <inheritdoc/>
@@ -167,9 +174,13 @@ public sealed class CpuPrimitiveOperatorBackend
     {
         RequireOutput(input.Length, output.Length);
         if (Vector128.IsHardwareAccelerated && input.Length >= Vector128<short>.Count)
+        {
             TensorPrimitives.ReciprocalSqrt(input, output);
+        }
         else
+        {
             PromotedHalfUnary(input, output, sigmoid: false);
+        }
     }
 
     /// <inheritdoc/>
@@ -206,7 +217,11 @@ public sealed class CpuPrimitiveOperatorBackend
         if (input.Length < 8)
         {
             float scalar = 0;
-            foreach (var value in input) scalar += (float)value;
+            foreach (var value in input)
+            {
+                scalar += (float)value;
+            }
+
             return scalar;
         }
         const int blockLength = 1024;
@@ -233,9 +248,14 @@ public sealed class CpuPrimitiveOperatorBackend
             var block = converted[..length];
             TensorPrimitives.ConvertToSingle(input[..length], block);
             if (sigmoid)
+            {
                 TensorPrimitives.Sigmoid(block, block);
+            }
             else
+            {
                 TensorPrimitives.ReciprocalSqrt(block, block);
+            }
+
             TensorPrimitives.ConvertToHalf(block, output[..length]);
             input = input[length..];
             output = output[length..];
@@ -246,7 +266,9 @@ public sealed class CpuPrimitiveOperatorBackend
     {
         ValidateMatVec(matrix.Length, input.Length, output.Length, rows, columns);
         for (var row = 0; row < rows; row++)
+        {
             output[row] = TensorPrimitives.Dot(matrix.Slice(row * columns, columns), input);
+        }
     }
 
     private static void MatVecHalf(ReadOnlySpan<Half> matrix, ReadOnlySpan<Half> input, Span<Half> output, int rows, int columns)
@@ -257,30 +279,57 @@ public sealed class CpuPrimitiveOperatorBackend
 
     private static void GatherRowCore<T>(ReadOnlySpan<T> table, int rowIndex, int rowLength, Span<T> output)
     {
-        if (rowIndex < 0) throw new ArgumentOutOfRangeException(nameof(rowIndex));
-        if (rowLength <= 0) throw new ArgumentOutOfRangeException(nameof(rowLength));
+        if (rowIndex < 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(rowIndex));
+        }
+
+        if (rowLength <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(rowLength));
+        }
+
         RequireOutput(rowLength, output.Length);
         var offset = checked(rowIndex * rowLength);
-        if (offset > table.Length - rowLength) throw new ArgumentOutOfRangeException(nameof(rowIndex));
+        if (offset > table.Length - rowLength)
+        {
+            throw new ArgumentOutOfRangeException(nameof(rowIndex));
+        }
+
         CopyCore(table.Slice(offset, rowLength), output);
     }
 
     private static void RequireOutput(int inputLength, int outputLength)
     {
-        if (inputLength != outputLength) throw new ArgumentException("The output length must match the input length.");
+        if (inputLength != outputLength)
+        {
+            throw new ArgumentException("The output length must match the input length.");
+        }
     }
 
     private static void RequireBinary(int leftLength, int rightLength, int outputLength)
     {
         if (leftLength != rightLength || leftLength != outputLength)
+        {
             throw new ArgumentException("Binary operator input and output lengths must match.");
+        }
     }
 
     private static void ValidateMatVec(int matrixLength, int inputLength, int outputLength, int rows, int columns)
     {
-        if (rows <= 0) throw new ArgumentOutOfRangeException(nameof(rows));
-        if (columns <= 0) throw new ArgumentOutOfRangeException(nameof(columns));
+        if (rows <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(rows));
+        }
+
+        if (columns <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(columns));
+        }
+
         if (matrixLength != checked(rows * columns) || inputLength != columns || outputLength != rows)
+        {
             throw new ArgumentException("The MatVec dimensions do not match the supplied buffers.");
+        }
     }
 }

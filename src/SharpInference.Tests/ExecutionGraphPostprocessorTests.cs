@@ -28,10 +28,15 @@ public sealed class ExecutionGraphPostprocessorTests
         var after = Process(new DependencyReductionPostprocessor(), before).Graphs[0];
         Assert.Equal(3, after.Structure.Edges.OfType<ExecutionDependencyEdge>().Count());
         foreach (var first in before.Nodes)
+        {
             foreach (var second in before.Nodes)
+            {
                 Assert.Equal(
                     before.Structure.DependencyView().IsReachable(first.GraphId, second.GraphId),
                     after.Structure.DependencyView().IsReachable(first.GraphId, second.GraphId));
+            }
+        }
+
         Assert.Equal(before.Structure.Edges.Where(edge => edge is not ExecutionDependencyEdge),
             after.Structure.Edges.Where(edge => edge is not ExecutionDependencyEdge));
         AssertIdempotent(new DependencyReductionPostprocessor(), new([before]));
@@ -138,14 +143,21 @@ public sealed class ExecutionGraphPostprocessorTests
         var builder = Builder();
         Add(builder, "a", "a");
         if (scenario == "initial-read")
+        {
             Add(builder, "b", "output", "b", ["a"]);
+        }
         else if (scenario == "read-write")
+        {
             builder.AddOperation(Operation("b", "core.copy"),
                 [Binding("output", "b", GraphResourceAccess.ReadWrite, "b")], [new("a")]);
+        }
         else
+        {
             builder.AddOperation(Operation("b", scenario == "unknown-write" ? "custom.partial" : "core.copy",
                 scenario == "unknown-version" ? 2 : 1),
                 [Binding("output", "b", GraphResourceAccess.Write, "b")], [new("a")]);
+        }
+
         Assert.Contains(Process(new TemporaryResourceReusePostprocessor(), builder.Build()).Graphs[0].Resources,
             resource => resource.Id.Value == "b");
     }
@@ -270,8 +282,11 @@ public sealed class ExecutionGraphPostprocessorTests
     {
         var builder = Builder();
         foreach (var name in new[] { "a", "b" })
+        {
             builder.AddOperation(Operation(name, "custom.update"),
                 [Binding("state", name, GraphResourceAccess.ReadWrite, name)]);
+        }
+
         var after = Process(new OperationTemplateSharingPostprocessor(), builder.Build());
         Assert.Equal(GraphDefinitionResourceKind.InOut, Assert.Single(after.Graphs[1].Resources).Kind);
         Assert.Equal(GraphResourceAccess.ReadWrite,
@@ -307,16 +322,23 @@ public sealed class ExecutionGraphPostprocessorTests
         {
             var builder = new ExecutionGraphBuilder(new("random"));
             for (var index = 0; index < 12; index++)
+            {
                 builder.AddOperation(Operation($"n{index}", "custom.operation"), [],
                     Enumerable.Range(0, index).Where(_ => random.Next(3) == 0)
                         .Select(predecessor => new ExecutionNodeId($"n{predecessor}")));
+            }
+
             var before = builder.Build();
             var after = Process(new DependencyReductionPostprocessor(), before).Graphs[0];
             foreach (var first in before.Nodes)
+            {
                 foreach (var second in before.Nodes)
+                {
                     Assert.Equal(
                         before.Structure.DependencyView().IsReachable(first.GraphId, second.GraphId),
                         after.Structure.DependencyView().IsReachable(first.GraphId, second.GraphId));
+                }
+            }
         }
     }
 
@@ -328,11 +350,14 @@ public sealed class ExecutionGraphPostprocessorTests
     {
         var builder = new ExecutionGraphBuilder(new(id));
         foreach (var name in new[] { "input", "output", "left-output", "right-output", "a", "b" })
+        {
             builder.AddResource(new(new(name), name,
                 name == "input" ? GraphDefinitionResourceKind.Input :
                 name is "output" or "left-output" or "right-output" ? GraphDefinitionResourceKind.Output :
                 name == "b" ? secondKind : GraphDefinitionResourceKind.Temporary,
                 name == "b" ? secondTensor ?? F : F, name == "b" ? bindingKey : null));
+        }
+
         return builder;
     }
 
@@ -342,7 +367,10 @@ public sealed class ExecutionGraphPostprocessorTests
     {
         var bindings = new List<ModelResourceBinding>();
         if (input is not null)
+        {
             bindings.Add(Binding("input", input, GraphResourceAccess.Read, id));
+        }
+
         bindings.Add(Binding("output", output, GraphResourceAccess.Write, id));
         builder.AddOperation(Operation(id, input is null ? "core.tensor.fill" : "core.copy"),
             bindings, (dependencies ?? []).Select(value => new ExecutionNodeId(value)));

@@ -10,9 +10,15 @@ public sealed record KernelPrecisionProfile
         GraphElementType accumulatorType)
     {
         if (!NumericTypeCompatibility.IsFloatingPoint(arithmeticType))
+        {
             throw new ArgumentOutOfRangeException(nameof(arithmeticType));
+        }
+
         if (!NumericTypeCompatibility.IsFloatingPoint(accumulatorType))
+        {
             throw new ArgumentOutOfRangeException(nameof(accumulatorType));
+        }
+
         ArithmeticType = arithmeticType;
         AccumulatorType = accumulatorType;
     }

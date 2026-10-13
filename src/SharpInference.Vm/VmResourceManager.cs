@@ -31,7 +31,9 @@ public sealed class VmResourceManager : IDisposable
             {
                 var key = slot.BindingKey ?? slot.Id;
                 if (!globals.ContainsKey(key))
+                {
                     globals.Add(key, CreateResource(slot, slot.Access, initialize: true));
+                }
             }
         }
     }
@@ -111,7 +113,11 @@ public sealed class VmResourceManager : IDisposable
         var storage = allocate(slot);
         try
         {
-            if (initialize) initializeGlobal(slot, storage);
+            if (initialize)
+            {
+                initializeGlobal(slot, storage);
+            }
+
             return new VmResource(slot.Tensor, slot.Scope, access, storage);
         }
         catch (Exception error)
@@ -128,7 +134,11 @@ public sealed class VmResourceManager : IDisposable
         List<Exception>? errors = null;
         lock (gate)
         {
-            if (disposed) return;
+            if (disposed)
+            {
+                return;
+            }
+
             disposed = true;
             foreach (var resource in globals.Values)
             {
@@ -137,7 +147,10 @@ public sealed class VmResourceManager : IDisposable
             }
             globals.Clear();
         }
-        if (errors is not null) throw new AggregateException("Global resource cleanup failed.", errors);
+        if (errors is not null)
+        {
+            throw new AggregateException("Global resource cleanup failed.", errors);
+        }
     }
 }
 
@@ -169,7 +182,10 @@ public sealed class VmSessionResources : IDisposable
                     {
                         if (existing.Tensor.ElementType != slot.Tensor.ElementType ||
                             !existing.Tensor.Dimensions.SequenceEqual(slot.Tensor.Dimensions))
+                        {
                             throw new InvalidDataException($"Session slot '{slot.Id}' has incompatible descriptors.");
+                        }
+
                         continue;
                     }
                     var storage = allocate(slot);
@@ -199,14 +215,21 @@ public sealed class VmSessionResources : IDisposable
     internal static void ValidateContracts(IReadOnlyList<VmProgram> programs)
     {
         ArgumentNullException.ThrowIfNull(programs);
-        if (programs.Count == 0) throw new ArgumentException("At least one program is required.", nameof(programs));
+        if (programs.Count == 0)
+        {
+            throw new ArgumentException("At least one program is required.", nameof(programs));
+        }
+
         var first = programs[0];
         var descriptors = new Dictionary<string, VmTensor>(StringComparer.Ordinal);
         foreach (var program in programs)
         {
             if (program.State.Schema != first.State.Schema || program.State.Version != first.State.Version ||
                 !program.State.Entries.Select(entry => entry.Name).SequenceEqual(first.State.Entries.Select(entry => entry.Name)))
+            {
                 throw new InvalidDataException("Session programs require compatible State contracts.");
+            }
+
             foreach (var slot in program.Slots.Where(slot => slot.Scope == VmSlotScope.Session))
             {
                 var key = Key(program, slot);
@@ -214,9 +237,14 @@ public sealed class VmSessionResources : IDisposable
                 {
                     if (descriptor.ElementType != slot.Tensor.ElementType ||
                         !descriptor.Dimensions.SequenceEqual(slot.Tensor.Dimensions))
+                    {
                         throw new InvalidDataException($"Session slot '{slot.Id}' has incompatible descriptors.");
+                    }
                 }
-                else descriptors.Add(key, slot.Tensor);
+                else
+                {
+                    descriptors.Add(key, slot.Tensor);
+                }
             }
         }
     }
@@ -267,7 +295,11 @@ public sealed class VmSessionResources : IDisposable
         List<Exception>? errors = null;
         lock (gate)
         {
-            if (disposed) return;
+            if (disposed)
+            {
+                return;
+            }
+
             disposed = true;
             foreach (var resource in resources.Values)
             {
@@ -276,6 +308,9 @@ public sealed class VmSessionResources : IDisposable
             }
             resources.Clear();
         }
-        if (errors is not null) throw new AggregateException("Session resource cleanup failed.", errors);
+        if (errors is not null)
+        {
+            throw new AggregateException("Session resource cleanup failed.", errors);
+        }
     }
 }

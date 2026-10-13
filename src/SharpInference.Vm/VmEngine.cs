@@ -64,7 +64,10 @@ public sealed class VmEngine<TVm> : IAsyncDisposable where TVm : class, IDisposa
             lock (ownershipGate)
             {
                 if (owned.TryGetValue(instance, out _))
+                {
                     throw new InvalidOperationException("VM factories must return distinct, newly owned instances.");
+                }
+
                 owned.Add(instance, new object());
             }
             return instance;
@@ -141,7 +144,10 @@ internal sealed class VmWorkQueue<TVm> : IAsyncDisposable where TVm : class, IDi
             {
                 var instance = factory(index) ?? throw new InvalidOperationException("A VM factory returned null.");
                 if (!instances.Add(instance))
+                {
                     throw new InvalidOperationException("A VM factory returned an already owned instance.");
+                }
+
                 created.Add(instance);
             }
         }
@@ -155,7 +161,10 @@ internal sealed class VmWorkQueue<TVm> : IAsyncDisposable where TVm : class, IDi
             }
             stopping.Dispose();
             if (errors.Count > 1)
+            {
                 throw new AggregateException("VM queue construction and cleanup failed.", errors);
+            }
+
             throw;
         }
         workers = created.Select((instance, index) => Task.Run(() => RunWorker(index, instance))).ToArray();
@@ -169,7 +178,10 @@ internal sealed class VmWorkQueue<TVm> : IAsyncDisposable where TVm : class, IDi
         lock (gate)
         {
             if (fatalError is not null)
+            {
                 throw new InvalidOperationException($"The '{name}' VM queue failed.", fatalError);
+            }
+
             ObjectDisposedException.ThrowIf(shutdown is not null, this);
             var request = new Request<TResult>(operation, cancellationToken);
             if (!requests.Writer.TryWrite(request))
@@ -198,7 +210,11 @@ internal sealed class VmWorkQueue<TVm> : IAsyncDisposable where TVm : class, IDi
                 {
                     var failed = instance!;
                     instance = null;
-                    lock (gate) instances.Remove(failed);
+                    lock (gate)
+                    {
+                        instances.Remove(failed);
+                    }
+
                     failed.Dispose();
                     if (!stopping.IsCancellationRequested)
                     {
@@ -207,7 +223,10 @@ internal sealed class VmWorkQueue<TVm> : IAsyncDisposable where TVm : class, IDi
                         lock (gate)
                         {
                             if (!instances.Add(replacement))
+                            {
                                 throw new InvalidOperationException("A VM factory reused an active instance during recovery.");
+                            }
+
                             instance = replacement;
                         }
                     }
@@ -229,15 +248,27 @@ internal sealed class VmWorkQueue<TVm> : IAsyncDisposable where TVm : class, IDi
                     fatalError = failure;
                 }
             }
-            while (requests.Reader.TryRead(out var request)) request.Reject(failure);
-            if (!ReferenceEquals(failure, error)) throw failure;
+            while (requests.Reader.TryRead(out var request))
+            {
+                request.Reject(failure);
+            }
+
+            if (!ReferenceEquals(failure, error))
+            {
+                throw failure;
+            }
+
             throw;
         }
         finally
         {
             if (instance is not null)
             {
-                lock (gate) instances.Remove(instance);
+                lock (gate)
+                {
+                    instances.Remove(instance);
+                }
+
                 instance.Dispose();
             }
         }
@@ -266,7 +297,9 @@ internal sealed class VmWorkQueue<TVm> : IAsyncDisposable where TVm : class, IDi
         }
         finally { stopping.Dispose(); }
         if (errors is not null)
+        {
             throw new AggregateException("VM queue shutdown failed.", errors);
+        }
     }
 
     private abstract class Request
@@ -292,7 +325,9 @@ internal sealed class VmWorkQueue<TVm> : IAsyncDisposable where TVm : class, IDi
             registration = caller.Register(() =>
             {
                 if (Interlocked.CompareExchange(ref state, 2, 0) == 0)
+                {
                     completion.TrySetCanceled(caller);
+                }
             });
         }
 
@@ -312,8 +347,15 @@ internal sealed class VmWorkQueue<TVm> : IAsyncDisposable where TVm : class, IDi
                 linked.Token.ThrowIfCancellationRequested();
                 invoked = true;
                 var result = await operation(instance, linked.Token).ConfigureAwait(false);
-                if (linked.IsCancellationRequested) completion.TrySetCanceled(linked.Token);
-                else completion.TrySetResult(result);
+                if (linked.IsCancellationRequested)
+                {
+                    completion.TrySetCanceled(linked.Token);
+                }
+                else
+                {
+                    completion.TrySetResult(result);
+                }
+
                 return true;
             }
             catch (OperationCanceledException) when (linked.IsCancellationRequested)
@@ -338,8 +380,13 @@ internal sealed class VmWorkQueue<TVm> : IAsyncDisposable where TVm : class, IDi
             if (Interlocked.CompareExchange(ref state, 2, 0) == 0)
             {
                 if (error is OperationCanceledException cancelled)
+                {
                     completion.TrySetCanceled(cancelled.CancellationToken);
-                else completion.TrySetException(error);
+                }
+                else
+                {
+                    completion.TrySetException(error);
+                }
             }
             registration.Dispose();
         }

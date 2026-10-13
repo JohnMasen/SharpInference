@@ -17,7 +17,10 @@ public static class CpuHalfMatrixOperators
         {
             Span<float> converted = stackalloc float[Math.Min(columns, 1024)];
             for (var row = 0; row < output.Length; row++)
+            {
                 output[row] = Dot(matrix.Slice(row * columns, columns), input, converted);
+            }
+
             return;
         }
 
@@ -53,7 +56,10 @@ public static class CpuHalfMatrixOperators
             {
                 float sum = 0;
                 for (var column = 0; column < columns; column++)
+                {
                     sum += (float)matrix[row * columns + column] * (float)input[column];
+                }
+
                 output[row] = (Half)sum;
             }
             return;
@@ -69,13 +75,17 @@ public static class CpuHalfMatrixOperators
                 TensorPrimitives.ConvertToSingle(input, convertedInput);
                 Span<float> convertedMatrix = stackalloc float[Math.Min(columns, 1024)];
                 for (var row = 0; row < output.Length; row++)
+                {
                     output[row] = (Half)Dot(matrix.Slice(row * columns, columns),
                         convertedInput, convertedMatrix);
+                }
             }
             finally
             {
                 if (rentedInput is not null)
+                {
                     ArrayPool<float>.Shared.Return(rentedInput);
+                }
             }
             return;
         }
@@ -115,7 +125,10 @@ public static class CpuHalfMatrixOperators
     public static void GatherRow(ReadOnlySpan<Half> table, int rowIndex, Span<float> output)
     {
         if (rowIndex < 0 || rowIndex >= table.Length / output.Length)
+        {
             throw new ArgumentOutOfRangeException(nameof(rowIndex));
+        }
+
         TensorPrimitives.ConvertToSingle(
             table.Slice(checked(rowIndex * output.Length), output.Length), output);
     }

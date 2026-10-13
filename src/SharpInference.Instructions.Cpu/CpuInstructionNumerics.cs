@@ -13,7 +13,12 @@ public static class CpuInstructionNumerics
         CpuPrimitiveOperatorBackend.Instance.Tanh(input, output);
         // The SIMD approximation can return a nonzero residual at either signed zero.
         for (var i = 0; i < input.Length; i++)
-            if (input[i] == 0) output[i] = input[i];
+        {
+            if (input[i] == 0)
+            {
+                output[i] = input[i];
+            }
+        }
     }
 
     /// <summary>Multiplies a dense Float16 matrix by a Float32 vector and writes Float32 row results.</summary>
@@ -27,7 +32,10 @@ public static class CpuInstructionNumerics
     {
         if (rows <= 0 || columns <= 0 || matrix.Length != checked(rows * columns) ||
             input.Length != columns || output.Length != rows)
+        {
             throw new ArgumentException("Mixed matvec requires [rows,columns] x [columns] -> [rows].");
+        }
+
         CpuHalfMatrixOperators.MatVec(matrix, input, output);
     }
 
@@ -39,7 +47,10 @@ public static class CpuInstructionNumerics
     public static void GatherRow(ReadOnlySpan<Half> table, int index, int rowLength, Span<float> output)
     {
         if (rowLength <= 0 || output.Length != rowLength || table.Length % rowLength != 0)
+        {
             throw new ArgumentException("Mixed gather requires a dense table and one complete output row.");
+        }
+
         CpuHalfMatrixOperators.GatherRow(table, index, output);
     }
 
@@ -68,14 +79,20 @@ public static class CpuInstructionNumerics
         {
             if (leftColumns != rightColumns ||
                 output.Length != checked(leftRows * rightRows))
+            {
                 throw new ArgumentException("Incompatible matrix multiplication dimensions.");
+            }
+
             for (var row = 0; row < leftRows; row++)
+            {
                 CpuPrimitiveOperatorBackend.Instance.MatVec(
                     right,
                     left.Slice(row * leftColumns, leftColumns),
                     output.Slice(row * rightRows, rightRows),
                     rightRows,
                     rightColumns);
+            }
+
             return;
         }
         MatrixMultiplyCore(left, right, output, leftRows, leftColumns,
@@ -107,12 +124,18 @@ public static class CpuInstructionNumerics
         {
             if (leftColumns != rightColumns ||
                 output.Length != checked(leftRows * rightRows))
+            {
                 throw new ArgumentException("Incompatible matrix multiplication dimensions.");
+            }
+
             for (var row = 0; row < leftRows; row++)
+            {
                 CpuHalfMatrixOperators.MatVec(
                     right,
                     left.Slice(row * leftColumns, leftColumns),
                     output.Slice(row * rightRows, rightRows));
+            }
+
             return;
         }
         var rows = transposeLeft ? leftColumns : leftRows;
@@ -120,9 +143,13 @@ public static class CpuInstructionNumerics
         var columns = transposeRight ? rightRows : rightColumns;
         if (inner != (transposeRight ? rightColumns : rightRows) ||
             output.Length != checked(rows * columns))
+        {
             throw new ArgumentException("Incompatible matrix multiplication dimensions.");
+        }
+
         for (var row = 0; row < rows; row++)
-        for (var column = 0; column < columns; column++)
+        {
+            for (var column = 0; column < columns; column++)
         {
             var sum = 0f;
             for (var index = 0; index < inner; index++)
@@ -137,6 +164,7 @@ public static class CpuInstructionNumerics
             }
             output[row * columns + column] = sum;
         }
+        }
     }
 
     /// <summary>Adds a bias vector repeatedly along the final input dimension, writing Float32 output values.</summary>
@@ -149,9 +177,14 @@ public static class CpuInstructionNumerics
         Span<float> output)
     {
         if (bias.IsEmpty || input.Length != output.Length || input.Length % bias.Length != 0)
+        {
             throw new ArgumentException("Bias must match the final input dimension.");
+        }
+
         for (var index = 0; index < input.Length; index++)
+        {
             output[index] = input[index] + bias[index % bias.Length];
+        }
     }
 
     /// <summary>Adds a bias vector repeatedly along the final input dimension, writing Float32 output values.</summary>
@@ -164,9 +197,14 @@ public static class CpuInstructionNumerics
         Span<float> output)
     {
         if (bias.IsEmpty || input.Length != output.Length || input.Length % bias.Length != 0)
+        {
             throw new ArgumentException("Bias must match the final input dimension.");
+        }
+
         for (var index = 0; index < input.Length; index++)
+        {
             output[index] = input[index] + (float)bias[index % bias.Length];
+        }
     }
 
     private static void MatrixMultiplyCore(
@@ -185,9 +223,13 @@ public static class CpuInstructionNumerics
         var columns = transposeRight ? rightRows : rightColumns;
         if (inner != (transposeRight ? rightColumns : rightRows) ||
             output.Length != checked(rows * columns))
+        {
             throw new ArgumentException("Incompatible matrix multiplication dimensions.");
+        }
+
         for (var row = 0; row < rows; row++)
-        for (var column = 0; column < columns; column++)
+        {
+            for (var column = 0; column < columns; column++)
         {
             var sum = 0f;
             for (var index = 0; index < inner; index++)
@@ -201,6 +243,7 @@ public static class CpuInstructionNumerics
                 sum += leftValue * rightValue;
             }
             output[row * columns + column] = sum;
+        }
         }
     }
 }

@@ -25,10 +25,15 @@ public sealed class Phi4NativeEmbeddingProvider : IPhi4EmbeddingProvider
     {
         ArgumentNullException.ThrowIfNull(input);
         if (input.AttentionMask.Length != input.TokenIds.Length)
+        {
             throw new ArgumentException("Attention mask length does not match the token sequence.", nameof(input));
+        }
+
         if (input.AudioProjectionMode is not ("speech" or "vision"))
+        {
             throw new ArgumentException(
                 $"Unknown Phi-4 audio projection mode '{input.AudioProjectionMode}'.", nameof(input));
+        }
 
         var imageTask = input.Images.Count == 0
             ? Task.FromResult(Array.Empty<float[]>())
@@ -53,26 +58,38 @@ public sealed class Phi4NativeEmbeddingProvider : IPhi4EmbeddingProvider
             if (token == Phi4Tokenizer.ImageTokenId)
             {
                 if (imageIndex == imageEmbeddings.Length)
+                {
                     throw new InvalidDataException("Image embeddings are shorter than the image token run.");
+                }
+
                 result[index] = imageEmbeddings[imageIndex++];
             }
             else if (token == Phi4Tokenizer.AudioTokenId)
             {
                 if (audioIndex == audioEmbeddings.Length)
+                {
                     throw new InvalidDataException("Audio embeddings are shorter than the audio token run.");
+                }
+
                 result[index] = audioEmbeddings[audioIndex++];
             }
             else
             {
                 if ((uint)token >= Phi4TextModel.VocabularySize)
+                {
                     throw new InvalidDataException($"Token {token} is outside the Phi-4 vocabulary.");
+                }
+
                 var embedding = new float[TextWidth];
                 TensorMath.CopyRow(tokenEmbedding, token, embedding);
                 result[index] = embedding;
             }
         }
         if (imageIndex != imageEmbeddings.Length || audioIndex != audioEmbeddings.Length)
+        {
             throw new InvalidDataException("Projected media embeddings do not match the repeated media tokens.");
+        }
+
         return result;
     }
 
@@ -86,8 +103,11 @@ public sealed class Phi4NativeEmbeddingProvider : IPhi4EmbeddingProvider
             cancellationToken.ThrowIfCancellationRequested();
             var projected = EncodeImage(image, cancellationToken);
             if (projected.Length != image.ImageTokenCount)
+            {
                 throw new InvalidDataException(
                     $"Image encoder produced {projected.Length} embeddings, expected {image.ImageTokenCount}.");
+            }
+
             result.AddRange(projected);
         }
         return result.ToArray();
@@ -105,7 +125,9 @@ public sealed class Phi4NativeEmbeddingProvider : IPhi4EmbeddingProvider
             image.AttentionMask.Length != checked(image.CropCount * patchGrid * patchGrid) ||
             image.TargetHeight % cropSize != 0 ||
             image.TargetWidth % cropSize != 0)
+        {
             throw new InvalidDataException("Phi-4 image features have an invalid Golden HD shape.");
+        }
 
         var compressed = new float[image.CropCount][];
         for (var crop = 0; crop < image.CropCount; crop++)
@@ -113,7 +135,10 @@ public sealed class Phi4NativeEmbeddingProvider : IPhi4EmbeddingProvider
             cancellationToken.ThrowIfCancellationRequested();
             var mask = new bool[patchGrid * patchGrid];
             for (var index = 0; index < mask.Length; index++)
+            {
                 mask[index] = image.AttentionMask[crop * mask.Length + index] != 0;
+            }
+
             var hidden = PatchEmbed(
                 image.PixelValues.AsSpan(crop * cropValues, cropValues), mask);
             for (var layer = 0; layer < 26; layer++)
@@ -123,8 +148,10 @@ public sealed class Phi4NativeEmbeddingProvider : IPhi4EmbeddingProvider
             }
             var pooled = new float[compressedGrid * compressedGrid * visionWidth];
             for (var y = 0; y < compressedGrid; y++)
-            for (var x = 0; x < compressedGrid; x++)
-            for (var channel = 0; channel < visionWidth; channel++)
+            {
+                for (var x = 0; x < compressedGrid; x++)
+                {
+                    for (var channel = 0; channel < visionWidth; channel++)
             {
                 var topLeft = ((y * 2) * patchGrid + x * 2) * visionWidth + channel;
                 pooled[(y * compressedGrid + x) * visionWidth + channel] =
@@ -133,6 +160,9 @@ public sealed class Phi4NativeEmbeddingProvider : IPhi4EmbeddingProvider
                      hidden[topLeft + patchGrid * visionWidth] +
                      hidden[topLeft + (patchGrid + 1) * visionWidth]) * 0.25f;
             }
+                }
+            }
+
             compressed[crop] = pooled;
         }
 
@@ -140,27 +170,41 @@ public sealed class Phi4NativeEmbeddingProvider : IPhi4EmbeddingProvider
         var verticalTiles = image.TargetHeight / cropSize;
         var tileCount = checked(horizontalTiles * verticalTiles);
         if (image.CropCount != tileCount + 1)
+        {
             throw new InvalidDataException("Image crop count does not match its HD tile grid.");
+        }
 
         var usefulHeight = 0;
         for (var tileY = 0; tileY < verticalTiles; tileY++)
-        for (var y = 0; y < compressedGrid; y++)
+        {
+            for (var y = 0; y < compressedGrid; y++)
         {
             var crop = 1 + tileY * horizontalTiles;
             if (image.AttentionMask[crop * patchGrid * patchGrid + (y * 2) * patchGrid] != 0)
-                usefulHeight = tileY * compressedGrid + y + 1;
+                {
+                    usefulHeight = tileY * compressedGrid + y + 1;
+                }
+            }
         }
+
         var usefulWidth = 0;
         for (var tileX = 0; tileX < horizontalTiles; tileX++)
-        for (var x = 0; x < compressedGrid; x++)
+        {
+            for (var x = 0; x < compressedGrid; x++)
         {
             var crop = 1 + tileX;
             var offset = crop * patchGrid * patchGrid + x * 2;
             if (image.AttentionMask[offset] != 0)
-                usefulWidth = tileX * compressedGrid + x + 1;
+                {
+                    usefulWidth = tileX * compressedGrid + x + 1;
+                }
+            }
         }
+
         if (usefulHeight == 0 || usefulWidth == 0)
+        {
             throw new InvalidDataException("Image attention mask has no useful HD patches.");
+        }
 
         var subSeparator = TensorMath.ToArray(omni.GetTensor("v.sub_GN"));
         var globalSeparator = TensorMath.ToArray(omni.GetTensor("v.glb_GN"));
@@ -182,12 +226,18 @@ public sealed class Phi4NativeEmbeddingProvider : IPhi4EmbeddingProvider
         for (var y = 0; y < compressedGrid; y++)
         {
             for (var x = 0; x < compressedGrid; x++)
+            {
                 hd.Add(CopyToken(compressed[0], y * compressedGrid + x, visionWidth));
+            }
+
             hd.Add((float[])subSeparator.Clone());
         }
         if (hd.Count != image.ImageTokenCount)
+        {
             throw new InvalidDataException(
                 $"HD transform produced {hd.Count} tokens, expected {image.ImageTokenCount}.");
+        }
+
         return Project(hd, "mm.0", "mm.2", cancellationToken);
     }
 
@@ -212,8 +262,10 @@ public sealed class Phi4NativeEmbeddingProvider : IPhi4EmbeddingProvider
                 var sum = TensorMath.Value(bias, channel);
                 var weightBase = channel * 3 * patchSize * patchSize;
                 for (var inputChannel = 0; inputChannel < 3; inputChannel++)
-                for (var y = 0; y < patchSize; y++)
-                for (var x = 0; x < patchSize; x++)
+                {
+                    for (var y = 0; y < patchSize; y++)
+                    {
+                        for (var x = 0; x < patchSize; x++)
                 {
                     var pixel = inputChannel * cropSize * cropSize +
                         (patchY * patchSize + y) * cropSize + patchX * patchSize + x;
@@ -221,25 +273,39 @@ public sealed class Phi4NativeEmbeddingProvider : IPhi4EmbeddingProvider
                         y * patchSize + x;
                     sum += pixelValues[pixel] * TensorMath.Value(weight, coefficient);
                 }
+                    }
+                }
+
                 destination[channel] = sum;
             }
         });
 
         var validRows = 0;
         while (validRows < grid && mask[validRows * grid])
+        {
             validRows++;
+        }
+
         var validColumns = 0;
         while (validColumns < grid && mask[validColumns])
+        {
             validColumns++;
+        }
+
         for (var y = 0; y < validRows; y++)
-        for (var x = 0; x < validColumns; x++)
+        {
+            for (var x = 0; x < validColumns; x++)
         {
             var positionId = (y * grid / validRows) * grid + x * grid / validColumns;
             var token = y * grid + x;
             for (var channel = 0; channel < width; channel++)
-                output[token * width + channel] +=
+                {
+                    output[token * width + channel] +=
                     TensorMath.Value(position, positionId * width + channel);
+                }
+            }
         }
+
         return output;
     }
 
@@ -286,7 +352,10 @@ public sealed class Phi4NativeEmbeddingProvider : IPhi4EmbeddingProvider
             for (var source = 0; source < tokens; source++)
             {
                 if (!mask[source])
+                {
                     continue;
+                }
+
                 scores[source] = MathF.Exp(scores[source] - maximum);
                 denominator += scores[source];
             }
@@ -294,11 +363,16 @@ public sealed class Phi4NativeEmbeddingProvider : IPhi4EmbeddingProvider
             for (var source = 0; source < tokens; source++)
             {
                 if (!mask[source])
+                {
                     continue;
+                }
+
                 var probability = scores[source] / denominator;
                 var sourceOffset = source * width + head * headWidth;
                 for (var channel = 0; channel < headWidth; channel++)
+                {
                     attention[destination + channel] += probability * value[sourceOffset + channel];
+                }
             }
         });
         var projected = TensorMath.Linear(attention, tokens,
@@ -312,7 +386,10 @@ public sealed class Phi4NativeEmbeddingProvider : IPhi4EmbeddingProvider
         var up = TensorMath.Linear(normalized, tokens,
             omni.GetTensor(prefix + "ffn_up.weight"), omni.GetTensor(prefix + "ffn_up.bias"));
         for (var index = 0; index < up.Length; index++)
+        {
             up[index] = TensorMath.GeluTanh(up[index]);
+        }
+
         var down = TensorMath.Linear(up, tokens,
             omni.GetTensor(prefix + "ffn_down.weight"), omni.GetTensor(prefix + "ffn_down.bias"));
         TensorMath.Add(hidden, down, 1f);
@@ -329,8 +406,11 @@ public sealed class Phi4NativeEmbeddingProvider : IPhi4EmbeddingProvider
             cancellationToken.ThrowIfCancellationRequested();
             var encoded = EncodeAudio(audio, cancellationToken);
             if (encoded.Length / 1024 != audio.EmbedSize)
+            {
                 throw new InvalidDataException(
                     $"Audio encoder produced {encoded.Length / 1024} embeddings, expected {audio.EmbedSize}.");
+            }
+
             var tokens = Enumerable.Range(0, audio.EmbedSize)
                 .Select(index => CopyToken(encoded, index, 1024))
                 .ToList();
@@ -352,12 +432,18 @@ public sealed class Phi4NativeEmbeddingProvider : IPhi4EmbeddingProvider
     {
         ArgumentNullException.ThrowIfNull(audio);
         if (projectionMode is not ("speech" or "vision"))
+        {
             throw new ArgumentException(
                 $"Unknown Phi-4 audio projection mode '{projectionMode}'.", nameof(projectionMode));
+        }
+
         var rows = EncodeAudios([audio], projectionMode, cancellationToken);
         var result = new float[checked(rows.Length * TextWidth)];
         for (var index = 0; index < rows.Length; index++)
+        {
             rows[index].CopyTo(result, index * TextWidth);
+        }
+
         return result;
     }
 
@@ -368,23 +454,30 @@ public sealed class Phi4NativeEmbeddingProvider : IPhi4EmbeddingProvider
         if (audio.FrameCount <= 0 ||
             audio.FeatureCount != featureCount ||
             audio.Values.Length != checked(audio.FrameCount * featureCount))
+        {
             throw new InvalidDataException("Phi-4 audio features have an invalid Golden Conformer shape.");
+        }
 
         var normalized = new float[audio.Values.Length];
         var mean = omni.GetTensor("a.global_mean");
         var inverseStandardDeviation = omni.GetTensor("a.global_invstd");
         for (var frame = 0; frame < audio.FrameCount; frame++)
-        for (var feature = 0; feature < featureCount; feature++)
+        {
+            for (var feature = 0; feature < featureCount; feature++)
         {
             var index = frame * featureCount + feature;
             normalized[index] = (audio.Values[index] - TensorMath.Value(mean, feature)) *
                 TensorMath.Value(inverseStandardDeviation, feature);
         }
+        }
+
         var hidden = AudioSubsample(normalized, audio.FrameCount, cancellationToken);
         var tokens = hidden.Length / width;
         if (tokens != audio.EmbedSize)
+        {
             throw new InvalidDataException(
                 $"Conformer subsampling produced {tokens} frames, expected {audio.EmbedSize}.");
+        }
 
         for (var layer = 0; layer < 24; layer++)
         {
@@ -425,10 +518,17 @@ public sealed class Phi4NativeEmbeddingProvider : IPhi4EmbeddingProvider
         var tokens = DivideRoundUp(frames, 8);
         var flattened = new float[tokens * 10240];
         for (var token = 0; token < tokens; token++)
-        for (var channel = 0; channel < 1024; channel++)
-        for (var frequency = 0; frequency < 10; frequency++)
-            flattened[token * 10240 + channel * 10 + frequency] =
+        {
+            for (var channel = 0; channel < 1024; channel++)
+            {
+                for (var frequency = 0; frequency < 10; frequency++)
+                {
+                    flattened[token * 10240 + channel * 10 + frequency] =
                 third[(token * 10 + frequency) * 1024 + channel];
+                }
+            }
+        }
+
         return TensorMath.Linear(
             flattened, tokens,
             omni.GetTensor("a.conv1d.out.weight"), omni.GetTensor("a.conv1d.out.bias"));
@@ -485,7 +585,9 @@ public sealed class Phi4NativeEmbeddingProvider : IPhi4EmbeddingProvider
                 var probability = scores[source] / denominator;
                 var sourceOffset = source * width + head * headWidth;
                 for (var channel = 0; channel < headWidth; channel++)
+                {
                     attention[destination + channel] += probability * value[sourceOffset + channel];
+                }
             }
         });
         var projected = TensorMath.Linear(attention, tokens,
@@ -513,12 +615,15 @@ public sealed class Phi4NativeEmbeddingProvider : IPhi4EmbeddingProvider
             omni.GetTensor(prefix + ".up.weight"), omni.GetTensor(prefix + ".up.bias"));
         var gated = new float[tokens * intermediate];
         for (var token = 0; token < tokens; token++)
-        for (var channel = 0; channel < intermediate; channel++)
+        {
+            for (var channel = 0; channel < intermediate; channel++)
         {
             var offset = token * intermediate * 2 + channel;
             gated[token * intermediate + channel] =
                 up[offset] * TensorMath.Swish(up[offset + intermediate]);
         }
+        }
+
         return TensorMath.Linear(gated, tokens,
             omni.GetTensor(prefix + ".down.weight"), omni.GetTensor(prefix + ".down.bias"));
     }
@@ -539,13 +644,16 @@ public sealed class Phi4NativeEmbeddingProvider : IPhi4EmbeddingProvider
         var b2 = omni.GetTensor(prefix + "conv.glu.b2");
         var gated = new float[tokens * width];
         for (var token = 0; token < tokens; token++)
-        for (var channel = 0; channel < width; channel++)
+        {
+            for (var channel = 0; channel < width; channel++)
         {
             var offset = token * width * 2 + channel;
             gated[token * width + channel] =
                 (pointwise[offset] + TensorMath.Value(b1, channel)) *
                 TensorMath.Swish(pointwise[offset + width] + TensorMath.Value(b2, channel));
         }
+        }
+
         var depthwise = TensorMath.Conv1D(
             gated, tokens,
             omni.GetTensor(prefix + "conv.dw.weight"),
@@ -556,7 +664,10 @@ public sealed class Phi4NativeEmbeddingProvider : IPhi4EmbeddingProvider
             omni.GetTensor(prefix + "conv.pw_mid.weight"),
             omni.GetTensor(prefix + "conv.pw_mid.bias"), padding: 0, groups: 1);
         for (var index = 0; index < middle.Length; index++)
+        {
             middle[index] = TensorMath.Swish(middle[index]);
+        }
+
         return TensorMath.Conv1D(
             middle, tokens,
             omni.GetTensor(prefix + "conv.pw_ext.weight"),
@@ -570,21 +681,30 @@ public sealed class Phi4NativeEmbeddingProvider : IPhi4EmbeddingProvider
         CancellationToken cancellationToken)
     {
         if (tokens.Count == 0)
+        {
             return [];
+        }
+
         var inputWidth = tokens[0].Length;
         var flattened = new float[checked(tokens.Count * inputWidth)];
         for (var token = 0; token < tokens.Count; token++)
         {
             cancellationToken.ThrowIfCancellationRequested();
             if (tokens[token].Length != inputWidth)
+            {
                 throw new InvalidDataException("Projection input widths are inconsistent.");
+            }
+
             tokens[token].CopyTo(flattened, token * inputWidth);
         }
         var hidden = TensorMath.Linear(
             flattened, tokens.Count,
             omni.GetTensor(firstLayer + ".weight"), omni.GetTensor(firstLayer + ".bias"));
         for (var index = 0; index < hidden.Length; index++)
+        {
             hidden[index] = TensorMath.Gelu(hidden[index]);
+        }
+
         var projected = TensorMath.Linear(
             hidden, tokens.Count,
             omni.GetTensor(secondLayer + ".weight"), omni.GetTensor(secondLayer + ".bias"));
@@ -604,7 +724,10 @@ public sealed class Phi4NativeEmbeddingProvider : IPhi4EmbeddingProvider
             omni.GetMetadata<uint>("clip.vision.block_count") != 27 ||
             omni.GetMetadata<uint>("clip.vision.attention.head_count") != 16 ||
             omni.GetMetadata<uint>("clip.vision.projection_dim") != TextWidth)
+        {
             throw new InvalidDataException("The Omni GGUF metadata is not the expected Phi-4 vision encoder.");
+        }
+
         foreach (var name in new[]
         {
             "v.patch_embd.weight",
@@ -622,7 +745,9 @@ public sealed class Phi4NativeEmbeddingProvider : IPhi4EmbeddingProvider
             "mm.a.mlp.0.weight",
             "mm.a.vis.0.weight",
         })
+        {
             _ = omni.GetTensor(name);
+        }
     }
 
     private static float[] CopyToken(float[] values, int token, int width)
@@ -644,7 +769,10 @@ internal static unsafe class TensorMath
             (tensor.Type == GgufModelTensorType.Float32 ? sizeof(float) : sizeof(ushort))));
         var result = new float[count];
         for (var index = 0; index < result.Length; index++)
+        {
             result[index] = Value(tensor, index);
+        }
+
         return result;
     }
 
@@ -661,10 +789,15 @@ internal static unsafe class TensorMath
     {
         var width = checked((int)tensor.Dimensions[0]);
         if (output.Length != width)
+        {
             throw new ArgumentException("Tensor row width does not match the output.", nameof(output));
+        }
+
         var offset = checked(row * width);
         for (var index = 0; index < width; index++)
+        {
             output[index] = Value(tensor, offset + index);
+        }
     }
 
     public static float[] Linear(
@@ -678,7 +811,10 @@ internal static unsafe class TensorMath
         if (input.Length != checked(rows * inputWidth) ||
             bias.Dimensions.Count != 1 ||
             bias.Dimensions[0] != (ulong)outputWidth)
+        {
             throw new InvalidDataException($"Linear tensor shape is invalid for '{weight.Name}'.");
+        }
+
         var output = new float[checked(rows * outputWidth)];
         if (weight.Type == GgufModelTensorType.Float16 &&
             bias.Type == GgufModelTensorType.Float16)
@@ -726,7 +862,10 @@ internal static unsafe class TensorMath
                     var sum = biases[destination];
                     var weightOffset = destination * inputWidth;
                     for (var source = 0; source < inputWidth; source++)
+                    {
                         sum += input[inputOffset + source] * weights[weightOffset + source];
+                    }
+
                     output[outputOffset + destination] = sum;
                 }
             });
@@ -749,13 +888,19 @@ internal static unsafe class TensorMath
         float[] output)
     {
         if (input.Length != checked(rows * width) || output.Length != input.Length)
+        {
             throw new ArgumentException("Layer normalization shape is invalid.", nameof(input));
+        }
+
         Parallel.For(0, rows, row =>
         {
             var offset = row * width;
             var mean = 0f;
             for (var channel = 0; channel < width; channel++)
+            {
                 mean += input[offset + channel];
+            }
+
             mean /= width;
             var variance = 0f;
             for (var channel = 0; channel < width; channel++)
@@ -765,9 +910,11 @@ internal static unsafe class TensorMath
             }
             var scale = 1f / MathF.Sqrt(variance / width + epsilon);
             for (var channel = 0; channel < width; channel++)
+            {
                 output[offset + channel] =
                     (input[offset + channel] - mean) * scale * Value(weight, channel) +
                     Value(bias, channel);
+            }
         });
     }
 
@@ -785,7 +932,10 @@ internal static unsafe class TensorMath
         var inputChannels = checked(inputChannelsPerGroup * groups);
         var outputLength = checked(length + 2 * padding - kernel + 1);
         if (input.Length != checked(length * inputChannels) || outputChannels % groups != 0)
+        {
             throw new InvalidDataException($"Conv1D tensor shape is invalid for '{weight.Name}'.");
+        }
+
         var output = new float[checked(outputLength * outputChannels)];
         var outputsPerGroup = outputChannels / groups;
         Parallel.For(0, outputLength, position =>
@@ -796,15 +946,21 @@ internal static unsafe class TensorMath
                 var sum = Value(bias, outputChannel);
                 var weightBase = outputChannel * inputChannelsPerGroup * kernel;
                 for (var inputChannel = 0; inputChannel < inputChannelsPerGroup; inputChannel++)
-                for (var k = 0; k < kernel; k++)
+                {
+                    for (var k = 0; k < kernel; k++)
                 {
                     var sourcePosition = position + k - padding;
                     if ((uint)sourcePosition >= (uint)length)
-                        continue;
-                    sum += input[sourcePosition * inputChannels +
+                        {
+                            continue;
+                        }
+
+                        sum += input[sourcePosition * inputChannels +
                             group * inputChannelsPerGroup + inputChannel] *
                         Value(weight, weightBase + inputChannel * kernel + k);
                 }
+                }
+
                 output[position * outputChannels + outputChannel] = sum;
             }
         });
@@ -831,7 +987,10 @@ internal static unsafe class TensorMath
         if (input.Length != checked(inputHeight * inputWidth * inputChannels) ||
             inputChannelsPerGroup * groups != inputChannels ||
             outputChannels % groups != 0)
+        {
             throw new InvalidDataException($"Conv2D tensor shape is invalid for '{weight.Name}'.");
+        }
+
         var output = new float[checked(outputHeight * outputWidth * outputChannels)];
         var outputsPerGroup = outputChannels / groups;
         Parallel.For(0, outputHeight * outputWidth, position =>
@@ -845,20 +1004,28 @@ internal static unsafe class TensorMath
                 var weightBase = outputChannel *
                     inputChannelsPerGroup * kernelHeight * kernelWidth;
                 for (var inputChannel = 0; inputChannel < inputChannelsPerGroup; inputChannel++)
-                for (var kernelY = 0; kernelY < kernelHeight; kernelY++)
-                for (var kernelX = 0; kernelX < kernelWidth; kernelX++)
+                {
+                    for (var kernelY = 0; kernelY < kernelHeight; kernelY++)
+                    {
+                        for (var kernelX = 0; kernelX < kernelWidth; kernelX++)
                 {
                     var sourceY = outputY * stride + kernelY - padding;
                     var sourceX = outputX * stride + kernelX - padding;
                     if ((uint)sourceY >= (uint)inputHeight ||
                         (uint)sourceX >= (uint)inputWidth)
-                        continue;
-                    var source = (sourceY * inputWidth + sourceX) * inputChannels +
+                            {
+                                continue;
+                            }
+
+                            var source = (sourceY * inputWidth + sourceX) * inputChannels +
                         group * inputChannelsPerGroup + inputChannel;
                     var coefficient = weightBase +
                         (inputChannel * kernelHeight + kernelY) * kernelWidth + kernelX;
                     sum += input[source] * Value(weight, coefficient);
                 }
+                    }
+                }
+
                 output[position * outputChannels + outputChannel] = sum;
             }
         });
@@ -869,22 +1036,32 @@ internal static unsafe class TensorMath
     {
         var result = 0f;
         for (var index = 0; index < count; index++)
+        {
             result += left[leftOffset + index] * right[rightOffset + index];
+        }
+
         return result;
     }
 
     public static void Add(float[] destination, float[] source, float scale)
     {
         if (destination.Length != source.Length)
+        {
             throw new ArgumentException("Tensor lengths do not match.", nameof(source));
+        }
+
         for (var index = 0; index < destination.Length; index++)
+        {
             destination[index] += source[index] * scale;
+        }
     }
 
     public static void Relu(float[] values)
     {
         for (var index = 0; index < values.Length; index++)
+        {
             values[index] = MathF.Max(0, values[index]);
+        }
     }
 
     public static float Swish(float value) => value / (1f + MathF.Exp(-value));

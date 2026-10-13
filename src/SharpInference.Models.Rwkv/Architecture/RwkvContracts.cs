@@ -118,7 +118,9 @@ public interface IRwkvArchitecture
     void ForwardTokens(IRwkvModel model, ReadOnlySpan<int> tokens, IRwkvState state, Span<float> logits)
     {
         foreach (var token in tokens)
+        {
             ForwardToken(model, token, state, logits);
+        }
     }
 }
 
@@ -136,20 +138,33 @@ public sealed record RwkvTensorCatalogDimensions(int VocabularySize, int Embeddi
         ArgumentNullException.ThrowIfNull(catalog);
         var embedding = catalog.GetRequired("emb.weight").Dimensions;
         if (embedding.Count != 2 || embedding.Any(size => size <= 0))
+        {
             throw new InvalidDataException("The RWKV embedding tensor must have two positive dimensions.");
+        }
+
         var layers = new HashSet<int>();
         foreach (var name in catalog.Names)
         {
-            if (!name.StartsWith("blocks.", StringComparison.Ordinal)) continue;
+            if (!name.StartsWith("blocks.", StringComparison.Ordinal))
+            {
+                continue;
+            }
+
             var end = name.IndexOf('.', "blocks.".Length);
             if (end < 0 || !int.TryParse(name.AsSpan("blocks.".Length, end - "blocks.".Length),
                     System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture,
                     out var layer) || layer < 0)
+            {
                 throw new InvalidDataException($"Invalid RWKV block tensor name '{name}'.");
+            }
+
             layers.Add(layer);
         }
         if (layers.Count == 0 || layers.Max() != layers.Count - 1)
+        {
             throw new InvalidDataException("RWKV block indices must be contiguous and start at zero.");
+        }
+
         return new(embedding[1], embedding[0], layers.Count);
     }
 }

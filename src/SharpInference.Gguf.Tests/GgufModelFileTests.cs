@@ -64,9 +64,14 @@ public sealed class GgufModelFileTests
         writer.Write((uint)GgufMetadataType.Array);
         writer.Write((uint)GgufMetadataType.Float32);
         if (legacyArrayCount)
+        {
             writer.Write(3u);
+        }
         else
+        {
             writer.Write(3ul);
+        }
+
         writer.Write(0.5f);
         writer.Write(0.25f);
         writer.Write(-1f);
@@ -77,7 +82,10 @@ public sealed class GgufModelFileTests
         writer.Write((uint)GgufModelTensorType.Float16);
         writer.Write(0ul);
         while (stream.Position % 32 != 0)
+        {
             writer.Write((byte)0);
+        }
+
         writer.Write(BitConverter.HalfToUInt16Bits((Half)1f));
         writer.Write(BitConverter.HalfToUInt16Bits((Half)2f));
         return stream.ToArray();

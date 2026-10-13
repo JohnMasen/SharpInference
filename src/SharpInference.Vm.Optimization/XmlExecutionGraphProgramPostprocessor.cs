@@ -38,18 +38,24 @@ public sealed class XmlExecutionGraphProgramPostprocessor :
                 context.Compilation.Backend,
                 expectedBackend,
                 StringComparison.Ordinal))
+        {
             throw new InvalidOperationException(
                 $"Execution graph XML '{path}' is configured for model " +
                 $"'{expectedModelType}' and backend '{expectedBackend}', not " +
                 $"'{context.Compilation.ModelType}' and " +
                 $"'{context.Compilation.Backend}'.");
+        }
+
         var loaded = GraphXml.DeserializeProgram(File.ReadAllText(path));
         var root = loaded.Graphs.Single(graph =>
             graph.Id == loaded.RootGraph);
         if (root.Source?.Definition != context.SourceGraph.Id)
+        {
             throw new InvalidDataException(
                 $"Execution graph XML root '{root.Id}' must identify logical " +
                 $"source '{context.SourceGraph.Id}'.");
+        }
+
         return loaded;
     }
 }

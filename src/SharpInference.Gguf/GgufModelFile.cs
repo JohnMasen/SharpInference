@@ -127,7 +127,10 @@ public sealed unsafe class GgufModelFile : IDisposable
             FileOptions.RandomAccess);
         using var reader = new BinaryReader(stream, Utf8, leaveOpen: true);
         if (reader.ReadUInt32() != Magic || reader.ReadUInt32() != SupportedVersion)
+        {
             throw new InvalidDataException("Expected a GGUF v3 model file.");
+        }
+
         var tensorCount = CheckedCount(reader.ReadUInt64(), "tensor");
         var metadataCount = CheckedCount(reader.ReadUInt64(), "metadata");
 
@@ -145,7 +148,9 @@ public sealed unsafe class GgufModelFile : IDisposable
                 throw new InvalidDataException($"Invalid GGUF metadata '{key}'.", exception);
             }
             if (string.IsNullOrWhiteSpace(key) || !metadata.TryAdd(key, value))
+            {
                 throw new InvalidDataException($"Empty or duplicate GGUF metadata key '{key}'.");
+            }
         }
 
         var descriptors = new TensorDescriptor[tensorCount];
@@ -154,16 +159,24 @@ public sealed unsafe class GgufModelFile : IDisposable
         {
             var name = ReadString(reader);
             if (string.IsNullOrWhiteSpace(name) || !tensorNames.Add(name))
+            {
                 throw new InvalidDataException($"Empty or duplicate GGUF tensor name '{name}'.");
+            }
+
             var rank = reader.ReadUInt32();
             if (rank is < 1 or > 8)
+            {
                 throw new InvalidDataException($"Tensor '{name}' has unsupported rank {rank}.");
+            }
+
             var dimensions = new ulong[rank];
             for (var dimension = 0; dimension < dimensions.Length; dimension++)
             {
                 dimensions[dimension] = reader.ReadUInt64();
                 if (dimensions[dimension] == 0)
+                {
                     throw new InvalidDataException($"Tensor '{name}' has an empty dimension.");
+                }
             }
             descriptors[index] = new TensorDescriptor(
                 name, (GgufModelTensorType)reader.ReadUInt32(), dimensions, reader.ReadUInt64());
@@ -173,7 +186,10 @@ public sealed unsafe class GgufModelFile : IDisposable
             ? checked((uint)Convert.ToUInt64(alignmentValue))
             : 32;
         if (alignment == 0 || !System.Numerics.BitOperations.IsPow2(alignment))
+        {
             throw new InvalidDataException($"Invalid GGUF alignment {alignment}.");
+        }
+
         var dataStart = Align(stream.Position, alignment);
         var fileLength = stream.Length;
 
@@ -191,7 +207,10 @@ public sealed unsafe class GgufModelFile : IDisposable
                 var byteLength = GetByteLength(descriptor.Type, descriptor.Dimensions);
                 var absoluteOffset = checked(dataStart + checked((long)descriptor.Offset));
                 if (absoluteOffset < dataStart || byteLength > fileLength - absoluteOffset)
+                {
                     throw new InvalidDataException($"Tensor '{descriptor.Name}' exceeds the GGUF file.");
+                }
+
                 tensors.Add(descriptor.Name, new GgufModelTensor(
                     descriptor.Name, descriptor.Type, descriptor.Dimensions,
                     absoluteOffset, byteLength, pointer));
@@ -205,7 +224,10 @@ public sealed unsafe class GgufModelFile : IDisposable
         catch
         {
             if (pointer is not null && accessor is not null)
+            {
                 accessor.SafeMemoryMappedViewHandle.ReleasePointer();
+            }
+
             accessor?.Dispose();
             mapping.Dispose();
             throw;
@@ -221,9 +243,15 @@ public sealed unsafe class GgufModelFile : IDisposable
     {
         ObjectDisposedException.ThrowIf(disposed, this);
         if (!Metadata.TryGetValue(key, out var value))
+        {
             throw new InvalidDataException($"GGUF metadata '{key}' is missing.");
+        }
+
         if (value is T typed)
+        {
             return typed;
+        }
+
         try
         {
             return (T)Convert.ChangeType(value, typeof(T), System.Globalization.CultureInfo.InvariantCulture);
@@ -249,7 +277,10 @@ public sealed unsafe class GgufModelFile : IDisposable
     public void Dispose()
     {
         if (disposed)
+        {
             return;
+        }
+
         accessor.SafeMemoryMappedViewHandle.ReleasePointer();
         accessor.Dispose();
         mapping.Dispose();
@@ -287,7 +318,10 @@ public sealed unsafe class GgufModelFile : IDisposable
     {
         var elementType = (GgufMetadataType)reader.ReadUInt32();
         if (elementType == GgufMetadataType.Array)
+        {
             throw new InvalidDataException("Nested GGUF metadata arrays are unsupported.");
+        }
+
         var count = ReadArrayCount(reader);
         return elementType switch
         {
@@ -316,7 +350,10 @@ public sealed unsafe class GgufModelFile : IDisposable
     {
         var result = new T[count];
         for (var index = 0; index < result.Length; index++)
+        {
             result[index] = read();
+        }
+
         return result;
     }
 
@@ -325,7 +362,10 @@ public sealed unsafe class GgufModelFile : IDisposable
         var length = CheckedCount(reader.ReadUInt64(), "string byte");
         var bytes = reader.ReadBytes(length);
         if (bytes.Length != length)
+        {
             throw new EndOfStreamException("GGUF string is truncated.");
+        }
+
         return Utf8.GetString(bytes);
     }
 
@@ -338,12 +378,17 @@ public sealed unsafe class GgufModelFile : IDisposable
     {
         var value = reader.ReadUInt64();
         if (value <= int.MaxValue)
+        {
             return (int)value;
+        }
 
         // Some older community converters emitted a 32-bit array count.
         var legacyCount = (uint)value;
         if (legacyCount > int.MaxValue)
+        {
             throw new InvalidDataException($"GGUF array count {value} is too large.");
+        }
+
         reader.BaseStream.Position -= sizeof(uint);
         return (int)legacyCount;
     }
@@ -355,7 +400,10 @@ public sealed unsafe class GgufModelFile : IDisposable
     {
         ulong elements = 1;
         foreach (var dimension in dimensions)
+        {
             elements = checked(elements * dimension);
+        }
+
         var bytes = type switch
         {
             GgufModelTensorType.Float32 => checked(elements * 4),
@@ -377,8 +425,11 @@ public sealed unsafe class GgufModelFile : IDisposable
         static ulong BlockBytes(ulong elements, ulong blockSize, ulong bytes)
         {
             if (elements % blockSize != 0)
+            {
                 throw new InvalidDataException(
                     $"Quantized tensor element count {elements} is not divisible by block size {blockSize}.");
+            }
+
             return checked(elements / blockSize * bytes);
         }
     }
@@ -449,10 +500,16 @@ public sealed unsafe class GgufModelTensor
     public float GetHalfValue(int index)
     {
         if (Type != GgufModelTensorType.Float16)
+        {
             throw new InvalidOperationException($"Tensor '{Name}' is not Float16.");
+        }
+
         var count = byteLength / sizeof(ushort);
         if ((uint)index >= (ulong)count)
+        {
             throw new ArgumentOutOfRangeException(nameof(index));
+        }
+
         return (float)((Half*)(filePointer + offset))[index];
     }
 
@@ -462,10 +519,16 @@ public sealed unsafe class GgufModelTensor
     public float GetFloatValue(int index)
     {
         if (Type != GgufModelTensorType.Float32)
+        {
             throw new InvalidOperationException($"Tensor '{Name}' is not Float32.");
+        }
+
         var count = byteLength / sizeof(float);
         if ((uint)index >= (ulong)count)
+        {
             throw new ArgumentOutOfRangeException(nameof(index));
+        }
+
         return ((float*)(filePointer + offset))[index];
     }
 }

@@ -90,7 +90,10 @@ internal sealed class Rwkv7PortableElementwiseBuilder
     private GraphResource<RwkvTensor> AddOutput(string id)
     {
         if (string.IsNullOrWhiteSpace(id) || !names.Add(id))
+        {
             throw new ArgumentException($"Duplicate or invalid elementwise resource '{id}'.", nameof(id));
+        }
+
         var output = $"{id}_output";
         return builder.AddResource<RwkvTensor>(
             output,

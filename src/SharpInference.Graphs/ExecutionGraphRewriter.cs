@@ -58,19 +58,27 @@ public static class ExecutionGraphRewriter
         var selected = nodeIds?.ToHashSet()
             ?? throw new ArgumentNullException(nameof(nodeIds));
         if (selected.Count < 2)
+        {
             throw new ArgumentException(
                 "Fusion requires at least two nodes.", nameof(nodeIds));
+        }
+
         var sources = graph.Nodes.Where(node => selected.Contains(node.Id)).ToArray();
         if (sources.Length != selected.Count ||
             sources.Any(node => node is not ExecutionOperationNode))
+        {
             throw new ArgumentException(
                 "Every fused node must be an operation in the selected graph.",
                 nameof(nodeIds));
+        }
+
         if (graph.Nodes.Any(node =>
             node.Id == replacementId && !selected.Contains(node.Id)))
+        {
             throw new ArgumentException(
                 $"Replacement node '{replacementId}' already exists.",
                 nameof(replacementId));
+        }
 
         var target = GraphRewriteTarget<
             ExecutionGraphStructureNode,
@@ -91,10 +99,16 @@ public static class ExecutionGraphRewriter
         var replacementEdges = new List<ExecutionGraphEdge>();
         foreach (var source in target.IncomingEdges.OfType<ExecutionDependencyEdge>()
             .Select(edge => edge.Source).Distinct())
+        {
             AddDependency(replacementEdges, source, replacement.GraphId);
+        }
+
         foreach (var successor in target.OutgoingEdges.OfType<ExecutionDependencyEdge>()
             .Select(edge => edge.Target).Distinct())
+        {
             AddDependency(replacementEdges, replacement.GraphId, successor);
+        }
+
         AddBindings(replacementEdges, replacement, bindings);
         var plan = new GraphRewritePlan<
                 ExecutionGraphStructureNode,
@@ -102,7 +116,10 @@ public static class ExecutionGraphRewriter
             .Remove(target)
             .AddNode(replacement);
         foreach (var edge in replacementEdges)
+        {
             plan.AddEdge(edge);
+        }
+
         var rewritten = plan.Apply(graph.Structure);
         return ReplaceGraph(
             program,
@@ -120,9 +137,12 @@ public static class ExecutionGraphRewriter
     {
         ArgumentNullException.ThrowIfNull(program);
         if (program.Graphs.Any(graph => graph.Id == extractedGraphId))
+        {
             throw new ArgumentException(
                 $"Graph '{extractedGraphId}' already exists.",
                 nameof(extractedGraphId));
+        }
+
         var source = RequiredGraph(program, sourceGraphId);
         var selected = nodeIds?.ToHashSet()
             ?? throw new ArgumentNullException(nameof(nodeIds));
@@ -131,13 +151,18 @@ public static class ExecutionGraphRewriter
         if (selected.Count == 0 ||
             selectedNodes.Length != selected.Count ||
             selectedNodes.Any(node => node is not ExecutionOperationNode))
+        {
             throw new ArgumentException(
                 "Extraction requires operation nodes from one graph.",
                 nameof(nodeIds));
+        }
+
         if (source.Nodes.Any(node =>
             node.Id == callId && !selected.Contains(node.Id)))
+        {
             throw new ArgumentException(
                 $"Call node '{callId}' already exists.", nameof(callId));
+        }
 
         var rewriteTarget = GraphRewriteTarget<
             ExecutionGraphStructureNode,
@@ -154,8 +179,10 @@ public static class ExecutionGraphRewriter
                 selectedGraphIds.Contains(edge.Target)))
             .ToArray();
         if (resourceNodes.Any(resource => !resource.ResourceNodeId.Owner.IsParent))
+        {
             throw new NotSupportedException(
                 "Extraction cannot move direct call-instance resource accesses.");
+        }
 
         var extractedResources = new List<ExecutionResourceNode>();
         var callBindings = new List<ModelResourceBinding>();
@@ -189,6 +216,7 @@ public static class ExecutionGraphRewriter
             if (kind is GraphDefinitionResourceKind.Input
                 or GraphDefinitionResourceKind.Output
                 or GraphDefinitionResourceKind.InOut)
+            {
                 callBindings.Add(new(
                     resourceNode.Resource.Id.Value,
                     resourceNode.ResourceNodeId,
@@ -201,6 +229,7 @@ public static class ExecutionGraphRewriter
                         _ => GraphResourceAccess.ReadWrite,
                     },
                     $"{callId.Value}:{resourceNode.Resource.Id.Value}"));
+            }
         }
 
         var extractedEdges = source.Structure.Edges.Where(edge =>
@@ -250,11 +279,17 @@ public static class ExecutionGraphRewriter
         foreach (var incoming in rewriteTarget.IncomingEdges
             .OfType<ExecutionDependencyEdge>()
             .Select(edge => edge.Source).Distinct())
+        {
             AddDependency(replacementEdges, incoming, call.GraphId);
+        }
+
         foreach (var outgoing in rewriteTarget.OutgoingEdges
             .OfType<ExecutionDependencyEdge>()
             .Select(edge => edge.Target).Distinct())
+        {
             AddDependency(replacementEdges, call.GraphId, outgoing);
+        }
+
         AddBindings(replacementEdges, call, callBindings);
         var plan = new GraphRewritePlan<
                 ExecutionGraphStructureNode,
@@ -262,7 +297,10 @@ public static class ExecutionGraphRewriter
             .Remove(rewriteTarget)
             .AddNode(call);
         foreach (var edge in replacementEdges)
+        {
             plan.AddEdge(edge);
+        }
+
         var callerStructure = plan.Apply(source.Structure);
         var caller = CopyGraph(
             source, callerStructure.Nodes, callerStructure.Edges);
@@ -380,22 +418,40 @@ public static class ExecutionGraphRewriter
             .OfType<ExecutionDependencyEdge>()
             .Select(edge => edge.Target).ToArray();
         foreach (var incoming in callerIncoming)
+        {
             foreach (var entry in entries)
+            {
                 AddDependency(inlinedEdges, incoming, entry);
+            }
+        }
+
         foreach (var completion in completions)
+        {
             foreach (var outgoing in callerOutgoing)
+            {
                 AddDependency(inlinedEdges, completion, outgoing);
+            }
+        }
 
         var plan = new GraphRewritePlan<
                 ExecutionGraphStructureNode,
                 ExecutionGraphEdge>()
             .Remove(rewriteTarget);
         foreach (var resource in addedResources)
+        {
             plan.AddNode(resource);
+        }
+
         foreach (var node in inlinedNodes)
+        {
             plan.AddNode(node);
+        }
+
         foreach (var edge in inlinedEdges)
+        {
             plan.AddEdge(edge);
+        }
+
         var callerStructure = plan.Apply(caller.Structure);
         var rewritten = CopyGraph(
             caller, callerStructure.Nodes, callerStructure.Edges);
@@ -413,19 +469,24 @@ public static class ExecutionGraphRewriter
         foreach (var binding in bindings)
         {
             if (binding.Access != GraphResourceAccess.Write)
+            {
                 edges.Add(new ExecutionResourceReadEdge(
                     new($"binding:{binding.BindingId}:read"),
                     binding.Resource.GraphId,
                     node.GraphId,
                     binding.Port,
                     binding.BindingId));
+            }
+
             if (binding.Access != GraphResourceAccess.Read)
+            {
                 edges.Add(new ExecutionResourceWriteEdge(
                     new($"binding:{binding.BindingId}:write"),
                     node.GraphId,
                     binding.Resource.GraphId,
                     binding.Port,
                     binding.BindingId));
+            }
         }
     }
 
@@ -436,7 +497,10 @@ public static class ExecutionGraphRewriter
     {
         if (edges.OfType<ExecutionDependencyEdge>().Any(edge =>
             edge.Source == source && edge.Target == target))
+        {
             return;
+        }
+
         edges.Add(new ExecutionDependencyEdge(
             new($"dependency:{source.Value}:{target.Value}"),
             source,
@@ -482,11 +546,16 @@ public static class ExecutionGraphRewriter
         while (pending.TryPop(out var id) && reachable.Add(id))
         {
             if (!map.TryGetValue(id, out var graph))
+            {
                 throw new InvalidDataException(
                     $"Execution graph program has no reachable graph '{id}'.");
+            }
+
             foreach (var target in graph.Nodes.OfType<ExecutionGraphCallNode>()
                 .Select(call => call.Target))
+            {
                 pending.Push(target);
+            }
         }
         return new ExecutionGraphProgram(
             values.Where(graph => reachable.Contains(graph.Id)));

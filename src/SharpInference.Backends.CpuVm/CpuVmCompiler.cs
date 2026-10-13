@@ -62,7 +62,10 @@ public sealed class CpuVmCompiler
     {
         options ??= new();
         if (options.Arithmetic != "Float32" || options.Accumulator != "Float32")
+        {
             throw new NotSupportedException("CPU VM supports Float32 arithmetic and accumulation only.");
+        }
+
         var contracts = VmInstructionContracts.Bind(program, registry);
         var generator = new CpuVmSourceGenerator(program, registry, contracts);
         var source = generator.Generate();
@@ -78,7 +81,10 @@ public sealed class CpuVmCompiler
     public CpuVmCompiledArtifact Compile(VmProgram program, CpuVmCompilerOptions? options = null)
     {
         if (!RuntimeFeature.IsDynamicCodeSupported)
+        {
             throw new PlatformNotSupportedException("Use GenerateSource and statically register ICpuVmCode under Native AOT.");
+        }
+
         var artifact = GenerateSource(program, options);
         var paths = ((string?)AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES"))?.Split(Path.PathSeparator)
             ?? throw new PlatformNotSupportedException("Runtime reference assemblies are unavailable.");
@@ -86,7 +92,10 @@ public sealed class CpuVmCompiler
             .Concat([typeof(CpuVmContext).Assembly.Location, typeof(VmProgram).Assembly.Location])
             .Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
         if (assemblyPaths.Any(string.IsNullOrEmpty))
+        {
             throw new PlatformNotSupportedException("Compilation requires on-disk assemblies. Publish generated source for single-file applications.");
+        }
+
         var references = assemblyPaths.Select(path => MetadataReference.CreateFromFile(path));
         var syntax = CSharpSyntaxTree.ParseText(artifact.Source, path: "CpuProgram.g.cs", encoding: Encoding.UTF8);
         var compilation = CSharpCompilation.Create("CpuVm_" + Guid.NewGuid().ToString("N"), [syntax], references,
@@ -97,7 +106,10 @@ public sealed class CpuVmCompiler
         using var pdb = new MemoryStream();
         var result = compilation.Emit(dll, pdb, options: new EmitOptions(debugInformationFormat: DebugInformationFormat.PortablePdb));
         if (!result.Success)
+        {
             throw new CpuVmCompilationException(result.Diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error).Select(d => d.ToString()));
+        }
+
         return artifact.WithBinary(dll.ToArray(), pdb.ToArray());
     }
 }
@@ -152,7 +164,10 @@ public sealed class CpuVmCompiledArtifact
     {
         ArgumentNullException.ThrowIfNull(code);
         if (code.ProgramHash != ProgramHash)
+        {
             throw new InvalidDataException("Static code has a different program or source ABI. Regenerate source and rebuild.");
+        }
+
         return new CpuVmExecutable(this, code, accesses, frames, null);
     }
 
@@ -171,8 +186,15 @@ public sealed class CpuVmCompiledArtifact
     public CpuVmExecutable LoadExecutable()
     {
         if (!RuntimeFeature.IsDynamicCodeSupported)
+        {
             throw new PlatformNotSupportedException("Use static source registration under Native AOT.");
-        if (binary is null) throw new InvalidOperationException("This is a source-only artifact.");
+        }
+
+        if (binary is null)
+        {
+            throw new InvalidOperationException("This is a source-only artifact.");
+        }
+
         var loader = new AssemblyLoadContext("CpuVm_" + Guid.NewGuid().ToString("N"), isCollectible: true);
         try
         {
@@ -181,7 +203,11 @@ public sealed class CpuVmCompiledArtifact
             var assembly = loader.LoadFromStream(dll, pdb);
             var type = assembly.GetType("SharpInference.Generated.CpuProgram", throwOnError: true)!;
             var code = (ICpuVmCode)(Activator.CreateInstance(type) ?? throw new InvalidDataException("Missing generated CPU entry."));
-            if (code.ProgramHash != ProgramHash) throw new InvalidDataException("Binary program hash mismatch.");
+            if (code.ProgramHash != ProgramHash)
+            {
+                throw new InvalidDataException("Binary program hash mismatch.");
+            }
+
             return new CpuVmExecutable(this, code, accesses, frames, loader);
         }
         catch { loader.Unload(); throw; }
@@ -190,7 +216,11 @@ public sealed class CpuVmCompiledArtifact
     /// <summary>Exports actual C# and optionally assembly/PDB, plus XML, options and SHA256 integrity manifest.</summary>
     public void Export(string directory, bool includeBinary = true)
     {
-        if (includeBinary && binary is null) throw new InvalidOperationException("Compile before exporting a binary package.");
+        if (includeBinary && binary is null)
+        {
+            throw new InvalidOperationException("Compile before exporting a binary package.");
+        }
+
         VmInstructionContracts.ValidateResolved(contracts);
         Directory.CreateDirectory(directory);
         var files = new Dictionary<string, byte[]>
@@ -205,7 +235,11 @@ public sealed class CpuVmCompiledArtifact
             files.Add("CpuProgram.dll", binary!);
             files.Add("CpuProgram.pdb", symbols!);
         }
-        foreach (var pair in files) File.WriteAllBytes(Path.Combine(directory, pair.Key), pair.Value);
+        foreach (var pair in files)
+        {
+            File.WriteAllBytes(Path.Combine(directory, pair.Key), pair.Value);
+        }
+
         File.WriteAllText(Path.Combine(directory, "manifest.json"),
             JsonSerializer.Serialize(new CpuVmPackageManifest(3, files.ToDictionary(pair => pair.Key, pair => Hash(pair.Value))),
                 CpuVmJsonContext.Default.CpuVmPackageManifest));
@@ -222,7 +256,10 @@ public sealed class CpuVmCompiledArtifact
         return LoadPackage(name =>
         {
             if (!files.TryGetValue(name, out var bytes) || bytes is null)
+            {
                 throw new InvalidDataException($"Missing CPU package resource: {name}.");
+            }
+
             return bytes.ToArray();
         });
     }
@@ -237,12 +274,18 @@ public sealed class CpuVmCompiledArtifact
             required.Any(name => !manifest.Files.ContainsKey(name)) ||
             manifest.Files.Keys.Any(name => !required.Contains(name) && name is not ("CpuProgram.dll" or "CpuProgram.pdb")) ||
             manifest.Files.ContainsKey("CpuProgram.dll") != manifest.Files.ContainsKey("CpuProgram.pdb"))
+        {
             throw new InvalidDataException("Invalid CPU package manifest.");
+        }
+
         var files = manifest.Files.ToDictionary(pair => pair.Key, pair =>
         {
             var bytes = readFile(pair.Key);
             if (!string.Equals(Hash(bytes), pair.Value, StringComparison.Ordinal))
+            {
                 throw new InvalidDataException($"CPU package integrity failure: {pair.Key}.");
+            }
+
             return bytes;
         });
         var program = VmProgramXml.Deserialize(Encoding.UTF8.GetString(files["program.xml"]));
@@ -255,10 +298,16 @@ public sealed class CpuVmCompiledArtifact
             VmProgramXml.Serialize(VmInstructionContracts.WithoutContracts(contracts)) ||
             contracts.Definitions.SelectMany(definition => definition.Nodes).Select(node => node.Instruction)
                 .OfType<VmOperator>().Any(operation => operation.ParameterAccesses.Count == 0))
+        {
             throw new InvalidDataException("CPU package instruction contracts differ from its program.");
+        }
+
         if (options.Arithmetic != "Float32" || options.Accumulator != "Float32" ||
             !source.Contains($"public string ProgramHash => \"{ComputeProgramHash(program)}\";", StringComparison.Ordinal))
+        {
             throw new InvalidDataException("CPU source ABI, program identity or compiler options mismatch.");
+        }
+
         var bindings = new CpuVmSourceGenerator(program, new InstructionRegistry([]), contracts);
         bindings.PrepareBindings();
         return new CpuVmCompiledArtifact(program, options, source,
@@ -334,13 +383,20 @@ public sealed class CpuVmExecutable : IVmTaskExecutable
     {
         ArgumentNullException.ThrowIfNull(context);
         var current = code ?? throw new ObjectDisposedException(nameof(CpuVmExecutable));
-        if (!accesses.TryGetValue(entry, out var plan)) throw new ArgumentException($"Unknown entry '{entry}'.", nameof(entry));
+        if (!accesses.TryGetValue(entry, out var plan))
+        {
+            throw new ArgumentException($"Unknown entry '{entry}'.", nameof(entry));
+        }
+
         context.Run(Program, plan, frames, () => current.Invoke(entry, context));
     }
 
     /// <inheritdoc/>
     public void Dispose()
     {
-        if (Interlocked.Exchange(ref code, null) is not null) loader?.Unload();
+        if (Interlocked.Exchange(ref code, null) is not null)
+        {
+            loader?.Unload();
+        }
     }
 }

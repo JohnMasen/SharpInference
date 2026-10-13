@@ -68,9 +68,14 @@ public sealed class Graph<TNode, TEdge>
         {
             ArgumentNullException.ThrowIfNull(node);
             if (string.IsNullOrWhiteSpace(node.Id.Value))
+            {
                 throw new InvalidDataException("A graph node identifier is required.");
+            }
+
             if (!mutableNodes.TryAdd(node.Id, node))
+            {
                 throw new InvalidDataException($"Duplicate graph node '{node.Id}'.");
+            }
         }
 
         var mutableEdges = new Dictionary<GraphEdgeId, TEdge>();
@@ -82,15 +87,27 @@ public sealed class Graph<TNode, TEdge>
         {
             ArgumentNullException.ThrowIfNull(edge);
             if (string.IsNullOrWhiteSpace(edge.Id.Value))
+            {
                 throw new InvalidDataException("A graph edge identifier is required.");
+            }
+
             if (!mutableEdges.TryAdd(edge.Id, edge))
+            {
                 throw new InvalidDataException($"Duplicate graph edge '{edge.Id}'.");
+            }
+
             if (!mutableNodes.ContainsKey(edge.Source))
+            {
                 throw new InvalidDataException(
                     $"Graph edge '{edge.Id}' references unknown source node '{edge.Source}'.");
+            }
+
             if (!mutableNodes.ContainsKey(edge.Target))
+            {
                 throw new InvalidDataException(
                     $"Graph edge '{edge.Id}' references unknown target node '{edge.Target}'.");
+            }
+
             mutableOutgoing[edge.Source].Add(edge);
             mutableIncoming[edge.Target].Add(edge);
         }

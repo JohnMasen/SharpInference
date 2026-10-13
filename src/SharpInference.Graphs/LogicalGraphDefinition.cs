@@ -178,8 +178,10 @@ public sealed class LogicalGraphDefinition
         var errors = Diagnostics.Where(diagnostic =>
             diagnostic.Severity == LogicalGraphDiagnosticSeverity.Error).ToArray();
         if (errors.Length != 0)
+        {
             throw new InvalidDataException(
                 string.Join(Environment.NewLine, errors.Select(error => error.Message)));
+        }
     }
 
     public GraphDefinitionId Id { get; }
@@ -230,7 +232,10 @@ public sealed class LogicalGraphDefinition
         ArgumentNullException.ThrowIfNull(operations);
         var values = operations.ToArray();
         if (values.Length == 0)
+        {
             throw new ArgumentException("A list graph requires at least one operation.", nameof(operations));
+        }
+
         return Define<TContract>(id, builder =>
         {
             var inputs = builder.Resources.Where(resource =>
@@ -238,8 +243,11 @@ public sealed class LogicalGraphDefinition
             var outputs = builder.Resources.Where(resource =>
                 resource.Kind == GraphDefinitionResourceKind.Output).ToArray();
             if (inputs.Length != 1 || outputs.Length != 1)
+            {
                 throw new InvalidOperationException(
                     "A list graph requires exactly one input and one output.");
+            }
+
             GraphResource<object> source = new(inputs[0]);
             GraphDefinitionNodeId? previous = null;
             for (var index = 0; index < values.Length; index++)
@@ -256,7 +264,9 @@ public sealed class LogicalGraphDefinition
                     node.AddInput("input", source);
                     node.AddOutput("output", target);
                     if (previous is { } dependency)
+                    {
                         node.DependsOn(dependency);
+                    }
                 });
                 source = target;
                 previous = current;
@@ -353,8 +363,11 @@ public sealed class GraphDefinitionBuilder<TContract> where TContract : IGraphPo
         string? bindingKey = null)
     {
         if (kind is GraphDefinitionResourceKind.Input or GraphDefinitionResourceKind.Output)
+        {
             throw new ArgumentException(
                 "Use the graph port contract to declare inputs and outputs.", nameof(kind));
+        }
+
         var resource = new GraphDefinitionResource(
             new ResourceId(LogicalGraphDefinition.RequireId(id, nameof(id))),
             string.IsNullOrWhiteSpace(name)
@@ -379,7 +392,10 @@ public sealed class GraphDefinitionBuilder<TContract> where TContract : IGraphPo
         var builder = new GraphOperationNodeBuilder(this.id, nodeId);
         var result = configure(builder);
         foreach (var resource in builder.Resources)
+        {
             AddReferencedResource(resource);
+        }
+
         var node = builder.Build(operation, annotation);
         AddNodeAndRelations(node, builder.Bindings, builder.Dependencies);
         return result;
@@ -418,12 +434,18 @@ public sealed class GraphDefinitionBuilder<TContract> where TContract : IGraphPo
         bind(bindings);
         var inputs = bindings.BuildInputs(definition.Definition);
         foreach (var resource in bindings.Resources)
+        {
             AddReferencedResource(resource);
+        }
+
         var instancePorts = new InstancePortFactory(
             this.id, nodeId, definition.Definition, inputs, bindings.Outputs);
         var result = TChildContract.Create(instancePorts);
         foreach (var resource in instancePorts.Resources)
+        {
             AddReferencedResource(resource);
+        }
+
         var values = inputs.Concat(instancePorts.OutputBindings).ToArray();
         AddNodeAndRelations(
             new GraphCallNode(nodeId, definition.Definition.Id, annotation),
@@ -451,23 +473,35 @@ public sealed class GraphDefinitionBuilder<TContract> where TContract : IGraphPo
         var values = bindings.Select(binding =>
         {
             if (!ports.TryGetValue(binding.Port, out var port))
+            {
                 throw new InvalidOperationException(
                     $"Definition '{definition.Id}' has no public port '{binding.Port}'.");
+            }
+
             if (!SameTensor(port.Tensor, binding.Resource.Tensor))
+            {
                 throw new InvalidOperationException(
                     $"Call '{nodeId}' binds incompatible resource '{binding.Resource.Id}' to '{binding.Port}'.");
+            }
+
             var requiredAccess = AccessFor(port.Kind);
             if (binding.Access != requiredAccess)
+            {
                 throw new InvalidOperationException(
                     $"Call '{nodeId}' port '{binding.Port}' requires {requiredAccess} access.");
+            }
+
             AddReferencedResource(binding.Resource.Resource);
             return new PendingBinding(
                 binding.Port, binding.Resource.Resource, binding.Access, GraphBindingOwner.Parent);
         }).ToArray();
         if (values.Select(binding => binding.Port).Distinct(StringComparer.Ordinal).Count() != ports.Count ||
             values.Length != ports.Count)
+        {
             throw new InvalidOperationException(
                 $"Call '{nodeId}' must bind every public port of definition '{definition.Id}' exactly once.");
+        }
+
         AddNodeAndRelations(
             new GraphCallNode(nodeId, definition.Id, annotation),
             values,
@@ -479,11 +513,17 @@ public sealed class GraphDefinitionBuilder<TContract> where TContract : IGraphPo
     internal GraphDefinition<TContract> Build()
     {
         foreach (var port in ports.Resources)
+        {
             AddReferencedResource(port);
+        }
+
         foreach (var resource in resources)
+        {
             scopedResources.TryAdd(
                 new ModelResourceNodeId(GraphBindingOwner.Parent, resource.Id),
                 resource);
+        }
+
         InferDependencies();
         var graphNodes = scopedResources
             .Select(pair => (LogicalGraphNode)new LogicalResourceNode(pair.Key, pair.Value))
@@ -505,9 +545,14 @@ public sealed class GraphDefinitionBuilder<TContract> where TContract : IGraphPo
     {
         nodes.Add(node);
         foreach (var binding in bindings)
+        {
             AddBindingEdges(node, binding);
+        }
+
         foreach (var dependency in dependencies.Distinct())
+        {
             AddDependency(dependency, node.Id);
+        }
     }
 
     private void AddBindingEdges(GraphDefinitionNode node, PendingBinding binding)
@@ -516,19 +561,24 @@ public sealed class GraphDefinitionBuilder<TContract> where TContract : IGraphPo
         scopedResources.TryAdd(scoped, binding.Resource);
         var bindingId = $"{node.Id.Value}:{binding.Port}";
         if (binding.Access != GraphResourceAccess.Write)
+        {
             edges.Add(new LogicalResourceReadEdge(
                 new($"binding:{bindingId}:read"),
                 scoped.GraphId,
                 node.GraphId,
                 binding.Port,
                 bindingId));
+        }
+
         if (binding.Access != GraphResourceAccess.Read)
+        {
             edges.Add(new LogicalResourceWriteEdge(
                 new($"binding:{bindingId}:write"),
                 node.GraphId,
                 scoped.GraphId,
                 binding.Port,
                 bindingId));
+        }
     }
 
     private void AddDependency(GraphDefinitionNodeId source, GraphDefinitionNodeId target)
@@ -544,7 +594,10 @@ public sealed class GraphDefinitionBuilder<TContract> where TContract : IGraphPo
         if (edges.OfType<LogicalDependencyEdge>().Any(edge =>
             edge.Source == GraphDefinitionNode.NodeGraphId(source) &&
             edge.Target == GraphDefinitionNode.NodeGraphId(target)))
+        {
             return;
+        }
+
         edges.Add(new LogicalDependencyEdge(
             new($"dependency:{source.Value}:{target.Value}"),
             GraphDefinitionNode.NodeGraphId(source),
@@ -566,9 +619,15 @@ public sealed class GraphDefinitionBuilder<TContract> where TContract : IGraphPo
             var resource = scopedResources.Single(pair => pair.Key.GraphId == read.Source).Key;
             if (!resource.Owner.IsParent && resource.Owner.Call is { } ownerCall &&
                 ownerCall != target.Id)
+            {
                 AddDependency(ownerCall, target.Id);
+            }
+
             if (pairedWrites.Contains(read.BindingId))
+            {
                 continue;
+            }
+
             if (writes.TryGetValue(read.Source, out var producers) &&
                 producers.Where(producer => producer != read.Target).ToArray() is [var producer])
             {
@@ -587,8 +646,10 @@ public sealed class GraphDefinitionBuilder<TContract> where TContract : IGraphPo
             return;
         }
         if (existing != resource)
+        {
             throw new InvalidOperationException(
                 $"Resource '{resource.Id}' has conflicting declarations.");
+        }
     }
 
     private static GraphResourceAccess AccessFor(GraphDefinitionResourceKind kind) => kind switch
@@ -666,14 +727,20 @@ public sealed class GraphOperationNodeBuilder
     {
         ArgumentNullException.ThrowIfNull(resource);
         if (resource.Resource.Owner != owner)
+        {
             throw new ArgumentException(
                 $"Operation '{id}' cannot directly reference resource '{resource.Id}' owned by graph " +
                 $"'{resource.Resource.Owner}'. Bind graph instances at their containing call instead.",
                 nameof(resource));
+        }
+
         var name = LogicalGraphDefinition.RequireId(port, nameof(port));
         if (bindings.Any(binding => binding.Port == name))
+        {
             throw new InvalidOperationException(
                 $"Operation '{id}' already binds port '{name}'.");
+        }
+
         bindings.Add(new PendingBinding(
             name, resource.Resource, access, GraphBindingOwner.Parent));
         resources.TryAdd(resource.Id, resource.Resource);
@@ -751,9 +818,12 @@ public sealed class GraphCallBindings<TContract> where TContract : IGraphPortCon
                 or GraphDefinitionResourceKind.InOut).ToArray();
         var missing = inputs.Where(input => !values.ContainsKey(input.Id)).ToArray();
         if (missing.Length != 0)
+        {
             throw new InvalidOperationException(
                 $"Graph call '{definition.Id}' is missing inputs: " +
                 $"{string.Join(", ", missing.Select(input => input.Id))}.");
+        }
+
         return inputs.Select(input => new PendingBinding(
             input.Id.Value,
             values[input.Id].Resource,
@@ -770,7 +840,9 @@ public sealed class GraphCallBindings<TContract> where TContract : IGraphPortCon
     {
         RequireCompatible(port, resource);
         if (!values.TryAdd(port.Id, Resolve(resource.Resource, resourceOwner)))
+        {
             throw new InvalidOperationException($"Input '{port.Id}' is already bound.");
+        }
     }
 
     private void BindInOut<T>(
@@ -781,7 +853,9 @@ public sealed class GraphCallBindings<TContract> where TContract : IGraphPortCon
         RequireCompatible(port, resource);
         var normalized = Resolve(resource.Resource, resourceOwner);
         if (!values.TryAdd(port.Id, normalized) || !outputs.TryAdd(port.Id, normalized))
+        {
             throw new InvalidOperationException($"InOut port '{port.Id}' is already bound.");
+        }
     }
 
     private void BindOutput<T>(
@@ -791,7 +865,9 @@ public sealed class GraphCallBindings<TContract> where TContract : IGraphPortCon
     {
         RequireCompatible(port, resource);
         if (!outputs.TryAdd(port.Id, Resolve(resource.Resource, resourceOwner)))
+        {
             throw new InvalidOperationException($"Output '{port.Id}' is already bound.");
+        }
     }
 
     private GraphCallBoundResource Resolve(
@@ -799,8 +875,11 @@ public sealed class GraphCallBindings<TContract> where TContract : IGraphPortCon
         GraphBindingOwner resourceOwner)
     {
         if (resourceOwner.IsParent && resource.Owner != owner)
+        {
             throw new ArgumentException(
                 $"Parent binding cannot reference resource '{resource.Id}' owned by graph '{resource.Owner}'.");
+        }
+
         return new GraphCallBoundResource(resource, resourceOwner);
     }
 
@@ -813,9 +892,11 @@ public sealed class GraphCallBindings<TContract> where TContract : IGraphPortCon
         if (port.Tensor.ElementType != resource.Tensor.ElementType ||
             port.Tensor.Layout != resource.Tensor.Layout ||
             !port.Tensor.Dimensions.SequenceEqual(resource.Tensor.Dimensions))
+        {
             throw new ArgumentException(
                 $"Resource '{resource.Id}' is incompatible with port '{port.Id}'.",
                 nameof(resource));
+        }
     }
 
     private static void RequireInstanceResource<TOwnerContract, T>(
@@ -827,9 +908,11 @@ public sealed class GraphCallBindings<TContract> where TContract : IGraphPortCon
         ArgumentNullException.ThrowIfNull(instance);
         if (resource.Resource.Owner != instance.Definition.Id ||
             !instance.Definition.Resources.Contains(resource.Resource))
+        {
             throw new ArgumentException(
                 $"Resource '{resource.Id}' is not declared by graph instance '{instance.Id}'.",
                 nameof(resource));
+        }
     }
 }
 
@@ -859,7 +942,10 @@ internal sealed class DefinitionPortFactory(GraphDefinitionId owner) : IGraphPor
                 existing.Tensor.ElementType != tensor.ElementType ||
                 existing.Tensor.Layout != tensor.Layout ||
                 !existing.Tensor.Dimensions.SequenceEqual(tensor.Dimensions))
+            {
                 throw new InvalidOperationException($"Port '{id}' has conflicting declarations.");
+            }
+
             return existing;
         }
         var resource = new GraphDefinitionResource(
@@ -894,7 +980,10 @@ internal sealed class InstancePortFactory(
         var binding = inputs[id];
         var resource = binding.Resource with { Id = binding.Resource.Id, Owner = owner };
         if (binding.Owner.IsParent)
+        {
             resources.TryAdd(resource.Id, resource);
+        }
+
         return new GraphInput<T>(resource);
     }
 
@@ -909,7 +998,10 @@ internal sealed class InstancePortFactory(
             Owner = owner,
         };
         if (target is null || target.Owner.IsParent)
+        {
             resources.TryAdd(resource.Id, resource);
+        }
+
         outputBindings.Add(new PendingBinding(
             id,
             resource,
@@ -922,9 +1014,15 @@ internal sealed class InstancePortFactory(
     {
         var definitionResource = Find(id, GraphDefinitionResourceKind.InOut, tensor);
         if (!outputTargets.TryGetValue(definitionResource.Id, out var target))
+        {
             throw new InvalidOperationException($"InOut port '{id}' is not bound.");
+        }
+
         if (target.Owner.IsParent)
+        {
             resources.TryAdd(target.Resource.Id, target.Resource);
+        }
+
         return new GraphInOut<T>(target.Resource);
     }
 
@@ -940,8 +1038,11 @@ internal sealed class InstancePortFactory(
         if (resource.Tensor.ElementType != tensor.ElementType ||
             resource.Tensor.Layout != tensor.Layout ||
             !resource.Tensor.Dimensions.SequenceEqual(tensor.Dimensions))
+        {
             throw new InvalidOperationException(
                 $"Port '{id}' has a conflicting tensor contract.");
+        }
+
         return resource;
     }
 }
@@ -957,10 +1058,15 @@ internal static class LogicalGraphDefinitionValidator
     {
         var diagnostics = new List<LogicalGraphDiagnostic>();
         if (string.IsNullOrWhiteSpace(graph.Id.Value))
+        {
             diagnostics.Add(Error("LG0001", "A graph definition identifier is required."));
+        }
+
         if (!Enum.IsDefined(graph.CompileBoundary))
+        {
             diagnostics.Add(Error(
                 "LG0002", $"Graph '{graph.Id}' has an invalid compile boundary."));
+        }
 
         var nodes = graph.Nodes.ToDictionary(node => node.Id);
         var definitions = graph.Definitions.ToDictionary(definition => definition.Id);
@@ -971,10 +1077,13 @@ internal static class LogicalGraphDefinitionValidator
             foreach (var binding in graph.Bindings(node))
             {
                 if (string.IsNullOrWhiteSpace(binding.Port) || !ports.Add(binding.Port))
+                {
                     diagnostics.Add(Error(
                         "LG0012",
                         $"Node '{node.Id}' has a duplicate or empty port '{binding.Port}'.",
                         node.Id));
+                }
+
                 var resourceNode = graph.Structure.GetNode(binding.Resource.GraphId)
                     as LogicalResourceNode;
                 if (resourceNode is null)
@@ -988,6 +1097,7 @@ internal static class LogicalGraphDefinitionValidator
                 }
                 if (!binding.Resource.Owner.IsParent &&
                     binding.Access != GraphResourceAccess.Read)
+                {
                     diagnostics.Add(new(
                         LogicalGraphDiagnosticSeverity.Warning,
                         "LGW003",
@@ -996,23 +1106,34 @@ internal static class LogicalGraphDefinitionValidator
                         "cross-instance behavior.",
                         node.Id,
                         binding.Resource.Resource));
+                }
+
                 if (resourceNode.Kind is GraphDefinitionResourceKind.Weight
                         or GraphDefinitionResourceKind.Constant &&
                     binding.Access != GraphResourceAccess.Read)
+                {
                     diagnostics.Add(Error(
                         "LG0013",
                         $"Node '{node.Id}' writes read-only resource '{binding.Resource.Resource}'.",
                         node.Id,
                         binding.Resource.Resource));
+                }
             }
 
             foreach (var dependency in graph.Dependencies(node))
+            {
                 if (!nodes.ContainsKey(dependency))
+                {
                     diagnostics.Add(Error(
                         "LG0010", $"Node '{node.Id}' depends on an unknown node.", node.Id));
+                }
+            }
 
             if (node is not GraphCallNode call)
+            {
                 continue;
+            }
+
             if (!definitions.TryGetValue(call.Definition, out var called))
             {
                 diagnostics.Add(Error(
@@ -1042,19 +1163,24 @@ internal static class LogicalGraphDefinitionValidator
                     _ => GraphResourceAccess.ReadWrite,
                 };
                 if (binding.Access != expected)
+                {
                     diagnostics.Add(Error(
                         "LG0024",
                         $"Call '{call.Id}' port '{binding.Port}' requires {expected} access.",
                         call.Id,
                         binding.Resource.Resource));
+                }
+
                 var actual = (LogicalResourceNode)graph.Structure.GetNode(
                     binding.Resource.GraphId);
                 if (!SameTensor(port.Tensor, actual.Tensor))
+                {
                     diagnostics.Add(Error(
                         "LG0025",
                         $"Call '{call.Id}' port '{binding.Port}' has an incompatible tensor resource.",
                         call.Id,
                         binding.Resource.Resource));
+                }
             }
         }
 
@@ -1101,12 +1227,14 @@ internal static class LogicalGraphDefinitionValidator
                     GraphDefinitionNode.NodeGraphId(other)))).ToArray();
             terminal.Add(output.Id, maximal);
             if (maximal.Length > 1)
+            {
                 diagnostics.Add(new(
                     LogicalGraphDiagnosticSeverity.Warning,
                     "LGW002",
                     $"Graph output '{output.Id}' has unordered terminal writers: " +
                     string.Join(", ", maximal.Select(writer => $"'{writer}'")) + ".",
                     Resource: output.Id));
+            }
         }
         return new Analysis(sinks, terminal, diagnostics);
     }

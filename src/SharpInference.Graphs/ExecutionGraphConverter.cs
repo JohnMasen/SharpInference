@@ -41,7 +41,9 @@ public sealed class ExecutionGraphCompiler
         this.postprocessors = Array.AsReadOnly(postprocessors?.ToArray() ?? []);
         if (this.postprocessors.Any(processor =>
             processor is null || string.IsNullOrWhiteSpace(processor.Name)))
+        {
             throw new ArgumentException("Every postprocessor requires an instance and name.", nameof(postprocessors));
+        }
     }
 
     public ExecutionGraphProgram Compile(
@@ -93,13 +95,18 @@ public sealed class DefaultExecutionGraphConverter : IExecutionGraphConverter
             {
                 if (!ReferenceEquals(existing, definition) &&
                     GraphXml.Serialize(existing) != GraphXml.Serialize(definition))
+                {
                     throw new InvalidDataException(
                         $"Conflicting logical definitions share identifier '{definition.Id}'.");
+                }
+
                 return;
             }
             result.Add(definition.Id, definition);
             foreach (var child in definition.Definitions)
+            {
                 Visit(child);
+            }
         }
     }
 

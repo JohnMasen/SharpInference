@@ -14,11 +14,19 @@ internal static class VmGpuLaunchContracts
         IEnumerable<(VmOperator Operation, VmDefinition Definition)> Operations(VmDefinition definition)
         {
             foreach (var node in definition.Nodes)
+            {
                 if (node.Instruction is VmOperator operation)
+                {
                     yield return (operation, definition);
+                }
                 else if (node.Instruction is VmCall call)
+                {
                     foreach (var item in Operations(definitions[call.Definition]))
+                    {
                         yield return item;
+                    }
+                }
+            }
         }
         foreach (var kernel in program.Definitions.Where(definition => definition.Kind == VmDefinitionKind.Kernel))
         {
@@ -40,8 +48,11 @@ internal static class VmGpuLaunchContracts
                     cooperativeMatVec[0].Operation.InstructionCollectionId !=
                         InstructionCollectionIds.TierZeroFloat16 ||
                     kernel.Threads != new VmThreadGroup(GpuMatVecExecution.Threads))
+                {
                     throw new InvalidDataException(
                         $"Kernel '{kernel.Id}' requires one isolated cooperative MatVec and a 64x1x1 thread group.");
+                }
+
                 var (operation, definition) = cooperativeMatVec[0];
                 var output = operation.Arguments.SingleOrDefault(
                         argument => argument.Parameter == "output")
@@ -60,8 +71,11 @@ internal static class VmGpuLaunchContracts
                     cooperativeMatrix[0].Operation.InstructionCollectionId !=
                         InstructionCollectionIds.TierZeroFloat32 ||
                     kernel.Threads != new VmThreadGroup(GpuMatrixMultiplyExecution.Threads))
+                {
                     throw new InvalidDataException(
                         $"Kernel '{kernel.Id}' requires one isolated cooperative matrix operation and a 64x1x1 thread group.");
+                }
+
                 var (operation, definition) = cooperativeMatrix[0];
                 var output = operation.Arguments.SingleOrDefault(
                         argument => argument.Parameter == "output")
@@ -82,8 +96,11 @@ internal static class VmGpuLaunchContracts
                     kernel.Threads != new VmThreadGroup(
                         GpuMatrixMultiplyExecution.TileSize,
                         GpuMatrixMultiplyExecution.TileSize))
+                {
                     throw new InvalidDataException(
                         $"Kernel '{kernel.Id}' requires one isolated tiled matrix operation and an 8x8x1 thread group.");
+                }
+
                 var (operation, definition) = tiledMatrix[0];
                 var output = operation.Arguments.SingleOrDefault(
                         argument => argument.Parameter == "output")
@@ -92,8 +109,11 @@ internal static class VmGpuLaunchContracts
                 var tensor = definition.Parameters.Single(
                     parameter => parameter.Name == output.Source).Tensor;
                 if (tensor.Dimensions.Count != 2)
+                {
                     throw new InvalidDataException(
                         $"Kernel '{kernel.Id}' requires a rank-two matrix output.");
+                }
+
                 var grid = GpuMatrixMultiplyExecution.TileGroups(
                     tensor.Dimensions[0], tensor.Dimensions[1]);
                 grids.Add(kernel.Id, new(grid.X, grid.Y));
@@ -101,8 +121,12 @@ internal static class VmGpuLaunchContracts
         }
         foreach (var dispatch in program.Definitions.SelectMany(definition => definition.Nodes)
                      .Select(node => node.Instruction).OfType<VmDispatch>())
+        {
             if (grids.TryGetValue(dispatch.Definition, out var grid) && dispatch.Groups != grid)
+            {
                 throw new InvalidDataException(
                     $"Dispatch of '{dispatch.Definition}' does not match its cooperative grid.");
+            }
+        }
     }
 }

@@ -242,13 +242,21 @@ public sealed class RwkvWorldTokenizer : IByteTextTokenizer
     private static byte ParseHexByte(ReadOnlySpan<char> value, ref int index, int digits)
     {
         var scalar = ParseHexScalar(value, ref index, digits);
-        if (scalar > byte.MaxValue) throw new InvalidDataException("A byte escape exceeds 255.");
+        if (scalar > byte.MaxValue)
+        {
+            throw new InvalidDataException("A byte escape exceeds 255.");
+        }
+
         return (byte)scalar;
     }
 
     private static int ParseHexScalar(ReadOnlySpan<char> value, ref int index, int digits)
     {
-        if (index + digits >= value.Length) throw new InvalidDataException("A vocabulary escape is truncated.");
+        if (index + digits >= value.Length)
+        {
+            throw new InvalidDataException("A vocabulary escape is truncated.");
+        }
+
         var start = ++index;
         var text = value.Slice(start, digits);
         if (!int.TryParse(text, System.Globalization.NumberStyles.AllowHexSpecifier, null, out var scalar))
@@ -263,9 +271,17 @@ public sealed class RwkvWorldTokenizer : IByteTextTokenizer
     private static byte ParseOctalByte(ReadOnlySpan<char> value, ref int index)
     {
         var start = index;
-        while (index + 1 < value.Length - 1 && index - start < 2 && value[index + 1] is >= '0' and <= '7') index++;
+        while (index + 1 < value.Length - 1 && index - start < 2 && value[index + 1] is >= '0' and <= '7')
+        {
+            index++;
+        }
+
         var scalar = Convert.ToInt32(value.Slice(start, index - start + 1).ToString(), 8);
-        if (scalar > byte.MaxValue) throw new InvalidDataException("An octal escape exceeds 255.");
+        if (scalar > byte.MaxValue)
+        {
+            throw new InvalidDataException("An octal escape exceeds 255.");
+        }
+
         return (byte)scalar;
     }
 

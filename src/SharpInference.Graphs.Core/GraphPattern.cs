@@ -33,8 +33,11 @@ public sealed class GraphPattern<TNode, TEdge>
         RequireUnique(name, edges.Select(edge => edge.Name));
         if (nodes.All(node => node.Name != source) ||
             nodes.All(node => node.Name != target))
+        {
             throw new ArgumentException(
                 "Pattern edge endpoints must reference declared node variables.");
+        }
+
         edges.Add(new(
             name,
             source,
@@ -68,10 +71,16 @@ public sealed class GraphPattern<TNode, TEdge>
             foreach (var candidate in graph.Nodes.Where(pattern.Predicate))
             {
                 if (bindings.Values.Any(bound => bound.Id == candidate.Id))
+                {
                     continue;
+                }
+
                 bindings.Add(pattern.Name, candidate);
                 if (CanStillMatch(graph, bindings))
+                {
                     BindNode(index + 1, bindings);
+                }
+
                 bindings.Remove(pattern.Name);
             }
         }
@@ -97,7 +106,10 @@ public sealed class GraphPattern<TNode, TEdge>
                 edge.Target == target && pattern.Predicate(edge)))
             {
                 if (edgeBindings.Values.Any(bound => bound.Id == candidate.Id))
+                {
                     continue;
+                }
+
                 edgeBindings.Add(pattern.Name, candidate);
                 BindEdge(index + 1, nodeBindings, edgeBindings);
                 edgeBindings.Remove(pattern.Name);
@@ -113,10 +125,15 @@ public sealed class GraphPattern<TNode, TEdge>
         {
             if (!bindings.TryGetValue(edge.Source, out var source) ||
                 !bindings.TryGetValue(edge.Target, out var target))
+            {
                 continue;
+            }
+
             if (!graph.OutEdges(source.Id).Any(candidate =>
                 candidate.Target == target.Id && edge.Predicate(candidate)))
+            {
                 return false;
+            }
         }
         return true;
     }
@@ -124,10 +141,15 @@ public sealed class GraphPattern<TNode, TEdge>
     private static void RequireUnique(string name, IEnumerable<string> existing)
     {
         if (string.IsNullOrWhiteSpace(name))
+        {
             throw new ArgumentException("A pattern variable name is required.", nameof(name));
+        }
+
         if (existing.Contains(name, StringComparer.Ordinal))
+        {
             throw new ArgumentException(
                 $"Pattern variable '{name}' is already declared.", nameof(name));
+        }
     }
 
     private sealed record NodePattern(string Name, Func<TNode, bool> Predicate);

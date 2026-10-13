@@ -38,9 +38,14 @@ public sealed class RwkvPostprocessorTests(ITestOutputHelper output)
             .GetCustomAttributes<AssemblyMetadataAttribute>()
             .SingleOrDefault(attribute => attribute.Key == "RwkvTestModelDirectory")?.Value;
         if (string.IsNullOrWhiteSpace(directory))
+        {
             return;
+        }
+
         if (!Path.IsPathFullyQualified(directory) || !Directory.Exists(directory))
+        {
             throw new InvalidOperationException("RwkvTestModelDirectory must be an existing absolute directory.");
+        }
 
         var model = architecture == "rwkv-6" ? "6v0-3m" : "7v0-834K";
         using var catalog = GgmlModelFile.Open(Path.Combine(directory, $"tiny-rwkv-{model}-FP32.bin"));
@@ -63,14 +68,29 @@ public sealed class RwkvPostprocessorTests(ITestOutputHelper output)
         foreach (var mask in reverse ? masks.Reverse() : masks)
         {
             var passes = new List<IExecutionGraphPostprocessor>();
-            if ((mask & 1) != 0) passes.Add(new DependencyReductionPostprocessor());
-            if ((mask & 2) != 0) passes.Add(new TemporaryResourceReusePostprocessor());
-            if ((mask & 4) != 0) passes.Add(new OperationTemplateSharingPostprocessor());
+            if ((mask & 1) != 0)
+            {
+                passes.Add(new DependencyReductionPostprocessor());
+            }
+
+            if ((mask & 2) != 0)
+            {
+                passes.Add(new TemporaryResourceReusePostprocessor());
+            }
+
+            if ((mask & 4) != 0)
+            {
+                passes.Add(new OperationTemplateSharingPostprocessor());
+            }
+
             var stopwatch = Stopwatch.StartNew();
             var execution = original;
             for (var index = 0; index < passes.Count; index++)
+            {
                 execution = new(passes[index].Process(execution,
                     new(logical, compilation, index, passes[index].Name)).Graphs);
+            }
+
             stopwatch.Stop();
             var passMs = stopwatch.Elapsed.TotalMilliseconds;
             stopwatch.Restart();
@@ -83,7 +103,10 @@ public sealed class RwkvPostprocessorTests(ITestOutputHelper output)
             {
                 var slot = program.Slots[index];
                 if (slot.Scope != VmSlotScope.Global)
+                {
                     continue;
+                }
+
                 using var storage = new VmMemoryStorage(buffers[index].Length);
                 VmModelBindings.InitializeGlobal(catalog, slot, storage);
                 storage.Read(0, buffers[index]);
@@ -134,11 +157,18 @@ public sealed class RwkvPostprocessorTests(ITestOutputHelper output)
             }
             Assert.All(logits.SelectMany(values => values), value => Assert.True(float.IsFinite(value)));
             if (baseline is null)
+            {
                 baseline = logits;
+            }
             else
+            {
                 for (var token = 0; token < logits.Length; token++)
+                {
                     Assert.Equal(baseline[token].Select(BitConverter.SingleToInt32Bits),
                         logits[token].Select(BitConverter.SingleToInt32Bits));
+                }
+            }
+
             Assert.Equal(expected.Length, logits[^1].Length);
             var mae = logits[^1].Zip(expected, (actual, reference) => MathF.Abs(actual - reference)).Average();
             Assert.True(mae <= 0.0011f, $"{architecture}/{backend}/{mask} MAE={mae:G9}");
@@ -164,7 +194,10 @@ public sealed class RwkvPostprocessorTests(ITestOutputHelper output)
     private static double[] Measure(Action execute)
     {
         for (var index = 0; index < 30; index++)
+        {
             execute();
+        }
+
         var samples = new double[200];
         var stopwatch = new Stopwatch();
         for (var index = 0; index < samples.Length; index++)

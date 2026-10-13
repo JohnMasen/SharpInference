@@ -21,13 +21,31 @@ public record TextGenerationOptions
     /// <summary>Rejects invalid sampling limits or null and empty stopping rules.</summary>
     public void Validate()
     {
-        if (MaxTokens <= 0) throw new ArgumentOutOfRangeException(nameof(MaxTokens));
-        if (!float.IsFinite(Temperature) || Temperature < 0) throw new ArgumentOutOfRangeException(nameof(Temperature));
-        if (!float.IsFinite(TopP) || TopP is <= 0 or > 1) throw new ArgumentOutOfRangeException(nameof(TopP));
-        if (TopK < 0) throw new ArgumentOutOfRangeException(nameof(TopK));
+        if (MaxTokens <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(MaxTokens));
+        }
+
+        if (!float.IsFinite(Temperature) || Temperature < 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(Temperature));
+        }
+
+        if (!float.IsFinite(TopP) || TopP is <= 0 or > 1)
+        {
+            throw new ArgumentOutOfRangeException(nameof(TopP));
+        }
+
+        if (TopK < 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(TopK));
+        }
+
         ArgumentNullException.ThrowIfNull(StopTokenIds);
         ArgumentNullException.ThrowIfNull(StopStrings);
         if (StopStrings.Any(string.IsNullOrEmpty))
+        {
             throw new ArgumentException("Stop strings must be non-empty.", nameof(StopStrings));
+        }
     }
 }

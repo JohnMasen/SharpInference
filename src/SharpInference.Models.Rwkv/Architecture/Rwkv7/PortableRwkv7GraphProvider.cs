@@ -18,15 +18,23 @@ public sealed class PortableRwkv7GraphProvider
         var modelDimensions = RwkvTensorCatalogDimensions.Read(tensors);
         if (!tensors.TryGet("blocks.0.att.r_k", out var receptanceKey) ||
             !tensors.TryGet("blocks.0.att.x_rwkvag", out _))
+        {
             throw new InvalidDataException("The tensor catalog does not satisfy the RWKV-7 x070 contract.");
+        }
+
         var width = modelDimensions.EmbeddingSize;
         if (receptanceKey.Dimensions.Count != 2 || width <= 0 ||
             receptanceKey.Dimensions[1] <= 0 || width % receptanceKey.Dimensions[1] != 0)
+        {
             throw new InvalidDataException("RWKV-7 head dimensions do not match the embedding size.");
+        }
+
         var heads = receptanceKey.Dimensions[1];
         var headSize = width / heads;
         if (receptanceKey.Dimensions[0] != headSize)
+        {
             throw new InvalidDataException("RWKV-7 receptance-key dimensions do not match the head shape.");
+        }
 
         return PortableRwkvGraphDefinitionComposer.Define(
             "rwkv7.forward-token.portable",
@@ -45,8 +53,11 @@ public sealed class PortableRwkv7GraphProvider
         {
             var tensor = tensors.GetRequired(name);
             if (tensor.DataType is not (TensorDataType.Float16 or TensorDataType.Float32))
-                throw new InvalidDataException($"Tensor '{name}' must have FP16 or FP32 values.");
-            var id = $"weight.{name}";
+                {
+                    throw new InvalidDataException($"Tensor '{name}' must have FP16 or FP32 values.");
+                }
+
+                var id = $"weight.{name}";
             var type = tensor.DataType == TensorDataType.Float16
                 ? GraphElementType.Float16 : GraphElementType.Float32;
             builder.AddWeight(id, name, new TensorDescriptor(type, tensor.Dimensions), name);
@@ -80,8 +91,10 @@ public sealed class PortableRwkv7GraphProvider
             if (shapes.TryGetValue(resultId, out var existing))
             {
                 if (!existing.SequenceEqual(resultShape))
-                    throw new InvalidDataException($"Resource '{resultId}' has incompatible dimensions.");
-            }
+                    {
+                        throw new InvalidDataException($"Resource '{resultId}' has incompatible dimensions.");
+                    }
+                }
             else
             {
                 builder.AddTemporary(resultId,
@@ -98,8 +111,11 @@ public sealed class PortableRwkv7GraphProvider
         string Reshape(string input, params int[] dimensions)
         {
             if (Count(Shape(input)) != Count(dimensions))
-                throw new InvalidDataException($"Cannot reshape '{input}'.");
-            return Shape(input).SequenceEqual(dimensions) ? input :
+                {
+                    throw new InvalidDataException($"Cannot reshape '{input}'.");
+                }
+
+                return Shape(input).SequenceEqual(dimensions) ? input :
                 Node(RwkvPortableTensorOperations.Reshape, [("input", input)], dimensions);
         }
         string Broadcast(string input, params int[] dimensions) =>
@@ -110,24 +126,34 @@ public sealed class PortableRwkv7GraphProvider
         string Weight(string name)
         {
             var id = $"weight.{name}";
-            if (types[id] == GraphElementType.Float32) return id;
-            return Node(RwkvPortableTensorOperations.CastFp16ToFp32,
+            if (types[id] == GraphElementType.Float32)
+                {
+                    return id;
+                }
+
+                return Node(RwkvPortableTensorOperations.CastFp16ToFp32,
                 [("input", id)], Shape(id));
         }
         string VectorWeight(string name, int length)
         {
             var tensor = Weight(name);
             if (Count(Shape(tensor)) != length)
-                throw new InvalidDataException($"Tensor '{name}' does not have {length} elements.");
-            return Reshape(tensor, length);
+                {
+                    throw new InvalidDataException($"Tensor '{name}' does not have {length} elements.");
+                }
+
+                return Reshape(tensor, length);
         }
         string Unary(GraphOperationId operation, string input) =>
             Node(operation, [("input", input)], Shape(input));
         string Binary(GraphOperationId operation, string left, string right)
         {
             if (!Shape(left).SequenceEqual(Shape(right)))
-                throw new InvalidDataException($"Incompatible elementwise dimensions: '{left}', '{right}'.");
-            return Node(operation, [("left", left), ("right", right)], Shape(left));
+                {
+                    throw new InvalidDataException($"Incompatible elementwise dimensions: '{left}', '{right}'.");
+                }
+
+                return Node(operation, [("left", left), ("right", right)], Shape(left));
         }
         string Add(string left, string right) => Binary(PrimitiveGraphOperations.Add, left, right);
         string Sub(string left, string right) => Binary(PrimitiveGraphOperations.Subtract, left, right);
@@ -144,16 +170,21 @@ public sealed class PortableRwkv7GraphProvider
             var weight = Weight(name);
             var dimensions = Shape(weight);
             if (dimensions.Length != 2 || dimensions[0] != inputLength)
-                throw new InvalidDataException($"Tensor '{name}' has invalid projection dimensions.");
-            // GGML [input,output] uses row-major flattened [output,input] values.
-            return Reshape(weight, dimensions[1], dimensions[0]);
+                {
+                    throw new InvalidDataException($"Tensor '{name}' has invalid projection dimensions.");
+                }
+                // GGML [input,output] uses row-major flattened [output,input] values.
+                return Reshape(weight, dimensions[1], dimensions[0]);
         }
         string Project(string name, string input)
         {
             var dimensions = Shape(input);
             if (dimensions.Length != 1)
-                throw new InvalidDataException($"Projection input '{input}' must be a vector.");
-            var matrix = Matrix(name, dimensions[0]);
+                {
+                    throw new InvalidDataException($"Projection input '{input}' must be a vector.");
+                }
+
+                var matrix = Matrix(name, dimensions[0]);
             return Node(PrimitiveGraphOperations.MatVec,
                 [("matrix", matrix), ("input", input)], [Shape(matrix)[0]]);
         }
@@ -197,7 +228,10 @@ public sealed class PortableRwkv7GraphProvider
         {
             var embedding = Matrix("emb.weight", width);
             if (Shape(embedding)[0] != modelDimensions.VocabularySize)
+            {
                 throw new InvalidDataException("The embedding does not match the vocabulary size.");
+            }
+
             var embedded = Node(PrimitiveGraphOperations.GatherRow,
                 [("table", embedding), ("index", "token")], [width]);
             return Affine(Normalize(embedded, 1e-5f), "blocks.0.ln0.weight", "blocks.0.ln0.bias");
@@ -260,7 +294,9 @@ public sealed class PortableRwkv7GraphProvider
                         var ka = Mul(key, VectorWeight(Att("k_a"), width));
                         key = Sub(Add(key, Mul(adaptation, ka)), ka);
                         if (firstValue is null)
+                        {
                             firstValue = value;
+                        }
                         else
                         {
                             var valueGate = Unary(PrimitiveGraphOperations.Sigmoid, Add(Project(Att("v2"), Project(Att("v1"), xv)), VectorWeight(Att("v0"), width)));

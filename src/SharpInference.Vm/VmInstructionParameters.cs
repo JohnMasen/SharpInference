@@ -18,13 +18,19 @@ public static class VmInstructionParameters
         ArgumentNullException.ThrowIfNull(parameters);
         ArgumentNullException.ThrowIfNull(expression);
         if (operation.Version != 1)
+        {
             throw new NotSupportedException("Versioned legacy operator identities are not supported by IC assembly.");
+        }
+
         var byName = parameters.ToDictionary(parameter => parameter.Name, StringComparer.Ordinal);
         var result = new List<InstructionParameter>();
         foreach (var argument in operation.Arguments)
         {
             if (!byName.TryGetValue(argument.Source, out var parameter))
+            {
                 throw new InvalidDataException($"Unknown instruction parameter '{argument.Source}'.");
+            }
+
             var (value, offset) = expression(parameter);
             var type = parameter.Tensor.ElementType switch
             {

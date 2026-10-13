@@ -55,7 +55,9 @@ public abstract class TierOnePointwiseInstruction : Instruction
     protected sealed override void ValidateExecutionConfiguration(InstructionExecutionConfiguration? configuration)
     {
         if (configuration != Configuration)
+        {
             throw new InstructionAdaptationException(CollectionId, Name, "Missing or unsupported execution configuration.");
+        }
     }
 
     /// <inheritdoc/>
@@ -63,10 +65,15 @@ public abstract class TierOnePointwiseInstruction : Instruction
     {
         var tensors = parameters.OfType<InstructionTensorParameter>().ToArray();
         if (tensors.Any(parameter => parameter.ByteOffset != 0))
+        {
             throw new InstructionAdaptationException(CollectionId, Name, "Put typed offsets on calls, not instruction parameters.");
+        }
+
         var operands = tensors.Select(parameter =>
             new InstructionOperandDescription(parameter.Name, parameter.Tensor, parameter.Access, parameter.Source)).ToArray();
         if (!Definition.TryAdapt(operands, new(GraphElementType.Float32, GraphElementType.Float32), out var diagnostic))
+        {
             throw new InstructionAdaptationException(CollectionId, Name, diagnostic);
+        }
     }
 }

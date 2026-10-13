@@ -64,11 +64,17 @@ public sealed class VmTensor
     public VmTensor(VmElementType elementType, IEnumerable<int> dimensions)
     {
         if (!Enum.IsDefined(elementType))
+        {
             throw new ArgumentOutOfRangeException(nameof(elementType));
+        }
+
         ArgumentNullException.ThrowIfNull(dimensions);
         var shape = dimensions.ToArray();
         if (shape.Length == 0 || shape.Any(value => value <= 0))
+        {
             throw new ArgumentException("A tensor requires positive dimensions.", nameof(dimensions));
+        }
+
         ElementType = elementType;
         Dimensions = Array.AsReadOnly(shape);
         ElementCount = shape.Aggregate(1UL, (count, dimension) => checked(count * (ulong)dimension));
@@ -310,10 +316,18 @@ public sealed class VmDefinition
         Parameters = Array.AsReadOnly(parameters.ToArray());
         Nodes = Array.AsReadOnly(nodes.Select(node =>
         {
-            if (node.Instruction is not VmOperator { IsLegacy: true, Version: 1 } operation) return node;
+            if (node.Instruction is not VmOperator { IsLegacy: true, Version: 1 } operation)
+            {
+                return node;
+            }
+
             var output = operation.Arguments.SingleOrDefault(argument => argument.Parameter == "output");
             if (output is null || Parameters.SingleOrDefault(parameter => parameter.Name == output.Source)
-                    ?.Tensor.ElementType != VmElementType.Float16) return node;
+                    ?.Tensor.ElementType != VmElementType.Float16)
+            {
+                return node;
+            }
+
             return new VmNode(node.Id, new VmOperator(operation.Precision, InstructionCollectionIds.TierZeroFloat16,
                 operation.InstructionName, operation.Arguments, operation.Attributes), node.Dependencies);
         }).ToArray());

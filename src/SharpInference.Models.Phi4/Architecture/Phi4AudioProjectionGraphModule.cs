@@ -22,7 +22,11 @@ public sealed class Phi4AudioProjectionGraphModule : IPhi4GraphModule
     /// <summary>Initializes an audio projection graph for the selected projection weights and token count.</summary>
     public Phi4AudioProjectionGraphModule(Phi4AudioProjector projector, int tokens)
     {
-        if (tokens <= 0) throw new ArgumentOutOfRangeException(nameof(tokens));
+        if (tokens <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(tokens));
+        }
+
         prefix = projector switch
         {
             Phi4AudioProjector.Speech => "mm.a.mlp",
@@ -52,7 +56,10 @@ public sealed class Phi4AudioProjectionGraphModule : IPhi4GraphModule
         if (first.Dimensions.Count != 2 || second.Dimensions.Count != 2 ||
             first.Dimensions.Any(size => size <= 0) || second.Dimensions.Any(size => size <= 0) ||
             first.Dimensions[0] != second.Dimensions[1])
+        {
             throw new InvalidDataException("Phi4 audio projection requires compatible positive matrix dimensions.");
+        }
+
         Require(first);
         Require(second);
         Require(tensors.GetRequired(prefix + ".0.bias"), [first.Dimensions[0]]);
@@ -69,7 +76,9 @@ public sealed class Phi4AudioProjectionGraphModule : IPhi4GraphModule
         {
             if (tensor.DataType is not (TensorDataType.Float16 or TensorDataType.Float32) ||
                 dimensions is not null && !tensor.Dimensions.SequenceEqual(dimensions))
+            {
                 throw new InvalidDataException($"Phi4 audio projection tensor '{tensor.Name}' has an incompatible type or shape.");
+            }
         }
     }
 
@@ -132,7 +141,11 @@ public sealed class Phi4AudioProjectionGraphModule : IPhi4GraphModule
             builder.AddResource(id, name, GraphResourceKind.Weight, GraphResourceLifetime.Model,
                 new TensorDescriptor(tensor.DataType == TensorDataType.Float16 ? GraphElementType.Float16 : GraphElementType.Float32,
                     tensor.Dimensions), name);
-            if (tensor.DataType == TensorDataType.Float32) return id;
+            if (tensor.DataType == TensorDataType.Float32)
+            {
+                return id;
+            }
+
             var converted = "cast." + name + "_output";
             Temporary(converted, tensor.Dimensions.ToArray());
             Emit(scope, "cast." + name, PortableTensorOperationContracts.CastFp16ToFp32,

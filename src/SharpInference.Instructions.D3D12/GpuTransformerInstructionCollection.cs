@@ -66,8 +66,11 @@ internal sealed class GpuGroupedQueryAttentionInstruction() : GpuTransformerInst
         var output = tensors["output"];
         if (keyCache.Tensor.Dimensions.Count != 3 ||
             !keyCache.Tensor.Dimensions.SequenceEqual(valueCache.Tensor.Dimensions))
+        {
             throw new InstructionAdaptationException(
                 CollectionId, Name, "Expected matching rank-three key and value caches.");
+        }
+
         var context = keyCache.Tensor.Dimensions[0];
         var keyValueHeads = keyCache.Tensor.Dimensions[1];
         var headSize = keyCache.Tensor.Dimensions[2];
@@ -76,12 +79,18 @@ internal sealed class GpuGroupedQueryAttentionInstruction() : GpuTransformerInst
         var outputValues = output.Tensor.Dimensions.Aggregate(
             1, (product, dimension) => checked(product * dimension));
         if (queryValues != outputValues || queryValues % headSize != 0)
+        {
             throw new InstructionAdaptationException(
                 CollectionId, Name, "Query and output must contain complete matching heads.");
+        }
+
         var queryHeads = queryValues / headSize;
         if (queryHeads % keyValueHeads != 0)
+        {
             throw new InstructionAdaptationException(
                 CollectionId, Name, "Query heads must be divisible by key/value heads.");
+        }
+
         var scale = (1f / MathF.Sqrt(headSize)).ToString(
             "R", CultureInfo.InvariantCulture);
         return new($$"""
@@ -171,7 +180,10 @@ internal sealed class GpuScaledAddInstruction() : GpuTransformerInstruction(
         var scale = PositiveFloat(parameters, "scale")
             .ToString("R", CultureInfo.InvariantCulture);
         if (!scale.Contains('.') && !scale.Contains('E', StringComparison.OrdinalIgnoreCase))
+        {
             scale += ".0";
+        }
+
         var source = $$"""
             {
                 uint j=i;
@@ -254,9 +266,12 @@ internal sealed class GpuCopyEmbeddingRowsInstruction() : GpuTransformerInstruct
     {
         var value = Integer(parameters, name);
         if (value <= 0)
+        {
             throw new InstructionAdaptationException(
                 InstructionCollectionIds.TransformerFloat32, name,
                 $"Attribute '{name}' must be positive.");
+        }
+
         return value;
     }
 
@@ -264,9 +279,12 @@ internal sealed class GpuCopyEmbeddingRowsInstruction() : GpuTransformerInstruct
     {
         var value = Integer(parameters, name);
         if (value < 0)
+        {
             throw new InstructionAdaptationException(
                 InstructionCollectionIds.TransformerFloat32, name,
                 $"Attribute '{name}' must be non-negative.");
+        }
+
         return value;
     }
 
@@ -307,9 +325,12 @@ internal abstract class GpuTransformerInstruction(
             .Single(parameter => parameter.Name == name).Value;
         var value = float.Parse(text, NumberStyles.Float, CultureInfo.InvariantCulture);
         if (!float.IsFinite(value) || value <= 0)
+        {
             throw new InstructionAdaptationException(
                 InstructionCollectionIds.TransformerFloat32, name,
                 $"Attribute '{name}' must be finite and positive.");
+        }
+
         return value;
     }
 
@@ -477,20 +498,29 @@ internal sealed class GpuRopeKeyValueWriteInstruction() : GpuTransformerInstruct
                         keyCache.Tensor.Dimensions[2] != headSize ||
                         rotarySize > headSize || rotarySize % 2 != 0 ||
                         querySize % headSize != 0)
-                        throw new InstructionAdaptationException(
+        {
+            throw new InstructionAdaptationException(
                             CollectionId, Name, "Invalid query, cache, head, or rotary dimensions.");
+        }
+
         if (frequencies.Tensor.Dimensions.Aggregate(
                             1UL, (product, dimension) => checked(product * (ulong)dimension)) !=
             (ulong)(rotarySize / 2))
+        {
             throw new InstructionAdaptationException(CollectionId, Name, "RoPE frequency shape is invalid.");
-                    var context = keyCache.Tensor.Dimensions[0];
+        }
+
+        var context = keyCache.Tensor.Dimensions[0];
                     var keyValueSize = checked((uint)(
                         keyCache.Tensor.Dimensions[1] * keyCache.Tensor.Dimensions[2]));
                     if (qkv.Tensor.Dimensions.Aggregate(
                             1UL, (product, dimension) => checked(product * (ulong)dimension)) !=
                         querySize + 2UL * keyValueSize)
-                        throw new InstructionAdaptationException(CollectionId, Name, "QKV shape does not match query and cache shapes.");
-                    var total = querySize + 2u * keyValueSize;
+        {
+            throw new InstructionAdaptationException(CollectionId, Name, "QKV shape does not match query and cache shapes.");
+        }
+
+        var total = querySize + 2u * keyValueSize;
                     return new($$"""
                         {
                             int token=asint({{position.Expression}}.Load({{position.OffsetExpression}}));
@@ -538,10 +568,13 @@ internal sealed class GpuRopeKeyValueWriteInstruction() : GpuTransformerInstruct
                     var text = parameters.OfType<InstructionAttributeParameter>()
                         .Single(parameter => parameter.Name == name).Value;
                     if (!int.TryParse(text, NumberStyles.None, CultureInfo.InvariantCulture, out var value) || value <= 0)
-                        throw new InstructionAdaptationException(
+        {
+            throw new InstructionAdaptationException(
                             InstructionCollectionIds.TransformerFloat32, name,
                             $"Attribute '{name}' must be a positive integer.");
-                    return value;
+        }
+
+        return value;
                 }
             }
 
@@ -562,8 +595,11 @@ internal sealed class GpuRopeKeyValueWriteInstruction() : GpuTransformerInstruct
                     var position = tensors["position"];
                     var scores = tensors["scores"];
                     if (keyCache.Tensor.Dimensions.Count != 3 || scores.Tensor.Dimensions.Count != 2)
-                        throw new InstructionAdaptationException(CollectionId, Name, "Expected rank-three cache and rank-two scores.");
-                    var context = scores.Tensor.Dimensions[1];
+        {
+            throw new InstructionAdaptationException(CollectionId, Name, "Expected rank-three cache and rank-two scores.");
+        }
+
+        var context = scores.Tensor.Dimensions[1];
                     var queryHeads = scores.Tensor.Dimensions[0];
                     var keyValueHeads = keyCache.Tensor.Dimensions[1];
                     var headSize = keyCache.Tensor.Dimensions[2];
@@ -572,8 +608,11 @@ internal sealed class GpuRopeKeyValueWriteInstruction() : GpuTransformerInstruct
                     if (queryHeads % keyValueHeads != 0 ||
                         keyCache.Tensor.Dimensions[0] != context ||
                         query.Tensor.Dimensions.Aggregate(1L, (value, dimension) => value * dimension) != queryHeads * headSize)
-                        throw new InstructionAdaptationException(CollectionId, Name, "Incompatible GQA shapes.");
-                    var count = checked((uint)(queryHeads * context));
+        {
+            throw new InstructionAdaptationException(CollectionId, Name, "Incompatible GQA shapes.");
+        }
+
+        var count = checked((uint)(queryHeads * context));
                     return new($$"""
                         {
                             if(i<{{count}}u) {
@@ -612,8 +651,11 @@ internal sealed class GpuCausalSoftmaxInstruction() : GpuTransformerInstruction(
                     var probabilities = tensors["probabilities"];
                     if (scores.Tensor.Dimensions.Count != 2 ||
                         !scores.Tensor.Dimensions.SequenceEqual(probabilities.Tensor.Dimensions))
-                        throw new InstructionAdaptationException(CollectionId, Name, "Softmax requires matching rank-two tensors.");
-                    var heads = scores.Tensor.Dimensions[0];
+        {
+            throw new InstructionAdaptationException(CollectionId, Name, "Softmax requires matching rank-two tensors.");
+        }
+
+        var heads = scores.Tensor.Dimensions[0];
                     var context = scores.Tensor.Dimensions[1];
                     return new($$"""
                         {
@@ -673,8 +715,11 @@ internal sealed class GpuCausalSoftmaxInstruction() : GpuTransformerInstruction(
                     var position = tensors["position"];
                     var output = tensors["output"];
                     if (probabilities.Tensor.Dimensions.Count != 2 || valueCache.Tensor.Dimensions.Count != 3)
-                        throw new InstructionAdaptationException(CollectionId, Name, "Invalid probability or value-cache rank.");
-                    var queryHeads = probabilities.Tensor.Dimensions[0];
+        {
+            throw new InstructionAdaptationException(CollectionId, Name, "Invalid probability or value-cache rank.");
+        }
+
+        var queryHeads = probabilities.Tensor.Dimensions[0];
                     var context = probabilities.Tensor.Dimensions[1];
                     var keyValueHeads = valueCache.Tensor.Dimensions[1];
                     var headSize = valueCache.Tensor.Dimensions[2];
@@ -713,8 +758,11 @@ internal sealed class GpuCausalSoftmaxInstruction() : GpuTransformerInstruction(
                         1UL, (product, dimension) => checked(product * (ulong)dimension));
                     if (output.Tensor.Dimensions.Aggregate(
                             1UL, (product, dimension) => checked(product * (ulong)dimension)) != 1)
-                        throw new InstructionAdaptationException(CollectionId, Name, "Argmax output must be scalar.");
-                    return new($$"""
+        {
+            throw new InstructionAdaptationException(CollectionId, Name, "Argmax output must be scalar.");
+        }
+
+        return new($$"""
                         {
                             precise float best=-3.402823466e+38f;
                             uint bestIndex=0u;

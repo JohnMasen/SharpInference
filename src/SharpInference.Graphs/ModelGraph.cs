@@ -164,12 +164,18 @@ public static class ModelGraphQueries
             writes.TryGetValue(bindingId, out var write);
             var port = read?.Port ?? write!.Port;
             if (read is not null && write is not null && read.Port != write.Port)
+            {
                 throw new InvalidDataException(
                     $"Binding '{bindingId}' has inconsistent read and write ports.");
+            }
+
             var resourceId = read?.Source ?? write!.Target;
             if (read is not null && write is not null && read.Source != write.Target)
+            {
                 throw new InvalidDataException(
                     $"Binding '{bindingId}' reads and writes different resources.");
+            }
+
             var resource = graph.GetNode(resourceId) as IModelResourceNode
                 ?? throw new InvalidDataException(
                     $"Binding '{bindingId}' does not reference a resource node.");
@@ -233,6 +239,7 @@ public static class ModelGraphQueries
         var dependencyView = graph.DependencyView();
         var result = new List<ModelResourceConflict<TNode>>();
         for (var firstIndex = 0; firstIndex < accesses.Length; firstIndex++)
+        {
             for (var secondIndex = firstIndex + 1;
                  secondIndex < accesses.Length;
                  secondIndex++)
@@ -241,13 +248,25 @@ public static class ModelGraphQueries
                 var second = accesses[secondIndex];
                 var kind = ModelResourceConflictKind.None;
                 if (first.Writes && second.Reads)
+                {
                     kind |= ModelResourceConflictKind.ReadAfterWrite;
+                }
+
                 if (first.Reads && second.Writes)
+                {
                     kind |= ModelResourceConflictKind.WriteAfterRead;
+                }
+
                 if (first.Writes && second.Writes)
+                {
                     kind |= ModelResourceConflictKind.WriteAfterWrite;
+                }
+
                 if (kind == ModelResourceConflictKind.None)
+                {
                     continue;
+                }
+
                 result.Add(new(
                     resource,
                     first.Node,
@@ -256,6 +275,8 @@ public static class ModelGraphQueries
                     dependencyView.IsReachable(first.Node.Id, second.Node.Id) ||
                     dependencyView.IsReachable(second.Node.Id, first.Node.Id)));
             }
+        }
+
         return result;
     }
 

@@ -29,9 +29,16 @@ public static class VmInstructionContracts
         var definitions = program.Definitions.Select(definition => new VmDefinition(definition.Id, definition.Kind,
             definition.Parameters, definition.Nodes.Select(node =>
             {
-                if (node.Instruction is not VmOperator operation) return node;
+                if (node.Instruction is not VmOperator operation)
+                {
+                    return node;
+                }
+
                 if (operation.Version != 1)
+                {
                     throw new NotSupportedException("Legacy instruction versions are unsupported; use a distinct IC GUID.");
+                }
+
                 var instruction = registry.Resolve(operation.InstructionCollectionId, operation.InstructionName, target);
                 InstructionSignature signature;
                 try
@@ -48,12 +55,22 @@ public static class VmInstructionContracts
                 var sameAccess = operation.ParameterAccesses.Count == accesses.Count &&
                     operation.ParameterAccesses.All(pair => accesses.TryGetValue(pair.Key, out var access) && access == pair.Value);
                 if (operation.ResolvedPrecision is not null && operation.ResolvedPrecision != signature.Precision)
+                {
                     throw new InvalidDataException($"Precision contract conflicts with '{definition.Id}/{node.Id}' ({operation.InstructionName}).");
+                }
+
                 if (operation.IndexBounds.SequenceEqual(instruction.IndexBounds) && sameAccess &&
-                    operation.ResolvedPrecision == signature.Precision) return node;
+                    operation.ResolvedPrecision == signature.Precision)
+                {
+                    return node;
+                }
+
                 if (operation.IndexBounds.Count != 0 && !operation.IndexBounds.SequenceEqual(instruction.IndexBounds) ||
                     operation.ParameterAccesses.Count != 0 && !sameAccess)
+                {
                     throw new InvalidDataException($"Index constraints conflict with '{operation.InstructionName}'.");
+                }
+
                 changed = true;
                 return new VmNode(node.Id, new VmOperator(operation.Precision, operation.InstructionCollectionId, operation.InstructionName,
                     operation.Arguments, operation.Attributes, instruction.IndexBounds, accesses, signature.Precision,
@@ -69,9 +86,15 @@ public static class VmInstructionContracts
     {
         VmProgramValidator.Validate(program);
         foreach (var definition in program.Definitions)
+        {
             foreach (var node in definition.Nodes)
+            {
                 if (node.Instruction is VmOperator operation &&
                     (operation.ResolvedPrecision is null || operation.ParameterAccesses.Count == 0))
+                {
                     throw new InvalidDataException($"Missing resolved instruction contract at '{definition.Id}/{node.Id}'.");
+                }
+            }
+        }
     }
 }

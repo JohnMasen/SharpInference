@@ -11,7 +11,10 @@ public sealed record Phi4AudioFeatures(float[] Values, int FrameCount, int Featu
     public ReadOnlySpan<float> GetFrame(int index)
     {
         if ((uint)index >= (uint)FrameCount)
+        {
             throw new ArgumentOutOfRangeException(nameof(index));
+        }
+
         return Values.AsSpan(index * FeatureCount, FeatureCount);
     }
 }
@@ -40,16 +43,27 @@ public sealed class Phi4AudioProcessor
         int channels = 1)
     {
         if (sampleRate < TargetSampleRate || sampleRate >= TargetSampleRate * 2)
+        {
             throw new NotSupportedException(
                 $"Phi-4 currently accepts PCM rates from {TargetSampleRate} through {TargetSampleRate * 2 - 1} Hz; received {sampleRate} Hz.");
+        }
+
         if (channels <= 0)
+        {
             throw new ArgumentOutOfRangeException(nameof(channels));
+        }
+
         if (interleavedSamples.Length % channels != 0)
+        {
             throw new ArgumentException("Interleaved PCM length is not divisible by channel count.", nameof(interleavedSamples));
+        }
 
         var monoLength = interleavedSamples.Length / channels;
         if (monoLength < WindowLength)
+        {
             throw new ArgumentException($"Audio requires at least {WindowLength} samples.", nameof(interleavedSamples));
+        }
+
         var mono = new float[monoLength];
         if (channels == 1)
         {
@@ -61,7 +75,10 @@ public sealed class Phi4AudioProcessor
             {
                 var sum = 0f;
                 for (var channel = 0; channel < channels; channel++)
+                {
                     sum += interleavedSamples[frame * channels + channel];
+                }
+
                 mono[frame] = sum / channels;
             }
         }
@@ -96,7 +113,10 @@ public sealed class Phi4AudioProcessor
             {
                 var sum = 0f;
                 for (var bin = 0; bin < power.Length; bin++)
+                {
                     sum += power[bin] * mel[bin * MelCount + filter];
+                }
+
                 features[frame * MelCount + filter] = MathF.Log(MathF.Max(1f, sum));
             }
         }
@@ -115,7 +135,10 @@ public sealed class Phi4AudioProcessor
     {
         var result = new double[length];
         for (var index = 0; index < result.Length; index++)
+        {
             result[index] = 0.54 - 0.46 * Math.Cos(2 * Math.PI * index / (length - 1));
+        }
+
         return result;
     }
 
@@ -128,7 +151,10 @@ public sealed class Phi4AudioProcessor
         var highMel = Mel(maximumFrequency);
         var centers = new double[MelCount + 2];
         for (var index = 0; index < centers.Length; index++)
+        {
             centers[index] = lowMel + (highMel - lowMel) * index / (MelCount + 1);
+        }
+
         var width = (highMel - lowMel) / (MelCount + 1);
         var lowBin = FrequencyToBin(0) + 1;
         var highBin = Math.Max(FrequencyToBin(maximumFrequency), lowBin);
@@ -141,7 +167,9 @@ public sealed class Phi4AudioProcessor
             {
                 var mel = BinToMel(bin);
                 if (left < mel && mel < right)
+                {
                     result[bin * MelCount + filter] = (float)(1 - Math.Abs(center - mel) / width);
+                }
             }
         }
         return result;
@@ -158,12 +186,15 @@ public sealed class Phi4AudioProcessor
         var real = new double[(FftSize / 2 + 1) * WindowLength];
         var imaginary = new double[real.Length];
         for (var bin = 0; bin <= FftSize / 2; bin++)
-        for (var sample = 0; sample < WindowLength; sample++)
+        {
+            for (var sample = 0; sample < WindowLength; sample++)
         {
             var angle = -2 * Math.PI * bin * sample / FftSize;
             real[bin * WindowLength + sample] = Math.Cos(angle);
             imaginary[bin * WindowLength + sample] = Math.Sin(angle);
         }
+        }
+
         return (real, imaginary);
     }
 }

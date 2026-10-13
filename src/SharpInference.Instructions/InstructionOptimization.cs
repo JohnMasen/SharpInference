@@ -44,7 +44,10 @@ public sealed class InstructionOptimizationCapability
         if (configuration.Target != target || name != definition.Name ||
             collectionId != InstructionCollectionIds.TierOneFloat32 ||
             benefits == InstructionBenefitKind.None || (benefits & ~(InstructionBenefitKind.Compute | InstructionBenefitKind.Execution)) != 0)
+        {
             throw new ArgumentException("Inconsistent optimization capability.");
+        }
+
         CollectionId = collectionId;
         Name = name;
         Target = target;

@@ -22,11 +22,17 @@ public static class GpuMatVecExecution
     public static (uint X, uint Y) Groups(ulong rows)
     {
         if (rows == 0 || rows > uint.MaxValue / Threads)
+        {
             throw new ArgumentOutOfRangeException(nameof(rows), "Cooperative MatVec exceeds 32-bit thread indexing.");
+        }
+
         var y = checked((uint)((rows + 65534) / 65535));
         var x = checked((uint)((rows + y - 1) / y));
         if ((ulong)x * y * Threads > uint.MaxValue)
+        {
             throw new ArgumentOutOfRangeException(nameof(rows), "Padded cooperative grid exceeds 32-bit thread indexing.");
+        }
+
         return (x, y);
     }
 }

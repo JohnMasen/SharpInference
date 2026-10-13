@@ -170,7 +170,10 @@ public abstract class Instruction
     {
         ArgumentNullException.ThrowIfNull(recorder);
         if (recorder.Target != Target)
+        {
             throw new InstructionAdaptationException(CollectionId, Name, $"requires {Target}, recorder is {recorder.Target}.");
+        }
+
         Adapt(parameters, precision, executionConfiguration);
         recorder.Record(GenerateConfigured(parameters, executionConfiguration));
     }
@@ -194,7 +197,9 @@ public abstract class Instruction
     protected virtual void ValidateExecutionConfiguration(InstructionExecutionConfiguration? configuration)
     {
         if (configuration is not null)
+        {
             throw new InstructionAdaptationException(CollectionId, Name, "This instruction does not accept an execution configuration.");
+        }
     }
 
     /// <summary>Validates invocation-specific tensor constraints after signature selection.</summary>
@@ -221,12 +226,18 @@ public abstract class Instruction
         ArgumentNullException.ThrowIfNull(parameters);
         ArgumentNullException.ThrowIfNull(precision);
         if (executionConfiguration is not null && executionConfiguration.Target != Target)
+        {
             throw new InstructionAdaptationException(CollectionId, Name, "Execution configuration has a different target.");
+        }
+
         ValidateExecutionConfiguration(executionConfiguration);
         if (parameters.Any(parameter => parameter is null) ||
             parameters.Select(parameter => parameter.Name).Distinct(StringComparer.Ordinal).Count() != parameters.Length ||
             parameters.Any(parameter => parameter is not (InstructionTensorParameter or InstructionAttributeParameter)))
+        {
             throw new InstructionAdaptationException(CollectionId, Name, "Invalid or duplicate parameters.");
+        }
+
         var tensors = parameters.OfType<InstructionTensorParameter>().ToArray();
         var attributes = parameters.OfType<InstructionAttributeParameter>().Select(parameter => parameter.Name).ToHashSet(StringComparer.Ordinal);
         var matches = Signatures.Where(signature => signature.Ports.Count == tensors.Length &&
@@ -234,15 +245,24 @@ public abstract class Instruction
                 parameter.Name == port.Name && parameter.Tensor.ElementType == port.ElementType &&
                 (port.Access == GraphResourceAccess.Read || parameter.Access != GraphResourceAccess.Read)))).ToArray();
         if (matches.Length == 0)
+        {
             throw new InstructionAdaptationException(CollectionId, Name, "No supported parameter signature.");
+        }
+
         var compatible = matches.Where(signature => InstructionPrecisionCompatibility.Satisfies(signature.Precision, precision)).ToArray();
         if (compatible.Length == 0)
+        {
             throw new InstructionAdaptationException(CollectionId, Name,
                 $"On {Target}, required arithmetic={precision.MinimumArithmeticType}, accumulator={precision.MinimumAccumulatorType}; " +
                 "provided " + string.Join("; ", matches.Select(signature =>
                     $"arithmetic={signature.Precision.ArithmeticType}, accumulator={signature.Precision.AccumulatorType}")) + ".");
+        }
+
         if (compatible.Length != 1)
+        {
             throw new InstructionAdaptationException(CollectionId, Name, "Ambiguous supported parameter/precision signatures.");
+        }
+
         return compatible[0];
     }
 }
@@ -283,14 +303,25 @@ public sealed class InstructionRegistry : IInstructionCollectionProvider, IInstr
         ArgumentNullException.ThrowIfNull(providers);
         this.providers = Array.AsReadOnly(providers.ToArray());
         if (this.providers.Any(provider => provider is null))
+        {
             throw new ArgumentException("IC providers cannot contain null.", nameof(providers));
+        }
+
         var descriptions = this.providers.SelectMany(provider => provider.QueryInstructionCollection()).ToArray();
         foreach (var group in descriptions.GroupBy(description => (description.Id, description.Architecture)))
+        {
             if (group.Distinct().Count() != 1)
+            {
                 throw new InvalidDataException($"Conflicting IC descriptions for '{group.Key}'.");
+            }
+        }
+
         if (descriptions.Any(description => string.IsNullOrWhiteSpace(description.Name) || description.Tier < 0 ||
             string.IsNullOrWhiteSpace(description.Architecture.Architecture)))
+        {
             throw new InvalidDataException("IC descriptions require a name and non-negative Tier.");
+        }
+
         collections = Array.AsReadOnly(descriptions.Distinct().OrderBy(description => description.Id)
             .ThenBy(description => description.Architecture.Architecture, StringComparer.Ordinal).ToArray());
     }
@@ -305,9 +336,15 @@ public sealed class InstructionRegistry : IInstructionCollectionProvider, IInstr
             .SelectMany(provider => provider.QueryGraphInstructionBindings()).ToArray();
         if (bindings.Any(binding => binding is null || string.IsNullOrWhiteSpace(binding.Operation.Name) ||
             binding.Operation.Version <= 0 || string.IsNullOrWhiteSpace(binding.InstructionName)))
+        {
             throw new InvalidDataException("Graph instruction bindings require a versioned operation and instruction name.");
+        }
+
         if (bindings.GroupBy(binding => (binding.Operation, binding.Target)).Any(group => group.Count() != 1))
+        {
             throw new InvalidDataException("Ambiguous graph instruction bindings for the same operation and target.");
+        }
+
         foreach (var binding in bindings)
         {
             var instruction = Resolve(binding.CollectionId, binding.InstructionName, binding.Target);
@@ -315,7 +352,9 @@ public sealed class InstructionRegistry : IInstructionCollectionProvider, IInstr
             if (ports.Any(string.IsNullOrWhiteSpace) || ports.Distinct(StringComparer.Ordinal).Count() != ports.Count ||
                 !instruction.Signatures.Any(signature => ports.ToHashSet(StringComparer.Ordinal).SetEquals(
                     signature.Ports.Where(port => port.Access == GraphResourceAccess.ReadWrite).Select(port => port.Name))))
+            {
                 throw new InvalidDataException($"Graph mapping '{binding.Operation}' has incompatible read/write ports.");
+            }
         }
         return Array.AsReadOnly(bindings);
     }
@@ -327,9 +366,15 @@ public sealed class InstructionRegistry : IInstructionCollectionProvider, IInstr
             .SelectMany(provider => provider.QueryOptimizationCapabilities()).ToArray();
         if (capabilities.GroupBy(value => (value.CollectionId, value.Name, value.Target, value.Configuration))
             .Any(group => group.Count() != 1))
+        {
             throw new InvalidDataException("Ambiguous optimization capabilities.");
+        }
+
         foreach (var capability in capabilities)
+        {
             Resolve(capability.CollectionId, capability.Name, capability.Target);
+        }
+
         return Array.AsReadOnly(capabilities);
     }
 
@@ -340,21 +385,33 @@ public sealed class InstructionRegistry : IInstructionCollectionProvider, IInstr
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(instructionName);
         if (!collections.Any(collection => collection.Id == collectionId))
+        {
             throw new NotSupportedException($"Instruction collection '{collectionId:D}' is not installed.");
+        }
+
         var values = providers.Where(provider => provider.QueryInstructionCollection()
                 .Any(collection => collection.Id == collectionId))
             .SelectMany(provider => provider.QueryInstruction(collectionId, instructionName)).ToArray();
         if (values.Any(value => value.CollectionId != collectionId || value.Name != instructionName ||
             !collections.Any(collection => collection.Id == collectionId && collection.Architecture == value.Target)))
+        {
             throw new InvalidDataException("Provider returned an instruction with a different identity.");
+        }
+
         if (values.GroupBy(value => value.Target).Any(group => group.Count() > 1))
+        {
             throw new InvalidDataException($"Ambiguous implementations for '{collectionId:D}/{instructionName}'.");
+        }
+
         if (values.SelectMany(value => value.Signatures).Any(signature =>
             signature.Ports.Select(port => port.Name).Distinct(StringComparer.Ordinal).Count() != signature.Ports.Count ||
             signature.Attributes.Distinct(StringComparer.Ordinal).Count() != signature.Attributes.Count ||
             signature.Ports.Any(port => string.IsNullOrWhiteSpace(port.Name) || !Enum.IsDefined(port.ElementType) ||
                 !Enum.IsDefined(port.Access))))
+        {
             throw new InvalidDataException($"Invalid signatures for '{collectionId:D}/{instructionName}'.");
+        }
+
         return Array.AsReadOnly(values);
     }
 

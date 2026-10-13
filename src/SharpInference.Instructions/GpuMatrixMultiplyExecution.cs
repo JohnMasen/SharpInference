@@ -25,15 +25,21 @@ public static class GpuMatrixMultiplyExecution
     public static (uint X, uint Y) Groups(ulong outputElements)
     {
         if (outputElements == 0 || outputElements > uint.MaxValue / Threads)
+        {
             throw new ArgumentOutOfRangeException(
                 nameof(outputElements),
                 "Cooperative matrix multiplication exceeds 32-bit thread indexing.");
+        }
+
         var y = checked((uint)((outputElements + 65534) / 65535));
         var x = checked((uint)((outputElements + y - 1) / y));
         if ((ulong)x * y * Threads > uint.MaxValue)
+        {
             throw new ArgumentOutOfRangeException(
                 nameof(outputElements),
                 "Padded cooperative matrix grid exceeds 32-bit thread indexing.");
+        }
+
         return (x, y);
     }
 
@@ -43,7 +49,10 @@ public static class GpuMatrixMultiplyExecution
     public static (uint X, uint Y) TileGroups(int rows, int columns)
     {
         if (rows <= 0 || columns <= 0)
+        {
             throw new ArgumentOutOfRangeException(nameof(rows));
+        }
+
         return (
             checked((uint)((columns + TileSize - 1) / TileSize)),
             checked((uint)((rows + TileSize - 1) / TileSize)));

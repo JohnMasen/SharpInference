@@ -38,7 +38,10 @@ public sealed class CpuVmCallFrame
     {
         var binding = View(parameter, offset, length);
         if (binding.Access != VmAccess.ReadWrite)
+        {
             throw new InvalidOperationException("The compiled parameter is read-only.");
+        }
+
         return context.Write(binding.Slot, checked(binding.Offset + offset), length);
     }
 
@@ -46,7 +49,10 @@ public sealed class CpuVmCallFrame
     {
         var binding = parameters[parameter];
         if (offset < 0 || length < 0 || offset > binding.Length || length > binding.Length - offset)
+        {
             throw new ArgumentOutOfRangeException(nameof(offset), "Parameter view exceeds its compiled capacity.");
+        }
+
         return binding;
     }
 }

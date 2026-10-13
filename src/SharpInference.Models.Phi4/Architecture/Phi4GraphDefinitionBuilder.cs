@@ -155,7 +155,10 @@ internal sealed class Phi4GraphDefinitionBuilder
                 if (existing.Tensor.ElementType != resource.Tensor.ElementType ||
                     existing.Tensor.Layout != resource.Tensor.Layout ||
                     !existing.Tensor.Dimensions.SequenceEqual(resource.Tensor.Dimensions))
+                {
                     throw new InvalidDataException($"Phi4 component '{tag}' has an incompatible resource '{resource.Id}'.");
+                }
+
                 continue;
             }
             var kind = resource.Kind == GraphDefinitionResourceKind.Output && !exposeOutputs
@@ -187,9 +190,21 @@ internal sealed class Phi4GraphDefinitionBuilder
         GraphSectionAnnotation architecture)
     {
         var values = new Dictionary<string, string>(StringComparer.Ordinal) { ["section.type"] = type };
-        if (architecture.Formula is { } formula) values["formula"] = formula;
-        if (architecture.DefaultView is { } view) values["default_view"] = view.ToString();
-        if (architecture.Step is { } step) values["step"] = step.ToString();
+        if (architecture.Formula is { } formula)
+        {
+            values["formula"] = formula;
+        }
+
+        if (architecture.DefaultView is { } view)
+        {
+            values["default_view"] = view.ToString();
+        }
+
+        if (architecture.Step is { } step)
+        {
+            values["step"] = step.ToString();
+        }
+
         return values;
     }
 
@@ -207,8 +222,10 @@ internal sealed class Phi4GraphDefinitionBuilder
                     var handles = new Dictionary<string, GraphResource<object>>(builder.Ports.Resources, StringComparer.Ordinal);
                     foreach (var resource in resources.Values.Where(value =>
                                  value.Kind is not (GraphDefinitionResourceKind.Input or GraphDefinitionResourceKind.Output or GraphDefinitionResourceKind.InOut)))
+                    {
                         handles.Add(resource.Id, builder.AddResource<object>(
                             resource.Id, resource.Name, resource.Tensor, resource.Kind, resource.BindingKey));
+                    }
 
                     GraphDefinitionNodeId? previous = null;
                     foreach (var step in steps)
@@ -232,20 +249,42 @@ internal sealed class Phi4GraphDefinitionBuilder
                             foreach (var binding in node.Bindings)
                             {
                                 if (!handles.TryGetValue(binding.Resource.Value, out var resource))
+                                {
                                     throw new InvalidDataException($"Phi4 node '{node.Id}' references unknown resource '{binding.Resource}'.");
+                                }
+
                                 if (binding.Access == GraphResourceAccess.Read)
+                                {
                                     operation.AddInput(binding.Port, resource);
+                                }
                                 else if (binding.Access == GraphResourceAccess.Write)
+                                {
                                     operation.AddOutput(binding.Port, resource);
+                                }
                                 else
+                                {
                                     operation.AddInOut(binding.Port, resource);
+                                }
                             }
 
-                            if (previous is { } dependency) operation.DependsOn(dependency);
+                            if (previous is { } dependency)
+                            {
+                                operation.DependsOn(dependency);
+                            }
+
                             if (node.Requirements is { } requirements)
+                            {
                                 operation.RequirePrecision(requirements);
+                            }
+
                             if (node.Attributes is not null)
-                                foreach (var (name, value) in node.Attributes) operation.AddAttribute(name, value);
+                            {
+                                foreach (var (name, value) in node.Attributes)
+                                {
+                                    operation.AddAttribute(name, value);
+                                }
+                            }
+
                             foreach (var binding in node.Bindings.Where(binding => binding.View is not null))
                             {
                                 var view = binding.View!;
@@ -396,6 +435,7 @@ internal sealed class Phi4GraphDefinitionBuilder
         {
             var values = new Dictionary<string, GraphResource<object>>(StringComparer.Ordinal);
             foreach (var spec in Specs.Value ?? throw new InvalidOperationException("Phi4 graph ports were not configured."))
+            {
                 values.Add(spec.Id, spec.Kind switch
                 {
                     GraphDefinitionResourceKind.Input => ports.AddInput<object>(spec.Id, spec.Tensor),
@@ -403,6 +443,8 @@ internal sealed class Phi4GraphDefinitionBuilder
                     GraphDefinitionResourceKind.InOut => ports.AddInOut<object>(spec.Id, spec.Tensor),
                     _ => throw new InvalidOperationException($"Invalid Phi4 port kind '{spec.Kind}'."),
                 });
+            }
+
             return new(values);
         }
     }

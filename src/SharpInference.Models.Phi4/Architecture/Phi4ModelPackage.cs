@@ -61,8 +61,12 @@ public sealed class Phi4ModelPackage : IDisposable
             Path.Combine(directory, "tokenizer.json"),
         };
         foreach (var path in paths)
+        {
             if (!File.Exists(path))
+            {
                 throw new FileNotFoundException("Phi-4 model package component is missing.", path);
+            }
+        }
 
         GgufModelFile? text = null;
         GgufModelFile? omni = null;
@@ -106,7 +110,10 @@ public sealed class Phi4ModelPackage : IDisposable
     public void Dispose()
     {
         if (disposed)
+        {
             return;
+        }
+
         SpeechAdapter.Dispose();
         VisionAdapter.Dispose();
         Omni.Dispose();
@@ -126,10 +133,16 @@ public sealed class Phi4ModelPackage : IDisposable
             text.GetMetadata<uint>("phi3.attention.head_count") != 24 ||
             text.GetMetadata<uint>("phi3.attention.head_count_kv") != 8 ||
             text.Tensors.Count != 196)
+        {
             throw new InvalidDataException("The text GGUF is not the expected Phi-4 multimodal backbone.");
+        }
+
         if (omni.GetMetadata<string>("general.architecture") != "clip" ||
             omni.Tensors.Count != 1330)
+        {
             throw new InvalidDataException("The omni GGUF is not the expected Phi-4 vision/audio component.");
+        }
+
         ValidateAdapter(vision, "Vision Lora");
         ValidateAdapter(speech, "Speech Lora");
 
@@ -140,7 +153,9 @@ public sealed class Phi4ModelPackage : IDisposable
             "blk.31.ffn_down.weight",
             "output_norm.weight",
         })
+        {
             _ = text.GetTensor(name);
+        }
     }
 
     private static void ValidateAdapter(GgufModelFile file, string expectedName)
@@ -149,6 +164,8 @@ public sealed class Phi4ModelPackage : IDisposable
             file.GetMetadata<string>("adapter.type") != "lora" ||
             file.GetMetadata<string>("general.name") != expectedName ||
             file.Tensors.Count != 256)
+        {
             throw new InvalidDataException($"The adapter GGUF is not '{expectedName}'.");
+        }
     }
 }

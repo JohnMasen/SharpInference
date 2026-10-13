@@ -17,7 +17,10 @@ internal abstract class GpuBatchTransformerInstruction(
         var batch = tensor.Tensor.Dimensions[0];
         var width = tensor.Tensor.Dimensions[1];
         if (batch <= 0 || width <= 0)
+        {
             throw Error($"'{name}' dimensions must be positive.");
+        }
+
         return (batch, width);
     }
 
@@ -26,7 +29,10 @@ internal abstract class GpuBatchTransformerInstruction(
         RequireRank(tensor, name, 1);
         var width = tensor.Tensor.Dimensions[0];
         if (width <= 0)
+        {
             throw Error($"'{name}' dimensions must be positive.");
+        }
+
         return width;
     }
 
@@ -37,7 +43,10 @@ internal abstract class GpuBatchTransformerInstruction(
         RequireRank(tensor, name, 3);
         var dimensions = tensor.Tensor.Dimensions;
         if (dimensions.Any(dimension => dimension <= 0))
+        {
             throw Error($"'{name}' dimensions must be positive.");
+        }
+
         return (dimensions[0], dimensions[1], dimensions[2]);
     }
 
@@ -45,7 +54,9 @@ internal abstract class GpuBatchTransformerInstruction(
     {
         if (control.Tensor.Dimensions.Count != 1 ||
             control.Tensor.Dimensions[0] != 2)
+        {
             throw Error("'control' must have shape [2].");
+        }
     }
 
     protected void RequireSameShape(
@@ -55,7 +66,9 @@ internal abstract class GpuBatchTransformerInstruction(
         string rightName)
     {
         if (!left.Tensor.Dimensions.SequenceEqual(right.Tensor.Dimensions))
+        {
             throw Error($"'{leftName}' and '{rightName}' must have matching shapes.");
+        }
     }
 
     protected int PositiveInteger(InstructionParameter[] parameters, string name)
@@ -64,7 +77,10 @@ internal abstract class GpuBatchTransformerInstruction(
             .Single(parameter => parameter.Name == name).Value;
         if (!int.TryParse(text, NumberStyles.None, CultureInfo.InvariantCulture, out var value) ||
             value <= 0)
+        {
             throw Error($"Attribute '{name}' must be a positive integer.");
+        }
+
         return value;
     }
 
@@ -94,7 +110,9 @@ internal abstract class GpuBatchTransformerInstruction(
         int rank)
     {
         if (tensor.Tensor.Dimensions.Count != rank)
+        {
             throw Error($"'{name}' must have rank {rank}.");
+        }
     }
 }
 
@@ -118,7 +136,10 @@ internal sealed class GpuBatchRmsNormInstruction() : GpuBatchTransformerInstruct
         var (batch, width) = BatchMatrix(input, "input");
         RequireSameShape(input, "input", output, "output");
         if (Vector(weight, "weight") != width)
+        {
             throw Error("'weight' must have shape [H].");
+        }
+
         RequireControl(control);
         var epsilon = FloatLiteral(PositiveFloat(parameters, "epsilon"));
         return new($$"""
@@ -182,7 +203,10 @@ internal sealed class GpuBatchResidualRmsNormInstruction() : GpuBatchTransformer
         RequireSameShape(hidden, "hidden", updated, "updated");
         RequireSameShape(hidden, "hidden", output, "output");
         if (Vector(weight, "weight") != width)
+        {
             throw Error("'weight' must have shape [H].");
+        }
+
         RequireControl(control);
         var epsilon = FloatLiteral(PositiveFloat(parameters, "epsilon"));
         return new($$"""
@@ -241,7 +265,10 @@ internal sealed class GpuBatchSharedMatVecInstruction() : GpuBatchTransformerIns
         var (batch, inputWidth) = BatchMatrix(input, "input");
         var (outputBatch, outputWidth) = BatchMatrix(output, "output");
         if (inputWidth != inputSize || outputBatch != batch || outputWidth != outputSize)
+        {
             throw Error("Expected weight [O,I], input [B,I], and output [B,O].");
+        }
+
         RequireControl(control);
         return new($$"""
             {
@@ -295,7 +322,10 @@ internal sealed class GpuBatchSwiGluInstruction() : GpuBatchTransformerInstructi
         var (batch, combinedWidth) = BatchMatrix(gateUp, "gate_up");
         var (outputBatch, width) = BatchMatrix(output, "output");
         if (combinedWidth != checked(width * 2) || outputBatch != batch)
+        {
             throw Error("Expected gate_up [B,2I] and output [B,I].");
+        }
+
         RequireControl(control);
         var count = checked((uint)((long)batch * width));
         return new($$"""
@@ -353,9 +383,15 @@ internal sealed class GpuBatchRopeKeyValueWriteInstruction() : GpuBatchTransform
             rotarySize > headSize ||
             rotarySize % 2 != 0 ||
             qkvWidth != checked(querySize + 2 * keyValueSize))
+        {
             throw Error("Invalid qkv, query, cache, head, or rotary dimensions.");
+        }
+
         if (Vector(frequencies, "frequencies") != rotarySize / 2)
+        {
             throw Error("'frequencies' must have shape [rotary_size/2].");
+        }
+
         RequireControl(control);
         var total = checked((uint)((long)batch * qkvWidth));
         return new($$"""
@@ -433,12 +469,18 @@ internal sealed class GpuBatchGroupedQueryScoresInstruction() : GpuBatchTransfor
         if (scores.Tensor.Dimensions.Count != 3 ||
             scores.Tensor.Dimensions[0] != batch ||
             scores.Tensor.Dimensions[2] != context)
+        {
             throw Error("'scores' must have shape [B,qheads,context].");
+        }
+
         var queryHeads = scores.Tensor.Dimensions[1];
         if (queryHeads <= 0 ||
             queryHeads % keyValueHeads != 0 ||
             querySize != checked(queryHeads * headSize))
+        {
             throw Error("Incompatible query, cache, and GQA score shapes.");
+        }
+
         RequireControl(control);
         var scale = FloatLiteral(1f / MathF.Sqrt(headSize));
         var count = checked((uint)((long)batch * queryHeads * context));
@@ -487,13 +529,19 @@ internal sealed class GpuBatchCausalSoftmaxInstruction() : GpuBatchTransformerIn
         var control = tensors["control"];
         var probabilities = tensors["probabilities"];
         if (scores.Tensor.Dimensions.Count != 3)
+        {
             throw Error("'scores' must have shape [B,heads,context].");
+        }
+
         RequireSameShape(scores, "scores", probabilities, "probabilities");
         var batch = scores.Tensor.Dimensions[0];
         var heads = scores.Tensor.Dimensions[1];
         var context = scores.Tensor.Dimensions[2];
         if (batch <= 0 || heads <= 0 || context <= 0)
+        {
             throw Error("'scores' dimensions must be positive.");
+        }
+
         RequireControl(control);
         return new($$"""
             {
@@ -567,7 +615,10 @@ internal sealed class GpuBatchGroupedQueryValuesInstruction() : GpuBatchTransfor
         var control = tensors["control"];
         var output = tensors["output"];
         if (probabilities.Tensor.Dimensions.Count != 3)
+        {
             throw Error("'probabilities' must have shape [B,qheads,context].");
+        }
+
         var batch = probabilities.Tensor.Dimensions[0];
         var queryHeads = probabilities.Tensor.Dimensions[1];
         var probabilityContext = probabilities.Tensor.Dimensions[2];
@@ -578,7 +629,10 @@ internal sealed class GpuBatchGroupedQueryValuesInstruction() : GpuBatchTransfor
             queryHeads % keyValueHeads != 0 ||
             outputBatch != batch ||
             outputWidth != checked(queryHeads * headSize))
+        {
             throw Error("Incompatible probability, value cache, and output shapes.");
+        }
+
         RequireControl(control);
         var count = checked((uint)((long)batch * outputWidth));
         return new($$"""
@@ -626,7 +680,10 @@ internal sealed class GpuBatchSelectLastInstruction() : GpuBatchTransformerInstr
         var output = tensors["output"];
         var (batch, width) = BatchMatrix(input, "input");
         if (Vector(output, "output") != width)
+        {
             throw Error("Expected input [B,H] and output [H].");
+        }
+
         RequireControl(control);
         return new($$"""
             {
@@ -657,7 +714,10 @@ internal sealed class GpuBatchGatherRowsInstruction() : GpuBatchTransformerInstr
         var (rowCount, width) = BatchMatrix(table, "table");
         var (batch, outputWidth) = BatchMatrix(output, "output");
         if (outputWidth != width)
+        {
             throw Error("Expected table [N,H] and output [B,H].");
+        }
+
         RequireControl(control);
         var count = checked((uint)((long)batch * width));
         return new($$"""

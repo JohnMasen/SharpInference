@@ -72,25 +72,38 @@ public sealed class TierOnePointwiseDefinition
         if (operands.Any(operand => operand is null || string.IsNullOrWhiteSpace(operand.Name) ||
                 string.IsNullOrWhiteSpace(operand.Source) || operand.Tensor is null || !Enum.IsDefined(operand.Access)) ||
             operands.Select(operand => operand.Name).Distinct(StringComparer.Ordinal).Count() != operands.Count)
+        {
             throw new ArgumentException("Invalid or duplicate operand descriptions.", nameof(operands));
+        }
+
         if (operands.Count != Inputs.Count + 1 || operands.Any(operand =>
                 operand.Name != "output" && !Inputs.Contains(operand.Name, StringComparer.Ordinal)) ||
             operands.All(operand => operand.Name != "output"))
+        {
             diagnostic = "Unsupported ports.";
+        }
         else if (!InstructionPrecisionCompatibility.Satisfies(TierOnePointwiseCatalog.Precision, requirement))
+        {
             diagnostic = "Insufficient internal precision.";
+        }
         else
         {
             var output = operands.Single(operand => operand.Name == "output");
             if (output.Access == GraphResourceAccess.Read ||
                 operands.Any(operand => operand.Name != "output" && operand.Access == GraphResourceAccess.Write))
+            {
                 diagnostic = "Unsupported operand access.";
+            }
             else if (operands.Any(operand => operand.Tensor.ElementType != GraphElementType.Float32 ||
                          operand.Tensor.Layout != "dense" || operand.Tensor.Dimensions.Count == 0 ||
                          !operand.Tensor.Dimensions.SequenceEqual(output.Tensor.Dimensions)))
+            {
                 diagnostic = "FP32 dense operands must have identical nonempty shapes.";
+            }
             else if (operands.Any(operand => operand.Name != "output" && operand.Source == output.Source))
+            {
                 diagnostic = "Output must not alias an input.";
+            }
         }
         return diagnostic.Length == 0;
     }

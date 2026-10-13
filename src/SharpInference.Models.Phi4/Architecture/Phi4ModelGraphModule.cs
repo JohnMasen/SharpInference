@@ -18,15 +18,21 @@ public sealed class Phi4ModelGraphModule : IPhi4GraphModule
         IReadOnlyDictionary<string, IPhi4GraphModule>? encoders = null)
     {
         if (fusion is null && encoders is { Count: > 0 })
+        {
             throw new ArgumentException("Encoder connections require a fusion graph.", nameof(encoders));
+        }
+
         this.encoders = (encoders ?? new Dictionary<string, IPhi4GraphModule>())
             .ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.Ordinal);
         if (this.encoders.Any(pair =>
                 string.IsNullOrWhiteSpace(pair.Key) ||
                 pair.Value is not (Phi4AudioGraphModule or Phi4VisionGraphModule)))
+        {
             throw new ArgumentException(
                 "Phi4 encoder connections must explicitly name audio or vision modules.",
                 nameof(encoders));
+        }
+
         this.fusion = fusion;
         text = new(maximumContext, embeddingInput: fusion is not null, adapter, adapterScale);
     }
@@ -47,8 +53,16 @@ public sealed class Phi4ModelGraphModule : IPhi4GraphModule
     public ModelMetadata ReadMetadata(IModelTensorCatalog tensors)
     {
         var metadata = text.ReadMetadata(tensors);
-        foreach (var module in encoders.Values) _ = module.ReadMetadata(tensors);
-        if (fusion is not null) _ = fusion.ReadMetadata(tensors);
+        foreach (var module in encoders.Values)
+        {
+            _ = module.ReadMetadata(tensors);
+        }
+
+        if (fusion is not null)
+        {
+            _ = fusion.ReadMetadata(tensors);
+        }
+
         return new(ArchitectureId, metadata.Dimensions, metadata.Attributes);
     }
 
@@ -86,8 +100,11 @@ public sealed class Phi4ModelGraphModule : IPhi4GraphModule
                     resource.Id.Value == "output" &&
                     resource.Kind == GraphDefinitionResourceKind.Output);
                 if (!Same(output.Tensor, input.Tensor))
+                {
                     throw new InvalidDataException(
                         $"Encoder '{port}' does not match the dense fusion ABI.");
+                }
+
                 var destination = $"{port}.output";
                 builder.AppendDefinition(component, port,
                     new Dictionary<string, string> { ["output"] = destination });

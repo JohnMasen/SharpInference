@@ -49,7 +49,10 @@ public sealed record TensorDescriptor
         ArgumentNullException.ThrowIfNull(dimensions);
         var values = dimensions.ToArray();
         if (values.Length == 0 || values.Any(value => value <= 0))
+        {
             throw new ArgumentOutOfRangeException(nameof(dimensions), "Tensor dimensions must be positive.");
+        }
+
         ElementType = elementType;
         Dimensions = Array.AsReadOnly(values);
         Layout = string.IsNullOrWhiteSpace(layout)
@@ -97,8 +100,15 @@ public static class NumericTypeCompatibility
     {
         var values = types?.ToArray() ?? throw new ArgumentNullException(nameof(types));
         if (values.Length == 0)
+        {
             throw new ArgumentException("At least one numeric type is required.", nameof(types));
-        foreach (var value in values) RequireFloatingPoint(value, nameof(types));
+        }
+
+        foreach (var value in values)
+        {
+            RequireFloatingPoint(value, nameof(types));
+        }
+
         return values.Contains(GraphElementType.Float32)
             ? GraphElementType.Float32
             : GraphElementType.Float16;
@@ -107,7 +117,9 @@ public static class NumericTypeCompatibility
     internal static void RequireFloatingPoint(GraphElementType type, string parameterName)
     {
         if (!IsFloatingPoint(type))
+        {
             throw new ArgumentOutOfRangeException(parameterName, "A floating-point element type is required.");
+        }
     }
 }
 

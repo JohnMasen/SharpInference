@@ -29,9 +29,14 @@ public sealed class ModelMetadata
         Attributes = new Dictionary<string, string>(
             attributes ?? new Dictionary<string, string>(), StringComparer.Ordinal);
         if (Dimensions.Any(value => string.IsNullOrWhiteSpace(value.Key) || value.Value <= 0))
+        {
             throw new ArgumentException("Model dimensions require names and positive values.", nameof(dimensions));
+        }
+
         if (Attributes.Any(value => string.IsNullOrWhiteSpace(value.Key) || value.Value is null))
+        {
             throw new ArgumentException("Model attributes require names and values.", nameof(attributes));
+        }
     }
 
     /// <summary>Gets the architecture identifier used to select model implementations.</summary>

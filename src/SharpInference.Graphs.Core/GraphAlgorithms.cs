@@ -18,7 +18,9 @@ public static class GraphAlgorithms
             node => view.InEdges(node.Id).Count());
         var ready = new PriorityQueue<TNode, int>();
         foreach (var node in nodes.Where(node => indegree[node.Id] == 0))
+        {
             ready.Enqueue(node, positions[node.Id]);
+        }
 
         var result = new List<TNode>(nodes.Length);
         while (ready.TryDequeue(out var node, out _))
@@ -28,12 +30,17 @@ public static class GraphAlgorithms
             {
                 indegree[edge.Target]--;
                 if (indegree[edge.Target] == 0)
+                {
                     ready.Enqueue(view.GetNode(edge.Target), positions[edge.Target]);
+                }
             }
         }
 
         if (result.Count != nodes.Length)
+        {
             throw new InvalidDataException("The graph view contains a directed cycle.");
+        }
+
         return result;
     }
 
@@ -49,19 +56,29 @@ public static class GraphAlgorithms
         _ = view.GetNode(source);
         _ = view.GetNode(target);
         if (source == target)
+        {
             return true;
+        }
 
         var visited = new HashSet<GraphNodeId> { source };
         var pending = new Queue<GraphNodeId>();
         pending.Enqueue(source);
         while (pending.TryDequeue(out var current))
+        {
             foreach (var edge in view.OutEdges(current))
             {
                 if (edge.Target == target)
+                {
                     return true;
+                }
+
                 if (visited.Add(edge.Target))
+                {
                     pending.Enqueue(edge.Target);
+                }
             }
+        }
+
         return false;
     }
 
@@ -78,9 +95,16 @@ public static class GraphAlgorithms
         var pending = new Queue<GraphNodeId>();
         pending.Enqueue(source);
         while (pending.TryDequeue(out var current))
+        {
             foreach (var edge in view.OutEdges(current))
+            {
                 if (visited.Add(edge.Target))
+                {
                     pending.Enqueue(edge.Target);
+                }
+            }
+        }
+
         return view.Nodes.Where(node => visited.Contains(node.Id)).ToArray();
     }
 }

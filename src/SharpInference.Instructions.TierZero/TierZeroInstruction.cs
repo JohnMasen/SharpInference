@@ -64,18 +64,26 @@ public abstract class TierZeroInstruction(Guid collectionId, string name, Instru
         {
             var tensors = parameters.OfType<InstructionTensorParameter>().ToArray();
             if (tensors.Any(parameter => parameter.ByteOffset != 0))
+            {
                 throw new InvalidDataException(
                     "Put typed offsets on calls, not instruction parameters.");
+            }
+
             if (tensors.Any(parameter =>
                 parameter.Name == "output" && parameter.Access == GraphResourceAccess.Read))
+            {
                 throw new InvalidDataException("Output is read-only.");
+            }
+
             if (tensors.GroupBy(parameter => parameter.Source).Any(group =>
                 group.Select(parameter => (
                     parameter.Tensor.ElementType,
                     Shape: string.Join(",", parameter.Tensor.Dimensions)))
                 .Distinct().Count() != 1))
+            {
                 throw new InvalidDataException(
                     "Aliased source parameters have conflicting tensor descriptors.");
+            }
         }
         catch (Exception exception) when (
             exception is InvalidDataException or NotSupportedException or ArgumentException)
@@ -98,11 +106,17 @@ public abstract class TierZeroInstruction(Guid collectionId, string name, Instru
     {
         if (collectionId != InstructionCollectionIds.TierZeroFloat32 &&
             collectionId != InstructionCollectionIds.TierZeroFloat16)
+        {
             throw new ArgumentException("Unknown T0 collection.", nameof(collectionId));
+        }
+
         var inputs = InputPorts(name);
         if (collectionId == InstructionCollectionIds.TierZeroFloat16 &&
             name == "core.tensor.cast-f16-f32")
+        {
             return [];
+        }
+
         var storage = collectionId == InstructionCollectionIds.TierZeroFloat16
             ? GraphElementType.Float16
             : GraphElementType.Float32;
@@ -142,16 +156,25 @@ public abstract class TierZeroInstruction(Guid collectionId, string name, Instru
         };
         if (collectionId == InstructionCollectionIds.TierZeroFloat32 &&
             name is "core.mat-vec" or "core.tensor.batched-mat-vec")
+        {
             result.Add(Signature(storage, "matrix", GraphElementType.Float16));
+        }
+
         if (collectionId == InstructionCollectionIds.TierZeroFloat32 &&
             name == "core.gather-row")
+        {
             result.Add(Signature(storage, "table", GraphElementType.Float16));
+        }
+
         if (name == "core.mat-vec")
+        {
             result.AddRange(result.ToArray().Select(signature => new InstructionSignature(
                 signature.Ports.Select(port =>
                     port.Name == "matrix" ? port with { Name = "weight" } : port).ToArray(),
                 signature.Attributes,
                 signature.Precision)));
+        }
+
         return result;
     }
 }

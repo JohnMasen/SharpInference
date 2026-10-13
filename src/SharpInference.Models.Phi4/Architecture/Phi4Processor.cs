@@ -99,7 +99,10 @@ public sealed class Phi4Processor : IProcessor
     public void Dispose()
     {
         if (disposed)
+        {
             return;
+        }
+
         package.Dispose();
         disposed = true;
     }
@@ -141,7 +144,9 @@ public sealed class Phi4ProcessorSession : IProcessorSession
         ObjectDisposedException.ThrowIf(disposed, this);
         ArgumentNullException.ThrowIfNull(input);
         if (!processor.Capabilities.Supports(input.Modalities))
+        {
             throw new NotSupportedException($"Phi-4 does not support input combination '{input.Modalities}'.");
+        }
 
         var imageParts = input.Parts.OfType<ImageInputPart>().ToArray();
         var audioParts = input.Parts.OfType<AudioInputPart>().ToArray();
@@ -157,7 +162,9 @@ public sealed class Phi4ProcessorSession : IProcessorSession
         var tokens = processor.Tokenizer.Encode(prompt);
         var expanded = ExpandMediaTokens(tokens, images, audios);
         if (expanded.Length > processor.Capabilities.Text!.MaximumContextLength)
+        {
             throw new ArgumentException("Prepared input exceeds the Phi-4 context length.", nameof(input));
+        }
 
         var adapter = images.Length != 0
             ? Phi4Adapter.Vision
@@ -178,7 +185,10 @@ public sealed class Phi4ProcessorSession : IProcessorSession
         CancellationToken cancellationToken = default)
     {
         if (maximumNewTokens <= 0)
+        {
             throw new ArgumentOutOfRangeException(nameof(maximumNewTokens));
+        }
+
         var prepared = await PrepareAsync(input, cancellationToken).ConfigureAwait(false);
         var session = textModel.CreateSession(prepared.Adapter);
         float[] logits;
@@ -196,7 +206,10 @@ public sealed class Phi4ProcessorSession : IProcessorSession
             var embeddings = await embeddingProvider!.CreateFusedEmbeddingsAsync(prepared, cancellationToken)
                 .ConfigureAwait(false);
             if (embeddings.Count != prepared.TokenIds.Length)
+            {
                 throw new InvalidDataException("The embedding provider returned a different sequence length.");
+            }
+
             logits = [];
             foreach (var embedding in embeddings)
             {
@@ -211,7 +224,10 @@ public sealed class Phi4ProcessorSession : IProcessorSession
             cancellationToken.ThrowIfCancellationRequested();
             var token = ArgMax(logits);
             if (token == Phi4Tokenizer.EndOfTextTokenId)
+            {
                 break;
+            }
+
             generated.Add(token);
             logits = session.ForwardToken(token);
         }
@@ -267,13 +283,19 @@ public sealed class Phi4ProcessorSession : IProcessorSession
             if (token == Phi4Tokenizer.ImageTokenId)
             {
                 if (image == images.Count)
+                {
                     throw new InvalidDataException("The prompt has more image placeholders than image inputs.");
+                }
+
                 result.AddRange(Enumerable.Repeat(token, images[image++].ImageTokenCount));
             }
             else if (token == Phi4Tokenizer.AudioTokenId)
             {
                 if (audio == audios.Count)
+                {
                     throw new InvalidDataException("The prompt has more audio placeholders than audio inputs.");
+                }
+
                 result.AddRange(Enumerable.Repeat(token, audios[audio++].EmbedSize));
             }
             else
@@ -282,7 +304,10 @@ public sealed class Phi4ProcessorSession : IProcessorSession
             }
         }
         if (image != images.Count || audio != audios.Count)
+        {
             throw new InvalidDataException("Media input count does not match generated placeholders.");
+        }
+
         return result.ToArray();
     }
 
@@ -313,7 +338,9 @@ public sealed class Phi4ProcessorSession : IProcessorSession
             var source = MemoryMarshal.Cast<byte, short>(input.Samples.Span);
             samples = new float[source.Length];
             for (var index = 0; index < source.Length; index++)
+            {
                 samples[index] = source[index] / 32768f;
+            }
         }
         return new Phi4AudioProcessor().Process(samples, input.SampleRate, input.Channels);
     }
@@ -321,11 +348,19 @@ public sealed class Phi4ProcessorSession : IProcessorSession
     private static int ArgMax(IReadOnlyList<float> values)
     {
         if (values.Count == 0)
+        {
             throw new InvalidOperationException("Cannot select a token before prefill.");
+        }
+
         var result = 0;
         for (var index = 1; index < values.Count; index++)
+        {
             if (values[index] > values[result])
+            {
                 result = index;
+            }
+        }
+
         return result;
     }
 }

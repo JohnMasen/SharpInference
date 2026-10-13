@@ -346,15 +346,25 @@ public sealed class ExecutionGraphConverterTests
         var builder = new ExecutionGraphBuilder(
             new(id), boundary, architecture, source);
         foreach (var resource in resources)
+        {
             builder.AddResource(resource);
+        }
+
         foreach (var node in nodes)
+        {
             if (node.Node is ExecutionOperationNode operation)
+            {
                 builder.AddOperation(operation, node.Bindings, node.Dependencies);
+            }
             else
+            {
                 builder.AddCall(
                     (ExecutionGraphCallNode)node.Node,
                     node.Bindings,
                     node.Dependencies);
+            }
+        }
+
         return builder.Build();
     }
 

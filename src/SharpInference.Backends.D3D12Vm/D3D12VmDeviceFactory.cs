@@ -38,10 +38,14 @@ public static class D3D12VmDeviceFactory
         {
         {
             using (adapter)
-                if ((adapter!.Description1.Flags & AdapterFlags.Software) == 0 &&
+                {
+                    if ((adapter!.Description1.Flags & AdapterFlags.Software) == 0 &&
                     IsSupported(adapter, FeatureLevel.Level_11_0) && supported++ == adapterIndex)
-                    return action(adapter);
-        }
+                    {
+                        return action(adapter);
+                    }
+                }
+            }
         }
         throw new NotSupportedException($"No supported D3D12 hardware adapter at index {adapterIndex}.");
     }

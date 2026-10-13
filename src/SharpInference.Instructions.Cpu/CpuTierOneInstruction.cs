@@ -15,7 +15,10 @@ internal sealed class CpuTierOneInstruction(string name)
         var tensors = parameters.OfType<InstructionTensorParameter>().ToDictionary(parameter => parameter.Name, StringComparer.Ordinal);
         var code = new StringBuilder("{\n");
         foreach (var (port, index) in Definition.Inputs.Select((port, index) => (port, index)))
+        {
             code.AppendLine($"System.ReadOnlySpan<float> s{index} = System.Runtime.InteropServices.MemoryMarshal.Cast<byte,float>({tensors[port].Expression});");
+        }
+
         code.AppendLine($"System.Span<float> o = System.Runtime.InteropServices.MemoryMarshal.Cast<byte,float>({tensors["output"].Expression});");
         var method = Name switch
         {

@@ -41,18 +41,30 @@ public static partial class GraphXml
         var active = new HashSet<string>(StringComparer.Ordinal);
         var result = Build(rootId);
         if (completed.Count != records.Count)
+        {
             throw new InvalidDataException(
                 "Logical graph XML contains unreachable definitions.");
+        }
+
         return result;
 
         LogicalGraphDefinition Build(string id)
         {
             if (completed.TryGetValue(id, out var existing))
+            {
                 return existing;
+            }
+
             if (!records.TryGetValue(id, out var record))
+            {
                 throw new InvalidDataException($"Unknown graph definition '{id}'.");
+            }
+
             if (!active.Add(id))
+            {
                 throw new InvalidDataException($"Recursive graph definition '{id}'.");
+            }
+
             var children = record.Structure.Nodes.OfType<GraphCallNode>()
                 .Select(call => Build(call.Definition.Value))
                 .DistinctBy(definition => definition.Id)
@@ -80,12 +92,21 @@ public static partial class GraphXml
         void Visit(LogicalGraphDefinition definition)
         {
             if (result.ContainsKey(definition.Id))
+            {
                 return;
+            }
+
             if (!active.Add(definition.Id))
+            {
                 throw new InvalidDataException(
                     $"Recursive graph definition '{definition.Id}'.");
+            }
+
             foreach (var child in definition.Definitions)
+            {
                 Visit(child);
+            }
+
             active.Remove(definition.Id);
             result.Add(definition.Id, definition);
         }
@@ -270,7 +291,10 @@ public static partial class GraphXml
     private static XElement? WriteAnnotation(GraphAnnotation? annotation)
     {
         if (annotation is null)
+        {
             return null;
+        }
+
         return new XElement(
             "Annotation",
             Optional("name", annotation.Name),
@@ -286,7 +310,10 @@ public static partial class GraphXml
     private static GraphAnnotation? ReadAnnotation(XElement? element)
     {
         if (element is null)
+        {
             return null;
+        }
+
         Check(element, "Annotation", "name", "role", "description");
         return new(
             (string?)element.Attribute("name"),
@@ -321,7 +348,10 @@ public static partial class GraphXml
     {
         var value = Required(element, attribute);
         if (!Enum.TryParse<T>(value, false, out var result) || !Enum.IsDefined(result))
+        {
             throw new InvalidDataException($"Invalid {attribute} '{value}'.");
+        }
+
         return result;
     }
 
@@ -329,8 +359,11 @@ public static partial class GraphXml
     {
         var values = parent.Elements(name).ToArray();
         if (values.Length != 1)
+        {
             throw new InvalidDataException(
                 $"Element <{parent.Name}> requires exactly one <{name}> child.");
+        }
+
         return values[0];
     }
 
@@ -341,7 +374,10 @@ public static partial class GraphXml
         if (parent.Elements().Any(element =>
             !names.Contains(element.Name.LocalName, StringComparer.Ordinal) ||
             element.Name.Namespace != XNamespace.None))
+        {
             throw new InvalidDataException($"Unexpected children in <{parent.Name}>.");
+        }
+
         return parent.Elements();
     }
 
@@ -350,7 +386,10 @@ public static partial class GraphXml
         var xml = root.ToString(SaveOptions.DisableFormatting);
         if (xml.Length > MaxCharacters ||
             root.DescendantsAndSelf().Take(MaxElements + 1).Count() > MaxElements)
+        {
             throw new InvalidDataException("Graph XML exceeds the size limit.");
+        }
+
         return xml;
     }
 
@@ -358,7 +397,10 @@ public static partial class GraphXml
     {
         ArgumentNullException.ThrowIfNull(xml);
         if (xml.Length > MaxCharacters)
+        {
             throw new InvalidDataException("Graph XML exceeds the size limit.");
+        }
+
         try
         {
             var settings = new XmlReaderSettings
@@ -375,14 +417,23 @@ public static partial class GraphXml
             if (root.DescendantsAndSelf().Take(MaxElements + 1).Count() > MaxElements ||
                 root.DescendantsAndSelf().Any(element =>
                     element.Ancestors().Take(MaxDepth + 1).Count() > MaxDepth))
+            {
                 throw new InvalidDataException(
                     "Graph XML exceeds the structural limit.");
+            }
+
             Check(root, "Graph", "kind", "version");
             if (Required(root, "kind") != kind)
+            {
                 throw new InvalidDataException($"Graph XML kind must be '{kind}'.");
+            }
+
             if (Number(root, "version") != version)
+            {
                 throw new InvalidDataException(
                     $"Unsupported graph XML version '{Required(root, "version")}'.");
+            }
+
             return root;
         }
         catch (InvalidDataException)
@@ -402,20 +453,28 @@ public static partial class GraphXml
         params string[] allowedAttributes)
     {
         if (element.Name != name || element.Name.Namespace != XNamespace.None)
+        {
             throw new InvalidDataException($"Expected <{name}>.");
+        }
+
         if (element.Attributes().Any(attribute =>
             attribute.IsNamespaceDeclaration ||
             !allowedAttributes.Contains(
                 attribute.Name.LocalName, StringComparer.Ordinal) ||
             attribute.Name.Namespace != XNamespace.None))
+        {
             throw new InvalidDataException($"Unexpected attribute on <{name}>.");
+        }
     }
 
     private static IEnumerable<XElement> Children(XElement parent, string name)
     {
         if (parent.Elements().Any(element =>
             element.Name != name || element.Name.Namespace != XNamespace.None))
+        {
             throw new InvalidDataException($"Unexpected children in <{parent.Name}>.");
+        }
+
         return parent.Elements(name);
     }
 

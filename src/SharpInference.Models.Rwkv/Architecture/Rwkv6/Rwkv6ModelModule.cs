@@ -21,12 +21,19 @@ public sealed class Rwkv6ModelModule
     /// <inheritdoc/>
     public ModelMetadata ReadMetadata(IModelTensorCatalog tensors)
     {
-        if (!CanLoad(tensors)) throw new InvalidDataException("The tensor catalog does not match RWKV-6.");
+        if (!CanLoad(tensors))
+        {
+            throw new InvalidDataException("The tensor catalog does not match RWKV-6.");
+        }
+
         var dimensions = RwkvTensorCatalogDimensions.Read(tensors);
         var heads = tensors.GetRequired("blocks.0.att.time_faaaa").Dimensions;
         if (heads.Count != 3 || heads[0] != 1 || heads[1] <= 0 || heads[2] <= 0 ||
             heads[1] * (long)heads[2] != dimensions.EmbeddingSize)
+        {
             throw new InvalidDataException("RWKV-6 head dimensions do not match the embedding tensor.");
+        }
+
         return new RwkvModelMetadata(dimensions.VocabularySize, dimensions.EmbeddingSize,
             dimensions.LayerCount, heads[2], heads[1], ArchitectureId).ToModelMetadata();
     }

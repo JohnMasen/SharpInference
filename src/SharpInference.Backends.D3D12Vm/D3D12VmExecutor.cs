@@ -97,10 +97,15 @@ public sealed class D3D12VmExecutor : IVmTaskExecutable
             transfer = device.CreateCommandList<ID3D12GraphicsCommandList>(0, CommandListType.Compute, transferAllocator);
             transfer.Close();
             if (pool is null)
+            {
                 for (var i = 0; i < buffers.Length; i++)
+                {
                     buffers[i] = device.CreateCommittedResource(HeapProperties.DefaultHeapProperties, HeapFlags.None,
                         ResourceDescription.Buffer(Align(artifact.Program.Slots[i].Tensor.ByteLength), ResourceFlags.AllowUnorderedAccess),
                         ResourceStates.UnorderedAccess);
+                }
+            }
+
             foreach (var kernel in artifact.Kernels)
             {
                 var definition = artifact.Program.Definitions.Single(d => d.Id == kernel.Definition);
@@ -132,7 +137,10 @@ public sealed class D3D12VmExecutor : IVmTaskExecutable
                 {
                     if (skipAllInitialization ||
                         skipReadOnlyGlobalInitialization && IsFixedGlobal(i))
+                    {
                         continue;
+                    }
+
                     Upload(i, new byte[checked((int)artifact.Program.Slots[i].Tensor.ByteLength)]);
                 }
             }
@@ -156,9 +164,9 @@ public sealed class D3D12VmExecutor : IVmTaskExecutable
     public ulong AllocatedGpuBytes => pool is null ?
         Artifact.Program.Slots.Aggregate(0UL, (sum, s) => checked(sum + Align(s.Tensor.ByteLength))) : 0;
     /// <summary>Gets the cumulative number of complete entry-list recordings for slot resource bindings.</summary>
-    public ulong BindingRecordCount { get { lock (gate) return bindingRecordCount; } }
+    public ulong BindingRecordCount { get { lock (gate) { return bindingRecordCount; } } }
     /// <summary>Gets the cumulative number of compute entry recordings made for queued task execution.</summary>
-    public ulong ComputeRecordCount { get { lock (gate) return computeRecordCount; } }
+    public ulong ComputeRecordCount { get { lock (gate) { return computeRecordCount; } } }
 
     /// <inheritdoc/>
     public void ExecuteTask(string entryName, VmExecutionLease lease, CancellationToken cancellation)
@@ -166,7 +174,11 @@ public sealed class D3D12VmExecutor : IVmTaskExecutable
         lock (gate)
         {
             ThrowIfDisposed();
-            if (pool is null) throw new NotSupportedException("Queued GPU tasks require a shared resource pool.");
+            if (pool is null)
+            {
+                throw new NotSupportedException("Queued GPU tasks require a shared resource pool.");
+            }
+
             taskWindow ??= new D3D12VmTaskWindow(this, pool);
             taskWindow.Execute(entryName, lease, cancellation);
         }
@@ -182,7 +194,10 @@ public sealed class D3D12VmExecutor : IVmTaskExecutable
     internal void ValidateTaskEntry(string entry, VmExecutionLease lease)
     {
         if (!entryGatherIndices.TryGetValue(entry, out var indices))
+        {
             throw new ArgumentException($"Unknown VM entry '{entry}'.", nameof(entry));
+        }
+
         Span<byte> bytes = stackalloc byte[sizeof(int)];
         foreach (var index in indices)
         {
@@ -191,7 +206,9 @@ public sealed class D3D12VmExecutor : IVmTaskExecutable
                 lease.Read(Program.Slots[index.Slot].Id, checked(index.ByteOffset + (ulong)element * sizeof(int)), bytes);
                 var row = BitConverter.ToInt32(bytes);
                 if (row < index.MinimumIndex || row >= index.Rows)
+                {
                     throw new ArgumentOutOfRangeException(nameof(lease), "The task contains an out-of-range gather index.");
+                }
             }
         }
     }
@@ -208,10 +225,13 @@ public sealed class D3D12VmExecutor : IVmTaskExecutable
     {
         using var use = BeginPoolUse();
         BindPooledContext(context, recordAll: false);
-        foreach (var index in slots) UploadCore(index, context[index]);
+        foreach (var index in slots)
+        {
+            UploadCore(index, context[index]);
+        }
     }
     /// <summary>Gets the cumulative number of command-list submissions, including initialization and transfers.</summary>
-    public ulong SubmissionCount { get { lock (gate) return submissionCount; } }
+    public ulong SubmissionCount { get { lock (gate) { return submissionCount; } } }
     /// <summary>Returns the number of GPU dispatch commands in the named entry&apos;s expanded schedule.</summary>
     /// <param name="entry">The name of the compiled entry to invoke or inspect.</param>
     public int DispatchCount(string entry) => D3D12VmSchedule.Create(Artifact.Program)[entry].Count(c => c is D3D12VmDispatch);
@@ -233,7 +253,11 @@ public sealed class D3D12VmExecutor : IVmTaskExecutable
     private void RecordEntries()
     {
         ClearEntries();
-        foreach (var value in combinedTransferEntries.Values) value.Dispose();
+        foreach (var value in combinedTransferEntries.Values)
+        {
+            value.Dispose();
+        }
+
         combinedTransferEntries.Clear();
         try
         {
@@ -330,8 +354,11 @@ public sealed class D3D12VmExecutor : IVmTaskExecutable
                 ThrowIfDisposed();
                 using var use = BeginPoolUse();
                 if (!schedules.TryGetValue(entry, out var schedule))
-                    throw new ArgumentException($"Unknown VM entry '{entry}'.", nameof(entry));
-                PrepareGpuEntry(entry);
+            {
+                throw new ArgumentException($"Unknown VM entry '{entry}'.", nameof(entry));
+            }
+
+            PrepareGpuEntry(entry);
                 var uploadIndex = SlotIndex(uploadSlot);
                 var readbackIndex = SlotIndex(readbackSlot);
                 ValidateBuffer(uploadIndex, uploadBytes);
@@ -404,25 +431,41 @@ public sealed class D3D12VmExecutor : IVmTaskExecutable
     private void PrepareGpuEntry(string entry)
     {
         if (!schedules.ContainsKey(entry))
+        {
             throw new ArgumentException($"Unknown VM entry '{entry}'.", nameof(entry));
+        }
+
         for (var i = 0; pool is not null && i < buffers.Length; i++)
         {
             var binding = RequirePooledBinding(i)!;
             if (!binding.GpuInitialized || IsFixedGlobal(i) && !binding.GlobalUploaded)
+            {
                 throw new InvalidOperationException($"Slot '{Program.Slots[i].Id}' requires a managed execution or explicit upload before GPU-only execution.");
+            }
         }
-        if (!entriesRecorded) RecordEntries();
-        if (!entries.ContainsKey(entry)) RecordEntry(entry, schedules[entry]);
+        if (!entriesRecorded)
+        {
+            RecordEntries();
+        }
+
+        if (!entries.ContainsKey(entry))
+        {
+            RecordEntry(entry, schedules[entry]);
+        }
     }
 
     private void RecordCommands(ID3D12GraphicsCommandList list, IReadOnlyList<D3D12VmCommand> schedule)
     {
         foreach (var command in schedule)
+        {
             switch (command)
             {
                 case D3D12VmBarrier barrier:
                     foreach (var slot in barrier.Slots)
+                    {
                         list.ResourceBarrierUnorderedAccessView(buffers[slot]);
+                    }
+
                     break;
                 case D3D12VmDispatch dispatch:
                     var definition = kernelDefinitions[dispatch.Kernel];
@@ -442,6 +485,7 @@ public sealed class D3D12VmExecutor : IVmTaskExecutable
                     list.Dispatch(dispatch.Groups.X, dispatch.Groups.Y, dispatch.Groups.Z);
                     break;
             }
+        }
     }
 
     private void RecordEntry(string name, IReadOnlyList<D3D12VmCommand> schedule)
@@ -455,7 +499,10 @@ public sealed class D3D12VmExecutor : IVmTaskExecutable
             list.Close();
             entries.Add(name, (allocator, list));
             computeRecordCount = checked(computeRecordCount + 1);
-            if (taskWindow is not null) pool!.RecordedTaskEntry();
+            if (taskWindow is not null)
+            {
+                pool!.RecordedTaskEntry();
+            }
         }
         catch
         {
@@ -472,28 +519,44 @@ public sealed class D3D12VmExecutor : IVmTaskExecutable
     /// </summary>
     public double MeasureGpuMicroseconds(string entry, int repetitions = 8)
     {
-        if (repetitions is < 1 or > 1024) throw new ArgumentOutOfRangeException(nameof(repetitions));
+        if (repetitions is < 1 or > 1024)
+        {
+            throw new ArgumentOutOfRangeException(nameof(repetitions));
+        }
+
         lock (gate)
         {
             ThrowIfDisposed();
             using var use = BeginPoolUse();
             PrepareGpuEntry(entry);
             queue.GetTimestampFrequency(out var frequency).CheckError();
-            if (frequency == 0) throw new InvalidOperationException("GPU timestamp frequency is zero.");
+            if (frequency == 0)
+            {
+                throw new InvalidOperationException("GPU timestamp frequency is zero.");
+            }
+
             using var queries = device.CreateQueryHeap<ID3D12QueryHeap>(new QueryHeapDescription(QueryHeapType.Timestamp, 2));
             using var readback = device.CreateCommittedResource(HeapProperties.ReadbackHeapProperties, HeapFlags.None,
                 ResourceDescription.Buffer(16), ResourceStates.CopyDest);
             using var allocator = device.CreateCommandAllocator(CommandListType.Compute);
             using var commands = device.CreateCommandList<ID3D12GraphicsCommandList>(0, CommandListType.Compute, allocator);
             commands.EndQuery(queries, QueryType.Timestamp, 0);
-            for (var index = 0; index < repetitions; index++) RecordCommands(commands, schedules[entry]);
+            for (var index = 0; index < repetitions; index++)
+            {
+                RecordCommands(commands, schedules[entry]);
+            }
+
             commands.EndQuery(queries, QueryType.Timestamp, 1);
             commands.ResolveQueryData(queries, QueryType.Timestamp, 0, 2, readback, 0);
             commands.Close();
             Submit(commands);
             var ticks = new ulong[2];
             readback.GetData<ulong>(ticks);
-            if (ticks[1] <= ticks[0]) throw new InvalidOperationException("GPU timestamps did not advance.");
+            if (ticks[1] <= ticks[0])
+            {
+                throw new InvalidOperationException("GPU timestamps did not advance.");
+            }
+
             return (ticks[1] - ticks[0]) * (1_000_000d / frequency) / repetitions;
         }
     }
@@ -514,7 +577,9 @@ public sealed class D3D12VmExecutor : IVmTaskExecutable
             {
                 programXml ??= VmProgramXml.Serialize(Program);
                 if (leasePrograms.GetValue(leasedProgram, static p => VmProgramXml.Serialize(p)) != programXml)
+                {
                     throw new ArgumentException("The execution lease belongs to a different VM program.", nameof(lease));
+                }
             }
             Execute(entryName, lease.GetBuffers());
         }
@@ -538,29 +603,47 @@ public sealed class D3D12VmExecutor : IVmTaskExecutable
         {
             ThrowIfDisposed();
             if (taskWindow is not null)
+            {
                 throw new InvalidOperationException("Use separate executors for managed compatibility and queued-task execution.");
+            }
+
             using var use = BeginPoolUse();
             if (!schedules.ContainsKey(entryName))
+            {
                 throw new ArgumentException($"Unknown VM entry '{entryName}'.", nameof(entryName));
+            }
+
             ValidateContext(slots);
             for (var i = 0; i < slots.Length; i++)
             {
                 ValidateUpload(i, slots[i], entryGatherIndices[entryName]);
                 if (pool is null && IsFixedGlobal(i) && globalBindings[i] is { } binding &&
                     (!binding.TryGetTarget(out var existing) || !ReferenceEquals(existing, slots[i])))
+                {
                     throw new ArgumentException($"Read-only global slot '{Program.Slots[i].Id}' belongs to a different managed binding. Create a new executor.", nameof(slots));
+                }
             }
             BindPooledContext(slots);
             for (var i = 0; i < slots.Length; i++)
+            {
                 if (!IsFixedGlobal(i) || (pool is null ? globalBindings[i] is null : !pooledBindings[i]!.GlobalUploaded))
                 {
                     UploadCore(i, slots[i]);
-                    if (pool is null && IsFixedGlobal(i)) globalBindings[i] = new(slots[i]);
+                    if (pool is null && IsFixedGlobal(i))
+                    {
+                        globalBindings[i] = new(slots[i]);
+                    }
                 }
+            }
+
             Execute(entryName);
             for (var i = 0; i < slots.Length; i++)
+            {
                 if (Program.Slots[i].Access == VmAccess.ReadWrite)
+                {
                     Readback(i, slots[i]);
+                }
+            }
         }
     }
 
@@ -568,17 +651,35 @@ public sealed class D3D12VmExecutor : IVmTaskExecutable
     public void UploadSlots(byte[]?[] context)
     {
         ArgumentNullException.ThrowIfNull(context);
-        if (context.Length != buffers.Length) throw new ArgumentException("Context must match Program.Slots order.", nameof(context));
+        if (context.Length != buffers.Length)
+        {
+            throw new ArgumentException("Context must match Program.Slots order.", nameof(context));
+        }
+
         lock (gate)
         {
             ThrowIfDisposed();
             using var use = BeginPoolUse();
             if (pool is not null)
+            {
                 throw new NotSupportedException("Pooled selective uploads require a complete context and explicit slot indices.");
+            }
+
             for (var i = 0; i < context.Length; i++)
-                if (context[i] is { } bytes) ValidateUpload(i, bytes);
+            {
+                if (context[i] is { } bytes)
+                {
+                    ValidateUpload(i, bytes);
+                }
+            }
+
             for (var i = 0; i < context.Length; i++)
-                if (context[i] is { } bytes) Upload(i, bytes);
+            {
+                if (context[i] is { } bytes)
+                {
+                    Upload(i, bytes);
+                }
+            }
         }
     }
 
@@ -593,7 +694,10 @@ public sealed class D3D12VmExecutor : IVmTaskExecutable
             ArgumentNullException.ThrowIfNull(slots);
             foreach (var slot in slots) { ValidateSlot(slot); ValidateUpload(slot, context[slot]); }
             BindPooledContext(context);
-            foreach (var slot in slots) UploadCore(slot, context[slot]);
+            foreach (var slot in slots)
+            {
+                UploadCore(slot, context[slot]);
+            }
         }
     }
 
@@ -606,9 +710,16 @@ public sealed class D3D12VmExecutor : IVmTaskExecutable
             using var use = BeginPoolUse();
             ValidateContext(context);
             ArgumentNullException.ThrowIfNull(slots);
-            foreach (var slot in slots) ValidateSlot(slot);
+            foreach (var slot in slots)
+            {
+                ValidateSlot(slot);
+            }
+
             BindPooledContext(context);
-            foreach (var slot in slots) Readback(slot, context[slot]);
+            foreach (var slot in slots)
+            {
+                Readback(slot, context[slot]);
+            }
         }
     }
 
@@ -643,11 +754,17 @@ public sealed class D3D12VmExecutor : IVmTaskExecutable
             using var use = BeginPoolUse();
             ValidateSlot(slot);
             if ((ulong)bytes.Length != Program.Slots[slot].Tensor.ByteLength)
+            {
                 throw new ArgumentException(
                     $"Expected {Program.Slots[slot].Tensor.ByteLength} bytes for slot '{Program.Slots[slot].Id}', received {bytes.Length}.",
                     nameof(bytes));
+            }
+
             if (RequirePooledBinding(slot) is not null)
+            {
                 throw new NotSupportedException("Span uploads do not support pooled resource bindings.");
+            }
+
             UploadCore(slot, bytes);
         }
     }
@@ -668,7 +785,10 @@ public sealed class D3D12VmExecutor : IVmTaskExecutable
                 ValidateSlot(slot);
                 var binding = RequirePooledBinding(slot);
                 if (binding is not null && binding.GpuInitialized)
+                {
                     continue;
+                }
+
                 UploadCore(slot, buffers[slot]);
             }
         }
@@ -694,7 +814,10 @@ public sealed class D3D12VmExecutor : IVmTaskExecutable
         if (binding is not null)
         {
             binding.GpuInitialized = true;
-            if (IsFixedGlobal(slot)) pool!.UploadedGlobal(binding);
+            if (IsFixedGlobal(slot))
+            {
+                pool!.UploadedGlobal(binding);
+            }
         }
     }
 
@@ -743,7 +866,10 @@ public sealed class D3D12VmExecutor : IVmTaskExecutable
             ValidateBuffer(slot, destination);
             var binding = RequirePooledBinding(slot);
             if (binding is not null && (!binding.GpuInitialized || IsFixedGlobal(slot) && !binding.GlobalUploaded))
+            {
                 throw new InvalidOperationException($"Slot '{Program.Slots[slot].Id}' requires an upload before GPU readback.");
+            }
+
             var bytes = Program.Slots[slot].Tensor.ByteLength;
             using var readback = device.CreateCommittedResource(HeapProperties.ReadbackHeapProperties, HeapFlags.None,
                 ResourceDescription.Buffer(Align(bytes)), ResourceStates.CopyDest);
@@ -754,11 +880,16 @@ public sealed class D3D12VmExecutor : IVmTaskExecutable
             transfer.Close();
             Submit(transfer);
             if (binding is null)
+            {
                 readback.GetData<byte>(destination);
+            }
             else
             {
                 readback.GetData<byte>(binding.Buffer);
-                if (!ReferenceEquals(binding.Buffer, destination)) binding.Buffer.CopyTo(destination, 0);
+                if (!ReferenceEquals(binding.Buffer, destination))
+                {
+                    binding.Buffer.CopyTo(destination, 0);
+                }
             }
         }
     }
@@ -768,9 +899,16 @@ public sealed class D3D12VmExecutor : IVmTaskExecutable
 
     private D3D12VmPooledStorage? RequirePooledBinding(int slot)
     {
-        if (pool is null) return null;
+        if (pool is null)
+        {
+            return null;
+        }
+
         if (recordedAllocationIds[slot] == 0)
+        {
             throw new InvalidOperationException("Bind pooled storage with a managed execution or UploadSlots(context, indices) first.");
+        }
+
         var binding = pooledBindings[slot] ?? pool.Resolve(recordedAllocationIds[slot]);
         pool.ValidateLive(binding);
         pooledBindings[slot] = binding;
@@ -780,7 +918,11 @@ public sealed class D3D12VmExecutor : IVmTaskExecutable
 
     private IDisposable? BeginPoolUse()
     {
-        if (pool is null) return null;
+        if (pool is null)
+        {
+            return null;
+        }
+
         var use = pool.BeginUse();
         var borrowed = new BorrowedBindings(this, use);
         pooledUseDepth++;
@@ -806,7 +948,11 @@ public sealed class D3D12VmExecutor : IVmTaskExecutable
 
     private void BindPooledContext(byte[][] context, bool recordAll = true)
     {
-        if (pool is null) return;
+        if (pool is null)
+        {
+            return;
+        }
+
         var changed = false;
         try
         {
@@ -816,7 +962,11 @@ public sealed class D3D12VmExecutor : IVmTaskExecutable
                 candidateBindings[i] = allocation;
                 changed |= allocation.Id != recordedAllocationIds[i];
             }
-            if (changed) ValidatePooledAliases();
+            if (changed)
+            {
+                ValidatePooledAliases();
+            }
+
             for (var i = 0; i < buffers.Length; i++)
             {
                 pooledBindings[i] = candidateBindings[i];
@@ -824,7 +974,10 @@ public sealed class D3D12VmExecutor : IVmTaskExecutable
             }
             if (changed || !entriesRecorded)
             {
-                if (recordAll) RecordEntries();
+                if (recordAll)
+                {
+                    RecordEntries();
+                }
                 else
                 {
                     ClearEntries();
@@ -832,7 +985,9 @@ public sealed class D3D12VmExecutor : IVmTaskExecutable
                     bindingRecordCount = checked(bindingRecordCount + 1);
                 }
                 for (var i = 0; i < buffers.Length; i++)
+                {
                     recordedAllocationIds[i] = pooledBindings[i]!.Id;
+                }
             }
         }
         finally { Array.Clear(candidateBindings); }
@@ -844,10 +999,15 @@ public sealed class D3D12VmExecutor : IVmTaskExecutable
         {
             var pending = new HashSet<D3D12VmPooledStorage>();
             foreach (var command in schedule)
+            {
                 switch (command)
                 {
                     case D3D12VmBarrier barrier:
-                        foreach (var slot in barrier.Slots) pending.Remove(candidateBindings[slot]!);
+                        foreach (var slot in barrier.Slots)
+                        {
+                            pending.Remove(candidateBindings[slot]!);
+                        }
+
                         break;
                     case D3D12VmDispatch dispatch:
                         var parameters = Program.Definitions.Single(d => d.Id == dispatch.Kernel).Parameters;
@@ -855,7 +1015,10 @@ public sealed class D3D12VmExecutor : IVmTaskExecutable
                         {
                             var first = dispatch.Bindings[i];
                             if (pending.Contains(candidateBindings[first.Slot]!))
+                            {
                                 throw new InvalidDataException("Aliased pooled UAV writes require an explicit VmBarrier.");
+                            }
+
                             for (var j = i + 1; j < dispatch.Bindings.Length; j++)
                             {
                                 var second = dispatch.Bindings[j];
@@ -863,29 +1026,45 @@ public sealed class D3D12VmExecutor : IVmTaskExecutable
                                     (parameters[i].Access == VmAccess.ReadWrite || parameters[j].Access == VmAccess.ReadWrite) &&
                                     first.Offset < second.Offset + parameters[j].Tensor.ByteLength &&
                                     second.Offset < first.Offset + parameters[i].Tensor.ByteLength)
+                                {
                                     throw new NotSupportedException("Writable kernel parameters alias the same pooled GPU storage.");
+                                }
                             }
                         }
                         for (var i = 0; i < dispatch.Bindings.Length; i++)
+                        {
                             if (parameters[i].Access == VmAccess.ReadWrite)
+                            {
                                 pending.Add(candidateBindings[dispatch.Bindings[i].Slot]!);
+                            }
+                        }
+
                         break;
                 }
+            }
         }
     }
     private void ValidateContext(byte[][] context)
     {
         ArgumentNullException.ThrowIfNull(context);
         if (context.Length != buffers.Length)
+        {
             throw new ArgumentException("Context must match Program.Slots order.", nameof(context));
-        for (var i = 0; i < context.Length; i++) ValidateBuffer(i, context[i]);
+        }
+
+        for (var i = 0; i < context.Length; i++)
+        {
+            ValidateBuffer(i, context[i]);
+        }
     }
     private void ValidateBuffer(int slot, byte[] bytes)
     {
         ArgumentNullException.ThrowIfNull(bytes);
         ValidateSlot(slot);
         if ((ulong)bytes.Length != Artifact.Program.Slots[slot].Tensor.ByteLength)
+        {
             throw new ArgumentException($"Slot '{Artifact.Program.Slots[slot].Id}' requires {Artifact.Program.Slots[slot].Tensor.ByteLength} bytes.", nameof(bytes));
+        }
     }
     private void ValidateUpload(int slot, byte[] bytes, IReadOnlyList<D3D12VmGatherIndex>? indices = null)
     {
@@ -897,19 +1076,30 @@ public sealed class D3D12VmExecutor : IVmTaskExecutable
                 var offset = checked((int)index.ByteOffset + element * sizeof(int));
                 var row = BitConverter.ToInt32(bytes.AsSpan(offset, sizeof(int)));
                 if (row < index.MinimumIndex || row >= index.Rows)
+                {
                     throw new ArgumentOutOfRangeException(nameof(bytes),
                         $"Gather index in slot '{Artifact.Program.Slots[slot].Id}' must be in [{index.MinimumIndex}, {index.Rows}).");
+                }
             }
         }
     }
     private void ValidateSlot(int slot)
     {
-        if ((uint)slot >= (uint)buffers.Length) throw new ArgumentOutOfRangeException(nameof(slot));
+        if ((uint)slot >= (uint)buffers.Length)
+        {
+            throw new ArgumentOutOfRangeException(nameof(slot));
+        }
     }
     private int SlotIndex(string slot)
     {
         for (var i = 0; i < Artifact.Program.Slots.Count; i++)
-            if (Artifact.Program.Slots[i].Id == slot) return i;
+        {
+            if (Artifact.Program.Slots[i].Id == slot)
+            {
+                return i;
+            }
+        }
+
         throw new ArgumentException($"Unknown VM slot '{slot}'.", nameof(slot));
     }
     private static ulong Align(ulong bytes) => checked((bytes + 3UL) & ~3UL);
@@ -932,7 +1122,9 @@ public sealed class D3D12VmExecutor : IVmTaskExecutable
         {
             fence.SetEventOnCompletion(value, completion).CheckError();
             while (!completion.WaitOne(TimeSpan.FromSeconds(1)))
+            {
                 device.DeviceRemovedReason.CheckError();
+            }
         }
         device.DeviceRemovedReason.CheckError();
     }
@@ -942,16 +1134,38 @@ public sealed class D3D12VmExecutor : IVmTaskExecutable
     {
         lock (gate)
         {
-            if (disposed) return;
+            if (disposed)
+            {
+                return;
+            }
+
             disposed = true;
-            foreach (var entry in combinedTransferEntries.Values) entry.Dispose();
+            foreach (var entry in combinedTransferEntries.Values)
+            {
+                entry.Dispose();
+            }
+
             combinedTransferEntries.Clear();
             ClearEntries();
             taskWindow?.Dispose();
-            foreach (var pipeline in pipelines.Values) pipeline.Dispose();
-            foreach (var signature in signatures.Values) signature.Dispose();
+            foreach (var pipeline in pipelines.Values)
+            {
+                pipeline.Dispose();
+            }
+
+            foreach (var signature in signatures.Values)
+            {
+                signature.Dispose();
+            }
+
             if (pool is null)
-                foreach (var buffer in buffers) buffer?.Dispose();
+            {
+                foreach (var buffer in buffers)
+                {
+                    buffer?.Dispose();
+                }
+            }
+
             Array.Clear(buffers);
             Array.Clear(pooledBindings);
             Array.Clear(candidateBindings);
@@ -966,7 +1180,10 @@ public sealed class D3D12VmExecutor : IVmTaskExecutable
                 pool!.DetachExecutor();
                 poolAttached = false;
             }
-            if (ownsDevice) device.Dispose();
+            if (ownsDevice)
+            {
+                device.Dispose();
+            }
         }
     }
 }

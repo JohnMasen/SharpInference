@@ -51,11 +51,19 @@ public sealed class D3D12VmCompiler
     {
         VmProgramValidator.Validate(program);
         if (program.Target != VmTarget.Direct3D12)
+        {
             throw new NotSupportedException("The D3D12 VM requires a Direct3D12 program.");
+        }
+
         program = VmInstructionContracts.Bind(program, registry);
         foreach (var slot in program.Slots)
+        {
             if (slot.Tensor.ByteLength > int.MaxValue)
+            {
                 throw new NotSupportedException($"Slot '{slot.Id}' exceeds the byte[] control-plane limit.");
+            }
+        }
+
         var definitions = program.Definitions.ToDictionary(d => d.Id, StringComparer.Ordinal);
         var names = program.Definitions.Select((d, i) => (d.Id, Name: $"d{i}"))
             .ToDictionary(p => p.Id, p => p.Name, StringComparer.Ordinal);
@@ -66,25 +74,40 @@ public sealed class D3D12VmCompiler
             var parameters = definition.Parameters.Select((p, i) => (p, i))
                 .ToDictionary(v => v.p.Name, v => (v.p, Name: $"p{v.i}"), StringComparer.Ordinal);
             foreach (var op in definition.Nodes.Select(n => n.Instruction).OfType<VmOperator>())
+            {
                 Operator(op, parameters, helpers);
+            }
         }
         foreach (var kernel in program.Definitions.Where(d => d.Kind == VmDefinitionKind.Kernel))
         {
             if (kernel.Parameters.Count > 20)
+            {
                 throw new NotSupportedException($"Kernel '{kernel.Id}' exceeds 20 root-buffer parameters.");
+            }
+
             helpers.Clear();
             var source = new StringBuilder();
             var emitted = new HashSet<string>(StringComparer.Ordinal);
             void Emit(VmDefinition definition)
             {
-                if (!emitted.Add(definition.Id)) return;
+                if (!emitted.Add(definition.Id))
+                {
+                    return;
+                }
+
                 foreach (var call in definition.Nodes.Select(n => n.Instruction).OfType<VmCall>())
+                {
                     Emit(definitions[call.Definition]);
+                }
+
                 var parameters = definition.Parameters.Select((p, i) => (p, i))
                     .ToDictionary(v => v.p.Name, v => (v.p, Name: $"p{v.i}"), StringComparer.Ordinal);
                 source.Append($"void {names[definition.Id]}(uint i, GpuExecutionContext gpu");
                 foreach (var (_, name) in parameters.Values)
+                {
                     source.Append($", RWByteAddressBuffer {name}, uint {name}o");
+                }
+
                 source.AppendLine(") {");
                 foreach (var node in definition.Nodes)
                 {
@@ -101,9 +124,14 @@ public sealed class D3D12VmCompiler
                         source.AppendLine(");");
                     }
                     else if (node.Instruction is VmOperator op)
+                    {
                         source.AppendLine(Operator(op, parameters, helpers));
+                    }
                     else
+                    {
                         throw new NotSupportedException($"Device definition '{definition.Id}' contains a host instruction.");
+                    }
+
                     source.AppendLine("}");
                 }
                 source.AppendLine("}");
@@ -113,7 +141,10 @@ public sealed class D3D12VmCompiler
             source.Insert(0,"struct GpuExecutionContext { uint3 groupId; uint3 groupCount; uint groupIndex; };\n" +
                 string.Join(Environment.NewLine,helpers.Values.Select(helper=>helper.Source))+Environment.NewLine);
             for (var i = 0; i < kernel.Parameters.Count; i++)
+            {
                 source.AppendLine($"RWByteAddressBuffer b{i} : register(u{i});");
+            }
+
             source.AppendLine("cbuffer Bindings : register(b0) { uint width; uint height; " +
                 string.Join(" ", Enumerable.Range(0, kernel.Parameters.Count).Select(i => $"uint offset{i};")) + " };");
             var t = kernel.Threads!;
@@ -122,7 +153,10 @@ public sealed class D3D12VmCompiler
             source.AppendLine($"GpuExecutionContext gpu; gpu.groupId=gid; gpu.groupCount=uint3(width/{t.X}u,height/{t.Y}u,1u); gpu.groupIndex=gi;");
             source.Append($"{names[kernel.Id]}(tid.x + tid.y * width + tid.z * width * height, gpu");
             for (var i = 0; i < kernel.Parameters.Count; i++)
+            {
                 source.Append($", b{i}, offset{i}");
+            }
+
             source.AppendLine("); }");
             result.Add(kernel.Id, source.ToString());
         }
@@ -133,7 +167,9 @@ public sealed class D3D12VmCompiler
     internal static void ValidateOptions(D3D12VmCompilerOptions options)
     {
         if (options.ShaderModel != "cs_6_0")
+        {
             throw new NotSupportedException("This artifact ABI supports only cs_6_0.");
+        }
     }
 
     private string Operator(VmOperator op, IReadOnlyDictionary<string,(VmParameter p,string Name)> parameters,
@@ -146,7 +182,10 @@ public sealed class D3D12VmCompiler
         foreach(var helper in recorder.Helpers)
         {
             if(helpers.TryGetValue(helper.Name,out var existing) && existing.Source!=helper.Source)
+            {
                 throw new InvalidDataException($"Conflicting helper '{helper.Name}'.");
+            }
+
             helpers.TryAdd(helper.Name,helper);
         }
         return recorder.GetSource();
@@ -159,9 +198,12 @@ public sealed class D3D12VmCompiler
         void Walk(VmDefinition d, Dictionary<string, (string Resource, ulong Offset)> bindings)
         {
             foreach (var node in d.Nodes)
+            {
                 if (node.Instruction is VmCall call)
+                {
                     Walk(definitions[call.Definition], call.Arguments.ToDictionary(a => a.Parameter, a =>
                         (bindings[a.Source].Resource, checked(bindings[a.Source].Offset + a.ByteOffset)), StringComparer.Ordinal));
+                }
                 else if (node.Instruction is VmOperator op)
                 {
                     var instruction = registry.Resolve(op.InstructionCollectionId,op.InstructionName,InstructionTarget.Direct3D12);
@@ -186,23 +228,42 @@ public sealed class D3D12VmCompiler
                         var source = bindings[a.Source];
                         var tensor = parameters[a.Source].Tensor;
                         if (a.Parameter != writePort.Name && Overlap(source, tensor, destination, outputTensor))
-                            throw new NotSupportedException($"Kernel '{kernel.Id}' aliases operator inputs and output through helper bindings.");
-                        foreach (var previous in written.Take(priorWriteCount).Where(w => Overlap(source, tensor, (w.Resource, w.Offset), w.Tensor)))
-                            if (nonPointwise || source.Offset != previous.Offset ||
+                            {
+                                throw new NotSupportedException($"Kernel '{kernel.Id}' aliases operator inputs and output through helper bindings.");
+                            }
+
+                            foreach (var previous in written.Take(priorWriteCount).Where(w => Overlap(source, tensor, (w.Resource, w.Offset), w.Tensor)))
+                            {
+                                if (nonPointwise || source.Offset != previous.Offset ||
                                 tensor.ElementType != previous.Tensor.ElementType)
-                                throw new NotSupportedException($"Kernel '{kernel.Id}' has a cross-thread producer/consumer. Use separate kernels and an explicit VmBarrier.");
-                        reads.Add((source.Resource, source.Offset, tensor, nonPointwise));
+                                {
+                                    throw new NotSupportedException($"Kernel '{kernel.Id}' has a cross-thread producer/consumer. Use separate kernels and an explicit VmBarrier.");
+                                }
+                            }
+
+                            reads.Add((source.Resource, source.Offset, tensor, nonPointwise));
                     }
                     foreach (var previous in written.Where(w => Overlap(destination, outputTensor, (w.Resource, w.Offset), w.Tensor)))
-                        if (destination.Offset != previous.Offset)
-                            throw new NotSupportedException($"Kernel '{kernel.Id}' has overlapping shifted writes.");
-                    foreach (var previous in reads.Take(priorReadCount).Where(r => Overlap(destination, outputTensor, (r.Resource, r.Offset), r.Tensor)))
-                        if (previous.NonPointwise || destination.Offset != previous.Offset ||
+                        {
+                            if (destination.Offset != previous.Offset)
+                            {
+                                throw new NotSupportedException($"Kernel '{kernel.Id}' has overlapping shifted writes.");
+                            }
+                        }
+
+                        foreach (var previous in reads.Take(priorReadCount).Where(r => Overlap(destination, outputTensor, (r.Resource, r.Offset), r.Tensor)))
+                        {
+                            if (previous.NonPointwise || destination.Offset != previous.Offset ||
                             outputTensor.ElementType != previous.Tensor.ElementType)
-                            throw new NotSupportedException($"Kernel '{kernel.Id}' has a cross-thread read/write hazard.");
-                    written.Add((destination.Resource, destination.Offset, outputTensor));
+                            {
+                                throw new NotSupportedException($"Kernel '{kernel.Id}' has a cross-thread read/write hazard.");
+                            }
+                        }
+
+                        written.Add((destination.Resource, destination.Offset, outputTensor));
                     }
                 }
+            }
         }
         Walk(kernel, kernel.Parameters.ToDictionary(p => p.Name, p => (p.Name, 0UL), StringComparer.Ordinal));
     }
