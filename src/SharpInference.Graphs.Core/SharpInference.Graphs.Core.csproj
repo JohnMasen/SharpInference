@@ -10,8 +10,24 @@
   <ItemGroup>
     <Compile Include="Graph.cs" />
     <Compile Include="GraphAlgorithms.cs" />
-    <Compile Include="GraphPattern.cs" />
-    <Compile Include="GraphRewrite.cs" />
+    <Compile Include="GraphRewriteTarget.cs" />
+    <Compile Include="GraphRewritePlan.cs" />
+    <Compile Include="IGraphView.cs" />
+    <Compile Include="Pattern.cs" />
+    <Compile Include="GraphViewQueries.cs" />
+    <Compile Include="ReachabilityIndex.cs" />
+    <Compile Include="GraphView.cs" />
+    <Compile Include="MatchedGraphView.cs" />
+    <Compile Include="GraphNodeId.cs" />
+    <Compile Include="GraphEdgeId.cs" />
+    <Compile Include="IGraphNode.cs" />
+    <Compile Include="IGraphEdge.cs" />
+    <Compile Include="INamedGraphNode.cs" />
+    <Compile Include="PatternElements.cs" />
+    <Compile Include="NodePattern.cs" />
+    <Compile Include="EdgePattern.cs" />
+    <Compile Include="MatchContext.cs" />
+    <Compile Include="ReachabilityIndexQueries.cs" />
   </ItemGroup>
 
 </Project>

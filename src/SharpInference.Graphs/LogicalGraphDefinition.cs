@@ -1047,13 +1047,22 @@ internal sealed class InstancePortFactory(
     }
 }
 
+/// <summary>Validates logical graph relationships and derives dependency completion information.</summary>
 internal static class LogicalGraphDefinitionValidator
 {
+    /// <summary>The completion information and diagnostics derived from one logical graph.</summary>
+    /// <param name="CompletionSinks">Operations with no direct dependency successors.</param>
+    /// <param name="TerminalWriters">Dependency-maximal writer identities for each output or in/out resource.</param>
+    /// <param name="Diagnostics">Validation findings collected during analysis.</param>
     internal sealed record Analysis(
         IReadOnlyList<GraphDefinitionNodeId> CompletionSinks,
         IReadOnlyDictionary<ResourceId, GraphDefinitionNodeId[]> TerminalWriters,
         IReadOnlyList<LogicalGraphDiagnostic> Diagnostics);
 
+    /// <summary>Validates a logical graph and derives completion sinks and terminal resource writers.</summary>
+    /// <param name="graph">The definition whose nodes, bindings, resources, and dependencies are analyzed.</param>
+    /// <returns>Completion information and validation diagnostics without modifying the definition.</returns>
+    /// <remarks>Multiple-writer comparisons reuse one lazily constructed dependency reachability index.</remarks>
     internal static Analysis Analyze(LogicalGraphDefinition graph)
     {
         var diagnostics = new List<LogicalGraphDiagnostic>();
@@ -1198,6 +1207,7 @@ internal static class LogicalGraphDefinitionValidator
             .Select(node => node.Id)
             .ToArray();
         var terminal = new Dictionary<ResourceId, GraphDefinitionNodeId[]>();
+        ReachabilityIndex<LogicalGraphNode>? reachability = null;
         foreach (var output in graph.Resources.Where(resource =>
             resource.Kind is GraphDefinitionResourceKind.Output
                 or GraphDefinitionResourceKind.InOut))
@@ -1205,7 +1215,7 @@ internal static class LogicalGraphDefinitionValidator
             var resourceNode = graph.Structure.NodesOfType<LogicalResourceNode>()
                 .Single(node => node.ResourceNodeId ==
                     new ModelResourceNodeId(GraphBindingOwner.Parent, output.Id));
-            var writers = graph.Structure.InEdges(resourceNode.GraphId)
+            var writers = graph.Structure.EdgesToNode(resourceNode.GraphId)
                 .OfType<LogicalResourceWriteEdge>()
                 .Select(edge => (GraphDefinitionNode)graph.Structure.GetNode(edge.Source))
                 .Select(node => node.Id)
@@ -1220,11 +1230,17 @@ internal static class LogicalGraphDefinitionValidator
                 terminal.Add(output.Id, []);
                 continue;
             }
-            var maximal = writers.Where(writer => !writers.Any(other =>
-                other != writer &&
-                graph.Structure.DependencyView().IsReachable(
-                    GraphDefinitionNode.NodeGraphId(writer),
-                    GraphDefinitionNode.NodeGraphId(other)))).ToArray();
+            var maximal = writers;
+            if (writers.Length > 1)
+            {
+                reachability ??= graph.Structure.DependencyView()
+                    .CreateReachabilityIndex(graph.Nodes, graph.Nodes);
+                maximal = writers.Where(writer => !writers.Any(other =>
+                    other != writer &&
+                    reachability.IsReachable(
+                        GraphDefinitionNode.NodeGraphId(writer),
+                        GraphDefinitionNode.NodeGraphId(other)))).ToArray();
+            }
             terminal.Add(output.Id, maximal);
             if (maximal.Length > 1)
             {

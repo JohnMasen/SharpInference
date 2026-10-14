@@ -103,49 +103,75 @@ public sealed record ModelGraphBoundary<TNode>(
 public static class ModelGraphQueries
 {
     /// <summary>Returns a view containing only operation nodes and dependency edges.</summary>
+    /// <typeparam name="TNode">The model graph node type.</typeparam>
+    /// <typeparam name="TEdge">The model graph edge type.</typeparam>
+    /// <param name="graph">The source view limiting visible operations and dependencies.</param>
+    /// <returns>A deferred dependency-only view preserving source order.</returns>
     public static GraphView<TNode, TEdge> DependencyView<TNode, TEdge>(
-        this Graph<TNode, TEdge> graph)
+        this IGraphView<TNode, TEdge> graph)
         where TNode : IModelGraphNode
         where TEdge : IModelGraphEdge =>
-        graph.View(node => node is IModelOperationNode, edge => edge is IDependencyEdge);
+        graph.Filter(node: node => node is IModelOperationNode, edge: edge => edge is IDependencyEdge);
 
     /// <summary>Returns a view containing operations, resources, and resource-access edges.</summary>
+    /// <typeparam name="TNode">The model graph node type.</typeparam>
+    /// <typeparam name="TEdge">The model graph edge type.</typeparam>
+    /// <param name="graph">The source view limiting visible data-flow relationships.</param>
+    /// <returns>A deferred view containing only visible read and write relationships.</returns>
     public static GraphView<TNode, TEdge> DataFlowView<TNode, TEdge>(
-        this Graph<TNode, TEdge> graph)
+        this IGraphView<TNode, TEdge> graph)
         where TNode : IModelGraphNode
         where TEdge : IModelGraphEdge =>
-        graph.View(
-            node => node is IModelOperationNode or IModelResourceNode,
-            edge => edge is IResourceReadEdge or IResourceWriteEdge);
+        graph.Filter(
+            node: node => node is IModelOperationNode or IModelResourceNode,
+            edge: edge => edge is IResourceReadEdge or IResourceWriteEdge);
 
     /// <summary>Gets direct dependency predecessors of an operation.</summary>
+    /// <typeparam name="TNode">The model graph node type.</typeparam>
+    /// <typeparam name="TEdge">The model graph edge type.</typeparam>
+    /// <param name="graph">The view containing the operation and its visible dependencies.</param>
+    /// <param name="node">The operation whose incoming dependency edges are queried.</param>
+    /// <returns>A deferred sequence of predecessors in incoming-edge order, without deduplication.</returns>
     public static IEnumerable<TNode> Predecessors<TNode, TEdge>(
-        this Graph<TNode, TEdge> graph,
+        this IGraphView<TNode, TEdge> graph,
         IModelOperationNode node)
         where TNode : IModelGraphNode
         where TEdge : IModelGraphEdge =>
-        graph.InEdges(node.Id).OfType<IDependencyEdge>()
+        graph.EdgesToNode(node.Id).OfType<IDependencyEdge>()
             .Select(edge => graph.GetNode(edge.Source));
 
     /// <summary>Gets direct dependency successors of an operation.</summary>
+    /// <typeparam name="TNode">The model graph node type.</typeparam>
+    /// <typeparam name="TEdge">The model graph edge type.</typeparam>
+    /// <param name="graph">The view containing the operation and its visible dependencies.</param>
+    /// <param name="node">The operation whose outgoing dependency edges are queried.</param>
+    /// <returns>A deferred sequence of successors in outgoing-edge order, without deduplication.</returns>
     public static IEnumerable<TNode> Successors<TNode, TEdge>(
-        this Graph<TNode, TEdge> graph,
+        this IGraphView<TNode, TEdge> graph,
         IModelOperationNode node)
         where TNode : IModelGraphNode
         where TEdge : IModelGraphEdge =>
-        graph.OutEdges(node.Id).OfType<IDependencyEdge>()
+        graph.EdgesFromNode(node.Id).OfType<IDependencyEdge>()
             .Select(edge => graph.GetNode(edge.Target));
 
     /// <summary>Gets all resource bindings of an operation in edge declaration order.</summary>
+    /// <typeparam name="TNode">The model graph node type.</typeparam>
+    /// <typeparam name="TEdge">The model graph edge type.</typeparam>
+    /// <param name="graph">The view containing visible resource-access edges and resource nodes.</param>
+    /// <param name="node">The operation whose read and write bindings are reconstructed.</param>
+    /// <returns>Bindings deduplicated by binding identity, combining paired reads and writes.</returns>
+    /// <exception cref="InvalidDataException">
+    /// Paired accesses disagree about their port or resource, or an endpoint is not a resource node.
+    /// </exception>
     public static IReadOnlyList<ModelResourceBinding> Bindings<TNode, TEdge>(
-        this Graph<TNode, TEdge> graph,
+        this IGraphView<TNode, TEdge> graph,
         IModelOperationNode node)
         where TNode : IModelGraphNode
         where TEdge : IModelGraphEdge
     {
-        var reads = graph.InEdges(node.Id).OfType<IResourceReadEdge>()
+        var reads = graph.EdgesToNode(node.Id).OfType<IResourceReadEdge>()
             .ToDictionary(edge => edge.BindingId, StringComparer.Ordinal);
-        var writes = graph.OutEdges(node.Id).OfType<IResourceWriteEdge>()
+        var writes = graph.EdgesFromNode(node.Id).OfType<IResourceWriteEdge>()
             .ToDictionary(edge => edge.BindingId, StringComparer.Ordinal);
         var order = graph.Edges
             .Where(edge =>
@@ -192,30 +218,46 @@ public static class ModelGraphQueries
     }
 
     /// <summary>Gets operations that read one resource.</summary>
+    /// <typeparam name="TNode">The model graph node type.</typeparam>
+    /// <typeparam name="TEdge">The model graph edge type.</typeparam>
+    /// <param name="graph">The view defining visible resource-read relationships.</param>
+    /// <param name="resource">The resource whose outgoing read edges are queried.</param>
+    /// <returns>Distinct readers in first-edge occurrence order.</returns>
     public static IReadOnlyList<TNode> Readers<TNode, TEdge>(
-        this Graph<TNode, TEdge> graph,
+        this IGraphView<TNode, TEdge> graph,
         IModelResourceNode resource)
         where TNode : IModelGraphNode
         where TEdge : IModelGraphEdge =>
-        graph.OutEdges(resource.Id).OfType<IResourceReadEdge>()
+        graph.EdgesFromNode(resource.Id).OfType<IResourceReadEdge>()
             .Select(edge => graph.GetNode(edge.Target))
             .DistinctBy(node => node.Id)
             .ToArray();
 
     /// <summary>Gets operations that write one resource.</summary>
+    /// <typeparam name="TNode">The model graph node type.</typeparam>
+    /// <typeparam name="TEdge">The model graph edge type.</typeparam>
+    /// <param name="graph">The view defining visible resource-write relationships.</param>
+    /// <param name="resource">The resource whose incoming write edges are queried.</param>
+    /// <returns>Distinct writers in first-edge occurrence order.</returns>
     public static IReadOnlyList<TNode> Writers<TNode, TEdge>(
-        this Graph<TNode, TEdge> graph,
+        this IGraphView<TNode, TEdge> graph,
         IModelResourceNode resource)
         where TNode : IModelGraphNode
         where TEdge : IModelGraphEdge =>
-        graph.InEdges(resource.Id).OfType<IResourceWriteEdge>()
+        graph.EdgesToNode(resource.Id).OfType<IResourceWriteEdge>()
             .Select(edge => graph.GetNode(edge.Source))
             .DistinctBy(node => node.Id)
             .ToArray();
 
     /// <summary>Gets all conflicting access pairs for one resource.</summary>
+    /// <typeparam name="TNode">The model graph node type.</typeparam>
+    /// <typeparam name="TEdge">The model graph edge type.</typeparam>
+    /// <param name="graph">The view defining visible operations, accesses, and dependency paths.</param>
+    /// <param name="resource">The resource whose read/write conflicts are classified.</param>
+    /// <returns>Conflicting operation pairs and their dependency ordering in node declaration order.</returns>
+    /// <remarks>A shared endpoint-scoped reachability index is created only if a conflict is found.</remarks>
     public static IReadOnlyList<ModelResourceConflict<TNode>> ResourceConflicts<TNode, TEdge>(
-        this Graph<TNode, TEdge> graph,
+        this IGraphView<TNode, TEdge> graph,
         IModelResourceNode resource)
         where TNode : IModelGraphNode
         where TEdge : IModelGraphEdge
@@ -236,8 +278,12 @@ public static class ModelGraphQueries
             })
             .Where(access => access.Reads || access.Writes)
             .ToArray();
-        var dependencyView = graph.DependencyView();
         var result = new List<ModelResourceConflict<TNode>>();
+        if (accesses.Length < 2)
+            return result;
+        var dependencyView = graph.DependencyView();
+        var endpoints = accesses.Select(access => access.Node).ToArray();
+        ReachabilityIndex<TNode>? reachability = null;
         for (var firstIndex = 0; firstIndex < accesses.Length; firstIndex++)
         {
             for (var secondIndex = firstIndex + 1;
@@ -267,13 +313,14 @@ public static class ModelGraphQueries
                     continue;
                 }
 
+                reachability ??= dependencyView.CreateReachabilityIndex(endpoints, endpoints);
                 result.Add(new(
                     resource,
                     first.Node,
                     second.Node,
                     kind,
-                    dependencyView.IsReachable(first.Node.Id, second.Node.Id) ||
-                    dependencyView.IsReachable(second.Node.Id, first.Node.Id)));
+                    reachability.IsReachable(first.Node.Id, second.Node.Id) ||
+                    reachability.IsReachable(second.Node.Id, first.Node.Id)));
             }
         }
 
@@ -281,9 +328,14 @@ public static class ModelGraphQueries
     }
 
     /// <summary>Gets conflicting accesses that have no dependency path in either direction.</summary>
+    /// <typeparam name="TNode">The model graph node type.</typeparam>
+    /// <typeparam name="TEdge">The model graph edge type.</typeparam>
+    /// <param name="graph">The view defining resource conflicts and dependency paths.</param>
+    /// <param name="resource">The resource whose unordered conflicts are requested.</param>
+    /// <returns>Only conflicting operation pairs not ordered by a visible dependency path.</returns>
     public static IReadOnlyList<ModelResourceConflict<TNode>>
         UnorderedResourceConflicts<TNode, TEdge>(
-            this Graph<TNode, TEdge> graph,
+            this IGraphView<TNode, TEdge> graph,
             IModelResourceNode resource)
         where TNode : IModelGraphNode
         where TEdge : IModelGraphEdge =>
@@ -292,8 +344,14 @@ public static class ModelGraphQueries
             .ToArray();
 
     /// <summary>Gets resource nodes crossing the boundary of selected operations.</summary>
+    /// <typeparam name="TNode">The model graph node type.</typeparam>
+    /// <typeparam name="TEdge">The model graph edge type.</typeparam>
+    /// <param name="graph">The view defining visible operation/resource accesses and resource roles.</param>
+    /// <param name="operations">Selected operation identities, consumed once and deduplicated.</param>
+    /// <returns>Distinct boundary inputs and outputs, preserving first access-edge occurrence order.</returns>
+    /// <exception cref="ArgumentNullException">The operation identity sequence is null.</exception>
     public static ModelGraphBoundary<TNode> BoundaryResources<TNode, TEdge>(
-        this Graph<TNode, TEdge> graph,
+        this IGraphView<TNode, TEdge> graph,
         IEnumerable<GraphNodeId> operations)
         where TNode : IModelGraphNode
         where TEdge : IModelGraphEdge
@@ -307,7 +365,7 @@ public static class ModelGraphQueries
             .Where(resource =>
                 resource.Kind is GraphDefinitionResourceKind.Input
                     or GraphDefinitionResourceKind.InOut ||
-                graph.InEdges(resource.Id).OfType<IResourceWriteEdge>()
+                graph.EdgesToNode(resource.Id).OfType<IResourceWriteEdge>()
                     .Any(edge => !selected.Contains(edge.Source)))
             .Cast<TNode>()
             .DistinctBy(node => node.Id)
@@ -319,7 +377,7 @@ public static class ModelGraphQueries
             .Where(resource =>
                 resource.Kind is GraphDefinitionResourceKind.Output
                     or GraphDefinitionResourceKind.InOut ||
-                graph.OutEdges(resource.Id).OfType<IResourceReadEdge>()
+                graph.EdgesFromNode(resource.Id).OfType<IResourceReadEdge>()
                     .Any(edge => !selected.Contains(edge.Target)))
             .Cast<TNode>()
             .DistinctBy(node => node.Id)

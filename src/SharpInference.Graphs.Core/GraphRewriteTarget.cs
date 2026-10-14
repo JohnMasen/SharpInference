@@ -1,10 +1,17 @@
 namespace SharpInference.Graphs.Core;
 
 /// <summary>The complete node, edge, and boundary capture for one rewrite target.</summary>
+/// <typeparam name="TNode">The captured node type.</typeparam>
+/// <typeparam name="TEdge">The captured internal and boundary edge type.</typeparam>
 public sealed class GraphRewriteTarget<TNode, TEdge>
     where TNode : IGraphNode
     where TEdge : IGraphEdge
 {
+    /// <summary>Creates a target from already classified nodes and edges.</summary>
+    /// <param name="nodes">The captured nodes in source graph order.</param>
+    /// <param name="internalEdges">Edges with both endpoints in the captured set.</param>
+    /// <param name="incomingEdges">Edges entering the captured set from outside.</param>
+    /// <param name="outgoingEdges">Edges leaving the captured set.</param>
     private GraphRewriteTarget(
         IReadOnlyList<TNode> nodes,
         IReadOnlyList<TEdge> internalEdges,
@@ -30,6 +37,11 @@ public sealed class GraphRewriteTarget<TNode, TEdge>
     public IReadOnlyList<TEdge> OutgoingEdges { get; }
 
     /// <summary>Captures a nonempty target and all of its structural boundaries.</summary>
+    /// <param name="graph">The graph from which all nodes and boundary edges are captured.</param>
+    /// <param name="nodeIds">The node identities to select, consumed once and deduplicated.</param>
+    /// <returns>A capture preserving source declaration order within each collection.</returns>
+    /// <exception cref="ArgumentNullException">The graph or identity sequence is null.</exception>
+    /// <exception cref="ArgumentException">The selection is empty or contains an unknown identity.</exception>
     public static GraphRewriteTarget<TNode, TEdge> Capture(
         Graph<TNode, TEdge> graph,
         IEnumerable<GraphNodeId> nodeIds)
@@ -65,76 +77,13 @@ public sealed class GraphRewriteTarget<TNode, TEdge>
     }
 
     /// <summary>Returns whether this target shares a node with another target.</summary>
+    /// <param name="other">The target whose node identities are compared with this target.</param>
+    /// <returns>Whether the two targets contain at least one common node identity.</returns>
+    /// <exception cref="ArgumentNullException">The other target is null.</exception>
     public bool Overlaps(GraphRewriteTarget<TNode, TEdge> other)
     {
         ArgumentNullException.ThrowIfNull(other);
         var ids = Nodes.Select(node => node.Id).ToHashSet();
         return other.Nodes.Any(node => ids.Contains(node.Id));
-    }
-}
-
-/// <summary>A deterministic batch of graph removals and additions.</summary>
-public sealed class GraphRewritePlan<TNode, TEdge>
-    where TNode : IGraphNode
-    where TEdge : IGraphEdge
-{
-    private readonly HashSet<GraphNodeId> removedNodes = [];
-    private readonly HashSet<GraphEdgeId> removedEdges = [];
-    private readonly List<TNode> addedNodes = [];
-    private readonly List<TEdge> addedEdges = [];
-
-    /// <summary>Removes a captured target and every edge incident to its nodes.</summary>
-    public GraphRewritePlan<TNode, TEdge> Remove(
-        GraphRewriteTarget<TNode, TEdge> target)
-    {
-        ArgumentNullException.ThrowIfNull(target);
-        foreach (var node in target.Nodes)
-        {
-            removedNodes.Add(node.Id);
-        }
-
-        return this;
-    }
-
-    /// <summary>Removes one edge while retaining its endpoint nodes.</summary>
-    public GraphRewritePlan<TNode, TEdge> RemoveEdge(GraphEdgeId edge)
-    {
-        removedEdges.Add(edge);
-        return this;
-    }
-
-    /// <summary>Adds or replaces one node in the resulting graph.</summary>
-    public GraphRewritePlan<TNode, TEdge> AddNode(TNode node)
-    {
-        ArgumentNullException.ThrowIfNull(node);
-        addedNodes.Add(node);
-        return this;
-    }
-
-    /// <summary>Adds one edge to the resulting graph.</summary>
-    public GraphRewritePlan<TNode, TEdge> AddEdge(TEdge edge)
-    {
-        ArgumentNullException.ThrowIfNull(edge);
-        addedEdges.Add(edge);
-        return this;
-    }
-
-    /// <summary>Applies the complete batch and validates the resulting graph atomically.</summary>
-    public Graph<TNode, TEdge> Apply(Graph<TNode, TEdge> graph)
-    {
-        ArgumentNullException.ThrowIfNull(graph);
-        var replacements = addedNodes.Select(node => node.Id).ToHashSet();
-        var nodes = graph.Nodes.Where(node =>
-                !removedNodes.Contains(node.Id) &&
-                !replacements.Contains(node.Id))
-            .Concat(addedNodes)
-            .ToArray();
-        var edges = graph.Edges.Where(edge =>
-                !removedEdges.Contains(edge.Id) &&
-                !removedNodes.Contains(edge.Source) &&
-                !removedNodes.Contains(edge.Target))
-            .Concat(addedEdges)
-            .ToArray();
-        return new Graph<TNode, TEdge>(nodes, edges);
     }
 }

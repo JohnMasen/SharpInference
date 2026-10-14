@@ -3,6 +3,7 @@ using SharpInference.Graphs.Core;
 
 namespace SharpInference.Graphs;
 
+/// <summary>Rewrites execution graphs while preserving model-level bindings and dependency boundaries.</summary>
 public static class ExecutionGraphRewriter
 {
     public static ExecutionGraphProgram ReplaceGraphCallWithOperation(
@@ -126,6 +127,17 @@ public static class ExecutionGraphRewriter
             CopyGraph(graph, rewritten.Nodes, rewritten.Edges));
     }
 
+    /// <summary>Extracts selected operations into a graph and replaces them with a call in the source.</summary>
+    /// <param name="program">The program containing the source graph.</param>
+    /// <param name="sourceGraphId">The identity of the graph containing the selected operations.</param>
+    /// <param name="nodeIds">Operation identities to extract, consumed once and deduplicated.</param>
+    /// <param name="extractedGraphId">The unused identity assigned to the extracted graph.</param>
+    /// <param name="callId">The identity assigned to the replacement call node.</param>
+    /// <param name="boundary">The compilation boundary assigned to the extracted graph.</param>
+    /// <param name="architecture">Optional architecture metadata for the extracted graph.</param>
+    /// <returns>A program containing the extracted graph and the rewritten source graph.</returns>
+    /// <exception cref="ArgumentNullException">The program or node identity sequence is null.</exception>
+    /// <exception cref="ArgumentException">An identity is unavailable or the selection is not a nonempty operation set.</exception>
     public static ExecutionGraphProgram ExtractNodesToGraph(
         ExecutionGraphProgram program,
         ExecutionGraphId sourceGraphId,
@@ -188,16 +200,16 @@ public static class ExecutionGraphRewriter
         var callBindings = new List<ModelResourceBinding>();
         foreach (var resourceNode in resourceNodes)
         {
-            var selectedReads = source.Structure.OutEdges(resourceNode.GraphId)
+            var selectedReads = source.Structure.EdgesFromNode(resourceNode.GraphId)
                 .OfType<ExecutionResourceReadEdge>()
                 .Any(edge => selectedGraphIds.Contains(edge.Target));
-            var selectedWrites = source.Structure.InEdges(resourceNode.GraphId)
+            var selectedWrites = source.Structure.EdgesToNode(resourceNode.GraphId)
                 .OfType<ExecutionResourceWriteEdge>()
                 .Any(edge => selectedGraphIds.Contains(edge.Source));
-            var outsideReads = source.Structure.OutEdges(resourceNode.GraphId)
+            var outsideReads = source.Structure.EdgesFromNode(resourceNode.GraphId)
                 .OfType<ExecutionResourceReadEdge>()
                 .Any(edge => !selectedGraphIds.Contains(edge.Target));
-            var outsideWrites = source.Structure.InEdges(resourceNode.GraphId)
+            var outsideWrites = source.Structure.EdgesToNode(resourceNode.GraphId)
                 .OfType<ExecutionResourceWriteEdge>()
                 .Any(edge => !selectedGraphIds.Contains(edge.Source));
             var kind = selectedReads && outsideWrites
@@ -310,6 +322,13 @@ public static class ExecutionGraphRewriter
                 .Append(extracted));
     }
 
+    /// <summary>Replaces a graph call with mapped callee nodes, resources, and dependency connections.</summary>
+    /// <param name="program">The program containing both the caller and callee graphs.</param>
+    /// <param name="graphId">The identity of the caller graph.</param>
+    /// <param name="callId">The identity of the graph call to inline.</param>
+    /// <returns>A rewritten program retaining only graphs reachable from its root.</returns>
+    /// <exception cref="ArgumentNullException">The program is null.</exception>
+    /// <exception cref="ArgumentException">The caller, callee, or requested graph call cannot be found.</exception>
     public static ExecutionGraphProgram InlineGraphCall(
         ExecutionGraphProgram program,
         ExecutionGraphId graphId,
@@ -406,15 +425,15 @@ public static class ExecutionGraphRewriter
 
         var targetDependency = target.Structure.DependencyView();
         var entries = target.Nodes
-            .Where(node => !targetDependency.InEdges(node.GraphId).Any())
+            .Where(node => !targetDependency.EdgesToNode(node.GraphId).Any())
             .Select(node => Map(node.GraphId)).ToArray();
         var completions = target.Nodes
-            .Where(node => !targetDependency.OutEdges(node.GraphId).Any())
+            .Where(node => !targetDependency.EdgesFromNode(node.GraphId).Any())
             .Select(node => Map(node.GraphId)).ToArray();
-        var callerIncoming = caller.Structure.InEdges(call.GraphId)
+        var callerIncoming = caller.Structure.EdgesToNode(call.GraphId)
             .OfType<ExecutionDependencyEdge>()
             .Select(edge => edge.Source).ToArray();
-        var callerOutgoing = caller.Structure.OutEdges(call.GraphId)
+        var callerOutgoing = caller.Structure.EdgesFromNode(call.GraphId)
             .OfType<ExecutionDependencyEdge>()
             .Select(edge => edge.Target).ToArray();
         foreach (var incoming in callerIncoming)

@@ -2,37 +2,68 @@ using SharpInference.Graphs.Core;
 
 namespace SharpInference.Tests;
 
+/// <summary>Verifies graph structure, typed linear matching, and atomic graph rewrites.</summary>
 public sealed class GraphCoreTests
 {
+    /// <summary>The common node contract for the heterogeneous test graph.</summary>
     private interface INode : IGraphNode;
+    /// <summary>The common edge contract for the heterogeneous test graph.</summary>
     private interface IEdge : IGraphEdge;
+    /// <summary>A test operation node.</summary>
+    /// <param name="Name">The operation's structural identifier.</param>
     private sealed record Node(string Name) : INode
     {
+        /// <inheritdoc/>
         public GraphNodeId Id => new(Name);
     }
+    /// <summary>A test resource node.</summary>
+    /// <param name="Name">The resource's structural identifier.</param>
     private sealed record Resource(string Name) : INode
     {
+        /// <inheritdoc/>
         public GraphNodeId Id => new(Name);
     }
+    /// <summary>A direct test dependency edge.</summary>
+    /// <param name="Name">The unique edge identifier.</param>
+    /// <param name="From">The source operation identifier.</param>
+    /// <param name="To">The target operation identifier.</param>
     private sealed record Dependency(string Name, string From, string To) : IEdge
     {
+        /// <inheritdoc/>
         public GraphEdgeId Id => new(Name);
+        /// <inheritdoc/>
         public GraphNodeId Source => new(From);
+        /// <inheritdoc/>
         public GraphNodeId Target => new(To);
     }
+    /// <summary>A test edge from a resource to its reader.</summary>
+    /// <param name="Name">The unique edge identifier.</param>
+    /// <param name="From">The source resource identifier.</param>
+    /// <param name="To">The reader operation identifier.</param>
     private sealed record Read(string Name, string From, string To) : IEdge
     {
+        /// <inheritdoc/>
         public GraphEdgeId Id => new(Name);
+        /// <inheritdoc/>
         public GraphNodeId Source => new(From);
+        /// <inheritdoc/>
         public GraphNodeId Target => new(To);
     }
+    /// <summary>A test edge from a writer to its resource.</summary>
+    /// <param name="Name">The unique edge identifier.</param>
+    /// <param name="From">The writer operation identifier.</param>
+    /// <param name="To">The target resource identifier.</param>
     private sealed record Write(string Name, string From, string To) : IEdge
     {
+        /// <inheritdoc/>
         public GraphEdgeId Id => new(Name);
+        /// <inheritdoc/>
         public GraphNodeId Source => new(From);
+        /// <inheritdoc/>
         public GraphNodeId Target => new(To);
     }
 
+    /// <summary>Checks direct typed adjacency lookup in a heterogeneous graph.</summary>
     [Fact]
     public void GraphIndexesTypedParallelEdges()
     {
@@ -43,11 +74,12 @@ public sealed class GraphCoreTests
                 new Write("write", "operation", "resource"),
             ]);
 
-        Assert.Single(graph.InEdges(new("operation")).OfType<Read>());
-        Assert.Single(graph.OutEdges(new("operation")).OfType<Write>());
+        Assert.Single(graph.EdgesToNode(new("operation")).OfType<Read>());
+        Assert.Single(graph.EdgesFromNode(new("operation")).OfType<Write>());
         Assert.Equal(2, graph.Edges.Count);
     }
 
+    /// <summary>Checks that dependency filtering excludes a resource-access cycle.</summary>
     [Fact]
     public void DependencyViewIgnoresResourceAccessCycle()
     {
@@ -59,7 +91,7 @@ public sealed class GraphCoreTests
                 new Write("write", "update", "state"),
             ]);
 
-        var dependencyView = graph.View(
+        var dependencyView = graph.Filter(
             node => node is Node,
             edge => edge is Dependency);
 
@@ -69,6 +101,7 @@ public sealed class GraphCoreTests
         Assert.True(dependencyView.IsReachable(new("first"), new("update")));
     }
 
+    /// <summary>Checks structural validation of unknown edge endpoints.</summary>
     [Fact]
     public void GraphRejectsUnknownEdgeEndpoint()
     {
@@ -78,8 +111,9 @@ public sealed class GraphCoreTests
                 [new Dependency("dependency", "known", "missing")]));
     }
 
+    /// <summary>Checks typed producer/resource/consumer matching with identity-anchored endpoints.</summary>
     [Fact]
-    public void PatternReturnsNamedNodeAndEdgeGroup()
+    public void PatternReturnsExactTypedNodeAndEdgeView()
     {
         var graph = new Graph<INode, IEdge>(
             [new Node("matvec"), new Resource("temp"), new Node("add")],
@@ -87,22 +121,22 @@ public sealed class GraphCoreTests
                 new Write("write", "matvec", "temp"),
                 new Read("read", "temp", "add"),
             ]);
-        var pattern = new GraphPattern<INode, IEdge>()
-            .Node<Node>("producer", node => node.Name == "matvec")
-            .Node<Resource>("temporary")
-            .Node<Node>("consumer", node => node.Name == "add")
-            .Edge<Write>("write", "producer", "temporary")
-            .Edge<Read>("read", "temporary", "consumer");
+        var pattern = Pattern.Create(PatternElements.Node(new GraphNodeId("matvec")).Where<Node>(_ => true))
+            - PatternElements.Edge().Where<Write>(_ => true)
+            - PatternElements.Node().Where<Resource>(_ => true)
+            - PatternElements.Edge().Where<Read>(_ => true)
+            - PatternElements.Node(new GraphNodeId("add")).Where<Node>(_ => true);
 
-        var match = Assert.Single(pattern.Find(graph));
+        var match = Assert.Single(graph.Match(pattern));
 
-        Assert.Equal("matvec", match.Node<Node>("producer").Name);
-        Assert.Equal("temp", match.Node<Resource>("temporary").Name);
-        Assert.Equal("add", match.Node<Node>("consumer").Name);
-        Assert.Equal("write", match.Edge<Write>("write").Name);
-        Assert.Equal("read", match.Edge<Read>("read").Name);
+        Assert.Equal("matvec", Assert.IsType<Node>(match.GetNode(new("matvec"))).Name);
+        Assert.Equal("temp", Assert.IsType<Resource>(match.GetNode(new("temp"))).Name);
+        Assert.Equal("add", Assert.IsType<Node>(match.GetNode(new("add"))).Name);
+        Assert.Equal("write", Assert.IsType<Write>(match.Edges.First()).Name);
+        Assert.Equal("read", Assert.IsType<Read>(match.Edges.Last()).Name);
     }
 
+    /// <summary>Checks boundary capture and batch replacement without changing the original graph.</summary>
     [Fact]
     public void RewriteTargetCapturesBoundaryAndPlanAppliesBatch()
     {
@@ -128,6 +162,7 @@ public sealed class GraphCoreTests
         Assert.Equal("ac", Assert.Single(rewritten.Edges).Id.Value);
     }
 
+    /// <summary>Checks overlap detection by captured node identities.</summary>
     [Fact]
     public void RewriteTargetsReportOverlap()
     {
@@ -142,6 +177,7 @@ public sealed class GraphCoreTests
         Assert.True(first.Overlaps(second));
     }
 
+    /// <summary>Checks that failed rewrite validation leaves the source graph intact.</summary>
     [Fact]
     public void InvalidRewriteDoesNotModifySourceGraph()
     {
