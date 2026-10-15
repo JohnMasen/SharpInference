@@ -1,3 +1,5 @@
+using System.Diagnostics.CodeAnalysis;
+
 namespace SharpInference.Graphs.Core;
 
 /// <summary>A filtered non-owning projection over a read-only graph view.</summary>
@@ -37,8 +39,7 @@ public sealed class GraphView<TNode, TEdge> : IGraphView<TNode, TEdge>
     /// <exception cref="KeyNotFoundException">The node is unknown or hidden in either view.</exception>
     public TNode GetNode(GraphNodeId id)
     {
-        var node = graph.GetNode(id);
-        return nodePredicate(node)
+        return TryGetNode(id, out var node)
             ? node
             : throw new KeyNotFoundException($"Graph node '{id}' is not visible in this view.");
     }
@@ -47,26 +48,65 @@ public sealed class GraphView<TNode, TEdge> : IGraphView<TNode, TEdge>
     /// <param name="id">The structural identity to look up.</param>
     /// <returns>Whether the node exists and is visible in both views.</returns>
     public bool ContainsNode(GraphNodeId id) =>
-        graph.ContainsNode(id) && nodePredicate(graph.GetNode(id));
+        TryGetNode(id, out _);
+
+    /// <inheritdoc/>
+    public bool TryGetNode(GraphNodeId id, [MaybeNullWhen(false)] out TNode node)
+    {
+        if (graph.TryGetNode(id, out node) && nodePredicate(node))
+            return true;
+        node = default;
+        return false;
+    }
+
+    /// <inheritdoc/>
+    public TEdge GetEdge(GraphEdgeId id) =>
+        TryGetEdge(id, out var edge) ? edge
+            : throw new KeyNotFoundException($"Graph edge '{id}' is not visible in this view.");
+
+    /// <inheritdoc/>
+    public bool TryGetEdge(GraphEdgeId id, [MaybeNullWhen(false)] out TEdge edge)
+    {
+        if (graph.TryGetEdge(id, out edge) && IsVisible(edge))
+            return true;
+        edge = default;
+        return false;
+    }
 
     /// <summary>Gets visible edges pointing to a visible node.</summary>
     /// <param name="node">The identity of the target node.</param>
-    /// <returns>A deferred sequence retaining the source view's edge order.</returns>
-    /// <exception cref="KeyNotFoundException">The node is unknown or hidden.</exception>
+    /// <returns>Visible incoming edges retaining the source view's edge order.</returns>
+    /// <exception cref="KeyNotFoundException">No visible incoming edges were found.</exception>
     public IEnumerable<TEdge> EdgesToNode(GraphNodeId node)
     {
-        _ = GetNode(node);
-        return graph.EdgesToNode(node).Where(IsVisible);
+        var edges = ContainsNode(node) ? EnumerateEdgesToNode(node).ToArray() : [];
+        return edges.Length > 0 ? edges
+            : throw new KeyNotFoundException($"No incoming edges found for graph node '{node}' in this view.");
     }
 
     /// <summary>Gets visible edges originating from a visible node.</summary>
     /// <param name="node">The identity of the source node.</param>
-    /// <returns>A deferred sequence retaining the source view's edge order.</returns>
-    /// <exception cref="KeyNotFoundException">The node is unknown or hidden.</exception>
+    /// <returns>Visible outgoing edges retaining the source view's edge order.</returns>
+    /// <exception cref="KeyNotFoundException">No visible outgoing edges were found.</exception>
     public IEnumerable<TEdge> EdgesFromNode(GraphNodeId node)
     {
-        _ = GetNode(node);
-        return graph.EdgesFromNode(node).Where(IsVisible);
+        var edges = ContainsNode(node) ? EnumerateEdgesFromNode(node).ToArray() : [];
+        return edges.Length > 0 ? edges
+            : throw new KeyNotFoundException($"No outgoing edges found for graph node '{node}' in this view.");
+    }
+
+    /// <inheritdoc/>
+    public IEnumerable<TEdge> EnumerateEdgesToNode(GraphNodeId id)
+    {
+        _ = GetNode(id);
+        return graph.EnumerateEdgesToNode(id).Where(IsVisible);
+    }
+
+    /// <inheritdoc/>
+    public IEnumerable<TEdge> EnumerateEdgesFromNode(GraphNodeId id)
+    {
+        _ = GetNode(id);
+        return graph.EnumerateEdgesFromNode(id).Where(IsVisible);
     }
 
     /// <summary>Checks the edge condition and the visibility of both endpoints.</summary>

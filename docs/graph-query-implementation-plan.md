@@ -216,3 +216,20 @@ ExecutionGraphPostprocessor 和 VmExecutionGraphEmitter 相关测试。
   保持直接集合处理，不为调用只读 Match 反复构建中间完整图。
 - 全结构变换和序列化按原集合顺序处理，筛选入口使用 Filter；
   不为调用 Match 再额外创建路径视图。
+
+### 后续邻接契约与 Try 身份查询
+
+- 保留用户按边分组建立的稀疏不可变邻接字典，不改变构造函数、
+  输入校验或集合冻结方式。
+- EdgesToNode / EdgesFromNode 为严格查找，空结果明确报告未找到对应方向的边，
+  不将缺少邻接键解释为节点不存在。
+- 新增 EnumerateEdgesToNode / EnumerateEdgesFromNode：可见合法节点无对应边
+  返回空序列；未知或隐藏节点仍明确报错。三种视图共同实现，不恢复隐藏边。
+- 拓扑、BFS、双向匹配、可达索引及 ModelGraphQueries 共享辅助方法迁移到
+  枚举入口，正常无边不抛异常，不以 catch 控制搜索。
+- GetNode / GetEdge 保持严格身份查找；新增带 MaybeNullWhen(false) 的
+  TryGetNode / TryGetEdge，未命中或被隐藏返回 false 和 default out 值。
+  完整图通过字典查找，过滤视图委托父视图再判断可见性，匹配视图只查自身。
+  Match 的 ID 锚定直接使用 TryGetNode，避免存在性检查后的二次查找。
+- 保留构造校验测试，不以删除断言或跳过掩盖已知失败。本轮图测试 119 项，
+  117 通过、2 失败、0 跳过；两项失败均为用户暂缓的非法端点构造校验。

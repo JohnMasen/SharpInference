@@ -1,3 +1,5 @@
+using System.Diagnostics.CodeAnalysis;
+
 namespace SharpInference.Graphs.Core;
 
 /// <summary>A stable view containing only the exact nodes and edges of one matched path.</summary>
@@ -34,27 +36,72 @@ internal sealed class MatchedGraphView<TNode, TEdge> : IGraphView<TNode, TEdge>
     /// <exception cref="KeyNotFoundException">The node is not part of this match.</exception>
     public TNode GetNode(GraphNodeId id)
     {
-        foreach (var node in nodes)
-            if (node.Id == id)
-                return node;
-        throw new KeyNotFoundException($"Unknown graph node '{id}'.");
+        return TryGetNode(id, out var node) ? node
+            : throw new KeyNotFoundException($"Unknown graph node '{id}'.");
+    }
+
+    /// <inheritdoc/>
+    public bool TryGetNode(GraphNodeId id, [MaybeNullWhen(false)] out TNode node)
+    {
+        foreach (var candidate in nodes)
+            if (candidate.Id == id)
+            {
+                node = candidate;
+                return true;
+            }
+        node = default;
+        return false;
+    }
+
+    /// <inheritdoc/>
+    public TEdge GetEdge(GraphEdgeId id) =>
+        TryGetEdge(id, out var edge) ? edge
+            : throw new KeyNotFoundException($"Unknown graph edge '{id}'.");
+
+    /// <inheritdoc/>
+    public bool TryGetEdge(GraphEdgeId id, [MaybeNullWhen(false)] out TEdge edge)
+    {
+        foreach (var candidate in edges)
+            if (candidate.Id == id)
+            {
+                edge = candidate;
+                return true;
+            }
+        edge = default;
+        return false;
     }
 
     /// <summary>Gets only matched edges pointing to a path node.</summary>
     /// <param name="id">The identity of the matched target node.</param>
     /// <returns>Matched incoming edges in path order; source-graph edges are not restored.</returns>
-    /// <exception cref="KeyNotFoundException">The node is not part of this match.</exception>
+    /// <exception cref="KeyNotFoundException">No matched incoming edges were found.</exception>
     public IEnumerable<TEdge> EdgesToNode(GraphNodeId id)
     {
-        _ = GetNode(id);
-        return edges.Where(edge => edge.Target == id);
+        var found = edges.Where(edge => edge.Target == id).ToArray();
+        return found.Length > 0 ? found
+            : throw new KeyNotFoundException($"No incoming edges found for graph node '{id}' in this match.");
     }
 
     /// <summary>Gets only matched edges originating from a path node.</summary>
     /// <param name="id">The identity of the matched source node.</param>
     /// <returns>Matched outgoing edges in path order; source-graph edges are not restored.</returns>
-    /// <exception cref="KeyNotFoundException">The node is not part of this match.</exception>
+    /// <exception cref="KeyNotFoundException">No matched outgoing edges were found.</exception>
     public IEnumerable<TEdge> EdgesFromNode(GraphNodeId id)
+    {
+        var found = edges.Where(edge => edge.Source == id).ToArray();
+        return found.Length > 0 ? found
+            : throw new KeyNotFoundException($"No outgoing edges found for graph node '{id}' in this match.");
+    }
+
+    /// <inheritdoc/>
+    public IEnumerable<TEdge> EnumerateEdgesToNode(GraphNodeId id)
+    {
+        _ = GetNode(id);
+        return edges.Where(edge => edge.Target == id);
+    }
+
+    /// <inheritdoc/>
+    public IEnumerable<TEdge> EnumerateEdgesFromNode(GraphNodeId id)
     {
         _ = GetNode(id);
         return edges.Where(edge => edge.Source == id);

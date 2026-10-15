@@ -41,6 +41,120 @@ public sealed class GraphViewQueryTests
     /// <returns>Comma-separated node names.</returns>
     private static string Names(IEnumerable<TestNode> nodes) => string.Join(",", nodes.Select(node => node.Name));
 
+    /// <summary>Checks strict adjacency diagnostics separately from empty algorithm traversal.</summary>
+    [Fact]
+    public void StrictAdjacencyReportsMissingEdgesWhileEnumerationAcceptsEmptyAdjacency()
+    {
+        var graph = new Graph<TestNode, TestEdge>(
+            [new("A"), new("B"), new("C")], [new("ab", "A", "B")]);
+        IGraphView<TestNode, TestEdge>[] views =
+            [graph, graph.Filter(), graph.Filter().Filter()];
+        foreach (var view in views)
+        {
+            Assert.Contains("No incoming edges", Assert.Throws<KeyNotFoundException>(
+                () => view.EdgesToNode("A")).Message);
+            Assert.Contains("No outgoing edges", Assert.Throws<KeyNotFoundException>(
+                () => view.EdgesFromNode("B")).Message);
+            Assert.Contains("No incoming edges", Assert.Throws<KeyNotFoundException>(
+                () => view.EdgesToNode("missing")).Message);
+            Assert.Contains("No outgoing edges", Assert.Throws<KeyNotFoundException>(
+                () => view.EdgesFromNode("missing")).Message);
+            Assert.Empty(view.EnumerateEdgesToNode("A"));
+            Assert.Empty(view.EnumerateEdgesFromNode("B"));
+            Assert.Empty(view.EnumerateEdgesToNode("C"));
+            Assert.Empty(view.EnumerateEdgesFromNode("C"));
+            Assert.Throws<KeyNotFoundException>(() => view.EnumerateEdgesToNode("missing"));
+            Assert.Throws<KeyNotFoundException>(() => view.EnumerateEdgesFromNode("missing"));
+            Assert.Equal(["ab"], view.EdgesFromNode("A").Select(edge => edge.Name));
+            Assert.Equal(["ab"], view.EdgesToNode("B").Select(edge => edge.Name));
+            Assert.Equal(["A", "B", "C"], view.TopologicalOrder().Select(node => node.Name));
+            Assert.False(view.IsReachable("B", "A"));
+            Assert.Equal("C", Names(view.ReachableFrom("C")));
+            Assert.True(view.CreateReachabilityIndex(view.Nodes, view.Nodes).IsReachable("C", "C"));
+        }
+    }
+
+    /// <summary>Checks typed nonthrowing identity lookups on complete, filtered, and matched views.</summary>
+    [Fact]
+    public void TryLookupsRespectEveryViewsVisibleScope()
+    {
+        var graph = Example();
+        var match = Assert.Single(graph.Match(Pattern.Create(Node("A")) - Kind("write") - Node()));
+        IGraphView<TestNode, TestEdge>[] views =
+            [graph, graph.Filter(), graph.Filter().Filter(), match, match.Filter()];
+        foreach (var view in views)
+        {
+            Assert.True(view.TryGetNode("A", out var node));
+            Assert.Same(graph.GetNode("A"), node);
+            Assert.True(view.TryGetEdge(new("w1"), out var edge));
+            Assert.Same(graph.GetEdge(new("w1")), edge);
+            Assert.Same(edge, view.GetEdge(new("w1")));
+            for (var i = 0; i < 100; i++)
+            {
+                Assert.False(view.TryGetNode("missing", out var absentNode));
+                Assert.Null(absentNode);
+                Assert.False(view.TryGetEdge(new("missing"), out var absentEdge));
+                Assert.Null(absentEdge);
+            }
+            Assert.Throws<KeyNotFoundException>(() => view.GetNode("missing"));
+            Assert.Throws<KeyNotFoundException>(() => view.GetEdge(new("missing")));
+        }
+        Assert.False(match.TryGetNode("B", out _));
+        Assert.False(match.TryGetEdge(new("d1"), out _));
+        var hidden = graph.Filter(node => node.Name != "R1").Filter();
+        Assert.False(hidden.TryGetNode("R1", out _));
+        Assert.False(hidden.TryGetEdge(new("w1"), out _));
+        Assert.Throws<KeyNotFoundException>(() => hidden.GetEdge(new("w1")));
+        Assert.Throws<KeyNotFoundException>(() => hidden.EnumerateEdgesToNode("R1"));
+        var noEdges = graph.Filter(edge: _ => false);
+        Assert.True(noEdges.TryGetNode("A", out _));
+        Assert.False(noEdges.TryGetEdge(new("w1"), out _));
+        Assert.Empty(noEdges.EnumerateEdgesFromNode("A"));
+        Assert.Throws<KeyNotFoundException>(() => noEdges.EdgesFromNode("A"));
+    }
+
+    /// <summary>Checks that matched path boundaries do not restore source edges or throw during traversal.</summary>
+    [Fact]
+    public void MatchedPathEndpointsSupportEmptyTraversalAndStrictDiagnostics()
+    {
+        var graph = Example();
+        var match = Assert.Single(graph.Match(Pattern.Create(Node("A")) - Kind("write") - Node()));
+        Assert.Empty(match.EnumerateEdgesToNode("A"));
+        Assert.Empty(match.EnumerateEdgesFromNode("R1"));
+        Assert.Contains("No incoming edges", Assert.Throws<KeyNotFoundException>(
+            () => match.EdgesToNode("A")).Message);
+        Assert.Contains("No outgoing edges", Assert.Throws<KeyNotFoundException>(
+            () => match.EdgesFromNode("R1")).Message);
+        Assert.Equal("A,R1", Names(match.TopologicalOrder()));
+        Assert.False(match.IsReachable("R1", "A"));
+        Assert.Empty(match.Match(Pattern.Create(Node("R1")) - Edge() - Node()));
+        var single = Assert.Single(graph.Match(Pattern.Create(Node("A"))));
+        Assert.Empty(single.EnumerateEdgesToNode("A"));
+        Assert.Empty(single.EnumerateEdgesFromNode("A"));
+        Assert.False(single.TryGetEdge(new("w1"), out _));
+    }
+
+    /// <summary>Checks that a dead-end branch never aborts other forward or reverse match candidates.</summary>
+    [Fact]
+    public void MatchContinuesAfterForwardAndReverseDeadEnds()
+    {
+        var graph = new Graph<TestNode, TestEdge>(
+            [new("A"), new("B"), new("C"), new("D"), new("E"), new("F")],
+            [new("bf", "B", "F"), new("bc", "B", "C"), new("cd", "C", "D"), new("ea", "E", "A")]);
+        var forward = Pattern.Create(Node("B")) - Edge() - Node() - Edge() - Node();
+        Assert.Equal(["bc", "cd"], Assert.Single(graph.Match(forward)).Edges.Select(edge => edge.Name));
+        var reverse = Pattern.Create(Node()) - Edge() - Node() - Edge()
+            - Node().Where<TestNode>(node => node.Name is "A" or "D");
+        var reversed = Assert.Single(graph.Match(reverse));
+        Assert.Equal(["B", "C", "D"], reversed.Nodes.Select(node => node.Name));
+        Assert.Equal(["bc", "cd"], reversed.Edges.Select(edge => edge.Name));
+        Assert.Equal(4, graph.Match(Pattern.Create(Node()) - Edge() - Node()).Count());
+        var indexed = new LookupOnlyView(graph);
+        Assert.False(indexed.TryGetNode("missing", out _));
+        Assert.False(indexed.TryGetEdge(new("missing"), out _));
+        Assert.Empty(indexed.Match(Pattern.Create(Node("missing"))));
+    }
+
     /// <summary>Builds the shared twenty-node, thirty-five-edge query fixture.</summary>
     /// <returns>A graph containing operations, resources, parallel dependencies, and resource accesses.</returns>
     private static Graph<TestNode, TestEdge> Example()
@@ -103,8 +217,8 @@ public sealed class GraphViewQueryTests
         var graph = Example();
         Assert.Equal(id, graph.GetNode("A").Id);
         Assert.True(graph.ContainsNode("A"));
-        Assert.Equal(3, graph.EdgesFromNode("A").Count);
-        Assert.Equal(5, graph.EdgesToNode("F").Count);
+        Assert.Equal(3, graph.EdgesFromNode("A").Count());
+        Assert.Equal(5, graph.EdgesToNode("F").Count());
         Assert.Single(graph.Match(Pattern.Create(Node(id))));
         var view = graph.Filter(edge: edge => edge.Kind == "dep");
         var index = view.CreateReachabilityIndex([graph.GetNode("A")], [graph.GetNode("F")]);
@@ -139,6 +253,12 @@ public sealed class GraphViewQueryTests
         var filtered = graph.Filter(node => node.GraphId != second.GraphId);
         Assert.Equal([first.GraphId], filtered.Readers(resource).Select(node => node.GraphId));
         Assert.Empty(filtered.Successors(first));
+        var empty = graph.Filter(edge: _ => false);
+        Assert.Empty(empty.Readers(resource));
+        Assert.Empty(empty.Writers(resource));
+        Assert.Empty(empty.Successors(first));
+        Assert.Empty(empty.Predecessors(first));
+        Assert.Empty(empty.Bindings(first));
         Assert.Throws<KeyNotFoundException>(() =>
             graph.Filter(node => node.GraphId != resource.GraphId).Readers(resource));
         Assert.Single(graph.Match(Pattern.Create(Node("resource:parent:state"))));
@@ -290,7 +410,7 @@ public sealed class GraphViewQueryTests
                 Assert.Equal(["d14", "d15"], redundant.Select(edge => edge.Name));
                 break;
             case 18:
-                Assert.Equal("L", Names(dep.Nodes.Where(node => !dep.EdgesFromNode(node.Id).Any())));
+                Assert.Equal("L", Names(dep.Nodes.Where(node => !dep.EnumerateEdgesFromNode(node.Id).Any())));
                 break;
         }
     }
@@ -435,6 +555,14 @@ public sealed class GraphViewQueryTests
         /// <param name="id">The node identity.</param>
         /// <returns>The backing node.</returns>
         public TestNode GetNode(GraphNodeId id) => graph.GetNode(id);
+        /// <inheritdoc/>
+        public bool TryGetNode(GraphNodeId id, [System.Diagnostics.CodeAnalysis.MaybeNullWhen(false)] out TestNode node) =>
+            graph.TryGetNode(id, out node);
+        /// <inheritdoc/>
+        public TestEdge GetEdge(GraphEdgeId id) => graph.GetEdge(id);
+        /// <inheritdoc/>
+        public bool TryGetEdge(GraphEdgeId id, [System.Diagnostics.CodeAnalysis.MaybeNullWhen(false)] out TestEdge edge) =>
+            graph.TryGetEdge(id, out edge);
         /// <summary>Checks whether the backing graph contains a node.</summary>
         /// <param name="id">The identity to check.</param>
         /// <returns>Whether the identity exists.</returns>
@@ -454,6 +582,18 @@ public sealed class GraphViewQueryTests
         {
             OutgoingCalls++;
             return graph.EdgesFromNode(id);
+        }
+        /// <inheritdoc/>
+        public IEnumerable<TestEdge> EnumerateEdgesToNode(GraphNodeId id)
+        {
+            IncomingCalls++;
+            return graph.EnumerateEdgesToNode(id);
+        }
+        /// <inheritdoc/>
+        public IEnumerable<TestEdge> EnumerateEdgesFromNode(GraphNodeId id)
+        {
+            OutgoingCalls++;
+            return graph.EnumerateEdgesFromNode(id);
         }
         /// <summary>Counts visible nodes as they are consumed.</summary>
         /// <returns>The backing nodes in declaration order.</returns>
@@ -517,6 +657,14 @@ public sealed class GraphViewQueryTests
         /// <param name="id">The structural identity to retrieve.</param>
         /// <returns>The matching backing graph node.</returns>
         public TestNode GetNode(GraphNodeId id) => graph.GetNode(id);
+        /// <inheritdoc/>
+        public bool TryGetNode(GraphNodeId id, [System.Diagnostics.CodeAnalysis.MaybeNullWhen(false)] out TestNode node) =>
+            graph.TryGetNode(id, out node);
+        /// <inheritdoc/>
+        public TestEdge GetEdge(GraphEdgeId id) => graph.GetEdge(id);
+        /// <inheritdoc/>
+        public bool TryGetEdge(GraphEdgeId id, [System.Diagnostics.CodeAnalysis.MaybeNullWhen(false)] out TestEdge edge) =>
+            graph.TryGetEdge(id, out edge);
         /// <summary>Delegates node existence checks to the backing graph.</summary>
         /// <param name="id">The structural identity to test.</param>
         /// <returns>Whether the backing graph contains the identity.</returns>
@@ -529,6 +677,10 @@ public sealed class GraphViewQueryTests
         /// <param name="id">The source node identity.</param>
         /// <returns>Outgoing edges in backing graph order.</returns>
         public IEnumerable<TestEdge> EdgesFromNode(GraphNodeId id) => graph.EdgesFromNode(id);
+        /// <inheritdoc/>
+        public IEnumerable<TestEdge> EnumerateEdgesToNode(GraphNodeId id) => graph.EnumerateEdgesToNode(id);
+        /// <inheritdoc/>
+        public IEnumerable<TestEdge> EnumerateEdgesFromNode(GraphNodeId id) => graph.EnumerateEdgesFromNode(id);
     }
 
     /// <summary>Checks that nested queries and materialization cannot restore edges outside a matched view.</summary>
@@ -543,7 +695,8 @@ public sealed class GraphViewQueryTests
         Assert.Single(first.ToGraph().Edges);
         var hiddenD = first.Filter(node => node.Name != "D");
         Assert.Empty(hiddenD.Edges);
-        Assert.Empty(hiddenD.EdgesFromNode(new("C")));
+        Assert.Empty(hiddenD.EnumerateEdgesFromNode(new("C")));
+        Assert.Throws<KeyNotFoundException>(() => hiddenD.EdgesFromNode(new("C")));
         Assert.Throws<KeyNotFoundException>(() => hiddenD.EdgesToNode(new("D")));
         Assert.Throws<KeyNotFoundException>(() => hiddenD.GetNode(new("D")));
     }
@@ -555,7 +708,8 @@ public sealed class GraphViewQueryTests
         var graph = Example();
         var dep = graph.Filter(edge: edge => edge.Kind == "dep");
         Assert.Equal(20, dep.Nodes.Count());
-        Assert.Empty(dep.EdgesFromNode(new("R1")));
+        Assert.Empty(dep.EnumerateEdgesFromNode(new("R1")));
+        Assert.Throws<KeyNotFoundException>(() => dep.EdgesFromNode(new("R1")));
         Assert.Equal(["d3", "d4", "d15"], dep.EdgesFromNode(new("C")).Select(edge => edge.Name));
         var onlyD = dep.Filter(node => node.Name == "D");
         Assert.Single(onlyD.Nodes);

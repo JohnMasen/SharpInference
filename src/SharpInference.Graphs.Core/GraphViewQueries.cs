@@ -109,9 +109,8 @@ public static class GraphViewQueries
             {
                 if (constraint.Id is { } id)
                 {
-                    if (view.ContainsNode(id))
+                    if (view.TryGetNode(id, out var node))
                     {
-                        var node = view.GetNode(id);
                         if (constraint.Predicate(node))
                             yield return node;
                     }
@@ -134,8 +133,8 @@ public static class GraphViewQueries
                 var edgeIndex = reverse ? index - 1 : index;
                 var nextIndex = reverse ? index - 1 : index + 1;
                 var adjacent = reverse
-                    ? view.EdgesToNode(nodes[index].Id)
-                    : view.EdgesFromNode(nodes[index].Id);
+                    ? view.EnumerateEdgesToNode(nodes[index].Id)
+                    : view.EnumerateEdgesFromNode(nodes[index].Id);
                 foreach (var edge in adjacent)
                 {
                     var next = pattern.Nodes[nextIndex];

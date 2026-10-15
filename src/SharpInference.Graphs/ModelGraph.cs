@@ -408,7 +408,7 @@ public static class ModelGraphQueries
         where TEdge : IModelGraphEdge
         where TRequested : IModelGraphEdge
     {
-        var edges = incoming ? graph.EdgesToNode(node) : graph.EdgesFromNode(node);
+        var edges = incoming ? graph.EnumerateEdgesToNode(node) : graph.EnumerateEdgesFromNode(node);
         var typedEdges = edges.OfType<TRequested>().ToArray();
         if (typedEdges.Any(edge => edge.Source == edge.Target))
             return typedEdges;

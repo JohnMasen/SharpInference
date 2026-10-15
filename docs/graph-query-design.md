@@ -39,13 +39,23 @@ public interface IGraphView<TNode, TEdge>
     IEnumerable<TNode> Nodes { get; }
     IEnumerable<TEdge> Edges { get; }
     TNode GetNode(GraphNodeId id);
+    bool TryGetNode(GraphNodeId id, [MaybeNullWhen(false)] out TNode node);
+    TEdge GetEdge(GraphEdgeId id);
+    bool TryGetEdge(GraphEdgeId id, [MaybeNullWhen(false)] out TEdge edge);
     bool ContainsNode(GraphNodeId id);
     IEnumerable<TEdge> EdgesToNode(GraphNodeId id);
     IEnumerable<TEdge> EdgesFromNode(GraphNodeId id);
+    IEnumerable<TEdge> EnumerateEdgesToNode(GraphNodeId id);
+    IEnumerable<TEdge> EnumerateEdgesFromNode(GraphNodeId id);
 }
 ```
 
-这是最小只读接口；现有 Graph 的 GetEdge 等额外能力不因此删除。
+这是共同只读接口；MaybeNullWhen 来自 System.Diagnostics.CodeAnalysis。
+TryGetNode / TryGetEdge 在身份不存在或被当前视图隐藏时返回 false，
+out 参数为 default，不捕获异常、也不通过抛异常实现正常未命中。
+成功时返回原元素，不复制节点或边；GetNode / GetEdge 保留严格查找，
+未命中时抛 KeyNotFoundException。过滤视图和匹配结果使用相同契约，
+不能从父图恢复隐藏身份。Match 的身份锚定直接使用 TryGetNode。
 
 `Filter`、`Match`、拓扑排序和索引创建都是针对 IGraphView 的扩展方法，
 不作为接口成员，也无需共同基类。
@@ -68,7 +78,9 @@ ToGraph 有两个扩展重载：`view.ToGraph()` 将单个视图物化为独立�
 - `EdgesToNode` / `EdgesFromNode` 只能返回该视图可见的边。
 - 二次 Filter/Match 不得重新带回上一级视图外的节点和边。
 - 元素声明顺序稳定；完整 Graph 使用构造顺序，线性匹配使用路径顺序。
-- ID 唯一；Graph 负责结构校验。视图不自动增加边或节点。
+- 有效图要求 ID 唯一且端点存在。视图不自动增加边或节点。
+  当前按用户要求暂不修改 Graph 构造函数；已有输入校验缺失不在本轮修复，
+  不能将这里的有效图前提理解为构造函数已完整执行校验。
 
 #### 相邻边命名与底层索引
 
@@ -76,20 +88,33 @@ ToGraph 有两个扩展重载：`view.ToGraph()` 将单个视图物化为独立�
 
 | 名称 | 含义 |
 |---|---|
-| `EdgesToNode(nodeId)` | 所有直接指向该节点的可见边 |
-| `EdgesFromNode(nodeId)` | 所有直接从该节点出发的可见边 |
+| `EdgesToNode(nodeId)` | 严格查找直接指向该节点的可见边，无结果时报未找到入边 |
+| `EdgesFromNode(nodeId)` | 严格查找直接从该节点出发的可见边，无结果时报未找到出边 |
+| `EnumerateEdgesToNode(nodeId)` | 算法枚举入边，有效可见节点无入边时返回空序列 |
+| `EnumerateEdgesFromNode(nodeId)` | 算法枚举出边，有效可见节点无出边时返回空序列 |
 
-两者返回边而非节点，只查询一步连接，不遍历多步路径。
-不存在或不可见的节点沿用明确报错行为；存在但没有对应边的节点返回空集合。
+这些入口返回边而非节点，只查询一步连接，不遍历多步路径。
+严格查找在不存在、不可见或没有对应边时报告缺少对应方向的边；
+不能根据邻接字典没有键就断言节点不存在。需要判断节点存在性时，
+调用 ContainsNode / TryGetNode。严格视图查找会物化局部可见边以判断空结果。
+枚举入口单独验证节点可见性，未知/隐藏节点仍报节点错误，
+有效节点的空邻接是正常结果。边全部被 Filter 隐藏也遵守同样规则。
 
-保留当前 Graph 的索引构建方式，不引入 SortedList 或支持重复键的有序容器：
+拓扑排序、BFS、双向 Match、可达索引传播和模型邻接辅助方法均使用
+EnumerateEdgesToNode / EnumerateEdgesFromNode，不捕获缺边异常，
+也不为缺少字典键而全图扫描。Match 遇到无后继/前驱的候选只结束当前
+分支，继续处理其他候选。单节点匹配和孤立节点也可正常遍历。
+
+保留用户修改后的稀疏邻接索引，不预填空邻接项，不引入 SortedList：
 
 ```csharp
-Dictionary<GraphNodeId, List<TEdge>> edgesToNode;
-Dictionary<GraphNodeId, List<TEdge>> edgesFromNode;
+ImmutableDictionary<GraphNodeId, IReadOnlyList<TEdge>> edgesToNode;
+ImmutableDictionary<GraphNodeId, IReadOnlyList<TEdge>> edgesFromNode;
 ```
 
-构造时分别按 Target、Source 分组，最后冻结为只读字典和只读边列表。
+构造时分别按 Target、Source 分组，最后冻结为不可变字典。
+当前内部边列表仍为 List、公开节点/边集合底层仍为数组；
+集合深度只读和输入单次枚举的构造调整按用户要求留待后续，不在本轮修改。
 字典中每个节点 ID 只有一个键，同一节点的多条边存放在该键对应的列表中。
 例如 A -(e1)→ C、B -(e2)→ C、A -(e3)→ C：
 
@@ -638,6 +663,14 @@ EdgesToNode/EdgesFromNode。生产接口不再保留旧名称别名。
 双向用例验证 49/50/51% 阈值、端点谓词缓存、ID 终点最多读取三个节点、
 反向查询不访问出边、First 短路、平行边、多段正向结果、有环简单路径
 及隐藏终点，不仅以耗时推断方向。
+
+后续严格邻接/算法枚举分离及 TryGetNode / TryGetEdge 迁移后，
+`FullyQualifiedName~Graph` 共 119 项：117 项通过、2 项失败、0 跳过。
+新增四项覆盖完整图/二次过滤/匹配结果的 Try 身份查询与默认 out 值、
+严格缺边诊断、合法空邻接、隐藏节点、路径端点以及正反向死分支回溯。
+失败保留在 GraphRejectsUnknownEdgeEndpoint 和
+InvalidRewriteDoesNotModifySourceGraph，均因构造端点校验暂未恢复；
+没有修改或跳过这些测试。本轮未重新执行下面记录的完整模型推理。
 
 双向 Match 及最终消费者迁移后，使用 rwkvcpp 测试目录中的 FP32 tiny
 RWKV-6/7 模型运行 CPU 和 Direct3D 12 完整流水线：

@@ -36,7 +36,7 @@ public static class GraphAlgorithms
             .ToDictionary(item => item.Id, item => item.index);
         var indegree = nodes.ToDictionary(
             node => node.Id,
-            node => view.EdgesToNode(node.Id).Count());
+            node => view.EnumerateEdgesToNode(node.Id).Count());
         var ready = new PriorityQueue<TNode, int>();
         foreach (var node in nodes.Where(node => indegree[node.Id] == 0))
         {
@@ -47,7 +47,7 @@ public static class GraphAlgorithms
         while (ready.TryDequeue(out var node, out _))
         {
             result.Add(node);
-            foreach (var edge in view.EdgesFromNode(node.Id))
+            foreach (var edge in view.EnumerateEdgesFromNode(node.Id))
             {
                 indegree[edge.Target]--;
                 if (indegree[edge.Target] == 0)
@@ -90,7 +90,7 @@ public static class GraphAlgorithms
         pending.Enqueue(source);
         while (pending.TryDequeue(out var current))
         {
-            foreach (var edge in view.EdgesFromNode(current))
+            foreach (var edge in view.EnumerateEdgesFromNode(current))
             {
                 if (edge.Target == target)
                 {
@@ -128,7 +128,7 @@ public static class GraphAlgorithms
         pending.Enqueue(source);
         while (pending.TryDequeue(out var current))
         {
-            foreach (var edge in view.EdgesFromNode(current))
+            foreach (var edge in view.EnumerateEdgesFromNode(current))
             {
                 if (visited.Add(edge.Target))
                 {

@@ -148,7 +148,7 @@ sealed class LegacyDagIndex
         var order = view.TopologicalOrder();
         positions = order.Select((node, index) => (node.GraphId, index))
             .ToDictionary(item => item.GraphId, item => item.index);
-        var successors = order.Select(node => view.EdgesFromNode(node.GraphId)
+        var successors = order.Select(node => view.EnumerateEdgesFromNode(node.GraphId)
             .Select(edge => positions[edge.Target]).Distinct().ToArray()).ToArray();
         reachable = order.Select(_ => new ulong[(order.Count + 63) / 64]).ToArray();
         for (var i = order.Count - 1; i >= 0; i--)

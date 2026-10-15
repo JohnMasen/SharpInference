@@ -56,7 +56,7 @@ public static class ReachabilityIndexQueries
                 var row = new ulong[words];
                 if (columns.TryGetValue(node.Id, out var column))
                     row[column / 64] |= 1UL << (column % 64);
-                foreach (var edge in snapshot.EdgesFromNode(node.Id))
+                foreach (var edge in snapshot.EnumerateEdgesFromNode(node.Id))
                 {
                     var successor = reachable[edge.Target];
                     for (var word = 0; word < words; word++)
@@ -84,7 +84,7 @@ public static class ReachabilityIndexQueries
                         if (--remaining == 0)
                             break;
                     }
-                    foreach (var edge in snapshot.EdgesFromNode(current))
+                    foreach (var edge in snapshot.EnumerateEdgesFromNode(current))
                         if (visited.Add(edge.Target))
                             pending.Enqueue(edge.Target);
                 }

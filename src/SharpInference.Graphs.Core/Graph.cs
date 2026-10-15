@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using System.Collections.ObjectModel;
+using System.Diagnostics.CodeAnalysis;
 
 namespace SharpInference.Graphs.Core;
 
@@ -28,62 +29,35 @@ public sealed class Graph<TNode, TEdge> : IGraphView<TNode, TEdge>
         ArgumentNullException.ThrowIfNull(nodes);
         ArgumentNullException.ThrowIfNull(edges);
 
-        var nodeArray = nodes.ToArray();
-        var edgeArray = edges.ToArray();
-        var mutableNodes = new Dictionary<GraphNodeId, TNode>();
-        foreach (var node in nodeArray)
-        {
-            ArgumentNullException.ThrowIfNull(node);
-            if (string.IsNullOrWhiteSpace(node.Id.Value))
-            {
-                throw new InvalidDataException("A graph node identifier is required.");
-            }
+        //copy the value to the readonly properties, so that the graph is immutable
+        Nodes = nodes.ToArray();
+        Edges = edges.ToArray();
 
-            if (!mutableNodes.TryAdd(node.Id, node))
+
+        var edgesWithSource = from edge in edges
+                              group edge by edge.Source into g
+                              select new { Source = g.Key, Value = g };
+        outgoing = edgesWithSource.ToImmutableDictionary(x => x.Source, x => x.Value.ToList() as IReadOnlyList<TEdge>);
+        var edgesWithTarget = from edge in edges
+                              group edge by edge.Target into g
+                              select new { Target = g.Key, Value = g };
+        incoming = edgesWithTarget.ToImmutableDictionary(x => x.Target, x => x.Value.ToList() as IReadOnlyList<TEdge>);
+        nodesById=new ReadOnlyDictionary<GraphNodeId, TNode>(nodes.ToDictionary(n=>n.Id));
+        edgesById = new ReadOnlyDictionary<GraphEdgeId, TEdge>(edges.ToDictionary(e => e.Id));
+
+        //validate edges
+        foreach (var edge in edges)
+        {
+            if (!nodes.Any(x=>x.Id==edge.Source))
             {
-                throw new InvalidDataException($"Duplicate graph node '{node.Id}'.");
+                throw new InvalidDataException($"Graph edge '{edge.Id}' references unknown source node '{edge.Source}'.");
+            }
+            if (!nodes.Any(x=>x.Id==edge.Target))
+            {
+                throw new InvalidDataException($"Graph edge '{edge.Id}' references unknown target node '{edge.Source}'.");
             }
         }
 
-        var mutableEdges = new Dictionary<GraphEdgeId, TEdge>();
-        var mutableIncoming = mutableNodes.Keys.ToDictionary(
-            id => id, _ => new List<TEdge>());
-        var mutableOutgoing = mutableNodes.Keys.ToDictionary(
-            id => id, _ => new List<TEdge>());
-        foreach (var edge in edgeArray)
-        {
-            ArgumentNullException.ThrowIfNull(edge);
-            if (string.IsNullOrWhiteSpace(edge.Id.Value))
-            {
-                throw new InvalidDataException("A graph edge identifier is required.");
-            }
-
-            if (!mutableEdges.TryAdd(edge.Id, edge))
-            {
-                throw new InvalidDataException($"Duplicate graph edge '{edge.Id}'.");
-            }
-
-            if (!mutableNodes.ContainsKey(edge.Source))
-            {
-                throw new InvalidDataException(
-                    $"Graph edge '{edge.Id}' references unknown source node '{edge.Source}'.");
-            }
-
-            if (!mutableNodes.ContainsKey(edge.Target))
-            {
-                throw new InvalidDataException(
-                    $"Graph edge '{edge.Id}' references unknown target node '{edge.Target}'.");
-            }
-
-            mutableOutgoing[edge.Source].Add(edge);
-            mutableIncoming[edge.Target].Add(edge);
-        }
-        Nodes = Array.AsReadOnly(nodeArray);
-        Edges = Array.AsReadOnly(edgeArray);
-        nodesById = new ReadOnlyDictionary<GraphNodeId, TNode>(mutableNodes);
-        edgesById = new ReadOnlyDictionary<GraphEdgeId, TEdge>(mutableEdges);
-        incoming = Freeze(mutableIncoming);
-        outgoing = Freeze(mutableOutgoing);
     }
 
     /// <summary>Gets graph nodes in deterministic declaration order.</summary>
@@ -115,57 +89,79 @@ public sealed class Graph<TNode, TEdge> : IGraphView<TNode, TEdge>
             ? edge
             : throw new KeyNotFoundException($"Unknown graph edge '{id}'.");
 
+    /// <inheritdoc/>
+    public bool TryGetNode(GraphNodeId id, [MaybeNullWhen(false)] out TNode node) =>
+        nodesById.TryGetValue(id, out node);
+
+    /// <inheritdoc/>
+    public bool TryGetEdge(GraphEdgeId id, [MaybeNullWhen(false)] out TEdge edge) =>
+        edgesById.TryGetValue(id, out edge);
+
     /// <summary>Returns whether the graph contains a node.</summary>
     /// <param name="id">The structural identity to look up.</param>
     /// <returns>Whether a node with this identity exists.</returns>
     public bool ContainsNode(GraphNodeId id) => nodesById.ContainsKey(id);
 
-    /// <summary>Gets all incoming edges in deterministic declaration order.</summary>
-    /// <param name="node">The identity of the target node.</param>
-    /// <returns>All edges pointing to the node, including parallel edges.</returns>
-    /// <exception cref="KeyNotFoundException">The node is not in the graph.</exception>
-    public IReadOnlyList<TEdge> EdgesToNode(GraphNodeId node) =>
-        incoming.TryGetValue(node, out var edges)
-            ? edges
-            : throw new KeyNotFoundException($"Unknown graph node '{node}'.");
 
-    /// <summary>Gets all outgoing edges in deterministic declaration order.</summary>
-    /// <param name="node">The identity of the source node.</param>
-    /// <returns>All edges originating from the node, including parallel edges.</returns>
-    /// <exception cref="KeyNotFoundException">The node is not in the graph.</exception>
-    public IReadOnlyList<TEdge> EdgesFromNode(GraphNodeId node) =>
-        outgoing.TryGetValue(node, out var edges)
-            ? edges
-            : throw new KeyNotFoundException($"Unknown graph node '{node}'.");
+
+    ///// <summary>Gets all outgoing edges in deterministic declaration order.</summary>
+    ///// <param name="node">The identity of the source node.</param>
+    ///// <returns>All edges originating from the node, including parallel edges.</returns>
+    ///// <exception cref="KeyNotFoundException">No outgoing edges were found.</exception>
+    //public IReadOnlyList<TEdge> EdgesFromNode(GraphNodeId node) =>
+    //    outgoing.TryGetValue(node, out var edges)
+    //        ? edges
+    //        : throw new KeyNotFoundException($"No outgoing edges found for graph node '{node}'.");
+
+    /// <inheritdoc/>
+    public IEnumerable<TEdge> EnumerateEdgesToNode(GraphNodeId id)
+    {
+        _ = GetNode(id);    //check if node exists
+        return incoming.TryGetValue(id, out var edges) ? edges : Array.Empty<TEdge>();
+    }
+
+    /// <inheritdoc/>
+    public IEnumerable<TEdge> EnumerateEdgesFromNode(GraphNodeId id)
+    {
+        _ = GetNode(id);    //check if node exists
+        return outgoing.TryGetValue(id, out var edges) ? edges : Array.Empty<TEdge>();
+    }
 
     /// <summary>Exposes incoming edges through the read-only view contract.</summary>
     /// <param name="node">The identity of the target node.</param>
     /// <returns>Incoming edges in declaration order.</returns>
-    IEnumerable<TEdge> IGraphView<TNode, TEdge>.EdgesToNode(GraphNodeId node) => EdgesToNode(node);
+    public IEnumerable<TEdge> EdgesToNode(GraphNodeId node)
+    {
+        return incoming.TryGetValue(node, out var edges)
+            ? edges
+            : throw new KeyNotFoundException($"No incoming edges found for graph node '{node}'.");
+    }
     /// <summary>Exposes outgoing edges through the read-only view contract.</summary>
     /// <param name="node">The identity of the source node.</param>
     /// <returns>Outgoing edges in declaration order.</returns>
-    IEnumerable<TEdge> IGraphView<TNode, TEdge>.EdgesFromNode(GraphNodeId node) => EdgesFromNode(node);
+    public IEnumerable<TEdge> EdgesFromNode(GraphNodeId node)
+    {
+        return outgoing.TryGetValue(node, out var edges)
+            ? edges
+            : throw new KeyNotFoundException($"No outgoing edges found for graph node '{node}'.");
+    }
 
     /// <summary>Gets nodes assignable to the requested type.</summary>
     /// <typeparam name="TRequested">The node type to retain.</typeparam>
     /// <returns>A deferred sequence of matching nodes in declaration order.</returns>
-    public IEnumerable<TRequested> NodesOfType<TRequested>() where TRequested : TNode =>
-        this.Filter(node: node => node is TRequested).Nodes.Cast<TRequested>();
+    public IEnumerable<TRequested> NodesOfType<TRequested>() where TRequested : TNode
+    {
+        return this.Filter(node: node => node is TRequested).Nodes.Cast<TRequested>();
+    }
 
     /// <summary>Gets edges assignable to the requested type.</summary>
     /// <typeparam name="TRequested">The edge type to retain.</typeparam>
     /// <returns>A deferred sequence of matching edges in declaration order.</returns>
-    public IEnumerable<TRequested> EdgesOfType<TRequested>() where TRequested : TEdge =>
-        this.Filter(edge: edge => edge is TRequested).Edges.Cast<TRequested>();
+    public IEnumerable<TRequested> EdgesOfType<TRequested>() where TRequested : TEdge
+    {
+        return this.Filter(edge: edge => edge is TRequested).Edges.Cast<TRequested>();
+    }
+        
 
-    /// <summary>Copies an adjacency index into read-only dictionaries and edge lists.</summary>
-    /// <param name="source">The mutable index whose per-node edge order must be preserved.</param>
-    /// <returns>A frozen adjacency index independent of the original lists.</returns>
-    private static IReadOnlyDictionary<GraphNodeId, IReadOnlyList<TEdge>> Freeze(
-        IReadOnlyDictionary<GraphNodeId, List<TEdge>> source) =>
-        new ReadOnlyDictionary<GraphNodeId, IReadOnlyList<TEdge>>(
-            source.ToDictionary(
-                pair => pair.Key,
-                pair => (IReadOnlyList<TEdge>)Array.AsReadOnly(pair.Value.ToArray())));
+    
 }
