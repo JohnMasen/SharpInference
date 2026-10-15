@@ -1,4 +1,5 @@
 using SharpInference.Graphs.Core;
+using static SharpInference.Graphs.Core.PatternElements;
 
 namespace SharpInference.Graphs;
 
@@ -137,7 +138,7 @@ public static class ModelGraphQueries
         IModelOperationNode node)
         where TNode : IModelGraphNode
         where TEdge : IModelGraphEdge =>
-        graph.EdgesToNode(node.Id).OfType<IDependencyEdge>()
+        MatchAdjacentEdges<TNode, TEdge, IDependencyEdge>(graph, node.Id, incoming: true)
             .Select(edge => graph.GetNode(edge.Source));
 
     /// <summary>Gets direct dependency successors of an operation.</summary>
@@ -151,7 +152,7 @@ public static class ModelGraphQueries
         IModelOperationNode node)
         where TNode : IModelGraphNode
         where TEdge : IModelGraphEdge =>
-        graph.EdgesFromNode(node.Id).OfType<IDependencyEdge>()
+        MatchAdjacentEdges<TNode, TEdge, IDependencyEdge>(graph, node.Id)
             .Select(edge => graph.GetNode(edge.Target));
 
     /// <summary>Gets all resource bindings of an operation in edge declaration order.</summary>
@@ -169,9 +170,9 @@ public static class ModelGraphQueries
         where TNode : IModelGraphNode
         where TEdge : IModelGraphEdge
     {
-        var reads = graph.EdgesToNode(node.Id).OfType<IResourceReadEdge>()
+        var reads = MatchAdjacentEdges<TNode, TEdge, IResourceReadEdge>(graph, node.Id, incoming: true)
             .ToDictionary(edge => edge.BindingId, StringComparer.Ordinal);
-        var writes = graph.EdgesFromNode(node.Id).OfType<IResourceWriteEdge>()
+        var writes = MatchAdjacentEdges<TNode, TEdge, IResourceWriteEdge>(graph, node.Id)
             .ToDictionary(edge => edge.BindingId, StringComparer.Ordinal);
         var order = graph.Edges
             .Where(edge =>
@@ -228,7 +229,7 @@ public static class ModelGraphQueries
         IModelResourceNode resource)
         where TNode : IModelGraphNode
         where TEdge : IModelGraphEdge =>
-        graph.EdgesFromNode(resource.Id).OfType<IResourceReadEdge>()
+        MatchAdjacentEdges<TNode, TEdge, IResourceReadEdge>(graph, resource.Id)
             .Select(edge => graph.GetNode(edge.Target))
             .DistinctBy(node => node.Id)
             .ToArray();
@@ -244,7 +245,7 @@ public static class ModelGraphQueries
         IModelResourceNode resource)
         where TNode : IModelGraphNode
         where TEdge : IModelGraphEdge =>
-        graph.EdgesToNode(resource.Id).OfType<IResourceWriteEdge>()
+        MatchAdjacentEdges<TNode, TEdge, IResourceWriteEdge>(graph, resource.Id, incoming: true)
             .Select(edge => graph.GetNode(edge.Source))
             .DistinctBy(node => node.Id)
             .ToArray();
@@ -262,8 +263,8 @@ public static class ModelGraphQueries
         where TNode : IModelGraphNode
         where TEdge : IModelGraphEdge
     {
-        var accesses = graph.Nodes
-            .Where(node => node is IModelOperationNode)
+        var accesses = graph.Match(Pattern.Create(Node().Where<IModelOperationNode>(_ => true)))
+            .Select(match => match.Nodes.Single())
             .Select(node =>
             {
                 var bindings = graph.Bindings((IModelOperationNode)node)
@@ -358,30 +359,66 @@ public static class ModelGraphQueries
     {
         ArgumentNullException.ThrowIfNull(operations);
         var selected = operations.ToHashSet();
-        var inputs = graph.Edges.OfType<IResourceReadEdge>()
-            .Where(edge => selected.Contains(edge.Target))
-            .Select(edge => graph.GetNode(edge.Source))
-            .OfType<IModelResourceNode>()
+        var edgePositions = graph.Edges.Select((edge, position) => (edge.Id, position))
+            .ToDictionary(item => item.Id, item => item.position);
+        var readPattern = Pattern.Create(Node().Where<IModelResourceNode>(_ => true))
+            - Edge().Where<IResourceReadEdge>(_ => true)
+            - Node().Where<TNode>(node => selected.Contains(node.Id));
+        var writePattern = Pattern.Create(Node().Where<TNode>(node => selected.Contains(node.Id)))
+            - Edge().Where<IResourceWriteEdge>(_ => true)
+            - Node().Where<IModelResourceNode>(_ => true);
+        var inputs = graph.Match(readPattern)
+            .OrderBy(match => edgePositions[match.Edges.Single().Id])
+            .Select(match => (IModelResourceNode)match.Nodes.First())
             .Where(resource =>
                 resource.Kind is GraphDefinitionResourceKind.Input
                     or GraphDefinitionResourceKind.InOut ||
-                graph.EdgesToNode(resource.Id).OfType<IResourceWriteEdge>()
+                MatchAdjacentEdges<TNode, TEdge, IResourceWriteEdge>(graph, resource.Id, incoming: true)
                     .Any(edge => !selected.Contains(edge.Source)))
             .Cast<TNode>()
             .DistinctBy(node => node.Id)
             .ToArray();
-        var outputs = graph.Edges.OfType<IResourceWriteEdge>()
-            .Where(edge => selected.Contains(edge.Source))
-            .Select(edge => graph.GetNode(edge.Target))
-            .OfType<IModelResourceNode>()
+        var outputs = graph.Match(writePattern)
+            .OrderBy(match => edgePositions[match.Edges.Single().Id])
+            .Select(match => (IModelResourceNode)match.Nodes.Last())
             .Where(resource =>
                 resource.Kind is GraphDefinitionResourceKind.Output
                     or GraphDefinitionResourceKind.InOut ||
-                graph.EdgesFromNode(resource.Id).OfType<IResourceReadEdge>()
+                MatchAdjacentEdges<TNode, TEdge, IResourceReadEdge>(graph, resource.Id)
                     .Any(edge => !selected.Contains(edge.Target)))
             .Cast<TNode>()
             .DistinctBy(node => node.Id)
             .ToArray();
         return new(inputs, outputs);
+    }
+
+    /// <summary>Matches typed adjacent edges while preserving consumer adjacency order and self-loop behavior.</summary>
+    /// <typeparam name="TNode">The model graph node type.</typeparam>
+    /// <typeparam name="TEdge">The model graph edge type.</typeparam>
+    /// <typeparam name="TRequested">The edge contract to match.</typeparam>
+    /// <param name="graph">The view defining visible endpoints and edges.</param>
+    /// <param name="node">The visible endpoint identity, validated before returning the sequence.</param>
+    /// <param name="incoming">Whether the endpoint is the target rather than the source.</param>
+    /// <returns>Matching edges in declaration order, including parallel edges.</returns>
+    /// <remarks>Simple-path Match excludes self-loops, so such adjacency queries use direct lookup.</remarks>
+    /// <exception cref="KeyNotFoundException">The endpoint is unknown or hidden.</exception>
+    private static IEnumerable<TRequested> MatchAdjacentEdges<TNode, TEdge, TRequested>(
+        IGraphView<TNode, TEdge> graph, GraphNodeId node, bool incoming = false)
+        where TNode : IModelGraphNode
+        where TEdge : IModelGraphEdge
+        where TRequested : IModelGraphEdge
+    {
+        var edges = incoming ? graph.EdgesToNode(node) : graph.EdgesFromNode(node);
+        var typedEdges = edges.OfType<TRequested>().ToArray();
+        if (typedEdges.Any(edge => edge.Source == edge.Target))
+            return typedEdges;
+        var pattern = Pattern.Create(incoming ? Node() : Node(node))
+            - Edge().Where<TRequested>(_ => true) - (incoming ? Node(node) : Node());
+        var matches = graph.Match(pattern).Select(match => match.Edges.Single()).Cast<TRequested>();
+        if (!incoming)
+            return matches;
+        var positions = typedEdges.Select((edge, position) => (edge.Id, position))
+            .ToDictionary(item => item.Id, item => item.position);
+        return matches.OrderBy(edge => positions[edge.Id]);
     }
 }

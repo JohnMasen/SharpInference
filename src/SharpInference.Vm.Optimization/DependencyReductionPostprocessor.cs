@@ -22,7 +22,8 @@ public sealed class DependencyReductionPostprocessor : IExecutionGraphPostproces
         var seen = new HashSet<(GraphNodeId, GraphNodeId)>();
         var plan = new GraphRewritePlan<ExecutionGraphStructureNode, ExecutionGraphEdge>();
         var changed = false;
-        foreach (var edge in graph.Structure.Edges.OfType<ExecutionDependencyEdge>())
+        var dependencies = graph.Structure.Filter(edge: edge => edge is ExecutionDependencyEdge);
+        foreach (var edge in dependencies.Edges.Cast<ExecutionDependencyEdge>())
         {
             var source = analysis.Position(edge.Source);
             var target = analysis.Position(edge.Target);

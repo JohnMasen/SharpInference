@@ -1,5 +1,6 @@
 using SharpInference.Graphs;
 using SharpInference.Graphs.Core;
+using static SharpInference.Graphs.Core.PatternElements;
 
 namespace SharpInference.Vm.Optimization;
 
@@ -29,12 +30,14 @@ public sealed class TemporaryResourceReusePostprocessor : IExecutionGraphPostpro
         return new(program.Graphs.Select(graph =>
         {
             var boundPorts = program.Graphs.SelectMany(caller =>
-                caller.Nodes.OfType<ExecutionGraphCallNode>()
-                    .Where(call => call.Target == graph.Id)
+                caller.Structure.Match(Pattern.Create(
+                        Node().Where<ExecutionGraphCallNode>(call => call.Target == graph.Id)))
+                    .Select(match => (ExecutionGraphCallNode)match.Nodes.Single())
                     .SelectMany(call => caller.Bindings(call).Select(binding => binding.Port)
-                        .Concat(caller.Structure.NodesOfType<ExecutionResourceNode>()
-                            .Where(resource => !resource.ResourceNodeId.Owner.IsParent &&
-                                resource.ResourceNodeId.Owner.Call!.Value.Value == call.Id.Value)
+                        .Concat(caller.Structure.Match(Pattern.Create(Node().Where<ExecutionResourceNode>(resource =>
+                                !resource.ResourceNodeId.Owner.IsParent &&
+                                resource.ResourceNodeId.Owner.Call!.Value.Value == call.Id.Value)))
+                            .Select(match => (ExecutionResourceNode)match.Nodes.Single())
                             .Select(resource => resource.Resource.Id.Value))))
                 .ToHashSet(StringComparer.Ordinal);
             return Reuse(graph, boundPorts);
@@ -45,16 +48,13 @@ public sealed class TemporaryResourceReusePostprocessor : IExecutionGraphPostpro
     {
         var analysis = new ExecutionDependencyAnalysis(graph);
         var lifetimes = new List<Lifetime>();
-        foreach (var resource in graph.Structure.NodesOfType<ExecutionResourceNode>())
+        var candidates = graph.Structure.Match(Pattern.Create(Node().Where<ExecutionResourceNode>(resource =>
+            resource.ResourceNodeId.Owner.IsParent &&
+            resource.Kind == GraphDefinitionResourceKind.Temporary &&
+            resource.Resource.BindingKey is null &&
+            !boundPorts.Contains(resource.Resource.Id.Value))));
+        foreach (var resource in candidates.Select(match => (ExecutionResourceNode)match.Nodes.Single()))
         {
-            if (!resource.ResourceNodeId.Owner.IsParent ||
-                resource.Kind != GraphDefinitionResourceKind.Temporary ||
-                resource.Resource.BindingKey is not null ||
-                boundPorts.Contains(resource.Resource.Id.Value))
-            {
-                continue;
-            }
-
             var accesses = graph.Structure.Readers(resource)
                 .Concat(graph.Structure.Writers(resource))
                 .DistinctBy(node => node.GraphId).OfType<ExecutionGraphNode>().ToArray();

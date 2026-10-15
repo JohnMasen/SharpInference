@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Collections.ObjectModel;
 
 namespace SharpInference.Graphs.Core;
@@ -77,7 +78,6 @@ public sealed class Graph<TNode, TEdge> : IGraphView<TNode, TEdge>
             mutableOutgoing[edge.Source].Add(edge);
             mutableIncoming[edge.Target].Add(edge);
         }
-
         Nodes = Array.AsReadOnly(nodeArray);
         Edges = Array.AsReadOnly(edgeArray);
         nodesById = new ReadOnlyDictionary<GraphNodeId, TNode>(mutableNodes);
@@ -151,13 +151,13 @@ public sealed class Graph<TNode, TEdge> : IGraphView<TNode, TEdge>
     /// <typeparam name="TRequested">The node type to retain.</typeparam>
     /// <returns>A deferred sequence of matching nodes in declaration order.</returns>
     public IEnumerable<TRequested> NodesOfType<TRequested>() where TRequested : TNode =>
-        Nodes.OfType<TRequested>();
+        this.Filter(node: node => node is TRequested).Nodes.Cast<TRequested>();
 
     /// <summary>Gets edges assignable to the requested type.</summary>
     /// <typeparam name="TRequested">The edge type to retain.</typeparam>
     /// <returns>A deferred sequence of matching edges in declaration order.</returns>
     public IEnumerable<TRequested> EdgesOfType<TRequested>() where TRequested : TEdge =>
-        Edges.OfType<TRequested>();
+        this.Filter(edge: edge => edge is TRequested).Edges.Cast<TRequested>();
 
     /// <summary>Copies an adjacency index into read-only dictionaries and edge lists.</summary>
     /// <param name="source">The mutable index whose per-node edge order must be preserved.</param>

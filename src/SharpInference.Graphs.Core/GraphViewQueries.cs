@@ -22,7 +22,7 @@ public static class GraphViewQueries
         return new(view, node, edge);
     }
 
-    /// <summary>Enumerates simple linear matches in starting-node and edge declaration order.</summary>
+    /// <summary>Enumerates simple linear matches using the more selective endpoint when sufficiently smaller.</summary>
     /// <typeparam name="TNode">The source node type.</typeparam>
     /// <typeparam name="TEdge">The source edge type.</typeparam>
     /// <param name="view">The view defining the nodes and direct edges available for matching.</param>
@@ -31,6 +31,10 @@ public static class GraphViewQueries
     /// <remarks>
     /// Paths never repeat a node. An unknown identity anchor yields no matches.
     /// Each enumeration searches again; materialize results to reuse one search.
+    /// Result order is unspecified; each result's nodes and edges remain in forward path order.
+    /// Search proceeds backward when target candidates are fewer than half the source candidates.
+    /// General endpoint conditions may require a candidate scan before the first result.
+    /// Predicates must not depend on invocation order or side effects.
     /// </remarks>
     /// <exception cref="ArgumentNullException">The view or pattern is null.</exception>
     /// <exception cref="ArgumentException">The pattern ends with an edge constraint.</exception>
@@ -51,41 +55,104 @@ public static class GraphViewQueries
             var edges = new TEdge[pattern.Edges.Count];
             var visited = new HashSet<GraphNodeId>();
             var first = pattern.Nodes[0];
-            IEnumerable<TNode> candidates = first.Id is { } id
-                ? view.ContainsNode(id) ? [view.GetNode(id)] : []
-                : view.Nodes;
+            var last = pattern.Nodes[^1];
+            var reverse = false;
+            HashSet<GraphNodeId>? sourceIds = null;
+            HashSet<GraphNodeId>? targetIds = null;
+            IEnumerable<TNode> candidates;
+            if (edges.Length == 0 || first.Id is not null || first.Unrestricted && last.Unrestricted)
+            {
+                candidates = Candidates(first);
+            }
+            else if (last.Id is not null && first.Unrestricted)
+            {
+                var targets = Candidates(last).ToArray();
+                if (targets.Length == 0)
+                    yield break;
+                var sources = view.Nodes.Take(3).ToArray();
+                reverse = sources.Length > 2;
+                candidates = reverse ? targets : sources;
+                targetIds = targets.Select(node => node.Id).ToHashSet();
+            }
+            else
+            {
+                var sources = new List<TNode>();
+                var targets = new List<TNode>();
+                if (last.Id is not null)
+                    targets.AddRange(Candidates(last));
+                foreach (var node in view.Nodes)
+                {
+                    if (first.Predicate(node))
+                        sources.Add(node);
+                    if (last.Id is null && last.Predicate(node))
+                        targets.Add(node);
+                }
+                if (sources.Count == 0 || targets.Count == 0)
+                    yield break;
+                sourceIds = sources.Select(node => node.Id).ToHashSet();
+                targetIds = targets.Select(node => node.Id).ToHashSet();
+                reverse = 2L * targets.Count < sources.Count;
+                candidates = reverse ? targets : sources;
+            }
+            var initial = reverse ? nodes.Length - 1 : 0;
+            var finish = reverse ? 0 : nodes.Length - 1;
             foreach (var candidate in candidates)
             {
-                if (!first.Predicate(candidate))
-                    continue;
-                nodes[0] = candidate;
+                nodes[initial] = candidate;
                 visited.Add(candidate.Id);
-                foreach (var match in Extend(0))
+                foreach (var match in Extend(initial))
                     yield return match;
                 visited.Remove(candidate.Id);
             }
 
+            IEnumerable<TNode> Candidates(NodePattern constraint)
+            {
+                if (constraint.Id is { } id)
+                {
+                    if (view.ContainsNode(id))
+                    {
+                        var node = view.GetNode(id);
+                        if (constraint.Predicate(node))
+                            yield return node;
+                    }
+                }
+                else
+                {
+                    foreach (var node in view.Nodes)
+                        if (constraint.Predicate(node))
+                            yield return node;
+                }
+            }
+
             IEnumerable<IGraphView<TNode, TEdge>> Extend(int index)
             {
-                if (index == edges.Length)
+                if (index == finish)
                 {
                     yield return new MatchedGraphView<TNode, TEdge>(nodes, edges);
                     yield break;
                 }
-                foreach (var edge in view.EdgesFromNode(nodes[index].Id))
+                var edgeIndex = reverse ? index - 1 : index;
+                var nextIndex = reverse ? index - 1 : index + 1;
+                var adjacent = reverse
+                    ? view.EdgesToNode(nodes[index].Id)
+                    : view.EdgesFromNode(nodes[index].Id);
+                foreach (var edge in adjacent)
                 {
-                    var next = pattern.Nodes[index + 1];
-                    if (visited.Contains(edge.Target) ||
-                        next.Id is { } targetId && edge.Target != targetId ||
-                        !pattern.Edges[index].Predicate(edge))
+                    var next = pattern.Nodes[nextIndex];
+                    var nextId = reverse ? edge.Source : edge.Target;
+                    if (visited.Contains(nextId) ||
+                        next.Id is { } targetId && nextId != targetId ||
+                        !pattern.Edges[edgeIndex].Predicate(edge))
                         continue;
-                    var target = view.GetNode(edge.Target);
-                    if (!next.Predicate(target))
+                    var target = view.GetNode(nextId);
+                    var cached = nextIndex == 0 ? sourceIds
+                        : nextIndex == nodes.Length - 1 ? targetIds : null;
+                    if (cached is not null ? !cached.Contains(nextId) : !next.Predicate(target))
                         continue;
-                    nodes[index + 1] = target;
-                    edges[index] = edge;
+                    nodes[nextIndex] = target;
+                    edges[edgeIndex] = edge;
                     visited.Add(target.Id);
-                    foreach (var match in Extend(index + 1))
+                    foreach (var match in Extend(nextIndex))
                         yield return match;
                     visited.Remove(target.Id);
                 }

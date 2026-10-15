@@ -43,8 +43,8 @@ P0 基线和契约
    - 平行边各自保留，邻接边按声明顺序返回。
    - 拓扑序稳定，依赖环检测保持。
    - 原 Before(a, a) 为 false；新的可达查询允许零步为 true。
-5. Node(string) 按名称查询采用可选 INamedGraphNode 契约；
-   不强迫生产领域节点新增或改变 Name/Id。生产消费者优先用 ID 或 Where。
+5. Node 仅接受 GraphNodeId，字符串通过隐式转换按 ID 匹配；
+   不引入测试专用名称契约，显示名称条件使用领域类型的 Where。
 6. Match 初版只支持固定线性模式。按后续要求删除旧 GraphPattern/GraphMatch，
    明确这是破坏性 API 清理，不宣称已支持旧匹配器的分支、断开模式。
 
@@ -69,6 +69,9 @@ P0 基线和契约
 2. Filter 返回当前范围的视图；Match 惰性返回每次匹配的 IGraphView。
 3. 实现严格的节点/边可见性边界，迭代结果不引用可变的回溯工作集合。
 4. 使用已有相邻边索引；显式 ID 起点不能扫描全图来定位。
+   首尾候选严格满足 `2L*T<S` 时反向搜索；终点 ID 加无限制起点
+   使用最多三个节点的快速判定，一般条件一次扫描并缓存候选。
+   不保证匹配间顺序，每个结果内保持正向节点/边位置。
 5. ToGraph 分别支持单视图物化和匹配序列合并；
    保留所有命中边，同 ID 冲突明确报错，不补入未匹配边。
 6. 将 20 节点原型的相关查询转为仓库正式测试。
@@ -99,20 +102,21 @@ P0 基线和契约
 
 | 消费者 | 允许的具体修改 | 必须保持 |
 |---|---|---|
-| ModelGraphQueries | DependencyView/DataFlowView 使用 Filter；前驱、后继、Readers/Writers 改用新相邻边名称；反复可达判断可共享索引 | 类型关系、端口/BindingId 合并校验、去重与结果顺序、资源冲突分类、边界资源规则 |
+| ModelGraphQueries | 视图使用 Filter；双向邻接、边界路径及候选筛选使用 Match；重复可达使用新索引 | 类型关系、端口/BindingId 合并校验、去重与消费者结果顺序、资源冲突分类、边界资源规则 |
 | ExecutionDependencyAnalysis | 保留现有内部类、Order、Successors、Position、Before、WithStructure；将位集合计算委托给 ReachabilityIndex | 位置表和消费者入口不变；Before(a,a) 用 ID/位置不等检查保持 false |
 | DependencyReductionPostprocessor | 使用适配后的 analysis 和相邻边入口 | 去重保留首条边、替代后继判断、删边规则与批量应用流程不变 |
-| TemporaryResourceReusePostprocessor | 通过原 Readers/Writers 和适配后的 analysis 查询 | 筛选、完整输出白名单、首次写入验证、末端集合、槽位选择及张量规则不变 |
-| OperationTemplateSharingPostprocessor | 必要的只读图接口/查询调用适配；简单 Nodes 枚举无需强制改成 Match | 签名格式、分组、模板生成、调用替换和执行次数不变 |
-| LogicalGraphDefinition/Validator | Filter 和拓扑入口适配；在重复 writer 比较中构建一次索引并复用 | 校验时机、诊断代码、终端 writer 与完成节点的含义和顺序不变 |
+| TemporaryResourceReusePostprocessor | 候选及实例资源使用 Match；通过适配后的 Readers/Writers 和 analysis 查询 | 完整输出白名单、首次写入验证、末端集合、槽位选择及张量规则不变 |
+| OperationTemplateSharingPostprocessor | 操作候选筛选改为 Match；绑定查询复用模型查询 | 签名格式、分组、模板生成、调用替换和执行次数不变 |
+| LogicalGraphDefinition/Validator | 类型投影使用 Filter；writer 收集复用反向 Match；重复 writer 比较共享索引 | 校验时机、诊断代码、终端 writer 与完成节点的含义和顺序不变 |
 | ExecutionGraph | 依赖视图和拓扑入口适配 | 构造校验、异常上下文、端口/实例合法性不变 |
-| ExecutionGraphRewriter | 新相邻边名称/视图接口适配 | 子图提取、替换、调用内联和全部边界重连规则不变；Match 不能代替外部边界捕获 |
+| ExecutionGraphRewriter | 读写者、选中资源连接、调用入出依赖使用双向 Match 或共同模型查询 | 子图提取、替换、调用内联和全部边界重连规则不变；Match 不能代替完整外部边界捕获 |
 | VmExecutionGraphEmitter | TopologicalOrder/视图入口适配 | 稳定指令顺序、资源分配、调用展开、公开输出不变 |
-| Converter、XML 读写及其他消费者 | 搜索引用后仅适配确实受 API 签名影响的调用 | 不改变转换算法、序列化格式、领域 ID 或 schema |
+| Converter、XML 读写及其他消费者 | 类型筛选通过 Filter；已有共同图查询取得双向能力 | 不改变转换算法、序列化格式、领域 ID 或 schema |
 | 测试及示例工具 | 更新重命名 API，引入新视图/匹配/索引测试 | 不用新索引替代全部测试 oracle；保留独立 BFS 对照，防止实现和测试一起犯错 |
 
-Readers/Writers 已有高效邻接实现，迁移不要求强制换成 Match。
-确有收益才内部替换；相同节点集合但顺序不同不能算完全兼容。
+按用户后续要求，支持且无重大性能问题的结构查询尽量迁移至 Match。
+入向查询的全图扫描问题通过终点锚定反向规划解决，生产入口同时迁移。
+Match 结果顺序不保证；邻接及边界消费者显式按原边顺序整理。
 对于只需拓扑排序的验证/发射，不额外构建全量可达索引。
 
 验收：消费者项目结构、公开优化器接口和领域职责不变；
@@ -180,12 +184,35 @@ ExecutionGraphPostprocessor 和 VmExecutionGraphEmitter 相关测试。
   GraphViewBase。集合 ToGraph 合并匹配结果，单视图 ToGraph 物化快照。
 - Graph.Core 顶层类型拆为独立文件，并同步显式项目编译项。
 - 删除没有消费者的节点、边可选基类，保留 IGraphNode / IGraphEdge 契约。
-- 没有强制重写 Readers/Writers 为 Match，保留更便宜的邻接查询和原顺序。
+- Readers/Successors 使用正向 Match，Writers/Predecessors 使用终点锚定
+  双向 Match；Bindings 的读写边收集均迁移。
 - 删除 GraphPattern/GraphMatch、View/InEdges/OutEdges，迁移仓库内实际调用；
   固定线性 Match 不宣称支持旧匹配器的分支、断开模式。
 - 单次 BFS 是独立查询能力，保留用于有环图和一次性可达查询。
-- GraphNodeId 增加 string 隐式转换，保持 Node(string) 的名称匹配语义。
+- GraphNodeId 增加 string 隐式转换，Node("A") 按结构 ID 匹配；
+  删除没有生产实现的名称接口和字符串名称重载。
+- Match 接入模型邻接、边界资源、逻辑 writer 和重写双向结构搜索；
+  接入临时资源、调用及实例资源、模板操作和冲突操作候选筛选。
+- 严格满足 `2L*T<S` 时反向；ID 终点且起点无限制最多读取三个节点
+  确认方向，一般条件单次扫描并缓存端点条件，不重复规划谓词。
+- 性能脚本确认 1024 节点图终点锚定匹配从历史约 1376 ms 降到约 3 ms，
+  每 1000 次查询的分配不再随图规模增长；生产 Writers 同时迁移。
+- 多步关系使用新索引；自环查询不能用简单路径表达，显式保留邻接。
+  签名分组和复用安全判断仍属于消费者业务，不改变优化器架构。
 - 图引擎及本次修改的消费者声明补齐 XML 文档，包括参数、泛型参数、
   返回值和关键异常；通过文档编译与声明参数覆盖检查。
 - 图消费者的项目划分、优化流程、领域模型、序列化格式没有调整。
 - 性能脚本和实测限制见设计文档第 7 节；不是模型端到端推理基准。
+
+当前剩余非 Match 实现有明确边界：
+
+- IGraphView 的底层邻接索引和拓扑/BFS/位集合传播，是引擎基础算法，
+  不递归调用自己的匹配器。
+- 简单路径不能表达自环邻接，模型共享辅助方法显式保留自环处理。
+- 图重写的全边界捕获、全边重连和复制是结构变换，不是候选路径搜索；
+  保留 GraphRewriteTarget/Plan，不能只复制匹配命中边。
+- 绑定身份合并、业务签名分组、张量兼容及完整输出规则留在消费者。
+- Builder 的可变节点/边集合还未形成有效图，依赖推断与添加边时的去重
+  保持直接集合处理，不为调用只读 Match 反复构建中间完整图。
+- 全结构变换和序列化按原集合顺序处理，筛选入口使用 Filter；
+  不为调用 Match 再额外创建路径视图。

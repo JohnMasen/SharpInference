@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using SharpInference.Graphs.Core;
+using static SharpInference.Graphs.Core.PatternElements;
 
 namespace SharpInference.Graphs;
 
@@ -64,7 +65,9 @@ public static class ExecutionGraphRewriter
                 "Fusion requires at least two nodes.", nameof(nodeIds));
         }
 
-        var sources = graph.Nodes.Where(node => selected.Contains(node.Id)).ToArray();
+        var sources = graph.Structure.Filter(node: node =>
+                node is ExecutionGraphNode operation && selected.Contains(operation.Id))
+            .Nodes.Cast<ExecutionGraphNode>().ToArray();
         if (sources.Length != selected.Count ||
             sources.Any(node => node is not ExecutionOperationNode))
         {
@@ -158,8 +161,9 @@ public static class ExecutionGraphRewriter
         var source = RequiredGraph(program, sourceGraphId);
         var selected = nodeIds?.ToHashSet()
             ?? throw new ArgumentNullException(nameof(nodeIds));
-        var selectedNodes = source.Nodes
-            .Where(node => selected.Contains(node.Id)).ToArray();
+        var selectedNodes = source.Structure.Filter(node =>
+                node is ExecutionGraphNode operation && selected.Contains(operation.Id))
+            .Nodes.Cast<ExecutionGraphNode>().ToArray();
         if (selected.Count == 0 ||
             selectedNodes.Length != selected.Count ||
             selectedNodes.Any(node => node is not ExecutionOperationNode))
@@ -183,13 +187,19 @@ public static class ExecutionGraphRewriter
                 selectedNodes.Select(node => node.GraphId));
         var selectedGraphIds = rewriteTarget.Nodes
             .Select(node => node.GraphId).ToHashSet();
-        var resourceNodes = source.Structure.NodesOfType<ExecutionResourceNode>()
-            .Where(resource => source.Structure.Edges.Any(edge =>
-                selectedGraphIds.Contains(edge.Source) &&
-                edge.Target == resource.GraphId ||
-                edge.Source == resource.GraphId &&
-                selectedGraphIds.Contains(edge.Target)))
-            .ToArray();
+        var selectedConstraint = Node().Where<ExecutionGraphStructureNode>(node =>
+            selectedGraphIds.Contains(node.GraphId));
+        var resourceConstraint = Node().Where<ExecutionResourceNode>(_ => true);
+        var resourceIds = source.Structure.Match(
+                Pattern.Create(selectedConstraint) - Edge() - resourceConstraint)
+            .Select(match => match.Nodes.Last().GraphId)
+            .Concat(source.Structure.Match(
+                    Pattern.Create(resourceConstraint) - Edge() - selectedConstraint)
+                .Select(match => match.Nodes.First().GraphId))
+            .ToHashSet();
+        var resourceNodes = source.Structure.Filter(node =>
+                node is ExecutionResourceNode && resourceIds.Contains(node.GraphId))
+            .Nodes.Cast<ExecutionResourceNode>().ToArray();
         if (resourceNodes.Any(resource => !resource.ResourceNodeId.Owner.IsParent))
         {
             throw new NotSupportedException(
@@ -200,18 +210,15 @@ public static class ExecutionGraphRewriter
         var callBindings = new List<ModelResourceBinding>();
         foreach (var resourceNode in resourceNodes)
         {
-            var selectedReads = source.Structure.EdgesFromNode(resourceNode.GraphId)
-                .OfType<ExecutionResourceReadEdge>()
-                .Any(edge => selectedGraphIds.Contains(edge.Target));
-            var selectedWrites = source.Structure.EdgesToNode(resourceNode.GraphId)
-                .OfType<ExecutionResourceWriteEdge>()
-                .Any(edge => selectedGraphIds.Contains(edge.Source));
-            var outsideReads = source.Structure.EdgesFromNode(resourceNode.GraphId)
-                .OfType<ExecutionResourceReadEdge>()
-                .Any(edge => !selectedGraphIds.Contains(edge.Target));
-            var outsideWrites = source.Structure.EdgesToNode(resourceNode.GraphId)
-                .OfType<ExecutionResourceWriteEdge>()
-                .Any(edge => !selectedGraphIds.Contains(edge.Source));
+            var reader = Pattern.Create(Node(resourceNode.GraphId))
+                - Edge().Where<ExecutionResourceReadEdge>(_ => true);
+            var selectedReads = source.Structure.Match(reader
+                - Node().Where<ExecutionGraphStructureNode>(node => selectedGraphIds.Contains(node.GraphId))).Any();
+            var writers = source.Structure.Writers(resourceNode);
+            var selectedWrites = writers.Any(node => selectedGraphIds.Contains(node.GraphId));
+            var outsideReads = source.Structure.Match(reader
+                - Node().Where<ExecutionGraphStructureNode>(node => !selectedGraphIds.Contains(node.GraphId))).Any();
+            var outsideWrites = writers.Any(node => !selectedGraphIds.Contains(node.GraphId));
             var kind = selectedReads && outsideWrites
                 ? GraphDefinitionResourceKind.InOut
                 : selectedReads && !selectedWrites
@@ -425,17 +432,15 @@ public static class ExecutionGraphRewriter
 
         var targetDependency = target.Structure.DependencyView();
         var entries = target.Nodes
-            .Where(node => !targetDependency.EdgesToNode(node.GraphId).Any())
+            .Where(node => !targetDependency.Predecessors(node).Any())
             .Select(node => Map(node.GraphId)).ToArray();
         var completions = target.Nodes
-            .Where(node => !targetDependency.EdgesFromNode(node.GraphId).Any())
+            .Where(node => !targetDependency.Successors(node).Any())
             .Select(node => Map(node.GraphId)).ToArray();
-        var callerIncoming = caller.Structure.EdgesToNode(call.GraphId)
-            .OfType<ExecutionDependencyEdge>()
-            .Select(edge => edge.Source).ToArray();
-        var callerOutgoing = caller.Structure.EdgesFromNode(call.GraphId)
-            .OfType<ExecutionDependencyEdge>()
-            .Select(edge => edge.Target).ToArray();
+        var callerIncoming = caller.Structure.Predecessors(call)
+            .Select(node => node.GraphId).ToArray();
+        var callerOutgoing = caller.Structure.Successors(call)
+            .Select(node => node.GraphId).ToArray();
         foreach (var incoming in callerIncoming)
         {
             foreach (var entry in entries)
@@ -570,7 +575,8 @@ public static class ExecutionGraphRewriter
                     $"Execution graph program has no reachable graph '{id}'.");
             }
 
-            foreach (var target in graph.Nodes.OfType<ExecutionGraphCallNode>()
+            foreach (var target in graph.Structure.Filter(node: node => node is ExecutionGraphCallNode)
+                .Nodes.Cast<ExecutionGraphCallNode>()
                 .Select(call => call.Target))
             {
                 pending.Push(target);

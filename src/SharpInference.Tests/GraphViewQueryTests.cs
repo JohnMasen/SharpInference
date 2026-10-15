@@ -1,4 +1,5 @@
 using SharpInference.Graphs.Core;
+using SharpInference.Graphs;
 using static SharpInference.Graphs.Core.PatternElements;
 
 namespace SharpInference.Tests;
@@ -10,7 +11,7 @@ public sealed class GraphViewQueryTests
     /// <param name="Name">The shared test name and structural identifier.</param>
     /// <param name="Kind">The classification used to distinguish operations from resources.</param>
     /// <param name="Enabled">Whether enabled-node queries should retain the node.</param>
-    private sealed record TestNode(string Name, string Kind = "op", bool Enabled = true) : INamedGraphNode
+    private sealed record TestNode(string Name, string Kind = "op", bool Enabled = true) : IGraphNode
     {
         /// <inheritdoc/>
         public GraphNodeId Id => new(Name);
@@ -111,6 +112,57 @@ public sealed class GraphViewQueryTests
         Assert.Throws<KeyNotFoundException>(() => graph.GetNode("missing"));
     }
 
+    /// <summary>Checks production model queries against adjacency order, duplicates, hidden nodes, and self-loops.</summary>
+    [Fact]
+    public void ProductionModelQueriesPreserveAdjacencySemantics()
+    {
+        var first = new ExecutionOperationNode(new("first"), new("core.copy", 1),
+            new Dictionary<string, string>(), new(GraphElementType.Float32, GraphElementType.Float32), new([]));
+        var second = first with { Id = new("second") };
+        var resource = new ExecutionResourceNode(new(GraphBindingOwner.Parent, new("state")),
+            new(new("state"), "display-state", GraphDefinitionResourceKind.InOut,
+                new(GraphElementType.Float32, [4])));
+        var graph = new Graph<ExecutionGraphStructureNode, ExecutionGraphEdge>(
+            [first, second, resource],
+            [
+                new ExecutionResourceReadEdge(new("r2"), resource.GraphId, second.GraphId, "input", "r2"),
+                new ExecutionResourceReadEdge(new("r1"), resource.GraphId, first.GraphId, "input", "r1"),
+                new ExecutionResourceReadEdge(new("r3"), resource.GraphId, second.GraphId, "other", "r3"),
+                new ExecutionDependencyEdge(new("d2"), first.GraphId, second.GraphId),
+                new ExecutionDependencyEdge(new("d1"), first.GraphId, second.GraphId),
+                new ExecutionResourceWriteEdge(new("w1"), first.GraphId, resource.GraphId, "output", "w1"),
+            ]);
+        Assert.Equal([second.GraphId, first.GraphId], graph.Readers(resource).Select(node => node.GraphId));
+        Assert.Equal([second.GraphId, second.GraphId], graph.Successors(first).Select(node => node.GraphId));
+        Assert.Equal([first.GraphId], graph.Writers(resource).Select(node => node.GraphId));
+        Assert.Equal(["r1", "w1"], graph.Bindings(first).Select(binding => binding.BindingId));
+        var filtered = graph.Filter(node => node.GraphId != second.GraphId);
+        Assert.Equal([first.GraphId], filtered.Readers(resource).Select(node => node.GraphId));
+        Assert.Empty(filtered.Successors(first));
+        Assert.Throws<KeyNotFoundException>(() =>
+            graph.Filter(node => node.GraphId != resource.GraphId).Readers(resource));
+        Assert.Single(graph.Match(Pattern.Create(Node("resource:parent:state"))));
+        Assert.Empty(graph.Match(Pattern.Create(Node("display-state"))));
+        var cyclic = new Graph<ExecutionGraphStructureNode, ExecutionGraphEdge>(graph.Nodes,
+            graph.Edges.Append(new ExecutionDependencyEdge(new("self"), first.GraphId, first.GraphId)));
+        Assert.Equal([second.GraphId, second.GraphId, first.GraphId],
+            cyclic.Successors(first).Select(node => node.GraphId));
+        var otherResource = new ExecutionResourceNode(new(GraphBindingOwner.Parent, new("other")),
+            resource.Resource with { Id = new("other") });
+        var boundaryGraph = new Graph<ExecutionGraphStructureNode, ExecutionGraphEdge>(
+            graph.Nodes.Append(otherResource),
+            new ExecutionGraphEdge[]
+            {
+                new ExecutionResourceReadEdge(new("other-read"), otherResource.GraphId, first.GraphId,
+                    "other-input", "other-read"),
+                new ExecutionResourceWriteEdge(new("other-write"), first.GraphId, otherResource.GraphId,
+                    "other-output", "other-write"),
+            }.Concat(graph.Edges));
+        var boundary = boundaryGraph.BoundaryResources([first.GraphId, second.GraphId]);
+        Assert.Equal([otherResource.GraphId, resource.GraphId], boundary.Inputs.Select(node => node.GraphId));
+        Assert.Equal([otherResource.GraphId, resource.GraphId], boundary.Outputs.Select(node => node.GraphId));
+    }
+
     /// <summary>Validates the eighteen progressively more complex queries from the design examples.</summary>
     /// <param name="query">The one-based example number to execute.</param>
     [Theory]
@@ -169,8 +221,8 @@ public sealed class GraphViewQueryTests
                     .Select(match => match.Nodes.Last())));
                 break;
             case 4:
-                Assert.Equal("A,D,E", Names(dep.Match(Pattern.Create(Node()) - Edge() - Node("F"))
-                    .Select(match => match.Nodes.First())));
+                Assert.Equal(["A", "D", "E"], dep.Match(Pattern.Create(Node()) - Edge() - Node("F"))
+                    .Select(match => match.Nodes.First().Name).Order());
                 Assert.Equal("D,E,A", Names(dep.EdgesToNode(new("F"))
                     .Select(edge => dep.GetNode(edge.Source))));
                 break;
@@ -240,6 +292,178 @@ public sealed class GraphViewQueryTests
             case 18:
                 Assert.Equal("L", Names(dep.Nodes.Where(node => !dep.EdgesFromNode(node.Id).Any())));
                 break;
+        }
+    }
+
+    /// <summary>Checks the strict fifty-percent direction threshold and single evaluation of endpoint predicates.</summary>
+    /// <param name="targetCount">The number of nodes satisfying the terminal condition.</param>
+    /// <param name="reverse">Whether the strict threshold requires incoming-edge traversal.</param>
+    [Theory]
+    [InlineData(0, false)]
+    [InlineData(49, true)]
+    [InlineData(50, false)]
+    [InlineData(51, false)]
+    public void EndpointCountsSelectSearchDirection(int targetCount, bool reverse)
+    {
+        var nodes = Enumerable.Range(0, 100).Select(i => new TestNode($"N{i}")).ToArray();
+        var graph = new Graph<TestNode, TestEdge>(nodes, [new("edge", "N99", "N0")]);
+        var view = new CountingView(graph);
+        var sourceCalls = 0;
+        var targetCalls = 0;
+        var pattern = Pattern.Create(Node().Where<TestNode>(_ => { sourceCalls++; return true; }))
+            - Edge() - Node().Where<TestNode>(node =>
+            {
+                targetCalls++;
+                return int.Parse(node.Name.AsSpan(1)) < targetCount;
+            });
+        var results = view.Match(pattern);
+        Assert.Equal(0, sourceCalls);
+        Assert.Equal(targetCount == 0 ? 0 : 1, results.Count());
+        Assert.Equal(100, sourceCalls);
+        Assert.Equal(100, targetCalls);
+        Assert.Equal(reverse ? targetCount : 0, view.IncomingCalls);
+        Assert.Equal(targetCount == 0 || reverse ? 0 : 100, view.OutgoingCalls);
+        Assert.Equal(100, view.EnumeratedNodes);
+    }
+
+    /// <summary>Checks terminal identity planning, short-circuit traversal, and bounded candidate counting.</summary>
+    [Fact]
+    public void TerminalIdentityUsesIncomingIndexAndShortCircuits()
+    {
+        var graph = Example();
+        var view = new CountingView(graph);
+        var edgeCalls = 0;
+        var pattern = Pattern.Create(Node())
+            - Edge().Where<TestEdge>(_ => { edgeCalls++; return true; }) - Node("F");
+        var results = view.Match(pattern);
+        Assert.Equal(0, view.EnumeratedNodes);
+        var first = results.First();
+        Assert.Equal("F", first.Nodes.Last().Name);
+        Assert.Single(first.Edges);
+        Assert.Equal(3, view.EnumeratedNodes);
+        Assert.Equal(1, view.IncomingCalls);
+        Assert.Equal(0, view.OutgoingCalls);
+        Assert.Equal(1, edgeCalls);
+        var missing = new CountingView(graph);
+        Assert.Empty(missing.Match(Pattern.Create(Node()) - Edge() - Node("missing")));
+        Assert.Equal(0, missing.EnumeratedNodes);
+    }
+
+    /// <summary>Checks that a terminal identity predicate and filtered source candidates are evaluated once.</summary>
+    [Fact]
+    public void PlannedIdentityAndSourcePredicatesAreNotRepeated()
+    {
+        var graph = Example();
+        var view = new CountingView(graph);
+        var sourceCalls = 0;
+        var targetCalls = 0;
+        var pattern = Pattern.Create(Node().Where<TestNode>(node =>
+            { sourceCalls++; return node.Kind == "op"; }))
+            - Edge() - Node("F").Where<TestNode>(_ => { targetCalls++; return true; });
+        Assert.Equal(3, view.Match(pattern).Count());
+        Assert.Equal(20, sourceCalls);
+        Assert.Equal(1, targetCalls);
+        Assert.Equal(1, view.IncomingCalls);
+        Assert.Equal(0, view.OutgoingCalls);
+    }
+
+    /// <summary>Checks reverse multi-edge matching against forward searches, including parallel edges and cycles.</summary>
+    [Fact]
+    public void ReverseMatchesHaveExactForwardPathsAndStableResults()
+    {
+        var original = Example();
+        var graph = new Graph<TestNode, TestEdge>(original.Nodes,
+            original.Edges.Append(new("cycle", "F", "C")));
+        var view = graph.Filter(edge: edge => edge.Kind == "dep");
+        var expected = view.Nodes.SelectMany(node => view.Match(
+                Pattern.Create(Node(node.Id)) - Edge() - Node() - Edge() - Node("F")))
+            .Select(match => string.Join(",", match.Edges.Select(edge => edge.Id.Value))).Order().ToArray();
+        var results = view.Match(Pattern.Create(Node()) - Edge() - Node() - Edge() - Node("F")).ToArray();
+        Assert.Equal(expected, results
+            .Select(match => string.Join(",", match.Edges.Select(edge => edge.Id.Value))).Order());
+        Assert.All(results, match =>
+        {
+            var nodes = match.Nodes.ToArray();
+            var edges = match.Edges.ToArray();
+            Assert.Equal("F", nodes[^1].Name);
+            Assert.Equal(nodes.Length, nodes.Select(node => node.Id).Distinct().Count());
+            for (var i = 0; i < edges.Length; i++)
+            {
+                Assert.Equal(nodes[i].Id, edges[i].Source);
+                Assert.Equal(nodes[i + 1].Id, edges[i].Target);
+            }
+        });
+        var retained = results[0].Edges.ToArray();
+        Assert.Equal(retained, results[0].Edges);
+        Assert.Empty(view.Filter(node => node.Name != "F").Match(
+            Pattern.Create(Node()) - Edge() - Node("F")));
+    }
+
+    /// <summary>Checks small views at and below the strict identity-anchor threshold.</summary>
+    /// <param name="count">The total visible node count.</param>
+    /// <param name="reverse">Whether three or more source candidates select reverse search.</param>
+    [Theory]
+    [InlineData(1, false)]
+    [InlineData(2, false)]
+    [InlineData(3, true)]
+    public void TerminalIdentityThresholdHandlesSmallViews(int count, bool reverse)
+    {
+        var nodes = Enumerable.Range(0, count).Select(i => new TestNode($"N{i}")).ToArray();
+        var view = new CountingView(new(nodes,
+            count == 1 ? [] : [new TestEdge("edge", "N0", $"N{count - 1}")]));
+        Assert.Equal(count == 1 ? 0 : 1, view.Match(
+            Pattern.Create(Node()) - Edge() - Node((GraphNodeId)$"N{count - 1}")).Count());
+        Assert.Equal(reverse ? 1 : 0, view.IncomingCalls);
+        Assert.Equal(reverse ? 0 : count, view.OutgoingCalls);
+    }
+
+    /// <summary>A view instrumenting candidate enumeration and the direction of adjacency access.</summary>
+    /// <param name="graph">The backing graph whose content and order are preserved.</param>
+    private sealed class CountingView(Graph<TestNode, TestEdge> graph) : IGraphView<TestNode, TestEdge>
+    {
+        /// <summary>Gets the number of nodes consumed from the visible-node sequence.</summary>
+        public int EnumeratedNodes { get; private set; }
+        /// <summary>Gets the number of incoming adjacency lookups.</summary>
+        public int IncomingCalls { get; private set; }
+        /// <summary>Gets the number of outgoing adjacency lookups.</summary>
+        public int OutgoingCalls { get; private set; }
+        /// <inheritdoc/>
+        public IEnumerable<TestNode> Nodes => Enumerate();
+        /// <inheritdoc/>
+        public IEnumerable<TestEdge> Edges => graph.Edges;
+        /// <summary>Retrieves a backing node by identity.</summary>
+        /// <param name="id">The node identity.</param>
+        /// <returns>The backing node.</returns>
+        public TestNode GetNode(GraphNodeId id) => graph.GetNode(id);
+        /// <summary>Checks whether the backing graph contains a node.</summary>
+        /// <param name="id">The identity to check.</param>
+        /// <returns>Whether the identity exists.</returns>
+        public bool ContainsNode(GraphNodeId id) => graph.ContainsNode(id);
+        /// <summary>Counts an incoming lookup and returns its edges.</summary>
+        /// <param name="id">The target node identity.</param>
+        /// <returns>The backing incoming edges.</returns>
+        public IEnumerable<TestEdge> EdgesToNode(GraphNodeId id)
+        {
+            IncomingCalls++;
+            return graph.EdgesToNode(id);
+        }
+        /// <summary>Counts an outgoing lookup and returns its edges.</summary>
+        /// <param name="id">The source node identity.</param>
+        /// <returns>The backing outgoing edges.</returns>
+        public IEnumerable<TestEdge> EdgesFromNode(GraphNodeId id)
+        {
+            OutgoingCalls++;
+            return graph.EdgesFromNode(id);
+        }
+        /// <summary>Counts visible nodes as they are consumed.</summary>
+        /// <returns>The backing nodes in declaration order.</returns>
+        private IEnumerable<TestNode> Enumerate()
+        {
+            foreach (var node in graph.Nodes)
+            {
+                EnumeratedNodes++;
+                yield return node;
+            }
         }
     }
 
@@ -339,20 +563,21 @@ public sealed class GraphViewQueryTests
         Assert.Empty(onlyD.Match(Pattern.Create(Node("C"))));
     }
 
-    /// <summary>Checks that string name matching remains distinct from structural identity matching.</summary>
+    /// <summary>Checks that strings anchor structural identities independently of display names.</summary>
     [Fact]
     public void NamedPatternsDoNotConfuseNamesWithIds()
     {
         var graph = new Graph<NamedNode, TestEdge>([new(new("operation:1"), "display")], []);
-        Assert.Single(graph.Match(Pattern.Create(Node("display"))));
-        Assert.Empty(graph.Match(Pattern.Create(Node("operation:1"))));
+        Assert.Empty(graph.Match(Pattern.Create(Node("display"))));
+        Assert.Single(graph.Match(Pattern.Create(Node("operation:1"))));
+        Assert.Single(graph.Match(Pattern.Create(Node().Where<NamedNode>(node => node.Name == "display"))));
         Assert.Single(graph.Match(Pattern.Create(Node(new GraphNodeId("operation:1")))));
     }
 
     /// <summary>A test node whose display name is independent of its identity.</summary>
     /// <param name="Id">The structural node identifier.</param>
-    /// <param name="Name">The display name used by named patterns.</param>
-    private sealed record NamedNode(GraphNodeId Id, string Name) : INamedGraphNode;
+    /// <param name="Name">The display name available to explicit typed predicates.</param>
+    private sealed record NamedNode(GraphNodeId Id, string Name) : IGraphNode;
     /// <summary>A test node that deliberately has no name contract.</summary>
     /// <param name="Id">The structural node identifier.</param>
     private sealed record UnnamedNode(GraphNodeId Id) : IGraphNode;
@@ -369,7 +594,7 @@ public sealed class GraphViewQueryTests
             { calls++; return true; })));
         Assert.Single(matches);
         Assert.Equal(1, calls);
-        Assert.Empty(graph.Match(Pattern.Create(Node("B"))));
+        Assert.Single(graph.Match(Pattern.Create(Node("B"))));
     }
 
     /// <summary>Checks explicit failures for invalid pattern alternation, empty identities, and null inputs.</summary>

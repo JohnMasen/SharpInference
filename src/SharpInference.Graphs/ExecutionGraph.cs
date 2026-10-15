@@ -138,7 +138,7 @@ public sealed class ExecutionGraph
             .Where(node => node.ResourceNodeId.Owner.IsParent)
             .Select(node => node.Resource).ToArray();
     public IReadOnlyList<ExecutionGraphNode> Nodes =>
-        Structure.Nodes.OfType<ExecutionGraphNode>().ToArray();
+        Structure.Filter(node: node => node is ExecutionGraphNode).Nodes.Cast<ExecutionGraphNode>().ToArray();
     public GraphCompileBoundary DefaultCompileBoundary { get; }
     public GraphArchitecture? Architecture { get; }
     public ExecutionGraphSource? Source { get; }
@@ -314,7 +314,8 @@ public sealed class ExecutionGraphProgram
         }
 
         var relations = values.SelectMany(graph =>
-            graph.Nodes.OfType<ExecutionGraphCallNode>().Select(call =>
+            graph.Structure.Filter(node: node => node is ExecutionGraphCallNode)
+                .Nodes.Cast<ExecutionGraphCallNode>().Select(call =>
                 new ExecutionGraphCallRelation(
                     $"{graph.Id.Value}:{call.Id.Value}",
                     graph.Id,

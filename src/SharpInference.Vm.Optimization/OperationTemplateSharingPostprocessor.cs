@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.Json;
 using SharpInference.Graphs;
 using SharpInference.Graphs.Core;
+using static SharpInference.Graphs.Core.PatternElements;
 
 namespace SharpInference.Vm.Optimization;
 
@@ -23,7 +24,9 @@ public sealed class OperationTemplateSharingPostprocessor : IExecutionGraphPostp
         {
             var groups = new Dictionary<string, List<ExecutionOperationNode>>(StringComparer.Ordinal);
             var bindings = new Dictionary<ExecutionNodeId, IReadOnlyList<ModelResourceBinding>>();
-            foreach (var operation in graph.Nodes.OfType<ExecutionOperationNode>())
+            var candidates = graph.Structure.Match(
+                Pattern.Create(Node().Where<ExecutionOperationNode>(_ => true)));
+            foreach (var operation in candidates.Select(match => (ExecutionOperationNode)match.Nodes.Single()))
             {
                 var ports = graph.Bindings(operation);
                 // Alias-bearing and instance-scoped contracts remain untouched.

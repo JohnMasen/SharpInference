@@ -193,7 +193,7 @@ public sealed class LogicalGraphDefinition
             .Where(node => node.ResourceNodeId.Owner.IsParent)
             .Select(node => node.Resource).ToArray();
     public IReadOnlyList<GraphDefinitionNode> Nodes =>
-        Structure.Nodes.OfType<GraphDefinitionNode>().ToArray();
+        Structure.Filter(node: node => node is GraphDefinitionNode).Nodes.Cast<GraphDefinitionNode>().ToArray();
     public IReadOnlyList<LogicalGraphDefinition> Definitions { get; }
     public IReadOnlyList<GraphDefinitionNodeId> CompletionSinks { get; }
     public IReadOnlyDictionary<ResourceId, IReadOnlyList<GraphDefinitionNodeId>> TerminalWriters { get; }
@@ -1079,7 +1079,8 @@ internal static class LogicalGraphDefinitionValidator
 
         var nodes = graph.Nodes.ToDictionary(node => node.Id);
         var definitions = graph.Definitions.ToDictionary(definition => definition.Id);
-        var calls = graph.Nodes.OfType<GraphCallNode>().ToDictionary(call => call.Id);
+        var calls = graph.Structure.Filter(node: node => node is GraphCallNode)
+            .Nodes.Cast<GraphCallNode>().ToDictionary(call => call.Id);
         foreach (var node in graph.Nodes)
         {
             var ports = new HashSet<string>(StringComparer.Ordinal);
@@ -1215,9 +1216,8 @@ internal static class LogicalGraphDefinitionValidator
             var resourceNode = graph.Structure.NodesOfType<LogicalResourceNode>()
                 .Single(node => node.ResourceNodeId ==
                     new ModelResourceNodeId(GraphBindingOwner.Parent, output.Id));
-            var writers = graph.Structure.EdgesToNode(resourceNode.GraphId)
-                .OfType<LogicalResourceWriteEdge>()
-                .Select(edge => (GraphDefinitionNode)graph.Structure.GetNode(edge.Source))
+            var writers = graph.Structure.Writers(resourceNode)
+                .Cast<GraphDefinitionNode>()
                 .Select(node => node.Id)
                 .Distinct()
                 .ToArray();

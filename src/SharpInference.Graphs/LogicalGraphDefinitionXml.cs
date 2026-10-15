@@ -65,7 +65,8 @@ public static partial class GraphXml
                 throw new InvalidDataException($"Recursive graph definition '{id}'.");
             }
 
-            var children = record.Structure.Nodes.OfType<GraphCallNode>()
+            var children = record.Structure.Filter(node: node => node is GraphCallNode)
+                .Nodes.Cast<GraphCallNode>()
                 .Select(call => Build(call.Definition.Value))
                 .DistinctBy(definition => definition.Id)
                 .ToArray();

@@ -49,10 +49,39 @@ foreach (var size in new[] { 128, 1024 })
     var readPattern = Pattern.Create(Node(resource.GraphId))
         - Edge().Where<ExecutionResourceReadEdge>(_ => true) - Node();
     Measure($"{size}: 1000 direct readers", () =>
+        Enumerable.Range(0, 1000).Sum(_ => graph.Structure.EdgesFromNode(resource.GraphId)
+            .OfType<ExecutionResourceReadEdge>().Select(edge => graph.Structure.GetNode(edge.Target))
+            .DistinctBy(node => node.GraphId).Count()));
+    Measure($"{size}: 1000 production readers", () =>
         Enumerable.Range(0, 1000).Sum(_ => graph.Structure.Readers(resource).Count));
     Measure($"{size}: 1000 matched readers", () =>
         Enumerable.Range(0, 1000).Sum(_ => graph.Structure.Match(readPattern)
             .Select(match => match.Nodes.Last()).DistinctBy(n => n.GraphId).Count()));
+    var writePattern = Pattern.Create(Node())
+        - Edge().Where<ExecutionResourceWriteEdge>(_ => true) - Node(resource.GraphId);
+    var expectedWriters = graph.Structure.EdgesToNode(resource.GraphId)
+        .OfType<ExecutionResourceWriteEdge>().Select(edge => edge.Source).Distinct()
+        .OrderBy(id => id.Value, StringComparer.Ordinal).ToArray();
+    var actualWriters = graph.Structure.Match(writePattern)
+        .Select(match => match.Nodes.First().GraphId).Distinct()
+        .OrderBy(id => id.Value, StringComparer.Ordinal).ToArray();
+    if (!expectedWriters.SequenceEqual(actualWriters) ||
+        !expectedWriters.SequenceEqual(graph.Structure.Writers(resource).Select(node => node.GraphId)
+            .OrderBy(id => id.Value, StringComparer.Ordinal)))
+        throw new InvalidDataException("Writer identities mismatch");
+    Measure($"{size}: 1000 indexed writers", () =>
+        Enumerable.Range(0, 1000).Sum(_ => graph.Structure.EdgesToNode(resource.GraphId)
+            .OfType<ExecutionResourceWriteEdge>().Select(edge => edge.Source).Distinct().Count()));
+    Measure($"{size}: 1000 production writers", () =>
+        Enumerable.Range(0, 1000).Sum(_ => graph.Structure.Writers(resource).Count));
+    Measure($"{size}: 1000 terminal-anchored matched writers", () =>
+        Enumerable.Range(0, 1000).Sum(_ => graph.Structure.Match(writePattern)
+            .Select(match => match.Nodes.First()).DistinctBy(n => n.GraphId).Count()));
+    var planningPattern = Pattern.Create(Node().Where<ExecutionGraphStructureNode>(_ => true))
+        - Edge() - Node().Where<ExecutionGraphStructureNode>(node => node.GraphId == resource.GraphId);
+    var noEdges = graph.Structure.Filter(edge: _ => false);
+    Measure($"{size}: general candidate planning without path expansion", () =>
+        noEdges.Match(planningPattern).Count());
     Measure($"{size}: match + ToGraph", () => graph.Structure.Match(pattern).ToGraph().Edges.Count);
     Measure($"{size}: one-off BFS", () => view.IsReachable(anchor.GraphId, target.GraphId) ? 1 : 0);
     Measure($"{size}: one-off index build", () =>
