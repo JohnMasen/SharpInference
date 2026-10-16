@@ -1,7 +1,9 @@
 # SharpInference.Graphs 薄辅助层重构计划
 
-状态：待执行。本文是后续实施依据，不代表代码已经完成迁移。
+状态：已执行并通过最终验收；实际结果见第 10 节。
 制定日期：2026-10-16。
+执行基线：提交 `338003b`（`re-org SharpInference.Graphs project`）。
+约束更新：不要求旧 API 或旧 XML 格式兼容；仓库调用方、测试和样例统一迁移。
 
 ## 1. 目标与不可变边界
 
@@ -31,23 +33,27 @@
 - 不顺带修改 Core 已有实现问题。
 - 不新增动态控制流、形状推导器、指令注册中心或融合算子。
 - 不以文件数或类型数为唯一精简指标；优先删除机制和重复职责。
+- 不保留旧 API 重载、兼容包装、旧 XML reader 或自动格式升级路径。
 
-## 2. 当前实现与迁移影响
+本次允许破坏 API 和 XML 格式兼容性。保留计算语义、资源 ABI 和有效图的执行结果，
+不等于保留旧构造语法、诊断代码、序列化文本或旧格式文件的可读性。
 
-实施以执行时工作区为准，不能根据旧提交覆盖现有改动。
-制定本计划时，工作区正在使用 Logical、Execution 子目录，存在大量未提交改动及未跟踪文件；
-旧根目录图文件已经标记删除。以下链接指向当前工作区，而不是要求恢复旧布局。
+## 2. 重构前实现与迁移影响
+
+用户已提交之前的工作区改动，当前基线为 `338003b`，核对时工作区干净。
+实施从该提交的 Logical、Execution 子目录布局出发，不恢复已删除的旧根目录图文件。
+若执行时已有新提交或新改动，重新记录实际起点并保留无关工作。
 
 | 当前区域 | 现状 | 重构方向 |
 |---|---|---|
 | [GraphDefinitionBuilder](../src/SharpInference.Graphs/Logical/GraphDefinitionBuilder.cs) | 泛型端口契约、资源句柄、调用端口重建、绑定展开、依赖推导集中在一起 | 非泛型的具名构造入口，复用公共机制 |
 | [GraphOperationNodeBuilder](../src/SharpInference.Graphs/Logical/GraphOperationNodeBuilder.cs) | 绑定必须取得当前图拥有的泛型句柄 | 记录具名资源引用，延后解析 |
-| [IGraphPortContract](../src/SharpInference.Graphs/Logical/IGraphPortContract.cs)、[InstancePortFactory](../src/SharpInference.Graphs/Logical/InstancePortFactory.cs) | 为定义和每次调用创建同形状 C# 端口对象 | 消除这条必经路径 |
+| 旧 IGraphPortContract、InstancePortFactory | 为定义和每次调用创建同形状 C# 端口对象 | 删除，不保留兼容入口 |
 | [ExecutionGraphBuilder](../src/SharpInference.Graphs/Execution/ExecutionGraphBuilder.cs) | 已按集合构造，但绑定展开与逻辑构造方有重复 | 统一具名引用和公共展开逻辑 |
 | [LogicalGraphDefinitionValidator](../src/SharpInference.Graphs/Logical/LogicalGraphDefinitionValidator.cs) | 在完整结构上分析，部分无效输入会先抛集合异常 | 先检查声明完整性，再进行领域分析 |
 | [ExecutionGraph](../src/SharpInference.Graphs/Execution/ExecutionGraph.cs)、[ExecutionGraphProgram](../src/SharpInference.Graphs/Execution/ExecutionGraphProgram.cs) | 构造时校验，图的 Validate 为私有，程序另做调用 DAG 校验 | 提供一致的公开校验体验，保留图级/程序级边界 |
 | [ModelGraphQueries](../src/SharpInference.Graphs/ModelGraphQueries.cs) | 已基于 Core 视图提供模型查询 | 保留，必要时消除重复，不重写查询引擎 |
-| [LogicalGraphXml](../src/SharpInference.Graphs/Logical/LogicalGraphXml.cs)、[ExecutionGraphXml](../src/SharpInference.Graphs/Execution/ExecutionGraphXml.cs) | 已使用 v2 通用节点/边格式，不恢复端口契约 | 优先保持格式，统一校验路径 |
+| [LogicalGraphXml](../src/SharpInference.Graphs/Logical/LogicalGraphXml.cs)、[ExecutionGraphXml](../src/SharpInference.Graphs/Execution/ExecutionGraphXml.cs) | 已使用 v2 通用节点/边格式，不恢复端口契约 | 按新声明模型简化格式，统一校验路径，不兼容旧格式 |
 | [RWKV 构造适配](../src/SharpInference.Models.Rwkv/Architecture/PortableRwkvGraphDefinitionComposer.cs) | 使用 RwkvGraphPorts、泛型句柄及 AsyncLocal 描述符 | 直接声明 token、logits 等资源，移除契约专用环境状态 |
 | [Phi4 构造适配](../src/SharpInference.Models.Phi4/Architecture/Phi4GraphDefinitionBuilder.cs) | 先收集具名声明，再经 DynamicPorts 和句柄字典转换 | 直接接入具名构造 API，移除契约中转 |
 
@@ -143,7 +149,8 @@ var graph = builder.Build();
 
 ### 3.4 校验与依赖
 
-按顺序执行：声明检查、引用解析、绑定检查、领域分析、Core 物化。
+按顺序执行：声明检查、引用解析、绑定结构检查、Core 物化、领域分析。
+领域分析复用 Core 查询；只有全部检查通过才公开返回成品图。
 声明检查失败时，跳过依赖该无效项的后续分析，但继续收集独立错误；
 不能在 ToDictionary、Single 或 GetNode 处先抛无上下文异常。
 
@@ -155,8 +162,10 @@ var graph = builder.Build();
 
 构造方可以在本地 Validate 时不解析外部图目标，但必须明确校验范围；
 全图集合 Build/Validate 必须解析目标，不允许把“未提供上下文”解释为目标合法。
-执行图现有程序校验不完整检查被调接口，不能在迁移中无说明地增加更严格默认规则；
-如共享接口校验暴露现有不一致，在 P0 记录并单独确定行为，不伪装成等价迁移。
+执行图现有程序校验不完整检查被调接口。本次按统一接口规则补全目标端口、
+访问方式与张量兼容校验，并迁移暴露问题的构造方和测试；
+不为兼容旧无效数据保留跳过校验的开关。P0 记录新增拒绝条件，
+与有效模型的计算行为回归分开说明。
 
 逻辑依赖推导必须保持当前规则，而不是简单按添加顺序串行化：
 
@@ -169,7 +178,8 @@ var graph = builder.Build();
 
 CompletionSinks、TerminalWriters 和既有 LG 错误/警告语义保持。
 跨实例写入的 LGW003、无序终端写入者的 LGW002 不能未经授权升级为 Error。
-公共诊断迁移尽量保留已有代码；执行诊断新增代码要在测试和文档中固定。
+公共诊断代码可以统一整理，不要求旧代码兼容；新代码及对应语义在测试和文档中固定。
+既有错误/警告严重程度的保留不要求保留原诊断类型。
 
 校验结构和已知接口不等于证明任意操作数学等价，也不等于后端支持检查。
 未知自定义操作不能仅因未注册后端实现就在通用建图层被拒绝。
@@ -183,24 +193,28 @@ CompletionSinks、TerminalWriters 和既有 LG 错误/警告语义保持。
 - 优化器继续基于节点、边、操作及绑定工作，不判断用户定义的 CLR 图类。
 - 改写结果经过相应图级、程序级校验；不从绑定重新推导并覆盖优化后的执行依赖。
 
-### 3.6 XML：保持 v2，简化构造路径
+### 3.6 XML：直接表达新模型，不保留旧格式
 
-当前两套 XML 已保存通用结构，没有序列化 IGraphPortContract。
-因此本次默认保留现有 v2 schema、根标识和节点/边表示，不另建更简洁但不兼容的格式。
+当前 XML 没有序列化 IGraphPortContract，但仍携带旧构造和结构表示的历史选择。
+本次以新公共模型为依据确定唯一格式，不以旧 v2 可读性约束设计，也不双写新旧格式。
 
-1. 解析阶段先收集名字记录，节点、资源和定义的出现顺序不影响引用解析。
-2. 使用公共声明/结构校验，随后构造成品图；公开反序列化入口仍返回已验证结果。
-3. XML 以现有节点和边为权威结构，不再同时增加一套可独立修改的 Bindings 节点。
-4. 构建时从绑定展开访问边；XML 导入时保留已有边 ID、顺序和成对绑定身份。
-5. 导入后再导出不能重新生成并覆盖显式边 ID，不能重新推导执行依赖。
-6. 保留逻辑资源的声明 owner 与绑定 instance 作用域，两者不能混同。
+1. XML 保存图、资源、操作、调用、名字绑定和必要依赖；访问边由绑定展开，
+   不同时保存一份可独立修改的等价访问边集合。
+2. 非派生的关系、优化后依赖以及实际需要的身份必须无损表达；
+   不能只为简化 XML 而丢弃执行结构。P1 固定关系和身份的保存规则。
+3. 解析先收集名字记录，节点、资源和定义的出现顺序不影响引用解析。
+4. 使用公共声明/结构校验，随后构造成品图；公开反序列化入口返回已验证结果。
+5. 执行图导入后保留执行依赖，不能按逻辑图推导规则重新生成。
+6. 保留资源声明归属和绑定实例作用域，两者不能混同。
 7. 保留来源映射、架构注解、边界、属性、bindingKey 和精度。
-8. 保留图定义排序、图内声明顺序及已有规范化输出规则。
+8. 固定新的确定性排序和规范化输出规则，不要求与旧 XML 文本一致。
 9. 保留 DTD 禁用、外部解析禁用、字符数、元素数、深度及枚举值限制。
 10. 不保存或恢复用户 CLR 类型名；只分派受支持的逻辑/执行节点种类。
 
-如果测试证明 v2 无法无损表达必要数据，暂停格式改动并补充版本迁移设计；
-不能在实施中悄悄把 v2 改成另一种含义。格式错误仍明确失败，不兜底返回空图。
+新格式使用明确的新版本标识，不把旧 v2 标识复用于不同 schema。
+旧格式和未知版本直接报出不支持的格式诊断，不尝试兼容读取、猜测或自动升级。
+仓库 XML 样例和消费者在同次重构中更新；不要为已有样例保留旧模型旁路。
+格式错误明确失败，不兜底返回空图。
 
 ## 4. 文件与 API 迁移清单
 
@@ -211,11 +225,12 @@ CompletionSinks、TerminalWriters 和既有 LG 错误/警告语义保持。
 | Execution/ExecutionGraphBuilder.cs、ExecutionGraph.cs、ExecutionGraphProgram.cs | 共享绑定展开及诊断，统一本地与程序级校验边界 |
 | ModelResourceBinding.cs、ModelResourceNodeId.cs、GraphBindingOwner.cs | 复用结构化引用，避免新旧两套资源身份 |
 | ModelGraphQueries.cs 及公共模型接口 | 保持查询契约，适配真正变化的类型 |
-| 两套 GraphXml、LogicalGraphDefinitionRecord、Internal/GraphXmlSupport.cs | 名字记录装载及公共校验，保留 v2 格式和限制 |
+| 两套 GraphXml、LogicalGraphDefinitionRecord、Internal/GraphXmlSupport.cs | 新格式读写、名字记录装载及公共校验，保留安全限制 |
 | Execution/DefaultExecutionGraphConverter.cs、ExecutionGraphCompiler.cs、ExecutionGraphRewriter.cs | 适配构造/校验入口，保留转换及改写行为 |
 | 模型构造方、VM 优化及发射消费者 | 仅替换构造/绑定/校验调用，不修改算法和 ABI |
 
-全部调用方完成迁移后，删除以下旧机制，而不是保留空壳兼容层：
+旧机制与对应调用方按功能切片同步替换，不增加兼容入口；
+最终必须删除以下机制，而不是保留空壳兼容层：
 
 - IGraphPortContract、IGraphPortFactory、DefinitionPortFactory、InstancePortFactory。
 - GraphDefinition<TContract>、GraphDefinitionBuilder<TContract> 的泛型入口。
@@ -254,12 +269,14 @@ P2、P3 可以逻辑独立推进；若共享文件交叉，按顺序执行，不
 1. 记录当前工作区改动，不覆盖、撤回或暂存不属于本次重构的工作。
 2. 重新扫描旧泛型入口及构造/反序列化/转换的全部调用方。
 3. 运行第 7 节的图相关基线；失败与跳过分别记录，不借本次任务修复无关问题。
-4. 从当前代码构造固定 v2 XML 测试样例，包含逻辑子图、状态和执行来源映射。
-5. 样例作为测试数据或代码常量保存，不只存于临时目录或聊天记录。
+4. 固定代表性图的语义预期，包含逻辑子图、状态和执行来源映射；
+   不把旧 v2 文件可读性作为验收目标。
+5. 将预期资源、调用、绑定和依赖作为测试数据或代码断言保存，
+   不只存于临时目录或聊天记录，不以旧格式输出字符串作为唯一预期。
 6. 固定依赖推导、警告、输出名字、结构身份和编译边界行为。
 
-交付：可重跑的基线、兼容样例和迁移清单；P1 前明确公共 API 签名。
-本计划制定时未重新运行基线，不能把此前会话测试结果当作执行时基线。
+交付：可重跑的基线、语义回归样例和迁移清单；P1 前明确公共 API 签名。
+执行时已重新运行基线，结果记录于第 10 节。
 
 ### P1：公共名字引用、构造辅助与校验
 
@@ -270,6 +287,8 @@ P2、P3 可以逻辑独立推进；若共享文件交叉，按顺序执行，不
 3. 提取两种构造方共享的绑定检查及读写边展开。
 4. 实现前向引用、重复声明拒绝、顺序保留和稳定的内部身份生成。
 5. 提供局部校验、外部定义上下文及 Build 失败的明确边界。
+6. 固定新 XML schema、版本、排序规则以及结构关系和身份的无损表示，
+   不设计旧格式兼容或升级分支。
 
 验收：无需端口契约即可记录声明；前向引用与实例引用可验证；
 Validate 无副作用；同样输入重复物化结果稳定；Core 无改动。
@@ -283,7 +302,8 @@ Validate 无副作用；同样输入重复物化结果稳定；Core 无改动。
 3. 子图调用使用目标名字及显式端口映射，注册时机与引用顺序解耦。
 4. 在完整声明上复用现有依赖推导规则。
 5. 提供 Builder.Validate、LogicalGraphDefinition.Validate 和直接返回成品图的便利入口。
-6. 迁移逻辑图测试；暂留旧入口仅用于未迁移调用方，不扩展其功能。
+6. 迁移逻辑图测试和受该 API 变更直接影响的调用方，移除旧入口；
+   不通过兼容重载维持旧调用。P5 再集中清理模型侧冗余适配。
 
 验收：Copy/ReLU 链、残差、状态、复用子图和跨实例资源行为保持；
 缺失目标、端口或资源返回具名诊断；警告仍为警告。
@@ -297,6 +317,7 @@ Validate 无副作用；同样输入重复物化结果稳定；Core 无改动。
 3. 公开一致的图级 Validate，并明确程序级调用关系校验入口。
 4. 保留执行图与程序的已验证快照，以及图/调用顺序。
 5. 不为执行图新增逻辑图式的隐式依赖推导。
+6. 同步迁移受影响的执行图构造方，不新增旧签名兼容重载。
 
 验收：前向依赖可构造；绑定错误和依赖环明确报告；
 程序仍拒绝缺失目标、多根、调用环及不可达定义；
@@ -306,15 +327,17 @@ Validate 无副作用；同样输入重复物化结果稳定；Core 无改动。
 
 操作：
 
-1. 两套 XML 先装载记录，后运行公共校验；保留 v2 读取和输出。
-2. 对 P0 固定样例执行往返测试，不只测试新 writer 配新 reader。
+1. 两套 XML 使用 P1 固定的新格式，先装载记录，后运行公共校验；
+   移除旧格式 reader/writer，更新仓库内相关样例。
+2. 对 P0 固定的语义预期和独立手写的新格式样例执行往返测试，
+   不只测试新 writer 配新 reader；验证旧格式被明确拒绝。
 3. 转换器移除对契约包装的依赖，保持定义复用和冲突检测。
 4. 编译器、后处理器和改写器调用统一校验入口。
 5. 验证图导入后的内联、提取、融合、依赖缩减和资源重用。
 6. 保留 XML 后处理器对模型、后端和逻辑来源的匹配检查。
 
-验收：旧 v2 样例可读、规范化往返稳定；XML 图和代码图进入同一优化路径；
-无 CLR 类型恢复；无隐式边 ID 重写或执行依赖重算。
+验收：新格式语义完整、规范化往返稳定；XML 图和代码图进入同一优化路径；
+旧格式被明确拒绝；无 CLR 类型恢复，无必要身份丢失或执行依赖重算。
 
 ### P5：模型及消费者迁移
 
@@ -333,7 +356,8 @@ Validate 无副作用；同样输入重复物化结果稳定；Core 无改动。
 
 验收：模型项目可构建；消费者没有契约依赖；资源槽名字、bindingKey、
 状态读写、VM 调用及 CPU/D3D12 生成语义保持。
-Phi4 未被当前主测试项目直接覆盖，不能用 RWKV 测试代替其构建和回归。
+重构前主测试项目未直接覆盖 Phi4；实施中已增加项目引用和独立的合成目录回归，
+不能用 RWKV 测试代替其构建和回归。
 
 ### P6：旧机制清理与最终验收
 
@@ -346,7 +370,7 @@ Phi4 未被当前主测试项目直接覆盖，不能用 RWKV 测试代替其构
 5. 记录通过、失败、跳过、外部条件和未解决阻塞，不将跳过写成通过。
 
 验收：新入口独立可用，旧路径无调用方；全部必需验证通过；
-无长驻兼容层、无静态描述符旁路、无未说明行为变化。
+无兼容层或旧格式读取分支、无静态描述符旁路、无未说明行为变化。
 
 ## 6. 必须覆盖的测试矩阵
 
@@ -358,7 +382,8 @@ Phi4 未被当前主测试项目直接覆盖，不能用 RWKV 测试代替其构
 | 调用复用 | 同一定义两次调用、显式输出映射、跨实例资源 | 输出身份、作用域及调用依赖正确 |
 | 依赖 | 唯一生产者、ReadWrite、多写入、自依赖、依赖环 | 保留既有推导与 LGW002/LGW003 |
 | 生命周期 | 重复 Validate/Build、Builder 后续修改 | 不累积关系、不修改旧快照 |
-| XML 兼容 | P0 固定 v2 样例、新代码图往返、非规范声明顺序 | 语义、边 ID、元数据、作用域完整 |
+| XML 往返 | P0 语义预期、手写新格式样例、代码图往返、非规范声明顺序 | 语义、必要身份、元数据、作用域完整 |
+| XML 版本 | 旧格式及未知版本 | 明确拒绝，不自动升级，不保留兼容分支 |
 | XML 失败 | 缺失根/目标、重复身份、坏枚举、超限、DTD | 明确失败，安全限制不退化 |
 | 转换与优化 | 代码图及 XML 图分别转换、内联/提取/融合及现有后处理 | 同等输入下绑定、来源和执行语义一致 |
 | VM | CPU 源码、D3D12 源码及调用/调度/屏障生成 | 不支持操作仍明确报错 |
@@ -366,6 +391,7 @@ Phi4 未被当前主测试项目直接覆盖，不能用 RWKV 测试代替其构
 
 XML 比较区分语义等价与规范化字符串稳定。
 不能只比较节点数量，也不能只依赖新序列化器与新反序列化器相互配合。
+旧格式字符串及旧诊断代码不作为兼容性断言；计算结果与必要元数据继续独立断言。
 需要数值验证时使用现有测试的容差，不能为通过重构而放宽。
 
 ## 7. 验证命令与外部条件
@@ -395,10 +421,10 @@ dotnet build .\src\SharpInference.Vm.Optimization\SharpInference.Vm.Optimization
 ### 7.3 最终无外部模型的回归
 
 ```powershell
-dotnet test .\src\SharpInference.Tests\SharpInference.Tests.csproj --no-restore --filter "FullyQualifiedName~GraphCoreTests|FullyQualifiedName~GraphViewQueryTests|FullyQualifiedName~LogicalGraphDefinitionTests|FullyQualifiedName~ExecutionGraphConverterTests|FullyQualifiedName~ExecutionGraphPostprocessorTests|FullyQualifiedName~VmExecutionGraphEmitterTests" --verbosity minimal
+dotnet test .\src\SharpInference.Tests\SharpInference.Tests.csproj --no-restore --filter "FullyQualifiedName~GraphCoreTests|FullyQualifiedName~GraphViewQueryTests|FullyQualifiedName~LogicalGraphDefinitionTests|FullyQualifiedName~ExecutionGraphConverterTests|FullyQualifiedName~ExecutionGraphPostprocessorTests|FullyQualifiedName~VmExecutionGraphEmitterTests|FullyQualifiedName~NamedGraphConstructionTests|FullyQualifiedName~GraphSerializationTests|FullyQualifiedName~GraphModelAdapterTests" --verbosity minimal
 ```
 
-加入新增测试选择器。GraphCoreTests 用于确认 Core 未改动后的集成行为，
+已包含新增测试选择器。GraphCoreTests 用于确认 Core 未改动后的集成行为，
 不是授权修改 Core；无需重复整个无关解决方案的所有测试。
 
 ### 7.4 条件允许时的模型及 GPU 验证
@@ -414,27 +440,79 @@ dotnet test .\src\SharpInference.Tests\SharpInference.Tests.csproj --no-restore 
 
 | 风险 | 应对 |
 |---|---|
-| 现有工作区正在重组文件 | 以实际文件为准，不恢复已删除旧文件，不覆盖他人改动 |
+| 执行起点偏离已提交基线 | 核对当前提交和工作区；不恢复旧布局，不覆盖新增无关改动 |
 | 泛型辅助再次膨胀为框架 | 只提取两方实际重复逻辑，一层辅助，不引入新项目或类型注册 |
 | 后期绑定改变依赖语义 | 固定唯一写入者、ReadWrite、多写入者和实例资源测试 |
 | 直接构造或 XML 绕过校验 | 共享前置校验和领域分析，所有成品入口维持有效性 |
-| XML 简化破坏外部图及来源映射 | 默认保留 v2，固定旧样例，保持边身份和元数据 |
-| 新执行接口校验意外拒绝旧图 | P0 记录差异，不暗中加强默认行为 |
+| XML 简化丢失图语义及来源映射 | 以语义预期和手写新格式样例验证必要身份、依赖与元数据 |
+| 新执行接口校验暴露无效绑定 | 修正构造方和测试，不保留跳过校验的兼容开关 |
 | 模型测试被外部条件跳过 | 提供无外部依赖适配测试，单独记录条件性数值验证 |
 
-遇到无法保持的 XML 兼容、资源 ABI 或依赖语义差异时，先补充设计与影响说明，
+遇到资源 ABI、计算结果或依赖语义差异时，先补充设计与影响说明，
 不得用静默默认值、忽略引用或放宽测试掩盖问题。
 
 ## 9. 完成定义
 
-- [ ] Core 源码和公开契约没有本次引入的改动。
-- [ ] 逻辑图和执行图都使用具名构造及明确的校验入口。
-- [ ] 两种图共用必要模型类型和薄的辅助，没有第二套通用图引擎。
-- [ ] 简单图、状态图和子图调用无需端口契约或泛型资源标签。
-- [ ] 字典/ID 查找和既有 Core 查询能力可用，前向引用有正式回归。
-- [ ] XML v2 兼容样例通过，图语义、依赖、来源及作用域不丢失。
-- [ ] 所有模型和下游调用方完成迁移，旧契约和静态描述符旁路清理。
-- [ ] 必需构建和测试通过，条件性验证状态明确。
-- [ ] 示例与文档更新，无未说明的执行行为变化。
+- [x] Core 源码和公开契约没有本次引入的改动。
+- [x] 逻辑图和执行图都使用具名构造及明确的校验入口。
+- [x] 两种图共用必要模型类型和薄的辅助，没有第二套通用图引擎。
+- [x] 简单图、状态图和子图调用无需端口契约或泛型资源标签。
+- [x] 字典/ID 查找和既有 Core 查询能力可用，前向引用有正式回归。
+- [x] 新 XML 格式往返通过，旧格式被明确拒绝，图语义、依赖、来源及作用域不丢失。
+- [x] 所有模型和下游调用方完成迁移，旧契约和静态描述符旁路清理。
+- [x] 必需构建和测试通过，条件性验证状态明确。
+- [x] 示例与文档更新，无未说明的执行行为变化。
 
-执行完毕时回填阶段结果及验证证据；未执行的项目保持未勾选。
+## 10. 实施记录
+
+### 10.1 已落地的阶段
+
+- P0：从 `338003b` 开始，图、查询、后处理及 VM 基线 112 项通过，零失败、零跳过。
+- P1：新增公共 GraphDiagnostic 和内部泛型 ModelGraphConstruction；
+  两种图共享结构校验和绑定展开，不增加项目、端口工厂或公开泛型框架。
+- P2：非泛型 GraphDefinitionBuilder、ResourceId/ModelResourceNodeId 名字绑定、
+  前向引用、显式子图绑定及 RegisterDefinition；保留逻辑依赖推导与输出分析。
+- P3：执行 Builder 共享结构辅助，图和程序公开 Validate；
+  增加调用接口与实例资源匹配检查，拒绝写只读资源的无效执行图。
+- P4：XML v3 采用 Bindings/Dependencies，不读取 v2；
+  保留边 ID、读写关系顺序、作用域、精度、来源与架构信息。
+  反序列化不执行逻辑依赖重推导。
+- P5：RWKV、Phi4 移除泛型句柄、端口契约和 AsyncLocal 描述符中转；
+  增加无需实际模型文件的公开模型模块构造回归。
+- P6：删除旧机制，更新中英文 README；
+  GraphView 查看器与浏览器自测一并迁移至 v3。
+
+### 10.2 关键实现与回归入口
+
+- [公共结构辅助](../src/SharpInference.Graphs/Internal/ModelGraphConstruction.cs)：
+  泛型绑定展开和端点、身份、端口、作用域检查。
+- [公共 XML 关系编码](../src/SharpInference.Graphs/Internal/ModelGraphXml.cs)：
+  ReadWrite 仅保存一次，通过 readEdge/writeEdge 及 readOrder/writeOrder 保留结构身份和顺序。
+- [具名构造测试](../src/SharpInference.Tests/NamedGraphConstructionTests.cs)：
+  前向引用、显式绑定、多错误诊断、重复校验/构建与快照隔离。
+- [序列化与执行测试](../src/SharpInference.Tests/GraphSerializationTests.cs)：
+  独立手写 v3 样例、版本拒绝、文档限制、来源映射、状态调用及 CPU 实际数值执行。
+- [模型适配测试](../src/SharpInference.Tests/GraphModelAdapterTests.cs)：
+  公开 RWKV7、Phi4 Speech/Vision 模块，合成 FP16/FP32 张量目录，不读取权重数值。
+
+### 10.3 验证与限制
+
+- Phi4 项目两个目标框架构建通过，零警告、零错误。
+- 新增 Phi4 测试项目引用后执行依赖恢复；没有新增包或安装工具。
+- 已运行真实 tiny RWKV6/7 CPU 构造/发射与 RWKV7 CPU logits 回归。
+- 已运行真实 tiny RWKV7 D3D12 编译和 logits 回归，不以源码生成替代 GPU 执行。
+- GraphView 集成浏览器自测 99 项通过，未安装浏览器依赖。
+- 第 7.3 节最终合并回归：174 项通过，零失败、零跳过，包含实际 CPU 残差数值执行。
+- 真实模型最终合并回归：RwkvTinyExecutionPipelineTests 共 4 项通过，零失败、零跳过；
+  包含 RWKV6/7 CPU 构造发射、RWKV7 CPU logits 和 D3D12 logits，耗时约 3 分 10 秒。
+- Core 源码无本次差异；差异格式检查和本文相对链接检查通过。
+- 曾暴露旧后处理测试向 Weight 写入的无效夹具；已改为只读 Weight，
+  并新增 EG0004 写入拒绝回归，不放松生产校验。
+- 本次不重新测量完整的 8 种 Pass 开关与正反顺序性能矩阵；
+  保留其测试入口，不据本次构造层重构更新 README 中的性能结论。
+
+真实模型回归的重跑命令（要求既有本地模型目录可用）：
+
+```powershell
+dotnet test .\src\SharpInference.Tests\SharpInference.Tests.csproj --no-build --no-restore --filter "FullyQualifiedName~RwkvTinyExecutionPipelineTests" --verbosity quiet
+```

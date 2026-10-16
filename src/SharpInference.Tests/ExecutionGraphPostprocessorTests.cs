@@ -10,13 +10,8 @@ public sealed class ExecutionGraphPostprocessorTests
 {
     private static readonly TensorDescriptor F = new(GraphElementType.Float32, [4]);
     private static readonly ExecutionGraphPostprocessContext Context = new(
-        LogicalGraphDefinition.Define<NoPorts>("logical", _ => { }).Definition,
+        LogicalGraphDefinition.Define("logical", _ => { }),
         new("arbitrary-model", "arbitrary-backend"), 0, "test");
-
-    private sealed class NoPorts : IGraphPortContract<NoPorts>
-    {
-        public static NoPorts Create(IGraphPortFactory ports) => new();
-    }
 
     [Fact]
     public void DependencyReductionPreservesEveryReachabilityAndDataEdge()
@@ -174,9 +169,27 @@ public sealed class ExecutionGraphPostprocessorTests
     {
         var builder = Builder(secondKind: kind);
         Add(builder, "a", "a");
-        Add(builder, "b", "b", dependencies: ["a"]);
+        if (kind == GraphDefinitionResourceKind.Weight)
+        {
+            Add(builder, "b", "output", "b", ["a"]);
+        }
+        else
+        {
+            Add(builder, "b", "b", dependencies: ["a"]);
+        }
         Assert.Contains(Process(new TemporaryResourceReusePostprocessor(), builder.Build()).Graphs[0].Resources,
             resource => resource.Id.Value == "b");
+    }
+
+    [Fact]
+    public void ExecutionGraphRejectsWeightWrites()
+    {
+        var builder = Builder(secondKind: GraphDefinitionResourceKind.Weight);
+        Add(builder, "write-weight", "b");
+
+        var exception = Assert.Throws<InvalidDataException>(() => builder.Build());
+
+        Assert.Contains("EG0004", exception.Message, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -267,7 +280,9 @@ public sealed class ExecutionGraphPostprocessorTests
     [Fact]
     public void CallerBoundTemporaryAndCallAccessesAreProtected()
     {
-        var child = Builder("child");
+        var child = new ExecutionGraphBuilder(new("child"));
+        child.AddResource(new(new("a"), "a", GraphDefinitionResourceKind.Output, F));
+        child.AddResource(new(new("b"), "b", GraphDefinitionResourceKind.Output, F));
         Add(child, "a", "a");
         Add(child, "b", "b", dependencies: ["a"]);
         var root = Builder();
@@ -276,7 +291,11 @@ public sealed class ExecutionGraphPostprocessorTests
              Binding("b", "b", GraphResourceAccess.Write, "call")]);
         var before = new ExecutionGraphProgram([root.Build(), child.Build()]);
         var after = new TemporaryResourceReusePostprocessor().Process(before, Context);
-        Assert.All(after.Graphs, graph => Assert.Equal(6, graph.Resources.Count));
+        Assert.Equal(6, after.Graphs.Single(graph => graph.Id.Value == "root").Resources.Count);
+        Assert.Equal(2, after.Graphs.Single(graph => graph.Id.Value == "child").Resources.Count);
+        var rootAfter = after.Graphs.Single(graph => graph.Id.Value == "root");
+        Assert.Equal(["a", "b"],
+            rootAfter.Bindings(Assert.Single(rootAfter.Nodes)).Select(binding => binding.Resource.Resource.Value));
     }
 
     [Fact]
@@ -306,7 +325,11 @@ public sealed class ExecutionGraphPostprocessorTests
         var root = Builder();
         root.AddResource(new(new("a"), "a", GraphDefinitionResourceKind.Temporary, F),
             GraphBindingOwner.Instance(new("call")));
-        root.AddCall(new(new("call"), new("child"), GraphCompileBoundary.Atomic, new([])), []);
+        root.AddCall(new(new("call"), new("child"), GraphCompileBoundary.Atomic, new([])),
+            [Binding("input", "input", GraphResourceAccess.Read, "call"),
+             Binding("output", "output", GraphResourceAccess.Write, "call"),
+             Binding("left-output", "left-output", GraphResourceAccess.Write, "call"),
+             Binding("right-output", "right-output", GraphResourceAccess.Write, "call")]);
         root.AddOperation(Operation("consume", "core.copy"),
             [new("input", new(GraphBindingOwner.Instance(new("call")), new("a")),
                 GraphResourceAccess.Read, "consume:input"),

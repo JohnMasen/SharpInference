@@ -176,6 +176,7 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;color:#bccce0}
     "invalidId": ["{0} 的 id 为空或重复：{1}", "{0} has an empty or duplicate id: {1}"],
     "xmlError": ["XML 格式错误：{0}", "Invalid XML: {0}"],
     "invalidRoot": ["不支持的 XML：根元素必须为 Graph 或 ExecutionPlan。", "Unsupported XML: the root element must be Graph or ExecutionPlan."],
+    "unsupportedGraphVersion": ["不支持的 Graph 版本：{0}。仅支持 XML v3；请重新导出旧图。", "Unsupported Graph version: {0}. Only XML v3 is supported; re-export older graphs."],
     "invalidPlan": ["执行计划无效或不支持：{0}", "Invalid or unsupported execution plan: {0}"],
     "planInfo": ["执行计划", "Execution plan"],
     "planNotice": ["这是设计用执行计划；查看器展示计划，不编译或运行 VM。双击函数或 Kernel 查看内部步骤。", "This is a design execution plan. The viewer does not compile or execute a VM. Double-click a function or Kernel to inspect its steps."],
@@ -412,6 +413,8 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;color:#bccce0}
     const root = documentXml.documentElement;
     if (root.localName === "ExecutionPlan") return parseExecutionPlan(root, checkpoint);
     if (root.localName !== "Graph") throw new ViewerError("invalidRoot");
+    if (attr(root, "version") !== "3")
+      throw new ViewerError("unsupportedGraphVersion", attr(root, "version") || "(missing)");
     if (attr(root, "kind") === "LogicalGraphDefinition") return parseDefinitionGraph(root, checkpoint);
     if (attr(root, "kind") === "ExecutionGraphProgram") return parseExecutionGraphProgram(root, checkpoint);
     throw new ViewerError("missingStructure");
@@ -475,14 +478,17 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;color:#bccce0}
           copyChildren(annotation, nodeArchitecture);
           node.append(annotation);
         }
-        for (const name of ["Attributes", "Precision"]) {
+        for (const name of ["Attributes", "Precision", "SourceMap"]) {
           const item = child(sourceNode, name);
           if (item) node.append(documentXml.importNode(item, true));
         }
         nodes.append(node);
       }
       definition.append(nodes);
-      definition.append(documentXml.importNode(child(graph, "Edges"), true));
+      for (const name of ["Bindings", "Dependencies", "SourceMap"]) {
+        const item = child(graph, name);
+        if (item) definition.append(documentXml.importNode(item, true));
+      }
       definitions.append(definition);
     }
     converted.append(definitions);
@@ -559,25 +565,31 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;color:#bccce0}
       id: attr(item, "id"), name: attr(item, "name"), kind: attr(item, "kind"),
       bindingKey: attr(item, "bindingKey"), ...tensorAttributes(item),
     });
-    const graphNodeId = sourceNode => `operation:${attr(sourceNode, "id")}`;
-    const resourceGraphId = sourceResource => {
+    const resourceGraphId = (sourceResource, name = "id") => {
       const instance = attr(sourceResource, "instance");
       return instance
-        ? `resource:instance:${instance}:${attr(sourceResource, "id")}`
-        : `resource:parent:${attr(sourceResource, "id")}`;
+        ? `resource:instance:${instance}:${attr(sourceResource, name)}`
+        : `resource:parent:${attr(sourceResource, name)}`;
     };
     function definitionIndex(definition) {
       if (indexes.has(definition)) return indexes.get(definition);
       const resources = new Map(children(child(definition, "Nodes"), "Resource")
         .map(item => [resourceGraphId(item), item]));
       const accesses = new Map(), dependencies = new Map();
-      for (const edge of child(definition, "Edges").children) {
-        const dependency = edge.localName === "Dependency";
-        if (!dependency && !["Read", "Write"].includes(edge.localName)) continue;
-        const map = dependency ? dependencies : accesses;
-        const id = attr(edge, edge.localName === "Write" ? "source" : "target");
-        if (!map.has(id)) map.set(id, []);
-        map.get(id).push(edge);
+      for (const binding of children(child(definition, "Bindings"), "Binding")) {
+        const id = attr(binding, "node");
+        if (!accesses.has(id)) accesses.set(id, []);
+        accesses.get(id).push(binding);
+      }
+      const bindingOrder = binding => Math.min(...["readOrder", "writeOrder"]
+        .filter(name => binding.hasAttribute(name)).map(name => Number(attr(binding, name))));
+      for (const bindings of accesses.values())
+        bindings.sort((first, second) => bindingOrder(first) - bindingOrder(second));
+      for (const dependency of children(child(definition, "Dependencies"), "Dependency")
+        .sort((first, second) => Number(attr(first, "order")) - Number(attr(second, "order")))) {
+        const id = attr(dependency, "target");
+        if (!dependencies.has(id)) dependencies.set(id, []);
+        dependencies.get(id).push(dependency);
       }
       const result = { resources, accesses, dependencies };
       indexes.set(definition, result);
@@ -585,12 +597,8 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;color:#bccce0}
     }
     const dependencies = (sourceNode, definition) => {
       const result = create("DependsOn");
-      for (const edge of definitionIndex(definition).dependencies.get(graphNodeId(sourceNode)) || []) {
-        const source = attr(edge, "source");
-        result.append(create("ElementRef", {
-          id: source.startsWith("operation:") ? source.slice(10) : source
-        }));
-      }
+      for (const edge of definitionIndex(definition).dependencies.get(attr(sourceNode, "id")) || [])
+        result.append(create("ElementRef", { id: attr(edge, "source") }));
       return result;
     };
     const node = (sourceNode, definition, exposedResources) => {
@@ -600,20 +608,11 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;color:#bccce0}
           operation: `${attr(sourceNode, "operation")}@${attr(sourceNode, "operationVersion")}` });
       const index = definitionIndex(definition);
       const resourcesByGraphId = index.resources;
-      const operationId = graphNodeId(sourceNode);
-      const accessEdges = index.accesses.get(operationId) || [];
-      if (accessEdges.length) {
+      const sourceBindings = index.accesses.get(attr(sourceNode, "id")) || [];
+      if (sourceBindings.length) {
         const bindings = create("Bindings");
-        const groups = new Map();
-        for (const edge of accessEdges) {
-          const id = attr(edge, "binding");
-          if (!groups.has(id)) groups.set(id, []);
-          groups.get(id).push(edge);
-        }
-        for (const edges of groups.values()) {
-          const read = edges.find(edge => edge.localName === "Read");
-          const write = edges.find(edge => edge.localName === "Write");
-          const graphResourceId = read ? attr(read, "source") : attr(write, "target");
+        for (const sourceBinding of sourceBindings) {
+          const graphResourceId = resourceGraphId(sourceBinding, "resource");
           const sourceResource = resourcesByGraphId.get(graphResourceId);
           if (!sourceResource)
             throw new ViewerError("missingResource", attr(definition, "id"),
@@ -621,10 +620,12 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;color:#bccce0}
           const instance = attr(sourceResource, "instance");
           const resourceId = attr(sourceResource, "id");
           const binding = create("Binding", {
-            port: attr(read || write, "port"),
+            id: attr(sourceBinding, "id"), port: attr(sourceBinding, "port"),
             resource: instance ? `${instance}/${resourceId}` : resourceId,
-            access: read && write ? "ReadWrite" : read ? "Read" : "Write"
+            access: attr(sourceBinding, "access"),
           });
+          for (const name of ["readEdge", "readOrder", "writeEdge", "writeOrder"])
+            if (sourceBinding.hasAttribute(name)) binding.setAttribute(name, attr(sourceBinding, name));
           if (instance) {
             const exposedId = `${instance}/${resourceId}`;
             if (!exposedIds.has(exposedResources))
@@ -646,6 +647,8 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;color:#bccce0}
       result.append(dependencies(sourceNode, definition));
       const metadata = annotation(sourceNode);
       if (metadata) result.append(metadata);
+      const sourceMap = child(sourceNode, "SourceMap");
+      if (sourceMap) result.append(copy(sourceMap));
       return result;
     };
     const region = async (definition, exposedResources) => {

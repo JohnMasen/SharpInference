@@ -8,4 +8,4 @@ namespace SharpInference.Graphs.Logical;
 internal sealed record LogicalGraphAnalysis(
     IReadOnlyList<GraphDefinitionNodeId> CompletionSinks,
     IReadOnlyDictionary<ResourceId, GraphDefinitionNodeId[]> TerminalWriters,
-    IReadOnlyList<LogicalGraphDiagnostic> Diagnostics);
+    IReadOnlyList<GraphDiagnostic> Diagnostics);

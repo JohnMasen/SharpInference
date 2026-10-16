@@ -19,7 +19,7 @@ SharpInference 是一个实验性的 .NET 推理编译器，提供 CPU 与 Direc
 
 图层统一使用强类型通用图库：
 
-- `Graph<TNode, TEdge>` 是唯一结构来源；
+- 成品图以 `Graph<TNode, TEdge>` 表示结构；
 - Resource、Operation 和 GraphCall 是节点；
 - Dependency、Read 和 Write 是边；
 - 逻辑图与执行图共享遍历、View、模式匹配和批量重写能力。
@@ -27,6 +27,64 @@ SharpInference 是一个实验性的 .NET 推理编译器，提供 CPU 与 Direc
   执行图 XML 替换转换结果。
 
 旧图与旧运行时执行路径已经删除，不保留兼容执行路径，也不会静默回退。
+
+## 具名建图、校验与 XML
+
+`SharpInference.Graphs` 是逻辑图和执行图的薄辅助层；底层查询和改写继续使用
+`SharpInference.Graphs.Core`。建图通过名字后期绑定，不再需要端口契约类或泛型资源标签。
+下面描述 `output = ReLU(input)`，操作可以先引用资源，再声明资源：
+
+```csharp
+using SharpInference.Graphs;
+using SharpInference.Graphs.Logical;
+
+var vector = new TensorDescriptor(GraphElementType.Float32, [4]);
+var builder = new GraphDefinitionBuilder("relu");
+builder.AddNode("relu", PrimitiveGraphOperations.Relu, node =>
+{
+    node.AddInput("input", new ResourceId("input"));
+    node.AddOutput("output", new ResourceId("output"));
+});
+builder.AddInput("input", vector);
+builder.AddOutput("output", vector);
+
+var diagnostics = builder.Validate();
+foreach (var diagnostic in diagnostics)
+    Console.WriteLine($"{diagnostic.Code}: {diagnostic.Message}");
+var logical = builder.Build(); // 有 Error 则明确失败，不返回部分图。
+```
+
+名字区分大小写，资源和节点各有命名空间；资源访问与执行依赖是不同关系。
+逻辑图在完整声明上推导唯一生产者依赖，不以添加顺序串行化多写入者。
+`Validate()` 不修改 Builder；每次 `Build()` 返回独立图快照。
+执行图构造也支持名字引用，但保留显式执行依赖，不套用逻辑图的隐式推导。
+执行程序的 `Validate()` 另外检查调用目标、端口兼容性和单根调用 DAG。
+
+子图调用显式绑定所有输入、输出和 InOut。调用与子图定义是不同身份，
+同一定义可以复用，调用绑定互不覆盖：
+
+```csharp
+var parent = new GraphDefinitionBuilder("model");
+parent.AddInput("input", vector);
+parent.AddOutput("output", vector);
+parent.AddCall("activation", logical, call =>
+{
+    call.AddInput("input", new ResourceId("input"));
+    call.AddOutput("output", new ResourceId("output"));
+});
+var model = parent.Build();
+
+var xml = LogicalGraphXml.Serialize(model);
+var restored = LogicalGraphXml.DeserializeDefinition(xml);
+```
+
+`LogicalGraphXml` 和 `ExecutionGraphXml` 仅接受 XML **v3**，旧格式不兼容。
+XML 保存普通资源、操作、调用、`Bindings` 和 `Dependencies`，不恢复用户 CLR 类型。
+ReadWrite 绑定只保存一次，必要的读写边身份和关系顺序仍保留；
+执行图的来源映射、架构注解、显式依赖及精度不会在往返时被重新推导。
+读取后统一校验，禁止 DTD 和外部实体，并限制文档大小、元素数量和深度。
+XML 只包含图描述，不包含实际权重、输入或运行中状态的数值。
+查看器同样使用 v3，见 [GraphView](tools/GraphView/README.md)。
 
 ## 可选执行图 Postprocessor
 

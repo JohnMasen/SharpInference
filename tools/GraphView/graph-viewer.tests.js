@@ -44,32 +44,34 @@ globalThis.runGraphViewerTests = async function () {
         ${metadata}${sourceMap(id)}<Attributes /><Precision arithmetic="Float32" accumulator="Float32" />
       </Operation>`;
     }).join("");
-    const edges = ids.map((id, index) =>
-      `<Read id="r${index}" source="resource:parent:${inputs[index]}"
-        target="operation:${id}" port="${options.parallel && index === 2 ? "left" : "input"}" binding="${id}:input" />
-      ${options.parallel && index === 2 ? `<Read id="right" source="resource:parent:y"
-        target="operation:${id}" port="right" binding="${id}:right" />` : ""}
-      <Write id="w${index}" source="operation:${id}"
-        target="resource:parent:${outputs[index]}" port="output" binding="${id}:output" />
-      ${index ? `<Dependency id="d${index}" source="operation:${ids[index - 1]}"
-        target="operation:${id}" />` : ""}`).join("") +
-      (options.backward ? `<Dependency id="invalid" source="operation:${ids[2]}"
-        target="operation:${ids[0]}" />` : "");
+    const bindings = ids.map((id, index) =>
+      `<Binding id="${id}:input" node="${id}" resource="${inputs[index]}"
+        port="${options.parallel && index === 2 ? "left" : "input"}"
+        access="Read" readEdge="r${index}" readOrder="${index * 4}" />
+      ${options.parallel && index === 2 ? `<Binding id="${id}:right" node="${id}" resource="y"
+        port="right" access="Read" readEdge="right" readOrder="${index * 4 + 1}" />` : ""}
+      <Binding id="${id}:output" node="${id}" resource="${outputs[index]}"
+        port="output" access="Write" writeEdge="w${index}" writeOrder="${index * 4 + 2}" />`).join("");
+    const dependencies = ids.map((id, index) => index ?
+      `<Dependency id="d${index}" source="${ids[index - 1]}" target="${id}"
+        order="${index * 4 + 3}" />` : "").join("") +
+      (options.backward ? `<Dependency id="invalid" source="${ids[2]}"
+        target="${ids[0]}" order="${ids.length * 4}" />` : "");
     const root = `<${graphTag} id="test" compileBoundary="Atomic">
       <${annotationTag} name="Test" /><Nodes>${resources(["input", ...outputs], "test")}${nodes}</Nodes>
-      <Edges>${edges}</Edges></${graphTag}>`;
+      <Bindings>${bindings}</Bindings><Dependencies>${dependencies}</Dependencies></${graphTag}>`;
     const template = options.call ? `<${graphTag} id="template" compileBoundary="Atomic">
       <Nodes>${resources(["input", "output"], "template")}
         <Operation id="body" operation="core.copy" operationVersion="1">
           ${sourceMap("body")}<Attributes /><Precision arithmetic="Float32" accumulator="Float32" />
         </Operation>
-      </Nodes><Edges>
-        <Read id="tr" source="resource:parent:input" target="operation:body"
-          port="input" binding="body:input" />
-        <Write id="tw" source="operation:body" target="resource:parent:output"
-          port="output" binding="body:output" />
-      </Edges></${graphTag}>` : "";
-    let xml = `<Graph kind="${kind}" version="2">
+      </Nodes><Bindings>
+        <Binding id="body:input" node="body" resource="input"
+          port="input" access="Read" readEdge="tr" readOrder="0" />
+        <Binding id="body:output" node="body" resource="output"
+          port="output" access="Write" writeEdge="tw" writeOrder="1" />
+      </Bindings><Dependencies /></${graphTag}>` : "";
+    let xml = `<Graph kind="${kind}" version="${options.version || "3"}">
       <Root ${execution ? "graph" : "definition"}="test" />
       <${execution ? "Graphs" : "Definitions"}>${root}${template}</${execution ? "Graphs" : "Definitions"}>
     </Graph>`;
@@ -86,45 +88,42 @@ globalThis.runGraphViewerTests = async function () {
             resource.setAttribute("id", `bulk.output.${index}`);
             resource.setAttribute("kind", "Temporary");
             nodes.append(resource);
-            const edges = documentXml.querySelector("Edges");
             for (const [tag, attributes] of [
-              ["Read", { source: `resource:parent:${index ? `bulk.output.${index - 1}` : "output"}`,
-                target: `operation:bulk.${index}`, port: "input", binding: `bulk.${index}:input` }],
-              ["Write", { source: `operation:bulk.${index}`, target: `resource:parent:bulk.output.${index}`,
-                port: "output", binding: `bulk.${index}:output` }],
-              ["Dependency", { source: `operation:${index ? `bulk.${index - 1}` : "c"}`,
-                target: `operation:bulk.${index}` }],
+              ["Binding", { id: `bulk.${index}:input`, node: `bulk.${index}`,
+                resource: index ? `bulk.output.${index - 1}` : "output",
+                port: "input", access: "Read", readEdge: `bulk.${index}:Read`, readOrder: 16 + index * 3 }],
+              ["Binding", { id: `bulk.${index}:output`, node: `bulk.${index}`,
+                resource: `bulk.output.${index}`, port: "output", access: "Write",
+                writeEdge: `bulk.${index}:Write`, writeOrder: 17 + index * 3 }],
+              ["Dependency", { id: `bulk.${index}:Dependency`, source: index ? `bulk.${index - 1}` : "c",
+                target: `bulk.${index}`, order: 18 + index * 3 }],
             ]) {
               const edge = documentXml.createElement(tag);
-              edge.setAttribute("id", `bulk.${index}:${tag}`);
               for (const [key, value] of Object.entries(attributes)) edge.setAttribute(key, value);
-              edges.append(edge);
+              documentXml.querySelector(tag === "Binding" ? "Bindings" : "Dependencies").append(edge);
             }
           }
         }
       }
-      const edges = documentXml.querySelector("Edges");
+      const bindings = documentXml.querySelector("Bindings");
       if (options.readWrite) {
-        for (const tag of ["Read", "Write"]) {
-          const edge = documentXml.createElement(tag);
-          for (const [key, value] of Object.entries({
-            id: `state-${tag}`, source: tag === "Read" ? "resource:parent:x" : "operation:b",
-            target: tag === "Read" ? "operation:b" : "resource:parent:x",
-            port: "state", binding: "b:state",
-          })) edge.setAttribute(key, value);
-          edges.append(edge);
-        }
+        const binding = documentXml.createElement("Binding");
+        for (const [key, value] of Object.entries({
+          id: "b:state", node: "b", resource: "x", port: "state", access: "ReadWrite",
+          readEdge: "state-Read", readOrder: "13", writeEdge: "state-Write", writeOrder: "14",
+        })) binding.setAttribute(key, value);
+        bindings.append(binding);
       }
       if (options.instance) {
         const resource = nodes.querySelector('Resource[id="output"]').cloneNode(true);
         resource.setAttribute("instance", "b");
         nodes.append(resource);
-        const edge = edges.querySelector('Read[target="operation:c"]').cloneNode(true);
-        edge.setAttribute("source", "resource:instance:b:output");
-        edges.replaceChild(edge, edges.querySelector('Read[target="operation:c"]'));
+        const binding = bindings.querySelector('Binding[node="c"][access="Read"]');
+        binding.setAttribute("resource", "output");
+        binding.setAttribute("instance", "b");
       }
       if (options.missingResource)
-        edges.querySelector("Read").setAttribute("source", "resource:parent:missing");
+        bindings.querySelector("Binding").setAttribute("resource", "missing");
       xml = new XMLSerializer().serializeToString(documentXml);
     }
     if (options.plan) xml = `<ExecutionPlan schema="sharp-inference" version="1" kind="il">${xml}</ExecutionPlan>`;
@@ -172,7 +171,9 @@ globalThis.runGraphViewerTests = async function () {
   const dataEdges = () => Array.from($("edges").children)
     .map(edge => edge.querySelector("title").textContent).filter(title => !title.includes("(Order)")).sort();
   for (const kind of ["LogicalGraphDefinition", "ExecutionGraphProgram"]) {
-    let result = await load(kind);
+    let result = await load(kind, { version: "2" });
+    assert(result.error && result.status.includes("v3"), `${kind}: XML v2 is explicitly rejected`);
+    result = await load(kind);
     assert(!result.error && node("Left") && node("Right"), `${kind}: interleaved groups`);
     assert($("edges").children.length === 5, `${kind}: aggregated edges retained`);
     click(node("Left"));
@@ -207,6 +208,8 @@ globalThis.runGraphViewerTests = async function () {
       `${kind}: annotated parents with nested groups`);
     result = await load(kind, { ids: ["architecture:graph/left", "b", "c"] });
     assert(!result.error, `${kind}: generated ID collision safety`);
+    result = await load(kind, { ids: ["operation:a", "b", "c"], paths: [null, null, null] });
+    assert(!result.error && operation("operation:a"), `${kind}: node IDs remain unprefixed raw names`);
     result = await load(kind, { repeat: true });
     assert(!result.error && !$("collapse").disabled && $("collapse").checked,
       `${kind}: repeat-group metadata`);
@@ -275,7 +278,15 @@ globalThis.runGraphViewerTests = async function () {
     $("home").click();
     click(operation("b"));
     assert(!result.error && $("details").textContent.includes("state") &&
-      $("details").textContent.includes("ReadWrite"), `${kind}: indexed read/write edges merge by binding`);
+      $("details").textContent.includes("ReadWrite") &&
+      $("details").textContent.includes('readEdge="state-Read"') &&
+      $("details").textContent.includes('writeEdge="state-Write"') &&
+      $("details").textContent.includes('readOrder="13"') &&
+      $("details").textContent.includes('writeOrder="14"'),
+      `${kind}: one indexed ReadWrite binding retains both edge identities and orders`);
+    if (kind === "ExecutionGraphProgram")
+      assert($("details").textContent.includes("<SourceMap>") &&
+        $("details").textContent.includes('LogicalNode id="b"'), `${kind}: source maps retained`);
     result = await load(kind, { call: true, instance: true });
     $("home").click();
     click(operation("c"));

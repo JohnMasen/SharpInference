@@ -19,7 +19,7 @@ model tensor catalog + model graph provider
 
 The graph layers use the shared strongly typed graph library:
 
-- `Graph<TNode, TEdge>` is the only structural source.
+- Built graphs represent their structure with `Graph<TNode, TEdge>`.
 - Resources, operations, and graph calls are nodes.
 - Dependencies, reads, and writes are edges.
 - Logical and execution graphs share traversal, views, pattern matching, and
@@ -29,6 +29,43 @@ The graph layers use the shared strongly typed graph library:
 
 Previous graph and runtime execution paths have been removed. There is no
 compatibility execution path or silent fallback.
+
+## Named construction, validation, and XML
+
+`SharpInference.Graphs` provides shared model types and thin construction/query
+helpers above the unchanged `SharpInference.Graphs.Core`. Port-contract classes
+and generic resource tags are no longer required:
+
+```csharp
+using SharpInference.Graphs;
+using SharpInference.Graphs.Logical;
+
+var vector = new TensorDescriptor(GraphElementType.Float32, [4]);
+var builder = new GraphDefinitionBuilder("relu");
+builder.AddNode("relu", PrimitiveGraphOperations.Relu, node =>
+{
+    node.AddInput("input", new ResourceId("input"));
+    node.AddOutput("output", new ResourceId("output"));
+});
+builder.AddInput("input", vector);
+builder.AddOutput("output", vector);
+
+var diagnostics = builder.Validate();
+var logical = builder.Build(); // Rejects errors; never returns a partial graph.
+var restored = LogicalGraphXml.DeserializeDefinition(LogicalGraphXml.Serialize(logical));
+```
+
+Names use ordinal comparison and may refer to later declarations. Validation is
+non-mutating; each build produces a separate snapshot. Calls bind every public
+port explicitly. Execution programs also validate callee interfaces and the
+single-rooted call DAG. Execution dependencies are not implicitly reinferred.
+
+Logical and execution XML now use **v3** only, with named `Bindings` and
+`Dependencies`. Earlier formats are rejected rather than upgraded. Round trips
+preserve necessary edge identities, ordering, resource scopes, precision, and
+provenance without restoring user CLR classes. XML contains graph descriptions,
+not tensor contents. DTD/external entity restrictions and document limits remain.
+The [GraphView tool](tools/GraphView/README.md) also consumes v3.
 
 ## Optional execution-graph postprocessors
 

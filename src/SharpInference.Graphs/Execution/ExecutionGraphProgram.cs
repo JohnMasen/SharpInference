@@ -1,10 +1,11 @@
 using SharpInference.Graphs.Core;
+using SharpInference.Graphs.Internal;
 
 namespace SharpInference.Graphs.Execution;
 
 /// <summary>Stores execution graphs and derived call sites forming a single-rooted, reachable call DAG.</summary>
 /// <remarks>Multiple call instances may target a shared graph. This validates graph relationships,
-/// not callee interface compatibility or compilation-boundary policies.</remarks>
+/// including callee interfaces and scoped resources, but not compilation-boundary policies.</remarks>
 public sealed class ExecutionGraphProgram
 {
     /// <summary>Snapshots the graphs, derives call relations, and validates a unique root and call DAG.</summary>
@@ -21,6 +22,7 @@ public sealed class ExecutionGraphProgram
             throw new ArgumentException(
                 "An execution graph program requires at least one graph.", nameof(graphs));
         }
+        ModelGraphConstruction.ThrowIfErrors(Validate(values));
 
         var map = new Dictionary<ExecutionGraphId, ExecutionGraph>();
         foreach (var graph in values)
@@ -69,6 +71,96 @@ public sealed class ExecutionGraphProgram
     public IReadOnlyList<ExecutionGraphCallRelation> Calls { get; }
     /// <summary>Gets the identity of the single graph that is not targeted by any call.</summary>
     public ExecutionGraphId RootGraph { get; }
+
+    public IReadOnlyList<GraphDiagnostic> Validate() => Validate(Graphs);
+
+    /// <summary>Validates local graphs and their call interfaces before constructing a program.</summary>
+    public static IReadOnlyList<GraphDiagnostic> Validate(IEnumerable<ExecutionGraph> graphs)
+    {
+        ArgumentNullException.ThrowIfNull(graphs);
+        var values = graphs.ToArray();
+        var diagnostics = new List<GraphDiagnostic>();
+        var map = new Dictionary<ExecutionGraphId, ExecutionGraph>();
+        foreach (var graph in values)
+        {
+            if (!map.TryAdd(graph.Id, graph))
+                Error("EP0001", $"Duplicate execution graph '{graph.Id}'.", graph.Id);
+            diagnostics.AddRange(graph.Validate());
+        }
+        var relations = new List<ExecutionGraphCallRelation>();
+        foreach (var graph in values)
+        {
+            foreach (var resource in graph.Structure.Nodes.OfType<ExecutionResourceNode>()
+                .Where(resource => !resource.ResourceNodeId.Owner.IsParent))
+            {
+                var owner = graph.Nodes.OfType<ExecutionGraphCallNode>().Single(
+                    call => call.Id.Value == resource.ResourceNodeId.Owner.Call!.Value.Value);
+                if (!map.TryGetValue(owner.Target, out var target))
+                    continue;
+                var declared = target.Resources.SingleOrDefault(value => value.Id == resource.Resource.Id);
+                if (declared is null || declared.Kind != resource.Kind ||
+                    !ModelGraphConstruction.SameTensor(declared.Tensor, resource.Tensor))
+                    Error("EP0009", $"Instance resource '{resource.ResourceNodeId}' does not match its target.",
+                        graph.Id, owner.Id.Value);
+            }
+            foreach (var call in graph.Nodes.OfType<ExecutionGraphCallNode>())
+            {
+                relations.Add(new($"{graph.Id.Value}:{call.Id.Value}", graph.Id, call.Target, call.Id));
+                if (!map.TryGetValue(call.Target, out var target))
+                {
+                    Error("EP0002", $"Call '{call.Id}' targets unknown graph '{call.Target}'.", graph.Id, call.Id.Value);
+                    continue;
+                }
+                var bindings = graph.Bindings(call);
+                var ports = target.Resources.Where(resource => resource.Kind is
+                    GraphDefinitionResourceKind.Input or GraphDefinitionResourceKind.Output or GraphDefinitionResourceKind.InOut)
+                    .ToDictionary(resource => resource.Id.Value, StringComparer.Ordinal);
+                foreach (var binding in bindings)
+                {
+                    if (!ports.TryGetValue(binding.Port, out var port))
+                    {
+                        Error("EP0003", $"Call '{call.Id}' has unknown port '{binding.Port}'.", graph.Id, call.Id.Value, binding.Port);
+                        continue;
+                    }
+                    var expected = port.Kind switch
+                    {
+                        GraphDefinitionResourceKind.Input => GraphResourceAccess.Read,
+                        GraphDefinitionResourceKind.Output => GraphResourceAccess.Write,
+                        _ => GraphResourceAccess.ReadWrite,
+                    };
+                    if (binding.Access != expected)
+                        Error("EP0004", $"Call '{call.Id}' port '{binding.Port}' requires {expected} access.",
+                            graph.Id, call.Id.Value, binding.Port);
+                    var resource = (ExecutionResourceNode)graph.Structure.GetNode(binding.Resource.GraphId);
+                    if (!ModelGraphConstruction.SameTensor(port.Tensor, resource.Tensor))
+                        Error("EP0005", $"Call '{call.Id}' port '{binding.Port}' has an incompatible tensor.",
+                            graph.Id, call.Id.Value, binding.Port);
+                }
+                foreach (var port in ports.Keys.Except(bindings.Select(binding => binding.Port), StringComparer.Ordinal))
+                    Error("EP0006", $"Call '{call.Id}' is missing port '{port}'.", graph.Id, call.Id.Value, port);
+            }
+        }
+        var referenced = relations.Select(relation => relation.Target).ToHashSet();
+        var roots = values.Where(graph => !referenced.Contains(graph.Id)).ToArray();
+        if (roots.Length != 1)
+            diagnostics.Add(new(GraphDiagnosticSeverity.Error, "EP0007",
+                $"An execution graph program requires exactly one root; found {roots.Length}."));
+        if (diagnostics.Count == 0)
+        {
+            try
+            {
+                ValidateCallDag(roots[0].Id, map, relations);
+            }
+            catch (InvalidDataException exception)
+            {
+                diagnostics.Add(new(GraphDiagnosticSeverity.Error, "EP0008", exception.Message));
+            }
+        }
+        return diagnostics;
+
+        void Error(string code, string message, ExecutionGraphId graph, string? node = null, string? port = null) =>
+            diagnostics.Add(new(GraphDiagnosticSeverity.Error, code, message, node, Port: port, Graph: graph.Value));
+    }
 
     /// <summary>Gets graph-call instances originating in one graph.</summary>
     /// <param name="source">The caller graph identity to match.</param>

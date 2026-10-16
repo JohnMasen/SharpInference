@@ -1,4 +1,5 @@
 using SharpInference.Graphs.Core;
+using SharpInference.Graphs.Internal;
 
 namespace SharpInference.Graphs.Execution;
 
@@ -25,6 +26,17 @@ public sealed class ExecutionGraph
         GraphCompileBoundary defaultCompileBoundary = GraphCompileBoundary.Auto,
         GraphArchitecture? architecture = null,
         ExecutionGraphSource? source = null)
+        : this(id, structure, defaultCompileBoundary, architecture, source, true)
+    {
+    }
+
+    internal ExecutionGraph(
+        ExecutionGraphId id,
+        Graph<ExecutionGraphStructureNode, ExecutionGraphEdge> structure,
+        GraphCompileBoundary defaultCompileBoundary,
+        GraphArchitecture? architecture,
+        ExecutionGraphSource? source,
+        bool rejectErrors)
     {
         if (string.IsNullOrWhiteSpace(id.Value))
         {
@@ -42,7 +54,10 @@ public sealed class ExecutionGraph
         DefaultCompileBoundary = defaultCompileBoundary;
         Architecture = architecture;
         Source = source;
-        Validate();
+        ModelGraphConstruction.ThrowIfErrors(ModelGraphConstruction.Validate(
+            id.Value, structure.Nodes, structure.Edges, node => node is ExecutionGraphCallNode));
+        if (rejectErrors)
+            ModelGraphConstruction.ThrowIfErrors(Validate());
     }
 
     /// <summary>Gets the execution graph identity.</summary>
@@ -84,28 +99,19 @@ public sealed class ExecutionGraph
     /// or dependency edges contain a cycle.</exception>
     /// <exception cref="ArgumentException">Read or write edges repeat a binding identity.</exception>
     /// <exception cref="KeyNotFoundException">A scoped resource owner does not exist in the structure.</exception>
-    private void Validate()
+    public IReadOnlyList<GraphDiagnostic> Validate()
     {
+        var diagnostics = new List<GraphDiagnostic>();
         foreach (var node in Nodes)
         {
-            var ports = new HashSet<string>(StringComparer.Ordinal);
             foreach (var binding in Bindings(node))
             {
-                if (!ports.Add(binding.Port))
-                {
-                    throw new InvalidDataException(
-                        $"Node '{Id}/{node.Id}' has duplicate port '{binding.Port}'.");
-                }
-
-                if (!binding.Resource.Owner.IsParent &&
-                    Structure.GetNode(binding.Resource.Owner.Call is { } call
-                        ? ExecutionGraphNode.NodeGraphId(new ExecutionNodeId(call.Value))
-                        : throw new InvalidDataException()) is not ExecutionGraphCallNode)
-                {
-                    throw new InvalidDataException(
-                        $"Node '{Id}/{node.Id}' references unknown graph-call instance " +
-                        $"'{binding.Resource.Owner}'.");
-                }
+                var resource = (ExecutionResourceNode)Structure.GetNode(binding.Resource.GraphId);
+                if (resource.Kind is GraphDefinitionResourceKind.Weight or GraphDefinitionResourceKind.Constant &&
+                    binding.Access != GraphResourceAccess.Read)
+                    diagnostics.Add(new(GraphDiagnosticSeverity.Error, "EG0004",
+                        $"Node '{node.Id}' writes read-only resource '{resource.Resource.Id}'.",
+                        node.Id.Value, resource.Resource.Id, binding.Port, Id.Value));
             }
         }
         try
@@ -114,8 +120,9 @@ public sealed class ExecutionGraph
         }
         catch (InvalidDataException exception)
         {
-            throw new InvalidDataException(
-                $"Execution graph '{Id}' contains a dependency cycle.", exception);
+            diagnostics.Add(new(GraphDiagnosticSeverity.Error, "EG0001",
+                $"Execution graph '{Id}' contains a dependency cycle: {exception.Message}", Graph: Id.Value));
         }
+        return diagnostics;
     }
 }

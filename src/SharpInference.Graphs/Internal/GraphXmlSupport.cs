@@ -31,13 +31,18 @@ internal static class GraphXmlSupport
     /// <returns>The materialized attribute dictionary.</returns>
     /// <exception cref="InvalidDataException">A child or attribute is unexpected, or a name or value is missing or blank.</exception>
     /// <exception cref="ArgumentException">An attribute name occurs more than once.</exception>
-    internal static IReadOnlyDictionary<string, string> ReadAttributes(XElement element) =>
-        new ReadOnlyDictionary<string, string>(
-            Children(element, "Attribute").ToDictionary(attribute =>
-            {
-                Check(attribute, "Attribute", "name", "value");
-                return Required(attribute, "name");
-            }, attribute => Required(attribute, "value"), StringComparer.Ordinal));
+    internal static IReadOnlyDictionary<string, string> ReadAttributes(XElement element)
+    {
+        var attributes = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var attribute in Children(element, "Attribute"))
+        {
+            Check(attribute, "Attribute", "name", "value");
+            var name = Required(attribute, "name");
+            if (!attributes.TryAdd(name, Required(attribute, "value")))
+                throw new InvalidDataException($"Duplicate attribute '{name}'.");
+        }
+        return new ReadOnlyDictionary<string, string>(attributes);
+    }
 
     /// <summary>Writes arithmetic and accumulator representations as attributes of a Precision element.</summary>
     /// <param name="precision">The precision requirements to serialize.</param>

@@ -1,18 +1,19 @@
 using System.Xml.Linq;
 using SharpInference.Graphs.Core;
+using SharpInference.Graphs.Internal;
 using static SharpInference.Graphs.Internal.GraphXmlSupport;
 using SharpInference.Graphs.Logical;
 
 namespace SharpInference.Graphs.Execution;
 
-/// <summary>Reads and writes version-2 execution graph programs with explicit typed nodes and edges.</summary>
+/// <summary>Reads and writes version-three execution programs with named bindings and dependencies.</summary>
 /// <remarks>Serialization sorts graph definitions by ordinal graph identity while retaining each graph's
 /// node and edge declaration order. Deserialization reconstructs and validates graphs and call relationships,
 /// then checks the declared root against the inferred root; it does not perform compilation or inlining.</remarks>
 public static class ExecutionGraphXml
 {
     /// <summary>Serializes a complete execution graph program.</summary>
-    /// <remarks>Writes an unformatted Graph document with kind ExecutionGraphProgram and version 2.
+    /// <remarks>Writes an unformatted Graph document with kind ExecutionGraphProgram and version 3.
     /// Graphs are sorted by ordinal identity; source maps, boundary values, and optional metadata are emitted.
     /// Output character and element counts are limited; the writer does not enforce the reader's depth limit.</remarks>
     /// <param name="program">The program and its graph definitions.</param>
@@ -25,7 +26,7 @@ public static class ExecutionGraphXml
         return Write(new XElement(
             "Graph",
             new XAttribute("kind", "ExecutionGraphProgram"),
-            new XAttribute("version", 2),
+            new XAttribute("version", 3),
             new XElement("Root", new XAttribute("graph", program.RootGraph.Value)),
             new XElement(
                 "Graphs",
@@ -35,10 +36,10 @@ public static class ExecutionGraphXml
     }
 
     /// <summary>Reads and validates a versioned execution graph program.</summary>
-    /// <remarks>Requires kind ExecutionGraphProgram and version 2, prohibits DTDs, disables external resolution,
+    /// <remarks>Requires kind ExecutionGraphProgram and version 3, prohibits DTDs, disables external resolution,
     /// and enforces character, element-count, and depth limits. Defined enum values are parsed case-sensitively.
     /// Node and edge containers reject unsupported element names. Optional resource scopes, architecture,
-    /// and logical provenance are reconstructed; no call-interface compatibility check is added.</remarks>
+    /// and logical provenance are reconstructed, then program and call interfaces are validated.</remarks>
     /// <param name="xml">The serialized execution graph program.</param>
     /// <returns>The reconstructed execution graph program.</returns>
     /// <exception cref="ArgumentNullException">The XML is null.</exception>
@@ -48,7 +49,8 @@ public static class ExecutionGraphXml
     /// <exception cref="KeyNotFoundException">A reconstructed scoped resource owner is missing.</exception>
     public static ExecutionGraphProgram DeserializeProgram(string xml)
     {
-        var root = Read(xml, "ExecutionGraphProgram", 2);
+        var root = Read(xml, "ExecutionGraphProgram", 3);
+        _ = DefinitionChildren(root, "Root", "Graphs");
         var rootElement = RequiredChild(root, "Root");
         Check(rootElement, "Root", "graph");
         var rootId = new ExecutionGraphId(Required(rootElement, "graph"));
@@ -82,8 +84,7 @@ public static class ExecutionGraphXml
             WriteArchitecture(graph.Architecture),
             new XElement(
                 "Nodes", graph.Structure.Nodes.Select(WriteExecutionNode)),
-            new XElement(
-                "Edges", graph.Structure.Edges.Select(WriteExecutionEdge)));
+            ModelGraphXml.WriteRelations(graph.Structure));
 
     /// <summary>Writes a resource, call, or operation using its concrete execution node type.</summary>
     /// <param name="node">The node whose resource scope or executable metadata is written.</param>
@@ -123,35 +124,6 @@ public static class ExecutionGraphXml
                 $"Unsupported execution node type '{node.GetType().Name}'."),
         };
 
-    /// <summary>Writes a dependency or resource-access edge with its structural endpoint identities.</summary>
-    /// <param name="edge">The typed edge to serialize.</param>
-    /// <returns>The Dependency, Read, or Write element, including binding metadata for access edges.</returns>
-    /// <exception cref="InvalidDataException">The execution edge type is unsupported.</exception>
-    private static XElement WriteExecutionEdge(ExecutionGraphEdge edge) => edge switch
-    {
-        ExecutionDependencyEdge dependency => new XElement(
-            "Dependency",
-            new XAttribute("id", dependency.Id.Value),
-            new XAttribute("source", dependency.Source.Value),
-            new XAttribute("target", dependency.Target.Value)),
-        ExecutionResourceReadEdge read => new XElement(
-            "Read",
-            new XAttribute("id", read.Id.Value),
-            new XAttribute("source", read.Source.Value),
-            new XAttribute("target", read.Target.Value),
-            new XAttribute("port", read.Port),
-            new XAttribute("binding", read.BindingId)),
-        ExecutionResourceWriteEdge write => new XElement(
-            "Write",
-            new XAttribute("id", write.Id.Value),
-            new XAttribute("source", write.Source.Value),
-            new XAttribute("target", write.Target.Value),
-            new XAttribute("port", write.Port),
-            new XAttribute("binding", write.BindingId)),
-        _ => throw new InvalidDataException(
-            $"Unsupported execution edge type '{edge.GetType().Name}'."),
-    };
-
     /// <summary>Reads one graph definition and constructs its validated typed structure.</summary>
     /// <param name="element">The ExecutionGraph element with required nodes, edges, identity, and boundary.</param>
     /// <returns>The reconstructed graph with optional logical source and architecture.</returns>
@@ -161,6 +133,7 @@ public static class ExecutionGraphXml
     private static ExecutionGraph ReadExecutionGraph(XElement element)
     {
         Check(element, "ExecutionGraph", "id", "compileBoundary");
+        _ = DefinitionChildren(element, "Source", "Architecture", "Nodes", "Bindings", "Dependencies");
         var sourceElement = element.Element("Source");
         ExecutionGraphSource? source = null;
         if (sourceElement is not null)
@@ -172,10 +145,12 @@ public static class ExecutionGraphXml
                 RequiredChild(element, "Nodes"),
                 "Resource", "Operation", "GraphCall")
             .Select(ReadExecutionNode).ToArray();
-        var edges = DefinitionChildren(
-                RequiredChild(element, "Edges"),
-                "Dependency", "Read", "Write")
-            .Select(ReadExecutionEdge).ToArray();
+        var edges = ModelGraphXml.ReadRelations<ExecutionGraphEdge>(element,
+            (id, source, target, port, binding) => new ExecutionResourceReadEdge(id, source, target, port, binding),
+            (id, source, target, port, binding) => new ExecutionResourceWriteEdge(id, source, target, port, binding),
+            (id, source, target) => new ExecutionDependencyEdge(id, source, target));
+        ModelGraphConstruction.ThrowIfErrors(ModelGraphConstruction.Validate(
+            Required(element, "id"), nodes, edges, node => node is ExecutionGraphCallNode));
         return new(
             new(Required(element, "id")),
             new Graph<ExecutionGraphStructureNode, ExecutionGraphEdge>(nodes, edges),
@@ -235,35 +210,6 @@ public static class ExecutionGraphXml
             ReadPrecision(RequiredChild(element, "Precision")),
             source,
             architecture);
-    }
-
-    /// <summary>Reads a typed edge, requiring port and binding attributes only for resource-access edges.</summary>
-    /// <param name="element">A Dependency, Read, or Write element.</param>
-    /// <returns>The reconstructed directed edge.</returns>
-    /// <exception cref="InvalidDataException">The element type, attributes, or required values are invalid.</exception>
-    private static ExecutionGraphEdge ReadExecutionEdge(XElement element)
-    {
-        Check(
-            element,
-            element.Name.LocalName,
-            element.Name == "Dependency"
-                ? ["id", "source", "target"]
-                : ["id", "source", "target", "port", "binding"]);
-        var id = new GraphEdgeId(Required(element, "id"));
-        var source = new GraphNodeId(Required(element, "source"));
-        var target = new GraphNodeId(Required(element, "target"));
-        return element.Name.LocalName switch
-        {
-            "Dependency" => new ExecutionDependencyEdge(id, source, target),
-            "Read" => new ExecutionResourceReadEdge(
-                id, source, target, Required(element, "port"),
-                Required(element, "binding")),
-            "Write" => new ExecutionResourceWriteEdge(
-                id, source, target, Required(element, "port"),
-                Required(element, "binding")),
-            _ => throw new InvalidDataException(
-                $"Unsupported execution edge element <{element.Name}>."),
-        };
     }
 
     /// <summary>Writes optional architecture metadata and its attributes in dictionary enumeration order.</summary>

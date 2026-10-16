@@ -29,6 +29,7 @@
     <ProjectReference Include="..\SharpInference.Instructions.Cpu\SharpInference.Instructions.Cpu.csproj" />
     <ProjectReference Include="..\SharpInference.Instructions.D3D12\SharpInference.Instructions.D3D12.csproj" />
     <ProjectReference Include="..\SharpInference.Models.Rwkv\SharpInference.Models.Rwkv.csproj" />
+    <ProjectReference Include="..\SharpInference.Models.Phi4\SharpInference.Models.Phi4.csproj" />
     <ProjectReference Include="..\SharpInference.Models.Ggml\SharpInference.Models.Ggml.csproj" />
   </ItemGroup>
 

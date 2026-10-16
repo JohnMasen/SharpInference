@@ -1,4 +1,5 @@
 using SharpInference.Graphs.Core;
+using SharpInference.Graphs.Internal;
 
 namespace SharpInference.Graphs.Execution;
 
@@ -50,8 +51,11 @@ public sealed class ExecutionGraphBuilder
         GraphBindingOwner owner)
     {
         ArgumentNullException.ThrowIfNull(resource);
+        var resourceId = new ModelResourceNodeId(owner, resource.Id);
+        if (nodes.Any(node => node.GraphId == resourceId.GraphId))
+            throw new InvalidOperationException($"Resource '{resourceId}' is already declared in '{id}'.");
         nodes.Add(new ExecutionResourceNode(
-            new ModelResourceNodeId(owner, resource.Id), resource));
+            resourceId, resource));
     }
 
     /// <summary>Adds one operation with its complete bindings and dependencies.</summary>
@@ -82,14 +86,28 @@ public sealed class ExecutionGraphBuilder
     /// <exception cref="ArgumentOutOfRangeException">The boundary value is undefined.</exception>
     /// <exception cref="InvalidDataException">Structural identities or endpoints, bindings, or dependency topology are invalid.</exception>
     /// <exception cref="KeyNotFoundException">A scoped resource owner does not identify an existing node.</exception>
-    public ExecutionGraph Build() =>
-        new(
-            id,
-            new Graph<ExecutionGraphStructureNode, ExecutionGraphEdge>(
-                nodes, edges),
-            boundary,
-            architecture,
-            source);
+    public IReadOnlyList<GraphDiagnostic> Validate()
+    {
+        var diagnostics = ModelGraphConstruction.Validate(id.Value, nodes, edges,
+            node => node is ExecutionGraphCallNode).ToList();
+        if (string.IsNullOrWhiteSpace(id.Value))
+            diagnostics.Add(new(GraphDiagnosticSeverity.Error, "EG0002",
+                "An execution graph identifier is required.", Graph: id.Value));
+        if (!Enum.IsDefined(boundary))
+            diagnostics.Add(new(GraphDiagnosticSeverity.Error, "EG0003",
+                "The execution graph has an invalid compilation boundary.", Graph: id.Value));
+        return diagnostics.Count != 0 ? diagnostics : Create(false).Validate();
+    }
+
+    public ExecutionGraph Build()
+    {
+        ModelGraphConstruction.ThrowIfErrors(Validate());
+        return Create(true);
+    }
+
+    private ExecutionGraph Create(bool rejectErrors) =>
+        new(id, new Graph<ExecutionGraphStructureNode, ExecutionGraphEdge>(nodes, edges),
+            boundary, architecture, source, rejectErrors);
 
     /// <summary>Appends an executable node and expands binding accesses and prerequisites into typed edges.</summary>
     /// <param name="node">The operation or call to append.</param>
@@ -103,30 +121,17 @@ public sealed class ExecutionGraphBuilder
     {
         ArgumentNullException.ThrowIfNull(node);
         ArgumentNullException.ThrowIfNull(bindings);
+        if (nodes.Any(existing => existing.GraphId == node.GraphId))
+            throw new InvalidOperationException($"Node '{node.Id}' is already declared in '{id}'.");
+        var values = bindings.ToArray();
+        if (values.Any(binding => !Enum.IsDefined(binding.Access)))
+            throw new ArgumentOutOfRangeException(nameof(bindings));
         nodes.Add(node);
-        foreach (var binding in bindings)
-        {
-            if (binding.Access != GraphResourceAccess.Write)
-            {
-                edges.Add(new ExecutionResourceReadEdge(
-                    new($"binding:{binding.BindingId}:read"),
-                    binding.Resource.GraphId,
-                    node.GraphId,
-                    binding.Port,
-                    binding.BindingId));
-            }
-
-            if (binding.Access != GraphResourceAccess.Read)
-            {
-                edges.Add(new ExecutionResourceWriteEdge(
-                    new($"binding:{binding.BindingId}:write"),
-                    node.GraphId,
-                    binding.Resource.GraphId,
-                    binding.Port,
-                    binding.BindingId));
-            }
-        }
-        foreach (var dependency in dependencies ?? [])
+        edges.AddRange(ModelGraphConstruction.ExpandBindings<ExecutionGraphEdge>(
+            node.GraphId, values,
+            (id, from, to, port, binding) => new ExecutionResourceReadEdge(id, from, to, port, binding),
+            (id, from, to, port, binding) => new ExecutionResourceWriteEdge(id, from, to, port, binding)));
+        foreach (var dependency in (dependencies ?? []).Distinct())
         {
             edges.Add(new ExecutionDependencyEdge(
                 new($"dependency:{dependency.Value}:{node.Id.Value}"),

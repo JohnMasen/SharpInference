@@ -26,7 +26,7 @@ internal static class LogicalGraphDefinitionValidator
     /// <exception cref="InvalidOperationException">A required single resource or call-port binding is not unique.</exception>
     internal static LogicalGraphAnalysis Analyze(LogicalGraphDefinition graph)
     {
-        var diagnostics = new List<LogicalGraphDiagnostic>();
+        var diagnostics = new List<GraphDiagnostic>();
         if (string.IsNullOrWhiteSpace(graph.Id.Value))
         {
             diagnostics.Add(Error("LG0001", "A graph definition identifier is required."));
@@ -42,6 +42,27 @@ internal static class LogicalGraphDefinitionValidator
         var definitions = graph.Definitions.ToDictionary(definition => definition.Id);
         var calls = graph.Structure.Filter(node: node => node is GraphCallNode)
             .Nodes.Cast<GraphCallNode>().ToDictionary(call => call.Id);
+        foreach (var resourceNode in graph.Structure.Nodes.OfType<LogicalResourceNode>())
+        {
+            var resource = resourceNode.Resource;
+            if (resourceNode.ResourceNodeId.Owner.IsParent)
+            {
+                if (resource.Owner != graph.Id)
+                    diagnostics.Add(Error("LG0028",
+                        $"Parent resource '{resource.Id}' is declared by another graph '{resource.Owner}'.",
+                        resource: resource.Id));
+                continue;
+            }
+            var call = calls[resourceNode.ResourceNodeId.Owner.Call!.Value];
+            if (!definitions.TryGetValue(call.Definition, out var definition))
+                continue;
+            var declared = definition.Resources.SingleOrDefault(value => value.Id == resource.Id);
+            if (declared is null || declared.Owner != resource.Owner ||
+                declared.Kind != resource.Kind || !SameTensor(declared.Tensor, resource.Tensor))
+                diagnostics.Add(Error("LG0029",
+                    $"Resource '{resourceNode.ResourceNodeId}' does not match its called definition.",
+                    call.Id, resource.Id));
+        }
         foreach (var node in graph.Nodes)
         {
             var ports = new HashSet<string>(StringComparer.Ordinal);
@@ -70,12 +91,12 @@ internal static class LogicalGraphDefinitionValidator
                     binding.Access != GraphResourceAccess.Read)
                 {
                     diagnostics.Add(new(
-                        LogicalGraphDiagnosticSeverity.Warning,
+                        GraphDiagnosticSeverity.Warning,
                         "LGW003",
                         $"Node '{node.Id}' writes resource '{binding.Resource.Resource}' owned by " +
                         $"graph instance '{binding.Resource.Owner}'. This may cause unexpected " +
                         "cross-instance behavior.",
-                        node.Id,
+                        node.Id.Value,
                         binding.Resource.Resource));
                 }
 
@@ -114,10 +135,16 @@ internal static class LogicalGraphDefinitionValidator
                 continue;
             }
             var bindings = graph.Bindings(call);
-            foreach (var port in called.Resources.Where(resource =>
+            var publicPorts = called.Resources.Where(resource =>
                 resource.Kind is GraphDefinitionResourceKind.Input
                     or GraphDefinitionResourceKind.Output
-                    or GraphDefinitionResourceKind.InOut))
+                    or GraphDefinitionResourceKind.InOut).ToArray();
+            foreach (var binding in bindings.Where(binding =>
+                !publicPorts.Any(port => port.Id.Value == binding.Port)))
+                diagnostics.Add(new(GraphDiagnosticSeverity.Error, "LG0027",
+                    $"Call '{call.Id}' has unknown port '{binding.Port}'.",
+                    call.Id.Value, binding.Resource.Resource, binding.Port));
+            foreach (var port in publicPorts)
             {
                 var binding = bindings.SingleOrDefault(value => value.Port == port.Id.Value);
                 if (binding is null)
@@ -206,7 +233,7 @@ internal static class LogicalGraphDefinitionValidator
             if (maximal.Length > 1)
             {
                 diagnostics.Add(new(
-                    LogicalGraphDiagnosticSeverity.Warning,
+                    GraphDiagnosticSeverity.Warning,
                     "LGW002",
                     $"Graph output '{output.Id}' has unordered terminal writers: " +
                     string.Join(", ", maximal.Select(writer => $"'{writer}'")) + ".",
@@ -222,12 +249,12 @@ internal static class LogicalGraphDefinitionValidator
     /// <param name="node">The affected operation identity, if applicable.</param>
     /// <param name="resource">The affected resource identity, if applicable.</param>
     /// <returns>An error-severity diagnostic.</returns>
-    private static LogicalGraphDiagnostic Error(
+    private static GraphDiagnostic Error(
         string code,
         string message,
         GraphDefinitionNodeId? node = null,
         ResourceId? resource = null) =>
-        new(LogicalGraphDiagnosticSeverity.Error, code, message, node, resource);
+        new(GraphDiagnosticSeverity.Error, code, message, node?.Value, resource);
 
     /// <summary>Compares the complete tensor contract used for child-port compatibility.</summary>
     /// <param name="left">The declared child-port descriptor.</param>

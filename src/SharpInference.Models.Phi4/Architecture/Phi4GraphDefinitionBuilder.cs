@@ -211,101 +211,92 @@ internal sealed class Phi4GraphDefinitionBuilder
 
     internal LogicalGraphDefinition Build()
     {
-        DynamicPorts.Specs.Value = resources.Values
-            .Where(value => value.Kind is GraphDefinitionResourceKind.Input or GraphDefinitionResourceKind.Output or GraphDefinitionResourceKind.InOut)
-            .ToArray();
-        try
-        {
-            return LogicalGraphDefinition.Define<DynamicPorts>(
-                id,
-                builder =>
+        return LogicalGraphDefinition.Define(
+            id,
+            builder =>
+            {
+                foreach (var resource in resources.Values.OrderBy(resource =>
+                             resource.Kind is GraphDefinitionResourceKind.Input
+                                 or GraphDefinitionResourceKind.Output
+                                 or GraphDefinitionResourceKind.InOut ? 0 : 1))
                 {
-                    var handles = new Dictionary<string, GraphResource<object>>(builder.Ports.Resources, StringComparer.Ordinal);
-                    foreach (var resource in resources.Values.Where(value =>
-                                 value.Kind is not (GraphDefinitionResourceKind.Input or GraphDefinitionResourceKind.Output or GraphDefinitionResourceKind.InOut)))
-                    {
-                        handles.Add(resource.Id, builder.AddResource<object>(
-                            resource.Id, resource.Name, resource.Tensor, resource.Kind, resource.BindingKey));
-                    }
+                    builder.AddResource(
+                        resource.Id, resource.Name, resource.Tensor, resource.Kind, resource.BindingKey);
+                }
 
-                    GraphDefinitionNodeId? previous = null;
-                    foreach (var step in steps)
+                GraphDefinitionNodeId? previous = null;
+                foreach (var step in steps)
+                {
+                    if (step is CallSpec call)
                     {
-                        if (step is CallSpec call)
+                        previous = builder.AddCall(
+                            call.Id,
+                            call.Definition,
+                            call.Bindings.Select(binding => (
+                                binding.Port,
+                                new ResourceId(binding.Resource),
+                                binding.Access)),
+                            previous is { } callDependency ? [callDependency] : [],
+                            call.Annotation);
+                        continue;
+                    }
+                    var node = (NodeSpec)step;
+                    builder.AddNode(node.Id, node.Operation, operation =>
+                    {
+                        foreach (var binding in node.Bindings)
                         {
-                            previous = builder.AddCall(
-                                call.Id,
-                                call.Definition,
-                                call.Bindings.Select(binding => (
-                                    binding.Port,
-                                    handles[binding.Resource],
-                                    binding.Access)),
-                                previous is { } callDependency ? [callDependency] : [],
-                                call.Annotation);
-                            continue;
+                            if (!resources.ContainsKey(binding.Resource.Value))
+                            {
+                                throw new InvalidDataException($"Phi4 node '{node.Id}' references unknown resource '{binding.Resource}'.");
+                            }
+
+                            if (binding.Access == GraphResourceAccess.Read)
+                            {
+                                operation.AddInput(binding.Port, binding.Resource);
+                            }
+                            else if (binding.Access == GraphResourceAccess.Write)
+                            {
+                                operation.AddOutput(binding.Port, binding.Resource);
+                            }
+                            else
+                            {
+                                operation.AddInOut(binding.Port, binding.Resource);
+                            }
                         }
-                        var node = (NodeSpec)step;
-                        builder.AddNode(node.Id, node.Operation, operation =>
+
+                        if (previous is { } dependency)
                         {
-                            foreach (var binding in node.Bindings)
-                            {
-                                if (!handles.TryGetValue(binding.Resource.Value, out var resource))
-                                {
-                                    throw new InvalidDataException($"Phi4 node '{node.Id}' references unknown resource '{binding.Resource}'.");
-                                }
+                            operation.DependsOn(dependency);
+                        }
 
-                                if (binding.Access == GraphResourceAccess.Read)
-                                {
-                                    operation.AddInput(binding.Port, resource);
-                                }
-                                else if (binding.Access == GraphResourceAccess.Write)
-                                {
-                                    operation.AddOutput(binding.Port, resource);
-                                }
-                                else
-                                {
-                                    operation.AddInOut(binding.Port, resource);
-                                }
-                            }
+                        if (node.Requirements is { } requirements)
+                        {
+                            operation.RequirePrecision(requirements);
+                        }
 
-                            if (previous is { } dependency)
+                        if (node.Attributes is not null)
+                        {
+                            foreach (var (name, value) in node.Attributes)
                             {
-                                operation.DependsOn(dependency);
+                                operation.AddAttribute(name, value);
                             }
+                        }
 
-                            if (node.Requirements is { } requirements)
-                            {
-                                operation.RequirePrecision(requirements);
-                            }
-
-                            if (node.Attributes is not null)
-                            {
-                                foreach (var (name, value) in node.Attributes)
-                                {
-                                    operation.AddAttribute(name, value);
-                                }
-                            }
-
-                            foreach (var binding in node.Bindings.Where(binding => binding.View is not null))
-                            {
-                                var view = binding.View!;
-                                operation.AddAttribute($"view.{binding.Port}.offset", view.Offset.ToString());
-                                operation.AddAttribute($"view.{binding.Port}.element_type", view.Tensor.ElementType.ToString());
-                                operation.AddAttribute($"view.{binding.Port}.dimensions",
-                                    string.Join(",", view.Tensor.Dimensions));
-                                operation.AddAttribute($"view.{binding.Port}.layout", view.Tensor.Layout);
-                            }
-                        }, node.Annotation);
-                        previous = new(node.Id);
-                    }
-                },
-                GraphCompileBoundary.Atomic,
-                annotation).Definition;
-        }
-        finally
-        {
-            DynamicPorts.Specs.Value = null;
-        }
+                        foreach (var binding in node.Bindings.Where(binding => binding.View is not null))
+                        {
+                            var view = binding.View!;
+                            operation.AddAttribute($"view.{binding.Port}.offset", view.Offset.ToString());
+                            operation.AddAttribute($"view.{binding.Port}.element_type", view.Tensor.ElementType.ToString());
+                            operation.AddAttribute($"view.{binding.Port}.dimensions",
+                                string.Join(",", view.Tensor.Dimensions));
+                            operation.AddAttribute($"view.{binding.Port}.layout", view.Tensor.Layout);
+                        }
+                    }, node.Annotation);
+                    previous = new(node.Id);
+                }
+            },
+            GraphCompileBoundary.Atomic,
+            annotation);
     }
 
     internal sealed class Phi4DefinitionScope
@@ -423,30 +414,4 @@ internal sealed class Phi4GraphDefinitionBuilder
         string Resource,
         GraphResourceAccess Access);
 
-    private sealed class DynamicPorts : IGraphPortContract<DynamicPorts>
-    {
-        internal static readonly AsyncLocal<ResourceSpec[]?> Specs = new();
-
-        private DynamicPorts(IReadOnlyDictionary<string, GraphResource<object>> resources) =>
-            Resources = resources;
-
-        internal IReadOnlyDictionary<string, GraphResource<object>> Resources { get; }
-
-        public static DynamicPorts Create(IGraphPortFactory ports)
-        {
-            var values = new Dictionary<string, GraphResource<object>>(StringComparer.Ordinal);
-            foreach (var spec in Specs.Value ?? throw new InvalidOperationException("Phi4 graph ports were not configured."))
-            {
-                values.Add(spec.Id, spec.Kind switch
-                {
-                    GraphDefinitionResourceKind.Input => ports.AddInput<object>(spec.Id, spec.Tensor),
-                    GraphDefinitionResourceKind.Output => ports.AddOutput<object>(spec.Id, spec.Tensor),
-                    GraphDefinitionResourceKind.InOut => ports.AddInOut<object>(spec.Id, spec.Tensor),
-                    _ => throw new InvalidOperationException($"Invalid Phi4 port kind '{spec.Kind}'."),
-                });
-            }
-
-            return new(values);
-        }
-    }
 }

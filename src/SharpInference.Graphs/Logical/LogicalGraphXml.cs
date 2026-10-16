@@ -1,10 +1,11 @@
 using System.Xml.Linq;
 using SharpInference.Graphs.Core;
+using SharpInference.Graphs.Internal;
 using static SharpInference.Graphs.Internal.GraphXmlSupport;
 
 namespace SharpInference.Graphs.Logical;
 
-/// <summary>Serializes logical graph definitions without changing their XML schema or declaration order.</summary>
+/// <summary>Reads and writes version-three logical definitions with named bindings.</summary>
 public static class LogicalGraphXml
 {
 
@@ -12,7 +13,7 @@ public static class LogicalGraphXml
     /// <param name="graph">The root definition to serialize.</param>
     /// <returns>The versioned logical graph XML document.</returns>
     /// <remarks>
-    /// Uses schema version 2, sorts definitions by ordinal identifier, and preserves each structure's
+    /// Uses schema version 3, sorts definitions by ordinal identifier, and preserves each structure's
     /// node and edge order. Traversal follows the supplied child-definition collections and deduplicates
     /// by definition identity. Parent versus instance resource scopes are encoded separately from
     /// declaration graph owners. Serialization enforces character and element-count limits.
@@ -26,7 +27,7 @@ public static class LogicalGraphXml
         return Write(new XElement(
             "Graph",
             new XAttribute("kind", "LogicalGraphDefinition"),
-            new XAttribute("version", 2),
+            new XAttribute("version", 3),
             new XElement("Root", new XAttribute("definition", graph.Id.Value)),
             new XElement(
                 "Definitions",
@@ -39,7 +40,7 @@ public static class LogicalGraphXml
     /// <param name="xml">The serialized root and reachable definitions.</param>
     /// <returns>The reconstructed root logical graph.</returns>
     /// <remarks>
-    /// Requires the version-2 logical graph envelope and exactly one Root and Definitions container.
+    /// Requires the version-3 logical graph envelope and exactly one Root and Definitions container.
     /// DTDs are prohibited; character, element-count, and nesting limits are enforced during parsing.
     /// Definition records are resolved recursively from call nodes, rejecting missing, recursive, and
     /// unreachable definitions. Each reconstructed definition runs normal logical validation.
@@ -53,13 +54,18 @@ public static class LogicalGraphXml
     /// <exception cref="InvalidOperationException">Malformed graph relationships violate a required uniqueness assumption.</exception>
     public static LogicalGraphDefinition DeserializeDefinition(string xml)
     {
-        var root = Read(xml, "LogicalGraphDefinition", 2);
+        var root = Read(xml, "LogicalGraphDefinition", 3);
+        _ = DefinitionChildren(root, "Root", "Definitions");
         var rootElement = RequiredChild(root, "Root");
         Check(rootElement, "Root", "definition");
         var rootId = Required(rootElement, "definition");
-        var records = Children(RequiredChild(root, "Definitions"), "Definition")
-            .Select(ReadDefinitionRecord)
-            .ToDictionary(record => record.Id, StringComparer.Ordinal);
+        var records = new Dictionary<string, LogicalGraphDefinitionRecord>(StringComparer.Ordinal);
+        foreach (var element in Children(RequiredChild(root, "Definitions"), "Definition"))
+        {
+            var record = ReadDefinitionRecord(element);
+            if (!records.TryAdd(record.Id, record))
+                throw new InvalidDataException($"Duplicate logical definition '{record.Id}'.");
+        }
         var completed = new Dictionary<string, LogicalGraphDefinition>(StringComparer.Ordinal);
         var active = new HashSet<string>(StringComparer.Ordinal);
         var result = Build(rootId);
@@ -150,7 +156,7 @@ public static class LogicalGraphXml
             new XAttribute("compileBoundary", definition.CompileBoundary),
             WriteAnnotation(definition.Annotation),
             new XElement("Nodes", definition.Structure.Nodes.Select(WriteLogicalNode)),
-            new XElement("Edges", definition.Structure.Edges.Select(WriteLogicalEdge)));
+            ModelGraphXml.WriteRelations(definition.Structure));
 
     /// <summary>Writes a scoped resource, child call, or operation node.</summary>
     /// <param name="node">The logical node to encode.</param>
@@ -188,48 +194,23 @@ public static class LogicalGraphXml
             $"Unsupported logical node type '{node.GetType().Name}'."),
     };
 
-    /// <summary>Writes a dependency, resource-read, or resource-write edge without changing its identity.</summary>
-    /// <param name="edge">The logical edge to encode.</param>
-    /// <returns>The corresponding Dependency, Read, or Write element.</returns>
-    /// <exception cref="InvalidDataException">The edge has an unsupported runtime type.</exception>
-    private static XElement WriteLogicalEdge(LogicalGraphEdge edge) => edge switch
-    {
-        LogicalDependencyEdge dependency => new XElement(
-            "Dependency",
-            new XAttribute("id", dependency.Id.Value),
-            new XAttribute("source", dependency.Source.Value),
-            new XAttribute("target", dependency.Target.Value)),
-        LogicalResourceReadEdge read => new XElement(
-            "Read",
-            new XAttribute("id", read.Id.Value),
-            new XAttribute("source", read.Source.Value),
-            new XAttribute("target", read.Target.Value),
-            new XAttribute("port", read.Port),
-            new XAttribute("binding", read.BindingId)),
-        LogicalResourceWriteEdge write => new XElement(
-            "Write",
-            new XAttribute("id", write.Id.Value),
-            new XAttribute("source", write.Source.Value),
-            new XAttribute("target", write.Target.Value),
-            new XAttribute("port", write.Port),
-            new XAttribute("binding", write.BindingId)),
-        _ => throw new InvalidDataException(
-            $"Unsupported logical edge type '{edge.GetType().Name}'."),
-    };
-
     /// <summary>Parses one definition's metadata and exact structure before resolving child definitions.</summary>
-    /// <param name="element">The Definition element with required Nodes and Edges containers.</param>
+    /// <param name="element">The Definition element with Nodes, Bindings, and Dependencies containers.</param>
     /// <returns>The parsed record used during recursive reconstruction.</returns>
     /// <exception cref="InvalidDataException">Required attributes or containers, enum values, child node names, or graph structure are invalid.</exception>
     private static LogicalGraphDefinitionRecord ReadDefinitionRecord(XElement element)
     {
         Check(element, "Definition", "id", "compileBoundary");
+        _ = DefinitionChildren(element, "Annotation", "Nodes", "Bindings", "Dependencies");
         var nodes = DefinitionChildren(
                 RequiredChild(element, "Nodes"), "Resource", "Operation", "Call")
             .Select(ReadLogicalNode).ToArray();
-        var edges = DefinitionChildren(
-                RequiredChild(element, "Edges"), "Dependency", "Read", "Write")
-            .Select(ReadLogicalEdge).ToArray();
+        var edges = ModelGraphXml.ReadRelations<LogicalGraphEdge>(element,
+            (id, source, target, port, binding) => new LogicalResourceReadEdge(id, source, target, port, binding),
+            (id, source, target, port, binding) => new LogicalResourceWriteEdge(id, source, target, port, binding),
+            (id, source, target) => new LogicalDependencyEdge(id, source, target));
+        ModelGraphConstruction.ThrowIfErrors(ModelGraphConstruction.Validate(
+            Required(element, "id"), nodes, edges, node => node is GraphCallNode));
         return new(
             Required(element, "id"),
             DefinitionEnumValue<GraphCompileBoundary>(element, "compileBoundary"),
@@ -281,35 +262,6 @@ public static class LogicalGraphXml
             ReadAttributes(RequiredChild(element, "Attributes")),
             ReadPrecision(RequiredChild(element, "Precision")),
             ReadAnnotation(element.Element("Annotation")));
-    }
-
-    /// <summary>Reconstructs one dependency or access edge using its serialized endpoints and binding identity.</summary>
-    /// <param name="element">The Dependency, Read, or Write element.</param>
-    /// <returns>The corresponding logical edge.</returns>
-    /// <exception cref="InvalidDataException">The edge kind or its required attributes are invalid.</exception>
-    private static LogicalGraphEdge ReadLogicalEdge(XElement element)
-    {
-        Check(
-            element,
-            element.Name.LocalName,
-            element.Name == "Dependency"
-                ? ["id", "source", "target"]
-                : ["id", "source", "target", "port", "binding"]);
-        var id = new GraphEdgeId(Required(element, "id"));
-        var source = new GraphNodeId(Required(element, "source"));
-        var target = new GraphNodeId(Required(element, "target"));
-        return element.Name.LocalName switch
-        {
-            "Dependency" => new LogicalDependencyEdge(id, source, target),
-            "Read" => new LogicalResourceReadEdge(
-                id, source, target, Required(element, "port"),
-                Required(element, "binding")),
-            "Write" => new LogicalResourceWriteEdge(
-                id, source, target, Required(element, "port"),
-                Required(element, "binding")),
-            _ => throw new InvalidDataException(
-                $"Unsupported logical edge element <{element.Name}>."),
-        };
     }
 
     /// <summary>Writes optional metadata and its attributes directly as Annotation children.</summary>

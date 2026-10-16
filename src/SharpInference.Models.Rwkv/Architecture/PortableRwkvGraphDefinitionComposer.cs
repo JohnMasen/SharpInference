@@ -1,11 +1,8 @@
-using System.Threading;
 using System.Globalization;
 using SharpInference.Graphs;
 using SharpInference.Graphs.Logical;
 
 namespace SharpInference.Architectures;
-
-internal sealed class RwkvTensor;
 
 internal static class RwkvPortableTensorOperations
 {
@@ -51,34 +48,6 @@ internal static class RwkvPortableTensorOperations
     }
 }
 
-internal sealed record RwkvGraphPorts(
-    GraphInput<RwkvTensor> Token,
-    GraphOutput<RwkvTensor> Logits) : IGraphPortContract<RwkvGraphPorts>
-{
-    private static readonly AsyncLocal<(TensorDescriptor Token, TensorDescriptor Logits)?> descriptors = new();
-
-    public static RwkvGraphPorts Create(IGraphPortFactory ports)
-    {
-        var value = descriptors.Value ??
-            throw new InvalidOperationException("RWKV graph port descriptors are not configured.");
-        return new(
-            ports.AddInput<RwkvTensor>("token", value.Token),
-            ports.AddOutput<RwkvTensor>("logits", value.Logits));
-    }
-
-    internal static IDisposable Use(TensorDescriptor token, TensorDescriptor logits)
-    {
-        var previous = descriptors.Value;
-        descriptors.Value = (token, logits);
-        return new DescriptorScope(previous);
-    }
-
-    private sealed class DescriptorScope((TensorDescriptor Token, TensorDescriptor Logits)? previous) : IDisposable
-    {
-        public void Dispose() => descriptors.Value = previous;
-    }
-}
-
 internal sealed record RwkvArchitectureAnnotation(
     string? Role = null,
     string? Description = null,
@@ -113,17 +82,14 @@ internal sealed class PortableRwkvGraphDefinitionComposer
         string Name,
         RwkvArchitectureAnnotation? Annotation);
 
-    private readonly GraphDefinitionBuilder<RwkvGraphPorts> builder;
-    private readonly Dictionary<string, GraphResource<RwkvTensor>> resources =
-        new(StringComparer.Ordinal);
+    private readonly GraphDefinitionBuilder builder;
+    private readonly HashSet<string> states = new(StringComparer.Ordinal);
     private readonly List<ArchitectureFrame> architecture = [];
     private GraphDefinitionNodeId? previous;
 
-    private PortableRwkvGraphDefinitionComposer(GraphDefinitionBuilder<RwkvGraphPorts> builder)
+    private PortableRwkvGraphDefinitionComposer(GraphDefinitionBuilder builder)
     {
         this.builder = builder;
-        resources.Add("token", builder.Ports.Token);
-        resources.Add("logits", builder.Ports.Logits);
     }
 
     internal static LogicalGraphDefinition Define(
@@ -132,18 +98,17 @@ internal sealed class PortableRwkvGraphDefinitionComposer
         Action<PortableRwkvGraphDefinitionComposer> build,
         GraphAnnotation annotation)
     {
-        using var descriptors = RwkvGraphPorts.Use(
-            new TensorDescriptor(GraphElementType.Int32, [1]),
-            new TensorDescriptor(GraphElementType.Float32, [vocabularySize]));
-        return LogicalGraphDefinition.Define<RwkvGraphPorts>(
+        return LogicalGraphDefinition.Define(
             id,
             graph =>
             {
+                graph.AddInput("token", new TensorDescriptor(GraphElementType.Int32, [1]));
+                graph.AddOutput("logits", new TensorDescriptor(GraphElementType.Float32, [vocabularySize]));
                 var composer = new PortableRwkvGraphDefinitionComposer(graph);
                 build(composer);
             },
             GraphCompileBoundary.Atomic,
-            annotation).Definition;
+            annotation);
     }
 
     internal RwkvArchitectureScope Root(
@@ -156,16 +121,16 @@ internal sealed class PortableRwkvGraphDefinitionComposer
     }
 
     internal void AddWeight(string id, string name, TensorDescriptor tensor, string bindingKey) =>
-        resources.Add(id, builder.AddResource<RwkvTensor>(
-            id, name, tensor, GraphDefinitionResourceKind.Weight, bindingKey));
+        builder.AddResource(id, name, tensor, GraphDefinitionResourceKind.Weight, bindingKey);
 
-    internal void AddState(string id, TensorDescriptor tensor) =>
-        resources.Add(id, builder.AddResource<RwkvTensor>(
-            id, id, tensor, GraphDefinitionResourceKind.State, id));
+    internal void AddState(string id, TensorDescriptor tensor)
+    {
+        builder.AddResource(id, id, tensor, GraphDefinitionResourceKind.State, id);
+        states.Add(id);
+    }
 
     internal void AddTemporary(string id, TensorDescriptor tensor) =>
-        resources.Add(id, builder.AddResource<RwkvTensor>(
-            id, id, tensor, GraphDefinitionResourceKind.Temporary));
+        builder.AddResource(id, id, tensor, GraphDefinitionResourceKind.Temporary);
 
     internal void AddNode(
         string id,
@@ -179,8 +144,8 @@ internal sealed class PortableRwkvGraphDefinitionComposer
         {
             foreach (var input in inputs)
             {
-                var resource = Get(input.Resource);
-                if (resource.Resource.Kind == GraphDefinitionResourceKind.State)
+                var resource = new ResourceId(input.Resource);
+                if (states.Contains(input.Resource))
                 {
                     node.AddInOut(input.Port, resource);
                 }
@@ -189,7 +154,7 @@ internal sealed class PortableRwkvGraphDefinitionComposer
                     node.AddInput(input.Port, resource);
                 }
             }
-            node.AddOutput("output", Get(output));
+            node.AddOutput("output", new ResourceId(output));
             if (attributes is not null)
             {
                 foreach (var attribute in attributes)
@@ -234,11 +199,6 @@ internal sealed class PortableRwkvGraphDefinitionComposer
             build();
             return true;
         });
-
-    private GraphResource<RwkvTensor> Get(string id) =>
-        resources.TryGetValue(id, out var resource)
-            ? resource
-            : throw new InvalidDataException($"Unknown RWKV graph resource '{id}'.");
 
     private GraphAnnotation CurrentAnnotation()
     {

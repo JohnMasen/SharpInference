@@ -37,14 +37,13 @@ batch sizes, not the runtime of one unusually complex path search.
 - [Current RWKV7 execution graph](../../artifacts/rwkv7-d3d12-baseline.xml)
 
 These local artifacts are optional, git-ignored examples, not tool dependencies.
-Use version 2 `LogicalGraphDefinition` / `ExecutionGraphProgram` exports for the
+Use version 3 `LogicalGraphDefinition` / `ExecutionGraphProgram` exports for the
 current architecture. The execution-graph examples above include
 `architecture.path` annotations; the viewer reconstructs their module hierarchy
 without requiring a separate architecture XML. Old version 1 graph and
 execution-plan examples have been removed from the local artifacts directory.
-Flat `Nodes` graphs and structured `Region` / `LayerDefinition` / `Call` graphs
-remain supported for compatibility. The former standalone `Architecture` tree
-is not supported.
+Graph XML v2 and older graph formats are explicitly unsupported; re-export them
+as v3. The former standalone `Architecture` tree is not supported.
 The heading and status identify the loaded file as a **Logical graph**, an
 **Execution graph**, or an **Execution graph · IL / CPU / GPU**. Files without a
 declared graph kind are labeled as unspecified, not guessed to be logical graphs.
@@ -53,7 +52,8 @@ declared graph kind are labeled as unspecified, not guessed to be logical graphs
 
 The viewer accepts production `ExecutionPlan` XML
 (`schema="sharp-inference"`, `version="1"`, `kind="il|cpu|gpu"`).
-These legacy formats are not the current version 2 graph architecture.
+These legacy plans are separate from the current version 3 graph architecture;
+an embedded IL `Graph` must use v3.
 
 Production target views display explicit EntryPoints, orchestration Calls,
 Functions, Kernels, Dispatches and Barriers. Double-click a call to enter its
@@ -140,9 +140,10 @@ unchanged.
 
 ## Logical graph definitions
 
-The logical schema uses reusable `GraphDefinition` values. Version 2 stores
-resources, operations and calls as typed nodes, with `Read`, `Write` and
-`Dependency` elements as typed edges. Definition and call annotations provide
+The logical schema uses reusable `GraphDefinition` values. Version 3 keeps the
+`Graph` / `Root` / `Definitions` structure and stores resources, operations and
+calls in `Nodes`. Each definition has `Bindings` and `Dependencies` instead of
+`Edges`. Definition and call annotations provide
 architecture metadata. For flat graphs, operation and call annotations with an
 `architecture.path` attribute reconstruct an expandable display hierarchy:
 
@@ -173,15 +174,16 @@ architecture tree:
 - `Transparent` preserves the architecture container but does not introduce an
   execution synchronization boundary.
 
-GraphView reads only `LogicalGraphDefinition` logical-graph XML. It presents
+GraphView reads only v3 `LogicalGraphDefinition` logical-graph XML. It presents
 each definition call as an expandable architecture component. Other XML and
 JSON graph formats are not supported.
 
 ## Execution graph programs
 
-GraphView also reads `ExecutionGraphProgram` XML. The program is a validated
+GraphView also reads v3 `ExecutionGraphProgram` XML (`Root graph="…"` and
+`Graphs` / `ExecutionGraph`). The program is a validated
 collection of reusable execution graphs with one inferred root. Each graph uses
-the same typed node/edge structure as the logical graph; double-click a graph
+the same node/binding/dependency structure as the logical graph; double-click a graph
 call to inspect its target graph. Graph, call, and operation `Architecture` metadata is displayed
 but does not alter execution semantics. Its `architecture.path` attributes use
 the same display grouping as logical annotations. Shared operation-template calls
@@ -195,11 +197,25 @@ child call instance:
 
 ```xml
 <Binding
+  id="consumer:value"
+  node="consumer"
   port="value"
   resource="scores"
   instance="attention-1"
-  access="Read" />
+  access="Read"
+  readEdge="read-scores"
+  readOrder="4" />
 ```
+
+`node`, `resource`, and dependency `source` / `target` use original IDs, without
+`operation:` or `resource:parent:` prefixes. Omit `instance` for a parent resource.
+`access` is `Read`, `Write`, or `ReadWrite`: reads retain `readEdge` / `readOrder`,
+writes retain `writeEdge` / `writeOrder`, and a single ReadWrite binding carries
+both pairs. Edge IDs are the original graph edge IDs, and orders are their
+original graph edge indices. A dependency is, for example,
+`<Dependency id="schedule-1" source="producer" target="consumer" order="5" />`.
+Bindings are indexed by node and resolved against parent/instance resource IDs;
+their original order metadata is retained independently of architecture grouping.
 
 GraphView displays this resource as `attention-1/scores`. Cross-instance writes
 are valid logical bindings but produce a graph diagnostic because they can
@@ -227,6 +243,7 @@ formulas, mixed annotations, identifier collisions, repeat groups, history,
 language switching, invalid paths/dependencies, shared-template navigation,
 execution/logical fork-and-join ranks, data-edge preservation, selection, and
 mode-specific layout/history restoration. Loading checks also cover indexed
-ReadWrite/instance bindings, missing-resource errors, batched progress and
+single ReadWrite/instance bindings, edge identity/order and source-map retention,
+explicit v2 rejection, raw node IDs, missing-resource errors, batched progress and
 responsiveness, localized phase labels, superseded loads, and embedded
 production IL graphs.
