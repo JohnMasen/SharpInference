@@ -118,7 +118,8 @@ dotnet test src\SharpInference.Tests\SharpInference.Tests.csproj -c Release `
 开关 bitmask：`1` 为依赖精简，`2` 为 Temporary 复用，`4` 为模板共享；
 `0` 全关，`7` 全开。GPU forward 不包含上传和读回；编译时间包含后端源码生成。
 性能数据用于诊断，不作为测试通过阈值，应比较重复实验，避免冷启动和单次噪声。
-未设置模型目录属性时，外部模型测试会直接返回，不执行推理。
+未设置模型目录属性时，外部模型测试使用下述默认目录；默认目录不可用时，
+明确显示跳过及配置原因，不再空跑通过。
 
 ## 环境要求
 
@@ -140,6 +141,13 @@ dotnet test .\src\SharpInference.Tests\SharpInference.Tests.csproj `
   -p:RwkvTestModelDirectory="D:\path\to\rwkvcpp\tests"
 ```
 
+也可以在 Visual Studio 测试资源管理器中直接运行或调试，无需传入属性。
+共享[模型配置](src/SharpInference.Tests/RwkvTestModels.cs)中的默认目录为
+`D:\GithubRoot\rwkvcpp\tests`，显式构建属性 `RwkvTestModelDirectory` 优先。
+未配置属性且默认目录不存在时，模型测试显示跳过及原因；显式路径无效、
+模型文件或参考 logits 缺失时测试失败，不回退到默认目录。
+修改构建属性或默认目录后，请重新构建并刷新测试发现。
+
 指定目录应包含 `RwkvTinyExecutionPipelineTests` 使用的 tiny RWKV 模型和
 expected-logits 文件。
 
@@ -158,6 +166,22 @@ expected-logits 文件。
 | `src/SharpInference.Backends.D3D12Vm` | D3D12 VM 编译器与执行器 |
 | `src/SharpInference.Tests` | 图、Emitter 与端到端推理测试 |
 | `tools/GraphView` | 逻辑图和执行图 XML 查看器 |
+
+### 图领域命名空间
+
+图领域项目按一个类型一个文件组织，包含 record、接口、枚举和内部分析记录：
+
+- `SharpInference.Graphs`：共享模型契约、图查询、张量与精度基础类型。
+- `SharpInference.Graphs.Logical`（[Logical](src/SharpInference.Graphs/Logical)）：
+  逻辑图定义、节点、边、Builder、端口、诊断与校验。
+- `SharpInference.Graphs.Execution`（[Execution](src/SharpInference.Graphs/Execution)）：
+  执行图程序、节点、边、Builder、转换、编译与重写。
+- `SharpInference.Graphs.Internal`：两种序列化器共用的内部 XML 辅助实现。
+
+逻辑图使用 `LogicalGraphXml.Serialize` / `DeserializeDefinition`，
+执行图程序使用 `ExecutionGraphXml.Serialize` / `DeserializeProgram`。
+两者替代原 `GraphXml` 入口，XML 格式保持不变。
+消费者需要导入对应的逻辑图或执行图命名空间，项目和程序集边界不变。
 
 ## 许可证
 

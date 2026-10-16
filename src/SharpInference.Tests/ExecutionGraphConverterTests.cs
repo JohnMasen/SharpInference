@@ -1,6 +1,8 @@
 using SharpInference.Graphs;
 using SharpInference.Graphs.Core;
 using SharpInference.Vm.Optimization;
+using SharpInference.Graphs.Execution;
+using SharpInference.Graphs.Logical;
 
 namespace SharpInference.Tests;
 
@@ -238,7 +240,7 @@ public sealed class ExecutionGraphConverterTests
             $"sharp-inference-execution-{Guid.NewGuid():N}.xml");
         try
         {
-            File.WriteAllText(path, GraphXml.Serialize(replacement));
+            File.WriteAllText(path, ExecutionGraphXml.Serialize(replacement));
             var processor = new XmlExecutionGraphProgramPostprocessor(
                 path, "test-model", "test-backend");
             var result = processor.Process(
@@ -303,8 +305,8 @@ public sealed class ExecutionGraphConverterTests
             source: new(new("logical-root")));
         var original = new ExecutionGraphProgram([root, child]);
 
-        var xml = GraphXml.Serialize(original);
-        var restored = GraphXml.DeserializeProgram(xml);
+        var xml = ExecutionGraphXml.Serialize(original);
+        var restored = ExecutionGraphXml.DeserializeProgram(xml);
 
         Assert.Equal(new ExecutionGraphId("root"), restored.RootGraph);
         Assert.Equal(2, restored.Graphs.Count);

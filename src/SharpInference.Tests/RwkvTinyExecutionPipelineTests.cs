@@ -1,4 +1,3 @@
-using System.Reflection;
 using System.Runtime.InteropServices;
 using SharpInference.Architectures.Rwkv6;
 using SharpInference.Architectures.Rwkv7;
@@ -10,21 +9,18 @@ using SharpInference.Instructions.Cpu;
 using SharpInference.Instructions.D3D12;
 using SharpInference.Vm;
 using SharpInference.Vm.Optimization;
+using SharpInference.Graphs.Execution;
 
 namespace SharpInference.Tests;
 
 public sealed class RwkvTinyExecutionPipelineTests
 {
-    [Theory]
+    [RwkvModelTheory]
     [InlineData("rwkv-6", "tiny-rwkv-6v0-3m-FP32.bin")]
     [InlineData("rwkv-7", "tiny-rwkv-7v0-834K-FP32.bin")]
     public void TinyModelBuildsAndEmitsCpuProgram(string architecture, string fileName)
     {
-        var directory = ModelDirectory();
-        if (directory is null)
-        {
-            return;
-        }
+        var directory = RwkvTestModels.GetDirectory();
 
         using var catalog = GgmlModelFile.Open(Path.Combine(directory, fileName));
         var logical = architecture == "rwkv-6"
@@ -53,14 +49,10 @@ public sealed class RwkvTinyExecutionPipelineTests
         Assert.NotEmpty(new CpuVmCompiler(providers).GenerateSource(program).Source);
     }
 
-    [Fact]
+    [RwkvModelFact]
     public void TinyRwkv7MatchesRwkvCppExpectedLogits()
     {
-        var directory = ModelDirectory();
-        if (directory is null)
-        {
-            return;
-        }
+        var directory = RwkvTestModels.GetDirectory();
 
         using var catalog = GgmlModelFile.Open(
             Path.Combine(directory, "tiny-rwkv-7v0-834K-FP32.bin"));
@@ -115,14 +107,10 @@ public sealed class RwkvTinyExecutionPipelineTests
             $"expected=[{string.Join(",", expected.Take(8).Select(value => value.ToString("G9")))}].");
     }
 
-    [Fact]
+    [RwkvModelFact]
     public void TinyRwkv7D3D12MatchesRwkvCppExpectedLogits()
     {
-        var directory = ModelDirectory();
-        if (directory is null)
-        {
-            return;
-        }
+        var directory = RwkvTestModels.GetDirectory();
 
         using var catalog = GgmlModelFile.Open(
             Path.Combine(directory, "tiny-rwkv-7v0-834K-FP32.bin"));
@@ -178,23 +166,4 @@ public sealed class RwkvTinyExecutionPipelineTests
             $"expected=[{string.Join(",", expected.Take(8).Select(value => value.ToString("G9")))}].");
     }
 
-    private static string? ModelDirectory()
-    {
-        var value = typeof(RwkvTinyExecutionPipelineTests).Assembly
-            .GetCustomAttributes<AssemblyMetadataAttribute>()
-            .SingleOrDefault(attribute =>
-                attribute.Key == "RwkvTestModelDirectory")?.Value;
-        if (string.IsNullOrWhiteSpace(value))
-        {
-            return null;
-        }
-
-        if (!Path.IsPathFullyQualified(value) || !Directory.Exists(value))
-        {
-            throw new InvalidOperationException(
-                "RwkvTestModelDirectory must identify an existing absolute directory.");
-        }
-
-        return value;
-    }
 }

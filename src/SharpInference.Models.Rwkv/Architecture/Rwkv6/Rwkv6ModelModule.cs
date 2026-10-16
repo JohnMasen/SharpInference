@@ -1,4 +1,5 @@
 using SharpInference.Graphs;
+using SharpInference.Graphs.Logical;
 
 namespace SharpInference.Architectures.Rwkv6;
 

@@ -1,4 +1,5 @@
 using SharpInference.Graphs;
+using SharpInference.Graphs.Logical;
 
 namespace SharpInference.Tests;
 
@@ -355,14 +356,14 @@ public sealed class LogicalGraphDefinitionTests
             new GraphDefinitionNodeId("producer-call"),
             graph.Dependencies(consumerCall));
 
-        var xml = GraphXml.Serialize(graph);
+        var xml = LogicalGraphXml.Serialize(graph);
         Assert.Contains("id=\"internal\"", xml, StringComparison.Ordinal);
         Assert.Contains("instance=\"producer-call\"", xml, StringComparison.Ordinal);
-        var restored = GraphXml.DeserializeDefinition(xml);
+        var restored = LogicalGraphXml.DeserializeDefinition(xml);
         Assert.Equal(
             graph.Nodes.SelectMany(graph.Bindings),
             restored.Nodes.SelectMany(restored.Bindings));
-        Assert.Equal(xml, GraphXml.Serialize(restored));
+        Assert.Equal(xml, LogicalGraphXml.Serialize(restored));
     }
 
     [Fact]
@@ -428,8 +429,8 @@ public sealed class LogicalGraphDefinitionTests
                 "A transparent graph.",
                 new Dictionary<string, string> { ["group"] = "test" })).Definition;
 
-        var xml = GraphXml.Serialize(original);
-        var restored = GraphXml.DeserializeDefinition(xml);
+        var xml = LogicalGraphXml.Serialize(original);
+        var restored = LogicalGraphXml.DeserializeDefinition(xml);
 
         Assert.Contains("kind=\"LogicalGraphDefinition\"", xml, StringComparison.Ordinal);
         Assert.DoesNotContain("Region", xml, StringComparison.Ordinal);
@@ -445,7 +446,7 @@ public sealed class LogicalGraphDefinitionTests
         Assert.Equal(
             original.Nodes.SelectMany(original.Bindings),
             restored.Nodes.SelectMany(restored.Bindings));
-        Assert.Equal(xml, GraphXml.Serialize(restored));
+        Assert.Equal(xml, LogicalGraphXml.Serialize(restored));
     }
 
     [Fact]

@@ -1,6 +1,7 @@
 using SharpInference.Graphs;
 using SharpInference.Graphs.Core;
 using static SharpInference.Graphs.Core.PatternElements;
+using SharpInference.Graphs.Execution;
 
 namespace SharpInference.Vm.Optimization;
 

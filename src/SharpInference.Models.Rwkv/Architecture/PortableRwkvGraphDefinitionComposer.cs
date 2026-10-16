@@ -1,6 +1,7 @@
 using System.Threading;
 using System.Globalization;
 using SharpInference.Graphs;
+using SharpInference.Graphs.Logical;
 
 namespace SharpInference.Architectures;
 

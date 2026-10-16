@@ -1,6 +1,5 @@
 using System.Diagnostics;
 using System.Globalization;
-using System.Reflection;
 using System.Runtime.InteropServices;
 using SharpInference.Architectures.Rwkv6;
 using SharpInference.Architectures.Rwkv7;
@@ -13,6 +12,7 @@ using SharpInference.Instructions.D3D12;
 using SharpInference.Vm;
 using SharpInference.Vm.Optimization;
 using Xunit.Abstractions;
+using SharpInference.Graphs.Execution;
 
 namespace SharpInference.Tests;
 
@@ -22,7 +22,7 @@ public sealed class RwkvPostprocessorCollection;
 [Collection("RWKV postprocessors")]
 public sealed class RwkvPostprocessorTests(ITestOutputHelper output)
 {
-    [Theory]
+    [RwkvModelTheory]
     [InlineData("rwkv-6", false, false)]
     [InlineData("rwkv-7", false, false)]
     [InlineData("rwkv-6", true, false)]
@@ -34,18 +34,7 @@ public sealed class RwkvPostprocessorTests(ITestOutputHelper output)
     public void AllPassCombinationsPreserveLogitsAndMeasurePerformance(
         string architecture, bool gpu, bool reverse)
     {
-        var directory = typeof(RwkvPostprocessorTests).Assembly
-            .GetCustomAttributes<AssemblyMetadataAttribute>()
-            .SingleOrDefault(attribute => attribute.Key == "RwkvTestModelDirectory")?.Value;
-        if (string.IsNullOrWhiteSpace(directory))
-        {
-            return;
-        }
-
-        if (!Path.IsPathFullyQualified(directory) || !Directory.Exists(directory))
-        {
-            throw new InvalidOperationException("RwkvTestModelDirectory must be an existing absolute directory.");
-        }
+        var directory = RwkvTestModels.GetDirectory();
 
         var model = architecture == "rwkv-6" ? "6v0-3m" : "7v0-834K";
         using var catalog = GgmlModelFile.Open(Path.Combine(directory, $"tiny-rwkv-{model}-FP32.bin"));

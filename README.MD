@@ -131,8 +131,9 @@ Switch masks are `1` for dependency reduction, `2` for temporary reuse, and `4`
 for template sharing; `0` disables all and `7` enables all. GPU forward excludes
 uploads/readbacks. Compilation includes backend source generation. Timings are
 diagnostic, not test thresholds; compare repeated runs rather than cold-start
-or noisy single samples. Without the model-directory property, external-model
-tests return without executing inference.
+or noisy single samples. External-model tests use the default directory described
+below when the model-directory property is not supplied; unavailable defaults
+are reported as skipped tests rather than passing without executing inference.
 
 ## Requirements
 
@@ -157,6 +158,15 @@ dotnet test .\src\SharpInference.Tests\SharpInference.Tests.csproj `
 The expected directory contains the tiny RWKV model and expected-logits files
 used by `RwkvTinyExecutionPipelineTests`.
 
+Visual Studio can run or debug these tests directly without supplying a property.
+The shared [model configuration](src/SharpInference.Tests/RwkvTestModels.cs)
+uses `D:\GithubRoot\rwkvcpp\tests` as its default directory. An explicit
+`RwkvTestModelDirectory` build property takes priority. If no property is supplied
+and the default directory is absent, model tests are reported as skipped with a
+configuration message. Invalid explicit paths or missing model/reference files
+fail the tests instead of silently falling back. Rebuild and refresh test
+discovery after changing the build property or the default directory.
+
 ## Project layout
 
 | Area | Responsibility |
@@ -172,6 +182,25 @@ used by `RwkvTinyExecutionPipelineTests`.
 | `src/SharpInference.Backends.D3D12Vm` | D3D12 VM compiler and executor |
 | `src/SharpInference.Tests` | Graph, emitter, and end-to-end inference tests |
 | `tools/GraphView` | Logical and execution graph XML viewer |
+
+### Graph domain namespaces
+
+The graph domain project uses one type per file, including records, interfaces,
+enums, and internal analysis records:
+
+- `SharpInference.Graphs`: shared model contracts, graph queries, tensor and
+  precision primitives.
+- `SharpInference.Graphs.Logical` ([Logical](src/SharpInference.Graphs/Logical)):
+  logical definitions, nodes, edges, builders, ports, diagnostics, and validation.
+- `SharpInference.Graphs.Execution` ([Execution](src/SharpInference.Graphs/Execution)):
+  execution programs, nodes, edges, builders, conversion, compilation, and rewrites.
+- `SharpInference.Graphs.Internal`: shared internal XML support.
+
+Use `LogicalGraphXml.Serialize` / `DeserializeDefinition` for logical graphs and
+`ExecutionGraphXml.Serialize` / `DeserializeProgram` for execution programs.
+These replace the former `GraphXml` entry points; the XML format is unchanged.
+Namespace consumers must import the corresponding logical or execution namespace.
+The project and assembly boundaries remain unchanged.
 
 ## License
 

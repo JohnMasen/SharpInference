@@ -1,6 +1,8 @@
 using SharpInference.Graphs;
 using SharpInference.Graphs.Core;
 using SharpInference.Vm.Optimization;
+using SharpInference.Graphs.Execution;
+using SharpInference.Graphs.Logical;
 
 namespace SharpInference.Tests;
 
@@ -395,6 +397,6 @@ public sealed class ExecutionGraphPostprocessorTests
     private static void AssertIdempotent(IExecutionGraphPostprocessor pass, ExecutionGraphProgram original)
     {
         var once = pass.Process(original, Context);
-        Assert.Equal(GraphXml.Serialize(once), GraphXml.Serialize(pass.Process(once, Context)));
+        Assert.Equal(ExecutionGraphXml.Serialize(once), ExecutionGraphXml.Serialize(pass.Process(once, Context)));
     }
 }

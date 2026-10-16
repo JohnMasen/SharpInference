@@ -5,6 +5,7 @@ using System.Diagnostics;
 using SharpInference.Graphs;
 using SharpInference.Graphs.Core;
 using static SharpInference.Graphs.Core.PatternElements;
+using SharpInference.Graphs.Execution;
 
 // Run with: dotnet run --file scripts\GraphQueryBenchmark.cs -c Release
 Console.WriteLine("Median of 7 warmed runs; allocations are per invocation on this thread.");

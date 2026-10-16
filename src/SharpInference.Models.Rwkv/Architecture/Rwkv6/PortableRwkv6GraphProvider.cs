@@ -1,5 +1,6 @@
 using SharpInference.Graphs;
 using TensorOps = SharpInference.Architectures.RwkvPortableTensorOperations;
+using SharpInference.Graphs.Logical;
 
 namespace SharpInference.Architectures.Rwkv6;
 

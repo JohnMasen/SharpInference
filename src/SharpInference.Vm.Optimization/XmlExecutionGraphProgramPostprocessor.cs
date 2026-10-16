@@ -1,4 +1,5 @@
 using SharpInference.Graphs;
+using SharpInference.Graphs.Execution;
 
 namespace SharpInference.Vm.Optimization;
 
@@ -46,7 +47,7 @@ public sealed class XmlExecutionGraphProgramPostprocessor :
                 $"'{context.Compilation.Backend}'.");
         }
 
-        var loaded = GraphXml.DeserializeProgram(File.ReadAllText(path));
+        var loaded = ExecutionGraphXml.DeserializeProgram(File.ReadAllText(path));
         var root = loaded.Graphs.Single(graph =>
             graph.Id == loaded.RootGraph);
         if (root.Source?.Definition != context.SourceGraph.Id)

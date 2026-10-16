@@ -1,6 +1,7 @@
 using SharpInference.Graphs.Core;
 using SharpInference.Graphs;
 using static SharpInference.Graphs.Core.PatternElements;
+using SharpInference.Graphs.Execution;
 
 namespace SharpInference.Tests;
 

@@ -1,6 +1,7 @@
 using System.Globalization;
 using SharpInference.Graphs;
 using SharpInference.Instructions.Phi4;
+using SharpInference.Graphs.Logical;
 
 namespace SharpInference.Architectures.Phi4;
 

@@ -6,6 +6,7 @@ using SharpInference.Instructions.Cpu;
 using SharpInference.Instructions.D3D12;
 using SharpInference.Vm;
 using SharpInference.Vm.Optimization;
+using SharpInference.Graphs.Execution;
 
 namespace SharpInference.Tests;
 
