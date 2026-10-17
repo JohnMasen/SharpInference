@@ -1,3 +1,4 @@
+using SharpInference.Instructions;
 using System.Globalization;
 using System.Text;
 using SharpInference.Graphs;
@@ -68,8 +69,8 @@ internal sealed class GpuTierZeroInstruction(Guid id,string name) : TierZeroInst
         var rows = matrix.Tensor.Dimensions[0];
         var columns = matrix.Tensor.Dimensions[1];
         string Load(InstructionTensorParameter tensor, string index) =>
-            $"load{(tensor.Tensor.ElementType == GraphElementType.Float16 ? 16 : 32)}({tensor.Expression},{tensor.OffsetExpression},{index})";
-        var store = output.Tensor.ElementType == GraphElementType.Float16
+            $"load{(tensor.Tensor.ElementType == ElementType.Float16 ? 16 : 32)}({tensor.Expression},{tensor.OffsetExpression},{index})";
+        var store = output.Tensor.ElementType == ElementType.Float16
             ? $"store16({output.Expression},{output.OffsetExpression},row,result);"
             : $"{output.Expression}.Store({output.OffsetExpression}+row*4u,asuint(result));";
         var baseline = Generate(values);
@@ -133,11 +134,11 @@ internal sealed class GpuTierZeroInstruction(Guid id,string name) : TierZeroInst
         var inner = transposeLeft ? leftRows : leftColumns;
         var columns = transposeRight ? rightRows : rightColumns;
         string Load(InstructionTensorParameter tensor, string index) =>
-            $"load{(tensor.Tensor.ElementType == GraphElementType.Float16 ? 16 : 32)}" +
+            $"load{(tensor.Tensor.ElementType == ElementType.Float16 ? 16 : 32)}" +
             $"({tensor.Expression},{tensor.OffsetExpression},{index})";
         var result = bias is null
             ? "sum"
-            : bias.Tensor.ElementType == GraphElementType.Float16
+            : bias.Tensor.ElementType == ElementType.Float16
                 ? $"sum+load16({bias.Expression},{bias.OffsetExpression},column)"
                 : $"sum+load32({bias.Expression},{bias.OffsetExpression},column)";
         var serialSource = $$"""
@@ -177,7 +178,7 @@ internal sealed class GpuTierZeroInstruction(Guid id,string name) : TierZeroInst
         {
             var tiledResult = bias is null
                 ? "sum"
-                : bias.Tensor.ElementType == GraphElementType.Float16
+                : bias.Tensor.ElementType == ElementType.Float16
                     ? $"sum+load16({bias.Expression},{bias.OffsetExpression},column)"
                     : $"sum+load32({bias.Expression},{bias.OffsetExpression},column)";
             var tiledSource = $$"""
@@ -232,7 +233,7 @@ internal sealed class GpuTierZeroInstruction(Guid id,string name) : TierZeroInst
         }
         var cooperativeResult = bias is null
             ? "matrixMultiplySum[0]+matrixMultiplyCorrection[0]"
-            : bias.Tensor.ElementType == GraphElementType.Float16
+            : bias.Tensor.ElementType == ElementType.Float16
                 ? $"matrixMultiplySum[0]+matrixMultiplyCorrection[0]+load16({bias.Expression},{bias.OffsetExpression},column)"
                 : $"matrixMultiplySum[0]+matrixMultiplyCorrection[0]+load32({bias.Expression},{bias.OffsetExpression},column)";
         var cooperativeSource = $$"""
@@ -301,7 +302,7 @@ internal sealed class GpuTierZeroInstruction(Guid id,string name) : TierZeroInst
         var count = output.Tensor.Dimensions.Aggregate(
             1UL, (product, dimension) => checked(product * (ulong)dimension));
         var width = bias.Tensor.Dimensions[0];
-        var biasLoad = bias.Tensor.ElementType == GraphElementType.Float16
+        var biasLoad = bias.Tensor.ElementType == ElementType.Float16
             ? $"load16({bias.Expression},{bias.OffsetExpression},i%{width}u)"
             : $"load32({bias.Expression},{bias.OffsetExpression},i%{width}u)";
         return new($$"""
@@ -324,13 +325,13 @@ internal sealed class GpuTierZeroInstruction(Guid id,string name) : TierZeroInst
         var tensors=values.OfType<InstructionTensorParameter>().ToArray();
         var parameters=tensors.ToDictionary(p=>p.Name,p=>(p:new VmParameter(p.Name,p.Name=="output"?VmAccess.ReadWrite:VmAccess.ReadOnly,new VmTensor(p.Tensor.ElementType switch
         {
-            GraphElementType.Float32 => VmElementType.Float32,
-            GraphElementType.Float16 => VmElementType.Float16,
-            GraphElementType.Int32 => VmElementType.Int32,
+            ElementType.Float32 => VmElementType.Float32,
+            ElementType.Float16 => VmElementType.Float16,
+            ElementType.Int32 => VmElementType.Int32,
             _ => throw new InstructionAdaptationException(CollectionId, Name, "Unsupported tensor element type."),
         },p.Tensor.Dimensions)),Name:p.Expression));
         var offsets=tensors.ToDictionary(p=>p.Name,p=>p.OffsetExpression);
-        var op=new VmOperator(new(GraphElementType.Float32, GraphElementType.Float32),CollectionId,Name,tensors.Select(p=>new VmArgument(p.Name,p.Name)),values.OfType<InstructionAttributeParameter>().ToDictionary(p=>p.Name,p=>p.Value));
+        var op=new VmOperator(new(ElementType.Float32, ElementType.Float32),CollectionId,Name,tensors.Select(p=>new VmArgument(p.Name,p.Name)),values.OfType<InstructionAttributeParameter>().ToDictionary(p=>p.Name,p=>p.Value));
         return new InstructionRecording(Operator(op,parameters,offsets),[
             GpuInstructionHelpers.Load32,
             new InstructionHelper("t0.helper.1", "float load16(RWByteAddressBuffer b, uint o, uint i) { uint a=o+i*2; return f16tof32((b.Load(a & ~3u) >> ((a & 2u)*8u)) & 65535u); }"),

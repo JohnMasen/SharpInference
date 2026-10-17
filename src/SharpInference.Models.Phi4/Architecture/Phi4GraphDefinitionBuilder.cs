@@ -1,3 +1,4 @@
+using SharpInference.Instructions;
 using SharpInference.Graphs;
 using SharpInference.Graphs.Logical;
 
@@ -32,22 +33,22 @@ internal sealed record Phi4TensorView(ulong Offset, TensorDescriptor Tensor);
 internal sealed record NodeResourceBinding(
     string Port,
     ResourceId Resource,
-    GraphResourceAccess Access,
+    ResourceAccess Access,
     bool InitializedBeforeRead = false,
     Phi4TensorView? View = null);
 internal static class GraphBindings
 {
     internal static NodeResourceBinding Read(string port, string resource) =>
-        new(port, new(resource), GraphResourceAccess.Read);
+        new(port, new(resource), ResourceAccess.Read);
     internal static NodeResourceBinding Write(string port, string resource) =>
-        new(port, new(resource), GraphResourceAccess.Write);
+        new(port, new(resource), ResourceAccess.Write);
     internal static NodeResourceBinding ReadWrite(string port, string resource) =>
-        new(port, new(resource), GraphResourceAccess.ReadWrite);
+        new(port, new(resource), ResourceAccess.ReadWrite);
 }
 internal static class PortableTensorOperationContracts
 {
-    internal static readonly GraphOperationId CastFp16ToFp32 = new("core.tensor.cast-fp16-fp32", 1);
-    internal static readonly GraphOperationId Fill = new("core.tensor.fill", 1);
+    internal static readonly OperationId CastFp16ToFp32 = new("core.tensor.cast-fp16-fp32", 1);
+    internal static readonly OperationId Fill = new("core.tensor.fill", 1);
 }
 internal sealed record TensorFillValue(float Value)
 {
@@ -127,7 +128,7 @@ internal sealed class Phi4GraphDefinitionBuilder
 
     internal void AddNode(
         string id,
-        GraphOperationId operation,
+        OperationId operation,
         IEnumerable<NodeResourceBinding> bindings,
         PrecisionRequirement? requirements = null,
         IReadOnlyDictionary<string, string>? attributes = null,
@@ -178,10 +179,10 @@ internal sealed class Phi4GraphDefinitionBuilder
                     resource.Id.Value,
                     Map(resource.Id),
                     resource.Kind == GraphDefinitionResourceKind.Input
-                        ? GraphResourceAccess.Read
+                        ? ResourceAccess.Read
                         : resource.Kind == GraphDefinitionResourceKind.Output
-                            ? GraphResourceAccess.Write
-                            : GraphResourceAccess.ReadWrite))
+                            ? ResourceAccess.Write
+                            : ResourceAccess.ReadWrite))
                 .ToArray(),
             definition.Annotation));
     }
@@ -250,11 +251,11 @@ internal sealed class Phi4GraphDefinitionBuilder
                                 throw new InvalidDataException($"Phi4 node '{node.Id}' references unknown resource '{binding.Resource}'.");
                             }
 
-                            if (binding.Access == GraphResourceAccess.Read)
+                            if (binding.Access == ResourceAccess.Read)
                             {
                                 operation.AddInput(binding.Port, binding.Resource);
                             }
-                            else if (binding.Access == GraphResourceAccess.Write)
+                            else if (binding.Access == ResourceAccess.Write)
                             {
                                 operation.AddOutput(binding.Port, binding.Resource);
                             }
@@ -338,7 +339,7 @@ internal sealed class Phi4GraphDefinitionBuilder
             build(new(builder, id, new GraphAnnotation(name, role, architecture?.Description,
                 architecture is null ? null : AnnotationAttributes(type, architecture))));
 
-        internal void AddNode(string id, GraphOperationId operation, IEnumerable<NodeResourceBinding> bindings,
+        internal void AddNode(string id, OperationId operation, IEnumerable<NodeResourceBinding> bindings,
             PrecisionRequirement? requirements = null, IReadOnlyDictionary<string, string>? attributes = null) =>
             builder.AddNode(id, operation, bindings, requirements, attributes, annotation with
             {
@@ -348,14 +349,14 @@ internal sealed class Phi4GraphDefinitionBuilder
 
         internal Phi4DefinitionScope MatVec(string id, string matrix, string vector, string output)
         {
-            AddNode(id, PrimitiveGraphOperations.MatVec,
+            AddNode(id, PrimitiveOperations.MatVec,
                 [GraphBindings.Read("matrix", matrix), GraphBindings.Read("vector", vector), GraphBindings.Write("output", output)]);
             return this;
         }
 
         internal Phi4DefinitionScope Add(string id, string left, string right, string output)
         {
-            AddNode(id, PrimitiveGraphOperations.Add,
+            AddNode(id, PrimitiveOperations.Add,
                 [GraphBindings.Read("left", left), GraphBindings.Read("right", right), GraphBindings.Write("output", output)]);
             return this;
         }
@@ -363,7 +364,7 @@ internal sealed class Phi4GraphDefinitionBuilder
         internal Phi4DefinitionScope MatrixMultiply(string id, string left, string right, string output,
             bool transposeLeft = false, bool transposeRight = false)
         {
-            AddNode(id, PrimitiveGraphOperations.MatrixMultiply,
+            AddNode(id, PrimitiveOperations.MatrixMultiply,
                 [GraphBindings.Read("left", left), GraphBindings.Read("right", right), GraphBindings.Write("output", output)],
                 attributes: new Dictionary<string, string>
                 {
@@ -376,7 +377,7 @@ internal sealed class Phi4GraphDefinitionBuilder
         internal Phi4DefinitionScope Affine(string id, string input, string weight, string bias, string output,
             bool transposeRight = false)
         {
-            AddNode(id, PrimitiveGraphOperations.Affine,
+            AddNode(id, PrimitiveOperations.Affine,
                 [GraphBindings.Read("input", input), GraphBindings.Read("weight", weight),
                  GraphBindings.Read("bias", bias), GraphBindings.Write("output", output)],
                 attributes: new Dictionary<string, string> { ["transpose_right"] = transposeRight.ToString() });
@@ -397,7 +398,7 @@ internal sealed class Phi4GraphDefinitionBuilder
 
     private sealed record NodeSpec(
         string Id,
-        GraphOperationId Operation,
+        OperationId Operation,
         NodeResourceBinding[] Bindings,
         PrecisionRequirement? Requirements,
         IReadOnlyDictionary<string, string>? Attributes,
@@ -412,6 +413,6 @@ internal sealed class Phi4GraphDefinitionBuilder
     private sealed record CallBindingSpec(
         string Port,
         string Resource,
-        GraphResourceAccess Access);
+        ResourceAccess Access);
 
 }

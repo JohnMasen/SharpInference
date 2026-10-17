@@ -8,6 +8,7 @@
   <ItemGroup>
     <ProjectReference Include="..\SharpInference.Vm\SharpInference.Vm.csproj" />
     <ProjectReference Include="..\SharpInference.Graphs\SharpInference.Graphs.csproj" />
+    <ProjectReference Include="..\SharpInference.Instructions\SharpInference.Instructions.csproj" />
     <PackageReference Include="Vortice.Direct3D12" Version="3.8.3" />
     <PackageReference Include="Vortice.DXGI" Version="3.8.3" />
     <PackageReference Include="Vortice.Dxc" Version="3.8.3" />

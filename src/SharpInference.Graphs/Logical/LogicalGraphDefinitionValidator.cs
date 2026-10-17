@@ -1,3 +1,4 @@
+using SharpInference.Instructions;
 using SharpInference.Graphs.Core;
 
 namespace SharpInference.Graphs.Logical;
@@ -88,7 +89,7 @@ internal static class LogicalGraphDefinitionValidator
                     continue;
                 }
                 if (!binding.Resource.Owner.IsParent &&
-                    binding.Access != GraphResourceAccess.Read)
+                    binding.Access != ResourceAccess.Read)
                 {
                     diagnostics.Add(new(
                         GraphDiagnosticSeverity.Warning,
@@ -102,7 +103,7 @@ internal static class LogicalGraphDefinitionValidator
 
                 if (resourceNode.Kind is GraphDefinitionResourceKind.Weight
                         or GraphDefinitionResourceKind.Constant &&
-                    binding.Access != GraphResourceAccess.Read)
+                    binding.Access != ResourceAccess.Read)
                 {
                     diagnostics.Add(Error(
                         "LG0013",
@@ -156,9 +157,9 @@ internal static class LogicalGraphDefinitionValidator
                 }
                 var expected = port.Kind switch
                 {
-                    GraphDefinitionResourceKind.Input => GraphResourceAccess.Read,
-                    GraphDefinitionResourceKind.Output => GraphResourceAccess.Write,
-                    _ => GraphResourceAccess.ReadWrite,
+                    GraphDefinitionResourceKind.Input => ResourceAccess.Read,
+                    GraphDefinitionResourceKind.Output => ResourceAccess.Write,
+                    _ => ResourceAccess.ReadWrite,
                 };
                 if (binding.Access != expected)
                 {

@@ -6,7 +6,7 @@ using SharpInference.Instructions.Cpu;
 using SharpInference.Instructions.D3D12;
 using SharpInference.Vm;
 using SharpInference.Vm.Optimization;
-using SharpInference.Graphs.Execution;
+using SharpInference.Vm.Optimization.GraphHelper;
 
 namespace SharpInference.Tests;
 
@@ -54,7 +54,7 @@ public sealed class VmExecutionGraphEmitterTests
         var graph = BuildGraph(
             "root",
             Resources(),
-            Operation("copy", PrimitiveGraphOperations.Copy));
+            Operation("copy", PrimitiveOperations.Copy));
         var program = new ExecutionGraphProgram([graph]);
         IInstructionCollectionProvider[] cpuProviders = [new CpuFloat32InstructionCollection()];
         var cpuProgram = new VmExecutionGraphEmitter(VmTarget.Cpu, cpuProviders).Emit(program);
@@ -76,21 +76,21 @@ public sealed class VmExecutionGraphEmitterTests
             [
                 .. Resources(),
                 new(new("scratch"), "scratch", GraphDefinitionResourceKind.Temporary,
-                    new(GraphElementType.Float32, [16])),
+                    new(ElementType.Float32, [16])),
             ],
             Operation("copy"));
         var call = Call(
             "child-call",
             child.Id.Value,
-            [Binding("input", "input", GraphResourceAccess.Read),
-             Binding("output", "middle", GraphResourceAccess.Write)],
+            [Binding("input", "input", ResourceAccess.Read),
+             Binding("output", "middle", ResourceAccess.Write)],
             GraphCompileBoundary.Atomic);
         var finish = Operation(
             "finish",
             new("test.copy"),
             [
-                Binding("input", "middle", GraphResourceAccess.Read),
-                Binding("output", "output", GraphResourceAccess.Write),
+                Binding("input", "middle", ResourceAccess.Read),
+                Binding("output", "output", ResourceAccess.Write),
             ],
             [new ExecutionNodeId("child-call")]);
         var root = BuildGraph(
@@ -98,7 +98,7 @@ public sealed class VmExecutionGraphEmitterTests
             [
                 .. Resources(),
                 new(new("middle"), "middle", GraphDefinitionResourceKind.Temporary,
-                    new(GraphElementType.Float32, [16])),
+                    new(ElementType.Float32, [16])),
             ],
             finish,
             call);
@@ -135,15 +135,15 @@ public sealed class VmExecutionGraphEmitterTests
             Call(
                 "child-call",
                 "child",
-                [Binding("input", "input", GraphResourceAccess.Read),
-                 Binding("output", "output", GraphResourceAccess.Write)],
+                [Binding("input", "input", ResourceAccess.Read),
+                 Binding("output", "output", ResourceAccess.Write)],
                 GraphCompileBoundary.Auto));
         return new([root, child]);
     }
 
     private static NodeSpec Operation(
         string id,
-        GraphOperationId? operation = null,
+        OperationId? operation = null,
         IReadOnlyList<ModelResourceBinding>? bindings = null,
         IReadOnlyList<ExecutionNodeId>? dependencies = null) =>
         new(
@@ -152,11 +152,11 @@ public sealed class VmExecutionGraphEmitterTests
                 operation ?? new("test.copy"),
                 new Dictionary<string, string>(),
                 new PrecisionRequirement(
-                    GraphElementType.Float32, GraphElementType.Float32),
+                    ElementType.Float32, ElementType.Float32),
                 new ExecutionSourceMap([])),
             (bindings ??
-             [Binding("input", "input", GraphResourceAccess.Read),
-              Binding("output", "output", GraphResourceAccess.Write)])
+             [Binding("input", "input", ResourceAccess.Read),
+              Binding("output", "output", ResourceAccess.Write)])
                 .Select(binding => binding with
                 {
                     BindingId = $"{id}:{binding.Port}",
@@ -166,7 +166,7 @@ public sealed class VmExecutionGraphEmitterTests
     private static ModelResourceBinding Binding(
         string port,
         string resource,
-        GraphResourceAccess access) =>
+        ResourceAccess access) =>
         new(
             port,
             new(GraphBindingOwner.Parent, new(resource)),
@@ -227,9 +227,9 @@ public sealed class VmExecutionGraphEmitterTests
     private static ExecutionGraphResource[] Resources() =>
     [
         new(new("input"), "input", GraphDefinitionResourceKind.Input,
-            new(GraphElementType.Float32, [16])),
+            new(ElementType.Float32, [16])),
         new(new("output"), "output", GraphDefinitionResourceKind.Output,
-            new(GraphElementType.Float32, [16])),
+            new(ElementType.Float32, [16])),
     ];
 
     private sealed class Provider(InstructionTarget target) :
@@ -270,10 +270,10 @@ public sealed class VmExecutionGraphEmitterTests
         public override InstructionTarget Target => target;
         public override IReadOnlyList<InstructionSignature> Signatures =>
             [new(
-                [new("input", GraphElementType.Float32, GraphResourceAccess.Read),
-                 new("output", GraphElementType.Float32, GraphResourceAccess.Write)],
+                [new("input", ElementType.Float32, ResourceAccess.Read),
+                 new("output", ElementType.Float32, ResourceAccess.Write)],
                 [],
-                new(GraphElementType.Float32, GraphElementType.Float32))];
+                new(ElementType.Float32, ElementType.Float32))];
 
         protected override InstructionRecording Generate(InstructionParameter[] parameters) => new("");
     }

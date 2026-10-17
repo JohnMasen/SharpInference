@@ -1,4 +1,3 @@
-using SharpInference.Graphs;
 
 namespace SharpInference.Instructions;
 
@@ -20,7 +19,7 @@ public enum InstructionBenefitKind
 /// <param name="Access">The permitted resource access.</param>
 /// <param name="Source">The source resource identity.</param>
 public sealed record InstructionOperandDescription(
-    string Name, TensorDescriptor Tensor, GraphResourceAccess Access, string Source);
+    string Name, TensorDescriptor Tensor, ResourceAccess Access, string Source);
 
 /// <summary>Describes a target-specific tier-one implementation and its fusion eligibility contract.</summary>
 public sealed class InstructionOptimizationCapability

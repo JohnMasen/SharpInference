@@ -1,7 +1,8 @@
+using SharpInference.Instructions;
 using SharpInference.Graphs.Core;
 using SharpInference.Graphs;
 using static SharpInference.Graphs.Core.PatternElements;
-using SharpInference.Graphs.Execution;
+using SharpInference.Vm.Optimization.GraphHelper;
 
 namespace SharpInference.Tests;
 
@@ -232,11 +233,11 @@ public sealed class GraphViewQueryTests
     public void ProductionModelQueriesPreserveAdjacencySemantics()
     {
         var first = new ExecutionOperationNode(new("first"), new("core.copy", 1),
-            new Dictionary<string, string>(), new(GraphElementType.Float32, GraphElementType.Float32), new([]));
+            new Dictionary<string, string>(), new(ElementType.Float32, ElementType.Float32), new([]));
         var second = first with { Id = new("second") };
         var resource = new ExecutionResourceNode(new(GraphBindingOwner.Parent, new("state")),
             new(new("state"), "display-state", GraphDefinitionResourceKind.InOut,
-                new(GraphElementType.Float32, [4])));
+                new(ElementType.Float32, [4])));
         var graph = new Graph<ExecutionGraphStructureNode, ExecutionGraphEdge>(
             [first, second, resource],
             [

@@ -1,3 +1,4 @@
+using SharpInference.Instructions;
 using System.Globalization;
 using SharpInference.Graphs;
 using SharpInference.Instructions.Phi4;
@@ -91,7 +92,7 @@ public sealed class Phi4AudioSubsamplingGraphModule : IPhi4GraphModule
             .AddResource("audio_features", "Audio features", GraphResourceKind.Input, GraphResourceLifetime.External,
                 F(frames, features), graphInput: true)
             .AddResource("frame_count", "Valid frame count", GraphResourceKind.Input, GraphResourceLifetime.External,
-                new TensorDescriptor(GraphElementType.Int32, [1]), graphInput: true);
+                new TensorDescriptor(ElementType.Int32, [1]), graphInput: true);
         builder.Section("normalization", GraphSectionTypes.Architecture, "Feature Normalization", scope =>
         {
             Temporary("normalize_output", frames, features);
@@ -122,7 +123,7 @@ public sealed class Phi4AudioSubsamplingGraphModule : IPhi4GraphModule
                 var weight = Weight(scope, Prefixes[index] + ".weight");
                 var bias = Weight(scope, Prefixes[index] + ".bias");
                 Emit(scope, $"convolution_{index}", Phi4AudioGraphOperations.Conv2D,
-                    [new("input", new(source), GraphResourceAccess.Read, View: new(0, F(height, width, inputChannels))),
+                    [new("input", new(source), ResourceAccess.Read, View: new(0, F(height, width, inputChannels))),
                  GraphBindings.Read("weight", weight), GraphBindings.Read("bias", bias), GraphBindings.Write("output", destination)],
                     Attr(("input_height", height), ("input_width", width), ("input_channels", inputChannels),
                         ("output_height", outputHeight), ("output_width", outputWidth), ("output_channels", channels),
@@ -151,7 +152,7 @@ public sealed class Phi4AudioSubsamplingGraphModule : IPhi4GraphModule
             var tensor = tensors.GetRequired(name);
             var id = "weight." + name;
             builder.AddResource(id, name, GraphResourceKind.Weight, GraphResourceLifetime.Model,
-                new TensorDescriptor(tensor.DataType == TensorDataType.Float16 ? GraphElementType.Float16 : GraphElementType.Float32,
+                new TensorDescriptor(tensor.DataType == TensorDataType.Float16 ? ElementType.Float16 : ElementType.Float32,
                     tensor.Dimensions), name);
             if (tensor.DataType == TensorDataType.Float32)
             {
@@ -164,7 +165,7 @@ public sealed class Phi4AudioSubsamplingGraphModule : IPhi4GraphModule
                 [GraphBindings.Read("input", id), GraphBindings.Write("output", converted)], new Dictionary<string, string>());
             return converted;
         }
-        static void Emit(Phi4GraphDefinitionBuilder.Phi4DefinitionScope scope, string id, GraphOperationId operation, NodeResourceBinding[] bindings, IReadOnlyDictionary<string, string> attributes)
+        static void Emit(Phi4GraphDefinitionBuilder.Phi4DefinitionScope scope, string id, OperationId operation, NodeResourceBinding[] bindings, IReadOnlyDictionary<string, string> attributes)
         {
             scope.AddNode(id, operation, bindings, null, attributes);
         }
@@ -172,7 +173,7 @@ public sealed class Phi4AudioSubsamplingGraphModule : IPhi4GraphModule
 
     /// <inheritdoc/>
 
-    private static TensorDescriptor F(params int[] dimensions) => new(GraphElementType.Float32, dimensions);
+    private static TensorDescriptor F(params int[] dimensions) => new(ElementType.Float32, dimensions);
     private static int Half(int value) => value / 2 + value % 2;
     private static IReadOnlyDictionary<string, string> Attr(params (string Name, object Value)[] values) =>
         values.ToDictionary(value => value.Name, value => Convert.ToString(value.Value, CultureInfo.InvariantCulture)!, StringComparer.Ordinal);

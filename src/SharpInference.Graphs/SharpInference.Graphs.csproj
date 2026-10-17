@@ -1,8 +1,8 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
-    <ProjectReference Include="..\SharpInference.Abstractions\SharpInference.Abstractions.csproj" />
     <ProjectReference Include="..\SharpInference.Graphs.Core\SharpInference.Graphs.Core.csproj" />
+    <ProjectReference Include="..\SharpInference.Instructions\SharpInference.Instructions.csproj" />
   </ItemGroup>
 
   <PropertyGroup>

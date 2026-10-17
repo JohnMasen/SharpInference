@@ -1,4 +1,3 @@
-using SharpInference.Graphs;
 
 namespace SharpInference.Instructions;
 
@@ -6,8 +5,8 @@ namespace SharpInference.Instructions;
 public sealed record KernelPrecisionProfile
 {
     public KernelPrecisionProfile(
-        GraphElementType arithmeticType,
-        GraphElementType accumulatorType)
+        ElementType arithmeticType,
+        ElementType accumulatorType)
     {
         if (!NumericTypeCompatibility.IsFloatingPoint(arithmeticType))
         {
@@ -23,8 +22,8 @@ public sealed record KernelPrecisionProfile
         AccumulatorType = accumulatorType;
     }
 
-    public GraphElementType ArithmeticType { get; }
-    public GraphElementType AccumulatorType { get; }
+    public ElementType ArithmeticType { get; }
+    public ElementType AccumulatorType { get; }
 }
 
 /// <summary>Compares instruction precision capabilities with graph requirements.</summary>
@@ -36,10 +35,10 @@ public static class InstructionPrecisionCompatibility
         Rank(capability.ArithmeticType) >= Rank(requirement.MinimumArithmeticType) &&
         Rank(capability.AccumulatorType) >= Rank(requirement.MinimumAccumulatorType);
 
-    private static int Rank(GraphElementType type) => type switch
+    private static int Rank(ElementType type) => type switch
     {
-        GraphElementType.Float16 => 1,
-        GraphElementType.Float32 => 2,
+        ElementType.Float16 => 1,
+        ElementType.Float32 => 2,
         _ => 0,
     };
 }

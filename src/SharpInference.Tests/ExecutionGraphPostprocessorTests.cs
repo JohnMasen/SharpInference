@@ -1,14 +1,15 @@
+using SharpInference.Instructions;
 using SharpInference.Graphs;
 using SharpInference.Graphs.Core;
 using SharpInference.Vm.Optimization;
-using SharpInference.Graphs.Execution;
+using SharpInference.Vm.Optimization.GraphHelper;
 using SharpInference.Graphs.Logical;
 
 namespace SharpInference.Tests;
 
 public sealed class ExecutionGraphPostprocessorTests
 {
-    private static readonly TensorDescriptor F = new(GraphElementType.Float32, [4]);
+    private static readonly TensorDescriptor F = new(ElementType.Float32, [4]);
     private static readonly ExecutionGraphPostprocessContext Context = new(
         LogicalGraphDefinition.Define("logical", _ => { }),
         new("arbitrary-model", "arbitrary-backend"), 0, "test");
@@ -146,13 +147,13 @@ public sealed class ExecutionGraphPostprocessorTests
         else if (scenario == "read-write")
         {
             builder.AddOperation(Operation("b", "core.copy"),
-                [Binding("output", "b", GraphResourceAccess.ReadWrite, "b")], [new("a")]);
+                [Binding("output", "b", ResourceAccess.ReadWrite, "b")], [new("a")]);
         }
         else
         {
             builder.AddOperation(Operation("b", scenario == "unknown-write" ? "custom.partial" : "core.copy",
                 scenario == "unknown-version" ? 2 : 1),
-                [Binding("output", "b", GraphResourceAccess.Write, "b")], [new("a")]);
+                [Binding("output", "b", ResourceAccess.Write, "b")], [new("a")]);
         }
 
         Assert.Contains(Process(new TemporaryResourceReusePostprocessor(), builder.Build()).Graphs[0].Resources,
@@ -197,9 +198,9 @@ public sealed class ExecutionGraphPostprocessorTests
     {
         foreach (var tensor in new[]
         {
-            new TensorDescriptor(GraphElementType.Float32, [2, 2]),
-            new TensorDescriptor(GraphElementType.Float16, [4]),
-            new TensorDescriptor(GraphElementType.Float32, [4], "other-layout"),
+            new TensorDescriptor(ElementType.Float32, [2, 2]),
+            new TensorDescriptor(ElementType.Float16, [4]),
+            new TensorDescriptor(ElementType.Float32, [4], "other-layout"),
         })
         {
             var builder = Builder(secondTensor: tensor);
@@ -261,19 +262,19 @@ public sealed class ExecutionGraphPostprocessorTests
     public void DifferentOrAliasedContractsAreNotShared(string difference)
     {
         var builder = Builder(secondTensor: difference == "shape"
-            ? new(GraphElementType.Float32, [2]) : null);
+            ? new(ElementType.Float32, [2]) : null);
         Add(builder, "a", "a", "input");
         var op = Operation("b", "core.copy", difference == "version" ? 2 : 1) with
         {
             Attributes = difference == "attributes"
                 ? new Dictionary<string, string> { ["mode"] = "other" } : new Dictionary<string, string>(),
             Requirements = difference == "precision"
-                ? new(GraphElementType.Float16, GraphElementType.Float16)
-                : new(GraphElementType.Float32, GraphElementType.Float32),
+                ? new(ElementType.Float16, ElementType.Float16)
+                : new(ElementType.Float32, ElementType.Float32),
         };
         builder.AddOperation(op,
-            [Binding("input", difference == "alias" ? "b" : "input", GraphResourceAccess.Read, "b"),
-             Binding("output", "b", GraphResourceAccess.Write, "b")], [new("a")]);
+            [Binding("input", difference == "alias" ? "b" : "input", ResourceAccess.Read, "b"),
+             Binding("output", "b", ResourceAccess.Write, "b")], [new("a")]);
         Assert.Single(Process(new OperationTemplateSharingPostprocessor(), builder.Build()).Graphs);
     }
 
@@ -287,8 +288,8 @@ public sealed class ExecutionGraphPostprocessorTests
         Add(child, "b", "b", dependencies: ["a"]);
         var root = Builder();
         root.AddCall(new(new("call"), new("child"), GraphCompileBoundary.Atomic, new([])),
-            [Binding("a", "a", GraphResourceAccess.Write, "call"),
-             Binding("b", "b", GraphResourceAccess.Write, "call")]);
+            [Binding("a", "a", ResourceAccess.Write, "call"),
+             Binding("b", "b", ResourceAccess.Write, "call")]);
         var before = new ExecutionGraphProgram([root.Build(), child.Build()]);
         var after = new TemporaryResourceReusePostprocessor().Process(before, Context);
         Assert.Equal(6, after.Graphs.Single(graph => graph.Id.Value == "root").Resources.Count);
@@ -305,15 +306,15 @@ public sealed class ExecutionGraphPostprocessorTests
         foreach (var name in new[] { "a", "b" })
         {
             builder.AddOperation(Operation(name, "custom.update"),
-                [Binding("state", name, GraphResourceAccess.ReadWrite, name)]);
+                [Binding("state", name, ResourceAccess.ReadWrite, name)]);
         }
 
         var after = Process(new OperationTemplateSharingPostprocessor(), builder.Build());
         Assert.Equal(GraphDefinitionResourceKind.InOut, Assert.Single(after.Graphs[1].Resources).Kind);
-        Assert.Equal(GraphResourceAccess.ReadWrite,
+        Assert.Equal(ResourceAccess.ReadWrite,
             Assert.Single(after.Graphs[1].Bindings(Assert.Single(after.Graphs[1].Nodes))).Access);
         Assert.All(after.Graphs[0].Nodes, node =>
-            Assert.Equal(GraphResourceAccess.ReadWrite, Assert.Single(after.Graphs[0].Bindings(node)).Access));
+            Assert.Equal(ResourceAccess.ReadWrite, Assert.Single(after.Graphs[0].Bindings(node)).Access));
     }
 
     [Fact]
@@ -326,14 +327,14 @@ public sealed class ExecutionGraphPostprocessorTests
         root.AddResource(new(new("a"), "a", GraphDefinitionResourceKind.Temporary, F),
             GraphBindingOwner.Instance(new("call")));
         root.AddCall(new(new("call"), new("child"), GraphCompileBoundary.Atomic, new([])),
-            [Binding("input", "input", GraphResourceAccess.Read, "call"),
-             Binding("output", "output", GraphResourceAccess.Write, "call"),
-             Binding("left-output", "left-output", GraphResourceAccess.Write, "call"),
-             Binding("right-output", "right-output", GraphResourceAccess.Write, "call")]);
+            [Binding("input", "input", ResourceAccess.Read, "call"),
+             Binding("output", "output", ResourceAccess.Write, "call"),
+             Binding("left-output", "left-output", ResourceAccess.Write, "call"),
+             Binding("right-output", "right-output", ResourceAccess.Write, "call")]);
         root.AddOperation(Operation("consume", "core.copy"),
             [new("input", new(GraphBindingOwner.Instance(new("call")), new("a")),
-                GraphResourceAccess.Read, "consume:input"),
-             Binding("output", "output", GraphResourceAccess.Write, "consume")], [new("call")]);
+                ResourceAccess.Read, "consume:input"),
+             Binding("output", "output", ResourceAccess.Write, "consume")], [new("call")]);
         var result = new TemporaryResourceReusePostprocessor().Process(
             new([root.Build(), child.Build()]), Context);
         Assert.Equal(6, result.Graphs.Single(graph => graph.Id.Value == "child").Resources.Count);
@@ -393,10 +394,10 @@ public sealed class ExecutionGraphPostprocessorTests
         var bindings = new List<ModelResourceBinding>();
         if (input is not null)
         {
-            bindings.Add(Binding("input", input, GraphResourceAccess.Read, id));
+            bindings.Add(Binding("input", input, ResourceAccess.Read, id));
         }
 
-        bindings.Add(Binding("output", output, GraphResourceAccess.Write, id));
+        bindings.Add(Binding("output", output, ResourceAccess.Write, id));
         builder.AddOperation(Operation(id, input is null ? "core.tensor.fill" : "core.copy"),
             bindings, (dependencies ?? []).Select(value => new ExecutionNodeId(value)));
     }
@@ -404,10 +405,10 @@ public sealed class ExecutionGraphPostprocessorTests
     private static ExecutionOperationNode Operation(string id, string name, int version = 1) =>
         new(new(id), new(name, version),
             name == "core.tensor.fill" ? new Dictionary<string, string> { ["value"] = "1" } : new Dictionary<string, string>(),
-            new(GraphElementType.Float32, GraphElementType.Float32), new([new(id)]));
+            new(ElementType.Float32, ElementType.Float32), new([new(id)]));
 
     private static ModelResourceBinding Binding(
-        string port, string resource, GraphResourceAccess access, string id) =>
+        string port, string resource, ResourceAccess access, string id) =>
         new(port, new(GraphBindingOwner.Parent, new(resource)), access, $"{id}:{port}");
 
     private static ExecutionGraphProgram Process(IExecutionGraphPostprocessor pass, ExecutionGraph graph) =>

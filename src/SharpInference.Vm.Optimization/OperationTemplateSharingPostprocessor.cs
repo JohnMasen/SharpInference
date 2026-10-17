@@ -1,10 +1,11 @@
+using SharpInference.Instructions;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using SharpInference.Graphs;
 using SharpInference.Graphs.Core;
 using static SharpInference.Graphs.Core.PatternElements;
-using SharpInference.Graphs.Execution;
+using SharpInference.Vm.Optimization.GraphHelper;
 
 namespace SharpInference.Vm.Optimization;
 
@@ -66,8 +67,8 @@ public sealed class OperationTemplateSharingPostprocessor : IExecutionGraphPostp
                     var resource = (ExecutionResourceNode)graph.Structure.GetNode(port.Resource.GraphId);
                     builder.AddResource(new(new(port.Port), port.Port, port.Access switch
                     {
-                        GraphResourceAccess.Read => GraphDefinitionResourceKind.Input,
-                        GraphResourceAccess.Write => GraphDefinitionResourceKind.Output,
+                        ResourceAccess.Read => GraphDefinitionResourceKind.Input,
+                        ResourceAccess.Write => GraphDefinitionResourceKind.Output,
                         _ => GraphDefinitionResourceKind.InOut,
                     }, resource.Tensor));
                 }

@@ -1,3 +1,4 @@
+using SharpInference.Instructions;
 using SharpInference.Graphs.Core;
 using static SharpInference.Graphs.Core.PatternElements;
 
@@ -117,10 +118,10 @@ public static class ModelGraphQueries
                 port,
                 resource.ResourceNodeId,
                 read is not null && write is not null
-                    ? GraphResourceAccess.ReadWrite
+                    ? ResourceAccess.ReadWrite
                     : read is not null
-                        ? GraphResourceAccess.Read
-                        : GraphResourceAccess.Write,
+                        ? ResourceAccess.Read
+                        : ResourceAccess.Write,
                 bindingId);
         }).ToArray();
     }
@@ -185,9 +186,9 @@ public static class ModelGraphQueries
                 return (
                     Node: node,
                     Reads: bindings.Any(binding =>
-                        binding.Access != GraphResourceAccess.Write),
+                        binding.Access != ResourceAccess.Write),
                     Writes: bindings.Any(binding =>
-                        binding.Access != GraphResourceAccess.Read));
+                        binding.Access != ResourceAccess.Read));
             })
             .Where(access => access.Reads || access.Writes)
             .ToArray();

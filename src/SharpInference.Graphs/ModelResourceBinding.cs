@@ -1,3 +1,4 @@
+using SharpInference.Instructions;
 
 namespace SharpInference.Graphs;
 
@@ -9,5 +10,5 @@ namespace SharpInference.Graphs;
 public sealed record ModelResourceBinding(
     string Port,
     ModelResourceNodeId Resource,
-    GraphResourceAccess Access,
+    ResourceAccess Access,
     string BindingId);

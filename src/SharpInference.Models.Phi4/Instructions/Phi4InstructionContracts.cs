@@ -1,3 +1,4 @@
+using SharpInference.Instructions;
 using SharpInference.Graphs;
 
 namespace SharpInference.Instructions.Phi4;
@@ -6,23 +7,23 @@ namespace SharpInference.Instructions.Phi4;
 public static class Phi4AudioGraphOperations
 {
     /// <summary>The versioned graph operation identifier for log-mel feature normalization.</summary>
-    public static readonly GraphOperationId NormalizeFeatures = new(Phi4AudioInstructionNames.NormalizeFeatures, 1);
+    public static readonly OperationId NormalizeFeatures = new(Phi4AudioInstructionNames.NormalizeFeatures, 1);
     /// <summary>The versioned graph operation identifier for two-dimensional convolution.</summary>
-    public static readonly GraphOperationId Conv2D = new(Phi4AudioInstructionNames.Conv2D, 1);
+    public static readonly OperationId Conv2D = new(Phi4AudioInstructionNames.Conv2D, 1);
     /// <summary>The versioned graph operation identifier for subsampled feature flattening.</summary>
-    public static readonly GraphOperationId FlattenSubsampling = new(Phi4AudioInstructionNames.FlattenSubsampling, 1);
+    public static readonly OperationId FlattenSubsampling = new(Phi4AudioInstructionNames.FlattenSubsampling, 1);
     /// <summary>The versioned graph operation identifier for bias addition and activation.</summary>
-    public static readonly GraphOperationId BiasActivation = new(Phi4AudioInstructionNames.BiasActivation, 1);
+    public static readonly OperationId BiasActivation = new(Phi4AudioInstructionNames.BiasActivation, 1);
     /// <summary>The versioned graph operation identifier for one-dimensional convolution.</summary>
-    public static readonly GraphOperationId Conv1D = new(Phi4AudioInstructionNames.Conv1D, 1);
+    public static readonly OperationId Conv1D = new(Phi4AudioInstructionNames.Conv1D, 1);
     /// <summary>The versioned graph operation identifier for layer normalization.</summary>
-    public static readonly GraphOperationId LayerNorm = new(Phi4AudioInstructionNames.LayerNorm, 1);
+    public static readonly OperationId LayerNorm = new(Phi4AudioInstructionNames.LayerNorm, 1);
     /// <summary>The versioned graph operation identifier for swish-gated feed-forward activation.</summary>
-    public static readonly GraphOperationId SwiGlu = new(Phi4AudioInstructionNames.SwiGlu, 1);
+    public static readonly OperationId SwiGlu = new(Phi4AudioInstructionNames.SwiGlu, 1);
     /// <summary>The versioned graph operation identifier for scaled residual addition.</summary>
-    public static readonly GraphOperationId Residual = new(Phi4AudioInstructionNames.Residual, 1);
+    public static readonly OperationId Residual = new(Phi4AudioInstructionNames.Residual, 1);
     /// <summary>The versioned graph operation identifier for relative-position audio attention.</summary>
-    public static readonly GraphOperationId RelativeAttention = new(Phi4AudioInstructionNames.RelativeAttention, 1);
+    public static readonly OperationId RelativeAttention = new(Phi4AudioInstructionNames.RelativeAttention, 1);
 
 }
 
@@ -30,17 +31,17 @@ public static class Phi4AudioGraphOperations
 public static class Phi4VisionGraphOperations
 {
     /// <summary>The versioned graph operation identifier for image patch embedding.</summary>
-    public static readonly GraphOperationId PatchEmbedding = new(Phi4VisionInstructionNames.PatchEmbedding, 1);
+    public static readonly OperationId PatchEmbedding = new(Phi4VisionInstructionNames.PatchEmbedding, 1);
     /// <summary>The versioned graph operation identifier for layer normalization.</summary>
-    public static readonly GraphOperationId LayerNorm = new(Phi4VisionInstructionNames.LayerNorm, 1);
+    public static readonly OperationId LayerNorm = new(Phi4VisionInstructionNames.LayerNorm, 1);
     /// <summary>The versioned graph operation identifier for masked vision self-attention.</summary>
-    public static readonly GraphOperationId Attention = new(Phi4VisionInstructionNames.Attention, 1);
+    public static readonly OperationId Attention = new(Phi4VisionInstructionNames.Attention, 1);
     /// <summary>The versioned graph operation identifier for tanh-approximated GELU activation.</summary>
-    public static readonly GraphOperationId Gelu = new(Phi4VisionInstructionNames.Gelu, 1);
+    public static readonly OperationId Gelu = new(Phi4VisionInstructionNames.Gelu, 1);
     /// <summary>The versioned graph operation identifier for two-by-two image patch pooling.</summary>
-    public static readonly GraphOperationId Pool2x2 = new(Phi4VisionInstructionNames.Pool2x2, 1);
+    public static readonly OperationId Pool2x2 = new(Phi4VisionInstructionNames.Pool2x2, 1);
     /// <summary>The versioned graph operation identifier for high-definition image embedding gathering.</summary>
-    public static readonly GraphOperationId HdGather = new(Phi4VisionInstructionNames.HdGather, 1);
+    public static readonly OperationId HdGather = new(Phi4VisionInstructionNames.HdGather, 1);
 
 }
 
@@ -48,21 +49,21 @@ public static class Phi4VisionGraphOperations
 public static class Phi4TextGraphOperations
 {
     /// <summary>The versioned graph operation identifier for root-mean-square normalization.</summary>
-    public static readonly GraphOperationId RmsNorm = new("phi4.text.rms-norm", 1);
+    public static readonly OperationId RmsNorm = new("phi4.text.rms-norm", 1);
     /// <summary>The versioned graph operation identifier for swish-gated feed-forward activation.</summary>
-    public static readonly GraphOperationId SwiGlu = new("phi4.text.swiglu", 1);
+    public static readonly OperationId SwiGlu = new("phi4.text.swiglu", 1);
     /// <summary>The versioned graph operation identifier for rotary encoding and key/value cache writes.</summary>
-    public static readonly GraphOperationId RopeKeyValueWrite = new("phi4.text.rope-kv-write", 1);
+    public static readonly OperationId RopeKeyValueWrite = new("phi4.text.rope-kv-write", 1);
     /// <summary>The versioned graph operation identifier for grouped-query attention score computation.</summary>
-    public static readonly GraphOperationId GroupedQueryScores = new("phi4.text.gqa-scores", 1);
+    public static readonly OperationId GroupedQueryScores = new("phi4.text.gqa-scores", 1);
     /// <summary>The versioned graph operation identifier for causal attention softmax.</summary>
-    public static readonly GraphOperationId CausalSoftmax = new("phi4.text.causal-softmax", 1);
+    public static readonly OperationId CausalSoftmax = new("phi4.text.causal-softmax", 1);
     /// <summary>The versioned graph operation identifier for grouped-query value accumulation.</summary>
-    public static readonly GraphOperationId GroupedQueryValues = new("phi4.text.gqa-values", 1);
+    public static readonly OperationId GroupedQueryValues = new("phi4.text.gqa-values", 1);
     /// <summary>The versioned graph operation identifier for scaled vector addition.</summary>
-    public static readonly GraphOperationId ScaledAdd = new("phi4.text.scaled-add", 1);
+    public static readonly OperationId ScaledAdd = new("phi4.text.scaled-add", 1);
     /// <summary>The versioned graph operation identifier for decoder position advancement.</summary>
-    public static readonly GraphOperationId AdvancePosition = new("phi4.text.advance-position", 1);
+    public static readonly OperationId AdvancePosition = new("phi4.text.advance-position", 1);
 
 }
 

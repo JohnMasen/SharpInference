@@ -1,3 +1,4 @@
+using SharpInference.Instructions;
 using SharpInference.Graphs.Core;
 
 namespace SharpInference.Graphs.Logical;

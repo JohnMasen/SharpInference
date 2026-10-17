@@ -12,7 +12,7 @@ using SharpInference.Instructions.D3D12;
 using SharpInference.Vm;
 using SharpInference.Vm.Optimization;
 using Xunit.Abstractions;
-using SharpInference.Graphs.Execution;
+using SharpInference.Vm.Optimization.GraphHelper;
 
 namespace SharpInference.Tests;
 

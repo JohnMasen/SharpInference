@@ -1,4 +1,3 @@
-using SharpInference.Graphs;
 
 namespace SharpInference.Instructions;
 
@@ -10,7 +9,7 @@ namespace SharpInference.Instructions;
 /// <param name="Dispatch">The optional policy computing thread-group and dispatch dimensions.</param>
 /// <param name="ReadWritePorts">The ports requiring both reads and writes, or null when there are none.</param>
 public sealed record GraphInstructionBinding(
-    GraphOperationId Operation, Guid CollectionId, string InstructionName, InstructionTarget Target,
+    OperationId Operation, Guid CollectionId, string InstructionName, InstructionTarget Target,
     Func<GraphInstructionDispatchContext, GraphInstructionDispatch>? Dispatch = null,
     IReadOnlyList<string>? ReadWritePorts = null);
 

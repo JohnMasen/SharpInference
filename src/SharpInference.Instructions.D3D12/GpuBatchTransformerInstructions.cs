@@ -1,3 +1,4 @@
+using SharpInference.Instructions;
 using System.Globalization;
 using SharpInference.Graphs;
 
@@ -119,10 +120,10 @@ internal abstract class GpuBatchTransformerInstruction(
 internal sealed class GpuBatchRmsNormInstruction() : GpuBatchTransformerInstruction(
     "transformer.batch-rms-norm",
     [
-        new("input", GraphElementType.Float32, GraphResourceAccess.Read),
-        new("weight", GraphElementType.Float32, GraphResourceAccess.Read),
-        new("control", GraphElementType.Int32, GraphResourceAccess.Read),
-        new("output", GraphElementType.Float32, GraphResourceAccess.Write),
+        new("input", ElementType.Float32, ResourceAccess.Read),
+        new("weight", ElementType.Float32, ResourceAccess.Read),
+        new("control", ElementType.Int32, ResourceAccess.Read),
+        new("output", ElementType.Float32, ResourceAccess.Write),
     ],
     ["epsilon"])
 {
@@ -180,12 +181,12 @@ internal sealed class GpuBatchRmsNormInstruction() : GpuBatchTransformerInstruct
 internal sealed class GpuBatchResidualRmsNormInstruction() : GpuBatchTransformerInstruction(
     "transformer.batch-residual-rms-norm",
     [
-        new("hidden", GraphElementType.Float32, GraphResourceAccess.Read),
-        new("residual", GraphElementType.Float32, GraphResourceAccess.Read),
-        new("weight", GraphElementType.Float32, GraphResourceAccess.Read),
-        new("control", GraphElementType.Int32, GraphResourceAccess.Read),
-        new("updated", GraphElementType.Float32, GraphResourceAccess.Write),
-        new("output", GraphElementType.Float32, GraphResourceAccess.Write),
+        new("hidden", ElementType.Float32, ResourceAccess.Read),
+        new("residual", ElementType.Float32, ResourceAccess.Read),
+        new("weight", ElementType.Float32, ResourceAccess.Read),
+        new("control", ElementType.Int32, ResourceAccess.Read),
+        new("updated", ElementType.Float32, ResourceAccess.Write),
+        new("output", ElementType.Float32, ResourceAccess.Write),
     ],
     ["epsilon"])
 {
@@ -248,10 +249,10 @@ internal sealed class GpuBatchResidualRmsNormInstruction() : GpuBatchTransformer
 internal sealed class GpuBatchSharedMatVecInstruction() : GpuBatchTransformerInstruction(
     "transformer.batch-shared-matvec",
     [
-        new("weight", GraphElementType.Float16, GraphResourceAccess.Read),
-        new("input", GraphElementType.Float32, GraphResourceAccess.Read),
-        new("control", GraphElementType.Int32, GraphResourceAccess.Read),
-        new("output", GraphElementType.Float32, GraphResourceAccess.Write),
+        new("weight", ElementType.Float16, ResourceAccess.Read),
+        new("input", ElementType.Float32, ResourceAccess.Read),
+        new("control", ElementType.Int32, ResourceAccess.Read),
+        new("output", ElementType.Float32, ResourceAccess.Write),
     ])
 {
     protected override InstructionRecording Generate(InstructionParameter[] parameters)
@@ -308,9 +309,9 @@ internal sealed class GpuBatchSharedMatVecInstruction() : GpuBatchTransformerIns
 internal sealed class GpuBatchSwiGluInstruction() : GpuBatchTransformerInstruction(
     "transformer.batch-swiglu",
     [
-        new("gate_up", GraphElementType.Float32, GraphResourceAccess.Read),
-        new("control", GraphElementType.Int32, GraphResourceAccess.Read),
-        new("output", GraphElementType.Float32, GraphResourceAccess.Write),
+        new("gate_up", ElementType.Float32, ResourceAccess.Read),
+        new("control", ElementType.Int32, ResourceAccess.Read),
+        new("output", ElementType.Float32, ResourceAccess.Write),
     ])
 {
     protected override InstructionRecording Generate(InstructionParameter[] parameters)
@@ -350,12 +351,12 @@ internal sealed class GpuBatchSwiGluInstruction() : GpuBatchTransformerInstructi
 internal sealed class GpuBatchRopeKeyValueWriteInstruction() : GpuBatchTransformerInstruction(
     "transformer.batch-rope-kv-write",
     [
-        new("qkv", GraphElementType.Float32, GraphResourceAccess.Read),
-        new("control", GraphElementType.Int32, GraphResourceAccess.Read),
-        new("frequencies", GraphElementType.Float32, GraphResourceAccess.Read),
-        new("query", GraphElementType.Float32, GraphResourceAccess.Write),
-        new("key_cache", GraphElementType.Float32, GraphResourceAccess.Write),
-        new("value_cache", GraphElementType.Float32, GraphResourceAccess.Write),
+        new("qkv", ElementType.Float32, ResourceAccess.Read),
+        new("control", ElementType.Int32, ResourceAccess.Read),
+        new("frequencies", ElementType.Float32, ResourceAccess.Read),
+        new("query", ElementType.Float32, ResourceAccess.Write),
+        new("key_cache", ElementType.Float32, ResourceAccess.Write),
+        new("value_cache", ElementType.Float32, ResourceAccess.Write),
     ],
     ["head_size", "rotary_size", "rope_scale"])
 {
@@ -451,10 +452,10 @@ internal sealed class GpuBatchRopeKeyValueWriteInstruction() : GpuBatchTransform
 internal sealed class GpuBatchGroupedQueryScoresInstruction() : GpuBatchTransformerInstruction(
     "transformer.batch-gqa-scores",
     [
-        new("query", GraphElementType.Float32, GraphResourceAccess.Read),
-        new("key_cache", GraphElementType.Float32, GraphResourceAccess.Read),
-        new("control", GraphElementType.Int32, GraphResourceAccess.Read),
-        new("scores", GraphElementType.Float32, GraphResourceAccess.Write),
+        new("query", ElementType.Float32, ResourceAccess.Read),
+        new("key_cache", ElementType.Float32, ResourceAccess.Read),
+        new("control", ElementType.Int32, ResourceAccess.Read),
+        new("scores", ElementType.Float32, ResourceAccess.Write),
     ])
 {
     protected override InstructionRecording Generate(InstructionParameter[] parameters)
@@ -517,9 +518,9 @@ internal sealed class GpuBatchGroupedQueryScoresInstruction() : GpuBatchTransfor
 internal sealed class GpuBatchCausalSoftmaxInstruction() : GpuBatchTransformerInstruction(
     "transformer.batch-causal-softmax",
     [
-        new("scores", GraphElementType.Float32, GraphResourceAccess.Read),
-        new("control", GraphElementType.Int32, GraphResourceAccess.Read),
-        new("probabilities", GraphElementType.Float32, GraphResourceAccess.Write),
+        new("scores", ElementType.Float32, ResourceAccess.Read),
+        new("control", ElementType.Int32, ResourceAccess.Read),
+        new("probabilities", ElementType.Float32, ResourceAccess.Write),
     ])
 {
     protected override InstructionRecording Generate(InstructionParameter[] parameters)
@@ -601,10 +602,10 @@ internal sealed class GpuBatchCausalSoftmaxInstruction() : GpuBatchTransformerIn
 internal sealed class GpuBatchGroupedQueryValuesInstruction() : GpuBatchTransformerInstruction(
     "transformer.batch-gqa-values",
     [
-        new("probabilities", GraphElementType.Float32, GraphResourceAccess.Read),
-        new("value_cache", GraphElementType.Float32, GraphResourceAccess.Read),
-        new("control", GraphElementType.Int32, GraphResourceAccess.Read),
-        new("output", GraphElementType.Float32, GraphResourceAccess.Write),
+        new("probabilities", ElementType.Float32, ResourceAccess.Read),
+        new("value_cache", ElementType.Float32, ResourceAccess.Read),
+        new("control", ElementType.Int32, ResourceAccess.Read),
+        new("output", ElementType.Float32, ResourceAccess.Write),
     ])
 {
     protected override InstructionRecording Generate(InstructionParameter[] parameters)
@@ -667,9 +668,9 @@ internal sealed class GpuBatchGroupedQueryValuesInstruction() : GpuBatchTransfor
 internal sealed class GpuBatchSelectLastInstruction() : GpuBatchTransformerInstruction(
     "transformer.batch-select-last",
     [
-        new("input", GraphElementType.Float32, GraphResourceAccess.Read),
-        new("control", GraphElementType.Int32, GraphResourceAccess.Read),
-        new("output", GraphElementType.Float32, GraphResourceAccess.Write),
+        new("input", ElementType.Float32, ResourceAccess.Read),
+        new("control", ElementType.Int32, ResourceAccess.Read),
+        new("output", ElementType.Float32, ResourceAccess.Write),
     ])
 {
     protected override InstructionRecording Generate(InstructionParameter[] parameters)
@@ -700,9 +701,9 @@ internal sealed class GpuBatchSelectLastInstruction() : GpuBatchTransformerInstr
 internal sealed class GpuBatchGatherRowsInstruction() : GpuBatchTransformerInstruction(
     "transformer.batch-gather-rows",
     [
-        new("table", GraphElementType.Float32, GraphResourceAccess.Read),
-        new("control", GraphElementType.Int32, GraphResourceAccess.Read),
-        new("output", GraphElementType.Float32, GraphResourceAccess.Write),
+        new("table", ElementType.Float32, ResourceAccess.Read),
+        new("control", ElementType.Int32, ResourceAccess.Read),
+        new("output", ElementType.Float32, ResourceAccess.Write),
     ])
 {
     protected override InstructionRecording Generate(InstructionParameter[] parameters)

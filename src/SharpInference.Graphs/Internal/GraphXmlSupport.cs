@@ -1,3 +1,4 @@
+using SharpInference.Instructions;
 using System.Collections.ObjectModel;
 using System.Globalization;
 using System.Xml;
@@ -6,7 +7,7 @@ using System.Xml.Linq;
 namespace SharpInference.Graphs.Internal;
 
 /// <summary>Shares XML primitives, validation, and limits between logical and execution serializers.</summary>
-internal static class GraphXmlSupport
+public static class GraphXmlSupport
 {
     /// <summary>The maximum serialized string length and XML reader document character count.</summary>
     private const int MaxCharacters = 16 * 1024 * 1024;
@@ -18,7 +19,7 @@ internal static class GraphXmlSupport
     /// <summary>Wraps name/value entries in an Attributes element in dictionary enumeration order.</summary>
     /// <param name="attributes">The entries to serialize without sorting.</param>
     /// <returns>An Attributes container with one Attribute element per entry.</returns>
-    internal static XElement WriteAttributes(IReadOnlyDictionary<string, string> attributes) =>
+    public static XElement WriteAttributes(IReadOnlyDictionary<string, string> attributes) =>
         new(
             "Attributes",
             attributes.Select(attribute => new XElement(
@@ -31,7 +32,7 @@ internal static class GraphXmlSupport
     /// <returns>The materialized attribute dictionary.</returns>
     /// <exception cref="InvalidDataException">A child or attribute is unexpected, or a name or value is missing or blank.</exception>
     /// <exception cref="ArgumentException">An attribute name occurs more than once.</exception>
-    internal static IReadOnlyDictionary<string, string> ReadAttributes(XElement element)
+    public static IReadOnlyDictionary<string, string> ReadAttributes(XElement element)
     {
         var attributes = new Dictionary<string, string>(StringComparer.Ordinal);
         foreach (var attribute in Children(element, "Attribute"))
@@ -47,7 +48,7 @@ internal static class GraphXmlSupport
     /// <summary>Writes arithmetic and accumulator representations as attributes of a Precision element.</summary>
     /// <param name="precision">The precision requirements to serialize.</param>
     /// <returns>The precision element.</returns>
-    internal static XElement WritePrecision(PrecisionRequirement precision) =>
+    public static XElement WritePrecision(PrecisionRequirement precision) =>
         new(
             "Precision",
             new XAttribute("arithmetic", precision.MinimumArithmeticType),
@@ -58,18 +59,18 @@ internal static class GraphXmlSupport
     /// <returns>The independently validated arithmetic and accumulator requirements.</returns>
     /// <exception cref="InvalidDataException">The element name or attributes are invalid, or a required enum value is undefined.</exception>
     /// <exception cref="ArgumentOutOfRangeException">A defined representation is not floating-point.</exception>
-    internal static PrecisionRequirement ReadPrecision(XElement element)
+    public static PrecisionRequirement ReadPrecision(XElement element)
     {
         Check(element, "Precision", "arithmetic", "accumulator");
         return new(
-            DefinitionEnumValue<GraphElementType>(element, "arithmetic"),
-            DefinitionEnumValue<GraphElementType>(element, "accumulator"));
+            DefinitionEnumValue<ElementType>(element, "arithmetic"),
+            DefinitionEnumValue<ElementType>(element, "accumulator"));
     }
 
     /// <summary>Writes a tensor's representation, layout, and dimensions in axis order.</summary>
     /// <param name="tensor">The descriptor to serialize.</param>
     /// <returns>A Tensor element with one Dimension child per axis.</returns>
-    internal static XElement WriteTensor(TensorDescriptor tensor) =>
+    public static XElement WriteTensor(TensorDescriptor tensor) =>
         new(
             "Tensor",
             new XAttribute("elementType", tensor.ElementType),
@@ -82,11 +83,11 @@ internal static class GraphXmlSupport
     /// <returns>A descriptor preserving the declared dimension order and layout text.</returns>
     /// <exception cref="InvalidDataException">The XML shape, required attributes, enum, or dimension number is invalid.</exception>
     /// <exception cref="ArgumentOutOfRangeException">The dimension list is empty or contains zero.</exception>
-    internal static TensorDescriptor ReadTensor(XElement element)
+    public static TensorDescriptor ReadTensor(XElement element)
     {
         Check(element, "Tensor", "elementType", "layout");
         return new(
-            DefinitionEnumValue<GraphElementType>(element, "elementType"),
+            DefinitionEnumValue<ElementType>(element, "elementType"),
             Children(element, "Dimension").Select(dimension =>
             {
                 Check(dimension, "Dimension", "value");
@@ -101,7 +102,7 @@ internal static class GraphXmlSupport
     /// <param name="attribute">The required attribute name.</param>
     /// <returns>A defined enum value; numeric strings are accepted when they identify a defined value.</returns>
     /// <exception cref="InvalidDataException">The attribute is missing, blank, unparsable, or undefined.</exception>
-    internal static T DefinitionEnumValue<T>(XElement element, string attribute)
+    public static T DefinitionEnumValue<T>(XElement element, string attribute)
         where T : struct, Enum
     {
         var value = Required(element, attribute);
@@ -118,7 +119,7 @@ internal static class GraphXmlSupport
     /// <param name="name">The exact child name to select.</param>
     /// <returns>The single matching child.</returns>
     /// <exception cref="InvalidDataException">Zero or multiple children match the requested name.</exception>
-    internal static XElement RequiredChild(XElement parent, string name)
+    public static XElement RequiredChild(XElement parent, string name)
     {
         var values = parent.Elements(name).ToArray();
         if (values.Length != 1)
@@ -135,7 +136,7 @@ internal static class GraphXmlSupport
     /// <param name="names">The case-sensitive allowed local names.</param>
     /// <returns>The direct element children, possibly empty.</returns>
     /// <exception cref="InvalidDataException">A child has a namespace or a name outside the allowed set.</exception>
-    internal static IEnumerable<XElement> DefinitionChildren(
+    public static IEnumerable<XElement> DefinitionChildren(
         XElement parent,
         params string[] names)
     {
@@ -154,7 +155,7 @@ internal static class GraphXmlSupport
     /// <returns>The XML string without an added declaration.</returns>
     /// <remarks>This helper does not validate graph schema or impose the read-side depth limit.</remarks>
     /// <exception cref="InvalidDataException">The serialized length or element count exceeds its limit.</exception>
-    internal static string Write(XElement root)
+    public static string Write(XElement root)
     {
         var xml = root.ToString(SaveOptions.DisableFormatting);
         if (xml.Length > MaxCharacters ||
@@ -174,7 +175,7 @@ internal static class GraphXmlSupport
     /// <remarks>Child schema is left to the logical or execution decoder. External XML resolution is disabled.</remarks>
     /// <exception cref="ArgumentNullException">The document text is null.</exception>
     /// <exception cref="InvalidDataException">The XML is malformed, exceeds a limit, or has an invalid root, kind, or version.</exception>
-    internal static XElement Read(string xml, string kind, int version)
+    public static XElement Read(string xml, string kind, int version)
     {
         ArgumentNullException.ThrowIfNull(xml);
         if (xml.Length > MaxCharacters)
@@ -234,7 +235,7 @@ internal static class GraphXmlSupport
     /// <param name="allowedAttributes">The case-sensitive allowed attribute names.</param>
     /// <remarks>Required attributes and children are validated separately.</remarks>
     /// <exception cref="InvalidDataException">The element name, namespace, or an attribute is unexpected.</exception>
-    internal static void Check(
+    public static void Check(
         XElement element,
         string name,
         params string[] allowedAttributes)
@@ -259,7 +260,7 @@ internal static class GraphXmlSupport
     /// <param name="name">The exact name allowed for every child.</param>
     /// <returns>The matching children in document order, possibly empty.</returns>
     /// <exception cref="InvalidDataException">A child has a different name or a namespace.</exception>
-    internal static IEnumerable<XElement> Children(XElement parent, string name)
+    public static IEnumerable<XElement> Children(XElement parent, string name)
     {
         if (parent.Elements().Any(element =>
             element.Name != name || element.Name.Namespace != XNamespace.None))
@@ -275,7 +276,7 @@ internal static class GraphXmlSupport
     /// <param name="attribute">The exact attribute name.</param>
     /// <returns>The original attribute text.</returns>
     /// <exception cref="InvalidDataException">The attribute is absent, empty, or whitespace.</exception>
-    internal static string Required(XElement element, string attribute) =>
+    public static string Required(XElement element, string attribute) =>
         string.IsNullOrWhiteSpace((string?)element.Attribute(attribute))
             ? throw new InvalidDataException(
                 $"Element <{element.Name}> requires attribute '{attribute}'.")
@@ -286,7 +287,7 @@ internal static class GraphXmlSupport
     /// <param name="attribute">The required attribute name.</param>
     /// <returns>The parsed integer, including zero when declared.</returns>
     /// <exception cref="InvalidDataException">The attribute is absent, blank, not decimal digits, or outside the supported range.</exception>
-    internal static int Number(XElement element, string attribute) =>
+    public static int Number(XElement element, string attribute) =>
         int.TryParse(
             Required(element, attribute),
             NumberStyles.None,
@@ -300,6 +301,6 @@ internal static class GraphXmlSupport
     /// <param name="name">The attribute name.</param>
     /// <param name="value">The value to write, or null to omit the attribute.</param>
     /// <returns>The attribute, or null for an omitted value.</returns>
-    internal static XAttribute? Optional(string name, string? value) =>
+    public static XAttribute? Optional(string name, string? value) =>
         value is null ? null : new XAttribute(name, value);
 }

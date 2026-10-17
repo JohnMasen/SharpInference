@@ -1,3 +1,4 @@
+using SharpInference.Instructions;
 using System.Globalization;
 using SharpInference.Graphs;
 
@@ -49,11 +50,11 @@ public sealed class GpuTransformerInstructionCollection : IInstructionCollection
 internal sealed class GpuGroupedQueryAttentionInstruction() : GpuTransformerInstruction(
     "transformer.grouped-query-attention",
     [
-        new("query", GraphElementType.Float32, GraphResourceAccess.Read),
-        new("key_cache", GraphElementType.Float32, GraphResourceAccess.Read),
-        new("value_cache", GraphElementType.Float32, GraphResourceAccess.Read),
-        new("position", GraphElementType.Int32, GraphResourceAccess.Read),
-        new("output", GraphElementType.Float32, GraphResourceAccess.Write),
+        new("query", ElementType.Float32, ResourceAccess.Read),
+        new("key_cache", ElementType.Float32, ResourceAccess.Read),
+        new("value_cache", ElementType.Float32, ResourceAccess.Read),
+        new("position", ElementType.Int32, ResourceAccess.Read),
+        new("output", ElementType.Float32, ResourceAccess.Write),
     ])
 {
     protected override InstructionRecording Generate(InstructionParameter[] parameters)
@@ -163,9 +164,9 @@ internal sealed class GpuGroupedQueryAttentionInstruction() : GpuTransformerInst
 internal sealed class GpuScaledAddInstruction() : GpuTransformerInstruction(
     "transformer.scaled-add",
     [
-        new("input", GraphElementType.Float32, GraphResourceAccess.Read),
-        new("update", GraphElementType.Float32, GraphResourceAccess.Read),
-        new("output", GraphElementType.Float32, GraphResourceAccess.Write),
+        new("input", ElementType.Float32, ResourceAccess.Read),
+        new("update", ElementType.Float32, ResourceAccess.Read),
+        new("output", ElementType.Float32, ResourceAccess.Write),
     ],
     ["scale"])
 {
@@ -199,9 +200,9 @@ internal sealed class GpuScaledAddInstruction() : GpuTransformerInstruction(
 internal sealed class GpuEmbeddingGatherBatchInstruction() : GpuTransformerInstruction(
     "transformer.embedding-gather-batch",
     [
-        new("table", GraphElementType.Float16, GraphResourceAccess.Read),
-        new("indices", GraphElementType.Int32, GraphResourceAccess.Read),
-        new("output", GraphElementType.Float32, GraphResourceAccess.Write),
+        new("table", ElementType.Float16, ResourceAccess.Read),
+        new("indices", ElementType.Int32, ResourceAccess.Read),
+        new("output", ElementType.Float32, ResourceAccess.Write),
     ])
 {
     protected override InstructionRecording Generate(InstructionParameter[] parameters)
@@ -236,8 +237,8 @@ internal sealed class GpuEmbeddingGatherBatchInstruction() : GpuTransformerInstr
 internal sealed class GpuCopyEmbeddingRowsInstruction() : GpuTransformerInstruction(
     "transformer.copy-embedding-rows",
     [
-        new("input", GraphElementType.Float32, GraphResourceAccess.Read),
-        new("output", GraphElementType.Float32, GraphResourceAccess.Write),
+        new("input", ElementType.Float32, ResourceAccess.Read),
+        new("output", ElementType.Float32, ResourceAccess.Write),
     ],
     ["rows", "output_start"])
 {
@@ -306,7 +307,7 @@ internal abstract class GpuTransformerInstruction(
     IReadOnlyList<string>? attributes = null) : Instruction
 {
     private static readonly KernelPrecisionProfile Precision =
-        new(GraphElementType.Float32, GraphElementType.Float32);
+        new(ElementType.Float32, ElementType.Float32);
 
     public override Guid CollectionId => InstructionCollectionIds.TransformerFloat32;
     public override string Name => name;
@@ -347,9 +348,9 @@ internal abstract class GpuTransformerInstruction(
 internal sealed class GpuRmsNormInstruction() : GpuTransformerInstruction(
     "transformer.rms-norm",
     [
-        new("input", GraphElementType.Float32, GraphResourceAccess.Read),
-        new("weight", GraphElementType.Float32, GraphResourceAccess.Read),
-        new("output", GraphElementType.Float32, GraphResourceAccess.Write),
+        new("input", ElementType.Float32, ResourceAccess.Read),
+        new("weight", ElementType.Float32, ResourceAccess.Read),
+        new("output", ElementType.Float32, ResourceAccess.Write),
     ],
     ["epsilon"])
 {
@@ -394,11 +395,11 @@ internal sealed class GpuRmsNormInstruction() : GpuTransformerInstruction(
 internal sealed class GpuResidualRmsNormInstruction() : GpuTransformerInstruction(
     "transformer.residual-rms-norm",
     [
-        new("hidden", GraphElementType.Float32, GraphResourceAccess.Read),
-        new("residual", GraphElementType.Float32, GraphResourceAccess.Read),
-        new("weight", GraphElementType.Float32, GraphResourceAccess.Read),
-        new("updated", GraphElementType.Float32, GraphResourceAccess.Write),
-        new("output", GraphElementType.Float32, GraphResourceAccess.Write),
+        new("hidden", ElementType.Float32, ResourceAccess.Read),
+        new("residual", ElementType.Float32, ResourceAccess.Read),
+        new("weight", ElementType.Float32, ResourceAccess.Read),
+        new("updated", ElementType.Float32, ResourceAccess.Write),
+        new("output", ElementType.Float32, ResourceAccess.Write),
     ],
     ["epsilon"])
 {
@@ -443,8 +444,8 @@ internal sealed class GpuResidualRmsNormInstruction() : GpuTransformerInstructio
 internal sealed class GpuSwiGluInstruction() : GpuTransformerInstruction(
     "transformer.swiglu",
     [
-        new("gate_up", GraphElementType.Float32, GraphResourceAccess.Read),
-        new("output", GraphElementType.Float32, GraphResourceAccess.Write),
+        new("gate_up", ElementType.Float32, ResourceAccess.Read),
+        new("output", ElementType.Float32, ResourceAccess.Write),
     ])
 {
     protected override InstructionRecording Generate(InstructionParameter[] parameters)
@@ -469,12 +470,12 @@ internal sealed class GpuSwiGluInstruction() : GpuTransformerInstruction(
 internal sealed class GpuRopeKeyValueWriteInstruction() : GpuTransformerInstruction(
                 "transformer.rope-kv-write",
                 [
-                    new("qkv", GraphElementType.Float32, GraphResourceAccess.Read),
-                    new("position", GraphElementType.Int32, GraphResourceAccess.Read),
-                    new("frequencies", GraphElementType.Float32, GraphResourceAccess.Read),
-                    new("query", GraphElementType.Float32, GraphResourceAccess.Write),
-                    new("key_cache", GraphElementType.Float32, GraphResourceAccess.Write),
-                    new("value_cache", GraphElementType.Float32, GraphResourceAccess.Write),
+                    new("qkv", ElementType.Float32, ResourceAccess.Read),
+                    new("position", ElementType.Int32, ResourceAccess.Read),
+                    new("frequencies", ElementType.Float32, ResourceAccess.Read),
+                    new("query", ElementType.Float32, ResourceAccess.Write),
+                    new("key_cache", ElementType.Float32, ResourceAccess.Write),
+                    new("value_cache", ElementType.Float32, ResourceAccess.Write),
                 ],
                 ["head_size", "rotary_size", "rope_scale"])
             {
@@ -581,10 +582,10 @@ internal sealed class GpuRopeKeyValueWriteInstruction() : GpuTransformerInstruct
             internal sealed class GpuGroupedQueryScoresInstruction() : GpuTransformerInstruction(
                 "transformer.gqa-scores",
                 [
-                    new("query", GraphElementType.Float32, GraphResourceAccess.Read),
-                    new("key_cache", GraphElementType.Float32, GraphResourceAccess.Read),
-                    new("position", GraphElementType.Int32, GraphResourceAccess.Read),
-                    new("scores", GraphElementType.Float32, GraphResourceAccess.Write),
+                    new("query", ElementType.Float32, ResourceAccess.Read),
+                    new("key_cache", ElementType.Float32, ResourceAccess.Read),
+                    new("position", ElementType.Int32, ResourceAccess.Read),
+                    new("scores", ElementType.Float32, ResourceAccess.Write),
                 ])
             {
                 protected override InstructionRecording Generate(InstructionParameter[] parameters)
@@ -638,9 +639,9 @@ internal sealed class GpuRopeKeyValueWriteInstruction() : GpuTransformerInstruct
 internal sealed class GpuCausalSoftmaxInstruction() : GpuTransformerInstruction(
                 "transformer.causal-softmax",
                 [
-                    new("scores", GraphElementType.Float32, GraphResourceAccess.Read),
-                    new("position", GraphElementType.Int32, GraphResourceAccess.Read),
-                    new("probabilities", GraphElementType.Float32, GraphResourceAccess.Write),
+                    new("scores", ElementType.Float32, ResourceAccess.Read),
+                    new("position", ElementType.Int32, ResourceAccess.Read),
+                    new("probabilities", ElementType.Float32, ResourceAccess.Write),
                 ])
             {
                 protected override InstructionRecording Generate(InstructionParameter[] parameters)
@@ -701,10 +702,10 @@ internal sealed class GpuCausalSoftmaxInstruction() : GpuTransformerInstruction(
             internal sealed class GpuGroupedQueryValuesInstruction() : GpuTransformerInstruction(
                 "transformer.gqa-values",
                 [
-                    new("probabilities", GraphElementType.Float32, GraphResourceAccess.Read),
-                    new("value_cache", GraphElementType.Float32, GraphResourceAccess.Read),
-                    new("position", GraphElementType.Int32, GraphResourceAccess.Read),
-                    new("output", GraphElementType.Float32, GraphResourceAccess.Write),
+                    new("probabilities", ElementType.Float32, ResourceAccess.Read),
+                    new("value_cache", ElementType.Float32, ResourceAccess.Read),
+                    new("position", ElementType.Int32, ResourceAccess.Read),
+                    new("output", ElementType.Float32, ResourceAccess.Write),
                 ])
             {
                 protected override InstructionRecording Generate(InstructionParameter[] parameters)
@@ -745,8 +746,8 @@ internal sealed class GpuCausalSoftmaxInstruction() : GpuTransformerInstruction(
             internal sealed class GpuArgMaxInstruction() : GpuTransformerInstruction(
                 "transformer.argmax",
                 [
-                    new("input", GraphElementType.Float32, GraphResourceAccess.Read),
-                    new("output", GraphElementType.Int32, GraphResourceAccess.Write),
+                    new("input", ElementType.Float32, ResourceAccess.Read),
+                    new("output", ElementType.Int32, ResourceAccess.Write),
                 ])
             {
                 protected override InstructionRecording Generate(InstructionParameter[] parameters)

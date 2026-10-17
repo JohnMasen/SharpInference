@@ -1,7 +1,8 @@
+using SharpInference.Instructions;
 using SharpInference.Graphs;
 using SharpInference.Graphs.Core;
 using static SharpInference.Graphs.Core.PatternElements;
-using SharpInference.Graphs.Execution;
+using SharpInference.Vm.Optimization.GraphHelper;
 
 namespace SharpInference.Vm.Optimization;
 
@@ -69,7 +70,7 @@ public sealed class TemporaryResourceReusePostprocessor : IExecutionGraphPostpro
             var firstBindings = graph.Bindings(first).Where(value =>
                 value.Resource == resource.ResourceNodeId).ToArray();
             if (firstBindings.Length != 1 ||
-                firstBindings[0].Access != GraphResourceAccess.Write ||
+                firstBindings[0].Access != ResourceAccess.Write ||
                 firstBindings[0].Port != "output" ||
                 first is not ExecutionOperationNode operation ||
                 operation.Operation.Version != 1 ||

@@ -1,3 +1,4 @@
+using SharpInference.Instructions;
 using System.Globalization;
 using SharpInference.Graphs;
 using SharpInference.Graphs.Logical;
@@ -6,15 +7,15 @@ namespace SharpInference.Architectures;
 
 internal static class RwkvPortableTensorOperations
 {
-    internal static readonly GraphOperationId Fill = new("core.tensor.fill");
-    internal static readonly GraphOperationId CastFp16ToFp32 = new("core.tensor.cast-f16-f32");
-    internal static readonly GraphOperationId Reshape = new("core.tensor.reshape");
-    internal static readonly GraphOperationId Slice = new("core.tensor.slice");
-    internal static readonly GraphOperationId Broadcast = new("core.tensor.broadcast");
-    internal static readonly GraphOperationId BatchedMatVec = new("core.tensor.batched-mat-vec");
-    internal static readonly GraphOperationId ReduceLastSum = new("core.tensor.reduce-last-sum");
-    internal static readonly GraphOperationId ReduceLastMean = new("core.tensor.reduce-last-mean");
-    internal static readonly GraphOperationId HeadOuter = new("core.tensor.head-outer");
+    internal static readonly OperationId Fill = new("core.tensor.fill");
+    internal static readonly OperationId CastFp16ToFp32 = new("core.tensor.cast-f16-f32");
+    internal static readonly OperationId Reshape = new("core.tensor.reshape");
+    internal static readonly OperationId Slice = new("core.tensor.slice");
+    internal static readonly OperationId Broadcast = new("core.tensor.broadcast");
+    internal static readonly OperationId BatchedMatVec = new("core.tensor.batched-mat-vec");
+    internal static readonly OperationId ReduceLastSum = new("core.tensor.reduce-last-sum");
+    internal static readonly OperationId ReduceLastMean = new("core.tensor.reduce-last-mean");
+    internal static readonly OperationId HeadOuter = new("core.tensor.head-outer");
 
     internal static IReadOnlyDictionary<string, string> FillAttributes(float value)
     {
@@ -102,8 +103,8 @@ internal sealed class PortableRwkvGraphDefinitionComposer
             id,
             graph =>
             {
-                graph.AddInput("token", new TensorDescriptor(GraphElementType.Int32, [1]));
-                graph.AddOutput("logits", new TensorDescriptor(GraphElementType.Float32, [vocabularySize]));
+                graph.AddInput("token", new TensorDescriptor(ElementType.Int32, [1]));
+                graph.AddOutput("logits", new TensorDescriptor(ElementType.Float32, [vocabularySize]));
                 var composer = new PortableRwkvGraphDefinitionComposer(graph);
                 build(composer);
             },
@@ -134,7 +135,7 @@ internal sealed class PortableRwkvGraphDefinitionComposer
 
     internal void AddNode(
         string id,
-        GraphOperationId operation,
+        OperationId operation,
         IEnumerable<(string Port, string Resource)> inputs,
         string output,
         IReadOnlyDictionary<string, string>? attributes,

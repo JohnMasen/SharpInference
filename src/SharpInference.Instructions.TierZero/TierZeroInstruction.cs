@@ -1,5 +1,3 @@
-using SharpInference.Graphs;
-
 namespace SharpInference.Instructions;
 
 /// <summary>Defines primitive instruction signatures without depending on a logical graph IR.</summary>
@@ -70,7 +68,7 @@ public abstract class TierZeroInstruction(Guid collectionId, string name, Instru
             }
 
             if (tensors.Any(parameter =>
-                parameter.Name == "output" && parameter.Access == GraphResourceAccess.Read))
+                parameter.Name == "output" && parameter.Access == ResourceAccess.Read))
             {
                 throw new InvalidDataException("Output is read-only.");
             }
@@ -118,10 +116,10 @@ public abstract class TierZeroInstruction(Guid collectionId, string name, Instru
         }
 
         var storage = collectionId == InstructionCollectionIds.TierZeroFloat16
-            ? GraphElementType.Float16
-            : GraphElementType.Float32;
+            ? ElementType.Float16
+            : ElementType.Float32;
         var output = name == "core.tensor.cast-f16-f32"
-            ? GraphElementType.Float32
+            ? ElementType.Float32
             : storage;
         var attributes = name switch
         {
@@ -132,38 +130,38 @@ public abstract class TierZeroInstruction(Guid collectionId, string name, Instru
             _ => [],
         };
         InstructionSignature Signature(
-            GraphElementType inputStorage,
+            ElementType inputStorage,
             string? matrixPort = null,
-            GraphElementType? matrixStorage = null) =>
+            ElementType? matrixStorage = null) =>
             new(
                 inputs.Select(port => new InstructionPort(
                         port,
                         port == "index"
-                            ? GraphElementType.Int32
+                            ? ElementType.Int32
                             : port == matrixPort
                                 ? matrixStorage!.Value
                                 : inputStorage,
-                        GraphResourceAccess.Read))
-                    .Append(new("output", output, GraphResourceAccess.Write))
+                        ResourceAccess.Read))
+                    .Append(new("output", output, ResourceAccess.Write))
                     .ToArray(),
                 attributes,
-                new(GraphElementType.Float32, GraphElementType.Float32));
+                new(ElementType.Float32, ElementType.Float32));
         var result = new List<InstructionSignature>
         {
             Signature(name == "core.tensor.cast-f16-f32"
-                ? GraphElementType.Float16
+                ? ElementType.Float16
                 : storage),
         };
         if (collectionId == InstructionCollectionIds.TierZeroFloat32 &&
             name is "core.mat-vec" or "core.tensor.batched-mat-vec")
         {
-            result.Add(Signature(storage, "matrix", GraphElementType.Float16));
+            result.Add(Signature(storage, "matrix", ElementType.Float16));
         }
 
         if (collectionId == InstructionCollectionIds.TierZeroFloat32 &&
             name == "core.gather-row")
         {
-            result.Add(Signature(storage, "table", GraphElementType.Float16));
+            result.Add(Signature(storage, "table", ElementType.Float16));
         }
 
         if (name == "core.mat-vec")

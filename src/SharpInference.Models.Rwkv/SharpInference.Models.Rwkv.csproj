@@ -7,6 +7,7 @@
   <ItemGroup>
     <ProjectReference Include="..\SharpInference.Abstractions\SharpInference.Abstractions.csproj" />
     <ProjectReference Include="..\SharpInference.Graphs\SharpInference.Graphs.csproj" />
+    <ProjectReference Include="..\SharpInference.Instructions\SharpInference.Instructions.csproj" />
     <ProjectReference Include="..\SharpInference.Generation\SharpInference.Generation.csproj" />
     <ProjectReference Include="..\SharpInference.Models.Ggml\SharpInference.Models.Ggml.csproj" />
   </ItemGroup>

@@ -1,6 +1,7 @@
 # SharpInference.Graphs 薄辅助层重构计划
 
 状态：已执行并通过最终验收；实际结果见第 10 节。
+后续归属调整：本文保留该次重构的历史 API 和目录记录；当前指令契约与 GraphHelper 迁移结果见 [Graphs 职责整理计划](graphs-responsibility-cleanup-plan.md)。
 制定日期：2026-10-16。
 执行基线：提交 `338003b`（`re-org SharpInference.Graphs project`）。
 约束更新：不要求旧 API 或旧 XML 格式兼容；仓库调用方、测试和样例统一迁移。

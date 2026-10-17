@@ -1,3 +1,4 @@
+using SharpInference.Instructions;
 using SharpInference.Graphs;
 using SharpInference.Graphs.Logical;
 
@@ -119,14 +120,14 @@ public sealed class Phi4ModelGraphModule : IPhi4GraphModule
                     GraphResourceKind.Temporary,
                     GraphResourceLifetime.Invocation,
                     new TensorDescriptor(
-                        GraphElementType.Float32,
+                        ElementType.Float32,
                         [dimensions["embedding_width"]]))
                 .AddResource(
                     "prompt_index",
                     "Prompt row",
                     GraphResourceKind.Input,
                     GraphResourceLifetime.External,
-                    new TensorDescriptor(GraphElementType.Int32, [1]),
+                    new TensorDescriptor(ElementType.Int32, [1]),
                     graphInput: true);
             builder.Section(
                 "prompt-selection",
@@ -134,7 +135,7 @@ public sealed class Phi4ModelGraphModule : IPhi4GraphModule
                 "Prompt Row Selection",
                 scope => scope.AddNode(
                     "select_prompt_embedding",
-                    PrimitiveGraphOperations.GatherRow,
+                    PrimitiveOperations.GatherRow,
                     [
                         GraphBindings.Read("table", aliases["output"]),
                         GraphBindings.Read("index", "prompt_index"),

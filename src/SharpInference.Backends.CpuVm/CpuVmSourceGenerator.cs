@@ -109,7 +109,7 @@ internal sealed class CpuVmSourceGenerator
             ? tensor with
             {
                 Expression = View(definition, new VmArgument(tensor.Name, tensor.Source), definition.Parameters.Single(p => p.Name == tensor.Source).Tensor,
-                    contract.ParameterAccesses[tensor.Name] != GraphResourceAccess.Read),
+                    contract.ParameterAccesses[tensor.Name] != ResourceAccess.Read),
             } : parameter).ToArray();
         var start = recorder.Recordings.Count;
         instruction.Invoke(recorder,parameters,operation.Precision,operation.ExecutionConfiguration);
@@ -143,9 +143,9 @@ internal sealed class CpuVmSourceGenerator
                         Offset: checked(bindings[a.Source].Offset + (int)a.ByteOffset),
                         Length: checked((int)tensor.ByteLength));
                 }).ToArray();
-                foreach (var output in views.Where(v => v.Access != GraphResourceAccess.Read))
+                foreach (var output in views.Where(v => v.Access != ResourceAccess.Read))
                 {
-                    foreach (var input in views.Where(v => v.Access != GraphResourceAccess.Write && v.Name != output.Name))
+                    foreach (var input in views.Where(v => v.Access != ResourceAccess.Write && v.Name != output.Name))
                     {
                         if (input.Slot == output.Slot && input.Offset < output.Offset + output.Length && output.Offset < input.Offset + input.Length)
                         {
@@ -154,9 +154,9 @@ internal sealed class CpuVmSourceGenerator
                     }
                 }
 
-                accesses.AddRange(views.Where(v => v.Access != GraphResourceAccess.Write)
+                accesses.AddRange(views.Where(v => v.Access != ResourceAccess.Write)
                     .Select(v => new CpuVmAccess(v.Slot, v.Offset, v.Length, false)));
-                accesses.AddRange(views.Where(v => v.Access != GraphResourceAccess.Read)
+                accesses.AddRange(views.Where(v => v.Access != ResourceAccess.Read)
                     .Select(v => new CpuVmAccess(v.Slot, v.Offset, v.Length, true)));
             }
 

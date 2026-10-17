@@ -216,15 +216,15 @@ public static class VmProgramXml
                 Check(instruction, "Operator", ["name", "collection"], ["Arguments", "Precision", "ResolvedPrecision", "ExecutionConfiguration", "Attributes", "IndexBounds", "ParameterAccesses"]);
                 var precision = One(instruction, "Precision");
                 Check(precision, "Precision", ["minimumArithmeticType", "minimumAccumulatorType"], []);
-                var requirement = new PrecisionRequirement(EnumValue<GraphElementType>(precision, "minimumArithmeticType"),
-                    EnumValue<GraphElementType>(precision, "minimumAccumulatorType"));
+                var requirement = new PrecisionRequirement(EnumValue<ElementType>(precision, "minimumArithmeticType"),
+                    EnumValue<ElementType>(precision, "minimumAccumulatorType"));
                 var resolved = OptionalOne(instruction, "ResolvedPrecision");
                 KernelPrecisionProfile? capability = null;
                 if (resolved is not null)
                 {
                     Check(resolved, "ResolvedPrecision", ["arithmeticType", "accumulatorType"], []);
-                    capability = new(EnumValue<GraphElementType>(resolved, "arithmeticType"),
-                        EnumValue<GraphElementType>(resolved, "accumulatorType"));
+                    capability = new(EnumValue<ElementType>(resolved, "arithmeticType"),
+                        EnumValue<ElementType>(resolved, "accumulatorType"));
                 }
                 var configuration = OptionalOne(instruction, "ExecutionConfiguration");
                 InstructionExecutionConfiguration? executionConfiguration = null;
@@ -264,7 +264,7 @@ public static class VmProgramXml
                     {
                         Check(port, "Port", ["name", "access"], []);
                         return Required(port, "name");
-                    }, port => EnumValue<GraphResourceAccess>(port, "access"), StringComparer.Ordinal), capability,
+                    }, port => EnumValue<ResourceAccess>(port, "access"), StringComparer.Ordinal), capability,
                     executionConfiguration);
                 break;
             case "Call":

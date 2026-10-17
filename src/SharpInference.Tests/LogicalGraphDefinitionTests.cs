@@ -1,3 +1,4 @@
+using SharpInference.Instructions;
 using SharpInference.Graphs;
 using SharpInference.Graphs.Logical;
 
@@ -5,7 +6,7 @@ namespace SharpInference.Tests;
 
 public sealed class LogicalGraphDefinitionTests
 {
-    private static readonly TensorDescriptor F = new(GraphElementType.Float32, [4]);
+    private static readonly TensorDescriptor F = new(ElementType.Float32, [4]);
 
     [Fact]
     public void OperationDataFlowInfersDagAndCompletionSink()
@@ -17,13 +18,13 @@ public sealed class LogicalGraphDefinitionTests
                 var input = builder.AddInput("input", F);
                 var output = builder.AddOutput("output", F);
                 var temporary = builder.AddResource("temporary", "Temporary", F);
-                var result = builder.AddNode("first", PrimitiveGraphOperations.Copy, node =>
+                var result = builder.AddNode("first", PrimitiveOperations.Copy, node =>
                 {
                     node.AddInput("input", input);
                     return node.AddOutput("output", temporary);
                 });
                 Assert.Equal(temporary, result);
-                builder.AddNode("second", PrimitiveGraphOperations.Copy, node =>
+                builder.AddNode("second", PrimitiveOperations.Copy, node =>
                 {
                     node.AddInput("input", temporary);
                     return node.AddOutput("output", output);
@@ -56,7 +57,7 @@ public sealed class LogicalGraphDefinitionTests
                     Assert.Equal(childOutput, bindings.AddOutput("output", childOutput));
                 }, new GraphAnnotation("Child call"));
                 Assert.Equal(new GraphDefinitionNodeId("child"), call);
-                builder.AddNode("finish", PrimitiveGraphOperations.Copy, node =>
+                builder.AddNode("finish", PrimitiveOperations.Copy, node =>
                 {
                     node.AddInput("input", childOutput);
                     node.AddOutput("output", output);
@@ -112,7 +113,7 @@ public sealed class LogicalGraphDefinitionTests
             var input = builder.AddInput("input", F);
             var state = builder.AddInOut("state", F);
             var output = builder.AddOutput("output", F);
-            builder.AddNode("update", new GraphOperationId("test.update"), node =>
+            builder.AddNode("update", new OperationId("test.update"), node =>
             {
                 node.AddInput("input", input);
                 Assert.Equal(state, node.AddInOut("state", state));
@@ -133,7 +134,7 @@ public sealed class LogicalGraphDefinitionTests
         });
 
         var call = Assert.IsType<GraphCallNode>(Assert.Single(parent.Nodes));
-        Assert.Equal(GraphResourceAccess.ReadWrite,
+        Assert.Equal(ResourceAccess.ReadWrite,
             parent.Bindings(call).Single(binding => binding.Port == "state").Access);
         Assert.Equal(["stateful"], parent.TerminalWriters[new("state")].Select(id => id.Value));
     }
@@ -172,12 +173,12 @@ public sealed class LogicalGraphDefinitionTests
         {
             var input = builder.AddInput("input", F);
             var output = builder.AddOutput("output", F);
-            builder.AddNode("first", PrimitiveGraphOperations.Copy, node =>
+            builder.AddNode("first", PrimitiveOperations.Copy, node =>
             {
                 node.AddInput("input", input);
                 node.AddOutput("output", output);
             });
-            builder.AddNode("second", PrimitiveGraphOperations.Copy, node =>
+            builder.AddNode("second", PrimitiveOperations.Copy, node =>
             {
                 node.AddInput("input", input);
                 node.AddOutput("output", output);
@@ -247,7 +248,7 @@ public sealed class LogicalGraphDefinitionTests
             var output = builder.AddOutput("output", F);
             foreach (var id in new[] { "left", "right" })
             {
-                builder.AddNode(id, PrimitiveGraphOperations.Copy, node =>
+                builder.AddNode(id, PrimitiveOperations.Copy, node =>
                 {
                     node.AddInput("input", input);
                     node.AddOutput("output", output);
@@ -271,7 +272,7 @@ public sealed class LogicalGraphDefinitionTests
         var builder = new GraphDefinitionBuilder("debug");
         builder.RegisterDefinition(source);
         var output = builder.AddOutput("output", F);
-        builder.AddNode("capture", PrimitiveGraphOperations.Copy, node =>
+        builder.AddNode("capture", PrimitiveOperations.Copy, node =>
         {
             node.AddInput("input", new ResourceId("source/output"));
             node.AddOutput("output", output);
@@ -290,12 +291,12 @@ public sealed class LogicalGraphDefinitionTests
             var input = builder.AddInput("input", F);
             var output = builder.AddOutput("output", F);
             var internalValue = builder.AddResource("internal", "Internal value", F);
-            builder.AddNode("produce-internal", PrimitiveGraphOperations.Copy, node =>
+            builder.AddNode("produce-internal", PrimitiveOperations.Copy, node =>
             {
                 node.AddInput("input", input);
                 node.AddOutput("output", internalValue);
             });
-            builder.AddNode("produce-output", PrimitiveGraphOperations.Copy, node =>
+            builder.AddNode("produce-output", PrimitiveOperations.Copy, node =>
             {
                 node.AddInput("input", internalValue);
                 node.AddOutput("output", output);
@@ -350,7 +351,7 @@ public sealed class LogicalGraphDefinitionTests
             var input = builder.AddInput("input", F);
             var output = builder.AddOutput("output", F);
             var internalValue = builder.AddResource("internal", "Internal value", F);
-            builder.AddNode("produce", PrimitiveGraphOperations.Copy, node =>
+            builder.AddNode("produce", PrimitiveOperations.Copy, node =>
             {
                 node.AddInput("input", input);
                 node.AddOutput("internal", internalValue);
@@ -379,7 +380,7 @@ public sealed class LogicalGraphDefinitionTests
         });
 
         var binding = graph.Bindings(graph.Nodes[1]).Single(value => value.Port == "output");
-        Assert.Equal(GraphResourceAccess.Write, binding.Access);
+        Assert.Equal(ResourceAccess.Write, binding.Access);
         Assert.Equal(new GraphDefinitionNodeId("producer-call"), binding.Resource.Owner.Call);
         Assert.Contains(graph.Diagnostics, diagnostic =>
             diagnostic.Code == "LGW003" &&
@@ -404,7 +405,7 @@ public sealed class LogicalGraphDefinitionTests
                     bindings.AddInput("input", input);
                     bindings.AddOutput("output", childOutput);
                 });
-                builder.AddNode("output", PrimitiveGraphOperations.Copy, node =>
+                builder.AddNode("output", PrimitiveOperations.Copy, node =>
                 {
                     node.AddInput("input", childOutput);
                     node.AddOutput("output", output);
@@ -452,7 +453,7 @@ public sealed class LogicalGraphDefinitionTests
     {
         var graph = LogicalGraphDefinition.CreateListGraph(
             "list", F,
-            [PrimitiveGraphOperations.Copy, PrimitiveGraphOperations.Relu, PrimitiveGraphOperations.Tanh],
+            [PrimitiveOperations.Copy, PrimitiveOperations.Relu, PrimitiveOperations.Tanh],
             GraphCompileBoundary.Atomic, new GraphAnnotation("List graph"));
 
         Assert.Equal(3, graph.Nodes.Count);
@@ -475,12 +476,12 @@ public sealed class LogicalGraphDefinitionTests
             var input = builder.AddInput("input", F);
             var left = builder.AddOutput("left", F);
             var right = builder.AddOutput("right", F);
-            builder.AddNode("left", PrimitiveGraphOperations.Copy, node =>
+            builder.AddNode("left", PrimitiveOperations.Copy, node =>
             {
                 node.AddInput("input", input);
                 node.AddOutput("output", left);
             });
-            builder.AddNode("right", PrimitiveGraphOperations.Copy, node =>
+            builder.AddNode("right", PrimitiveOperations.Copy, node =>
             {
                 node.AddInput("input", input);
                 node.AddOutput("output", right);
@@ -506,21 +507,21 @@ public sealed class LogicalGraphDefinitionTests
                 var output = builder.AddOutput("output", F);
                 var query = builder.AddResource("query", "Query", F);
                 var scores = builder.AddResource("scores", "Scores", F);
-                builder.AddNode("qkv", new GraphOperationId("attention.qkv"), node =>
+                builder.AddNode("qkv", new OperationId("attention.qkv"), node =>
                 {
                     node.AddInput("hidden_states", hiddenStates);
                     node.AddOutput("query", query);
                     node.AddInOut("key_cache", keyCache);
                     node.AddInOut("value_cache", valueCache);
                 });
-                builder.AddNode("scores", new GraphOperationId("attention.scores"), node =>
+                builder.AddNode("scores", new OperationId("attention.scores"), node =>
                 {
                     node.AddInput("query", query);
                     node.AddInput("position", position);
                     node.AddInput("key_cache", keyCache);
                     node.AddOutput("scores", scores);
                 });
-                builder.AddNode("values", new GraphOperationId("attention.values"), node =>
+                builder.AddNode("values", new OperationId("attention.values"), node =>
                 {
                     node.AddInput("scores", scores);
                     node.AddInput("value_cache", valueCache);
@@ -548,7 +549,7 @@ public sealed class LogicalGraphDefinitionTests
             {
                 var input = builder.AddInput("input", F);
                 var output = builder.AddOutput("output", F);
-                builder.AddNode("copy", PrimitiveGraphOperations.Copy, node =>
+                builder.AddNode("copy", PrimitiveOperations.Copy, node =>
                 {
                     node.AddInput("input", input);
                     node.AddOutput("output", output);

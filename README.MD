@@ -37,12 +37,13 @@ helpers above the unchanged `SharpInference.Graphs.Core`. Port-contract classes
 and generic resource tags are no longer required:
 
 ```csharp
+using SharpInference.Instructions;
 using SharpInference.Graphs;
 using SharpInference.Graphs.Logical;
 
-var vector = new TensorDescriptor(GraphElementType.Float32, [4]);
+var vector = new TensorDescriptor(ElementType.Float32, [4]);
 var builder = new GraphDefinitionBuilder("relu");
-builder.AddNode("relu", PrimitiveGraphOperations.Relu, node =>
+builder.AddNode("relu", PrimitiveOperations.Relu, node =>
 {
     node.AddInput("input", new ResourceId("input"));
     node.AddOutput("output", new ResourceId("output"));
@@ -209,12 +210,12 @@ discovery after changing the build property or the default directory.
 | Area | Responsibility |
 | --- | --- |
 | `src/SharpInference.Graphs.Core` | Generic strongly typed graph, views, algorithms, patterns, and rewrites |
-| `src/SharpInference.Graphs` | Logical and execution graph domain models, XML, conversion, and rewrites |
+| `src/SharpInference.Graphs` | Logical graph models, shared graph queries, validation, and XML support |
 | `src/SharpInference.Models.Rwkv` | RWKV logical graph providers |
 | `src/SharpInference.Models.Phi4` | Phi-4 graph and model components |
-| `src/SharpInference.Instructions*` | VM instruction contracts and CPU/D3D12 implementations |
+| `src/SharpInference.Instructions*` | Tensor, operation, access, and precision contracts; VM instructions and CPU/D3D12 implementations |
 | `src/SharpInference.Vm` | VM program contracts |
-| `src/SharpInference.Vm.Optimization` | Execution graph to VM emission and model bindings |
+| `src/SharpInference.Vm.Optimization` | GraphHelper execution graphs, conversion, compilation, rewrites, optimization, and VM emission |
 | `src/SharpInference.Backends.CpuVm` | CPU VM compiler and executor |
 | `src/SharpInference.Backends.D3D12Vm` | D3D12 VM compiler and executor |
 | `src/SharpInference.Tests` | Graph, emitter, and end-to-end inference tests |
@@ -222,22 +223,25 @@ discovery after changing the build property or the default directory.
 
 ### Graph domain namespaces
 
-The graph domain project uses one type per file, including records, interfaces,
+The graph-related projects use one type per file, including records, interfaces,
 enums, and internal analysis records:
 
-- `SharpInference.Graphs`: shared model contracts, graph queries, tensor and
-  precision primitives.
+- `SharpInference.Instructions`: `ElementType`, `TensorDescriptor`, `ResourceAccess`,
+  `PrecisionRequirement`, `NumericTypeCompatibility`, `OperationId`, and `PrimitiveOperations`.
+- `SharpInference.Graphs`: shared model contracts, bindings, diagnostics, and graph queries.
 - `SharpInference.Graphs.Logical` ([Logical](src/SharpInference.Graphs/Logical)):
   logical definitions, nodes, edges, builders, ports, diagnostics, and validation.
-- `SharpInference.Graphs.Execution` ([Execution](src/SharpInference.Graphs/Execution)):
+- `SharpInference.Vm.Optimization.GraphHelper` ([GraphHelper](src/SharpInference.Vm.Optimization/GraphHelper)):
   execution programs, nodes, edges, builders, conversion, compilation, and rewrites.
-- `SharpInference.Graphs.Internal`: shared internal XML support.
+- `SharpInference.Graphs.Internal`: shared construction, validation, and XML support.
+  The existing helpers required by GraphHelper are public; no friend assembly is used.
 
 Use `LogicalGraphXml.Serialize` / `DeserializeDefinition` for logical graphs and
 `ExecutionGraphXml.Serialize` / `DeserializeProgram` for execution programs.
 These replace the former `GraphXml` entry points; the XML format is unchanged.
-Namespace consumers must import the corresponding logical or execution namespace.
-The project and assembly boundaries remain unchanged.
+Consumers import the corresponding logical or GraphHelper namespace and reference its
+owning project. Graphs depends on Graphs.Core and Instructions, not Abstractions or
+Vm.Optimization; Instructions does not depend on either graph project.
 
 ## License
 

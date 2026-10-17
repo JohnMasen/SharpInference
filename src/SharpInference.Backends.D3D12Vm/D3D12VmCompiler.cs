@@ -213,7 +213,7 @@ public sealed class D3D12VmCompiler
                     var parameters = d.Parameters.ToDictionary(p => p.Name, StringComparer.Ordinal);
                     var priorReadCount = reads.Count;
                     var priorWriteCount = written.Count;
-                    foreach (var writePort in signature.Ports.Where(port => port.Access != SharpInference.Graphs.GraphResourceAccess.Read))
+                    foreach (var writePort in signature.Ports.Where(port => port.Access != ResourceAccess.Read))
                     {
                     var output = op.Arguments.Single(a => a.Parameter == writePort.Name);
                     var destination = bindings[output.Source];
@@ -223,7 +223,7 @@ public sealed class D3D12VmCompiler
                         source.Resource == other.Resource && source.Offset < other.Offset + otherTensor.ByteLength &&
                         other.Offset < source.Offset + tensor.ByteLength;
                     foreach (var a in op.Arguments.Where(a => signature.Ports.Any(port =>
-                        port.Name == a.Parameter && port.Access != SharpInference.Graphs.GraphResourceAccess.Write)))
+                        port.Name == a.Parameter && port.Access != ResourceAccess.Write)))
                     {
                         var source = bindings[a.Source];
                         var tensor = parameters[a.Source].Tensor;

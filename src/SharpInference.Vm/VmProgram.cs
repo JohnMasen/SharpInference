@@ -167,7 +167,7 @@ public sealed class VmOperator : VmInstruction
     /// <param name="executionConfiguration">The selected execution implementation, or null when no configuration is required.</param>
     public VmOperator(PrecisionRequirement precision, Guid instructionCollectionId, string instructionName, IEnumerable<VmArgument> arguments,
         IReadOnlyDictionary<string, string>? attributes = null, IEnumerable<InstructionIndexBound>? indexBounds = null,
-        IReadOnlyDictionary<string, GraphResourceAccess>? parameterAccesses = null,
+        IReadOnlyDictionary<string, ResourceAccess>? parameterAccesses = null,
         KernelPrecisionProfile? resolvedPrecision = null,
         InstructionExecutionConfiguration? executionConfiguration = null)
         : this(precision, instructionName, 1, arguments, attributes)
@@ -175,9 +175,9 @@ public sealed class VmOperator : VmInstruction
         InstructionCollectionId = instructionCollectionId;
         IsLegacy = false;
         IndexBounds = Array.AsReadOnly(indexBounds?.ToArray() ?? []);
-        ParameterAccesses = new ReadOnlyDictionary<string, GraphResourceAccess>(
-            parameterAccesses is null ? new Dictionary<string, GraphResourceAccess>(StringComparer.Ordinal) :
-                new Dictionary<string, GraphResourceAccess>(parameterAccesses, StringComparer.Ordinal));
+        ParameterAccesses = new ReadOnlyDictionary<string, ResourceAccess>(
+            parameterAccesses is null ? new Dictionary<string, ResourceAccess>(StringComparer.Ordinal) :
+                new Dictionary<string, ResourceAccess>(parameterAccesses, StringComparer.Ordinal));
         ResolvedPrecision = resolvedPrecision;
         ExecutionConfiguration = executionConfiguration;
     }
@@ -223,8 +223,8 @@ public sealed class VmOperator : VmInstruction
     /// <summary>Gets the index-port bounds required by the instruction.</summary>
     public IReadOnlyList<InstructionIndexBound> IndexBounds { get; } = [];
     /// <summary>Gets the resource access required for each instruction port after binding.</summary>
-    public IReadOnlyDictionary<string, GraphResourceAccess> ParameterAccesses { get; } =
-        new ReadOnlyDictionary<string, GraphResourceAccess>(new Dictionary<string, GraphResourceAccess>());
+    public IReadOnlyDictionary<string, ResourceAccess> ParameterAccesses { get; } =
+        new ReadOnlyDictionary<string, ResourceAccess>(new Dictionary<string, ResourceAccess>());
 }
 
 /// <summary>Invokes another VM definition with parameter bindings.</summary>

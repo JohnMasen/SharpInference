@@ -1,3 +1,4 @@
+using SharpInference.Instructions;
 using System.Collections.ObjectModel;
 using SharpInference.Graphs.Core;
 using SharpInference.Graphs.Internal;
@@ -59,7 +60,7 @@ public sealed class LogicalGraphDefinition
     }
 
     public static LogicalGraphDefinition CreateListGraph(string id, TensorDescriptor tensor,
-        IEnumerable<GraphOperationId> operations, GraphCompileBoundary compileBoundary = GraphCompileBoundary.Auto,
+        IEnumerable<OperationId> operations, GraphCompileBoundary compileBoundary = GraphCompileBoundary.Auto,
         GraphAnnotation? annotation = null)
     {
         ArgumentNullException.ThrowIfNull(operations);

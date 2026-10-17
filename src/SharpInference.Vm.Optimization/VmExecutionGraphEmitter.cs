@@ -1,7 +1,7 @@
 using SharpInference.Graphs;
 using SharpInference.Graphs.Core;
 using SharpInference.Instructions;
-using SharpInference.Graphs.Execution;
+using SharpInference.Vm.Optimization.GraphHelper;
 
 namespace SharpInference.Vm.Optimization;
 
@@ -20,7 +20,7 @@ public sealed class VmExecutionGraphEmitter
     private readonly VmTarget target;
     private readonly InstructionTarget instructionTarget;
     private readonly InstructionRegistry registry;
-    private readonly IReadOnlyDictionary<GraphOperationId, GraphInstructionBinding> bindings;
+    private readonly IReadOnlyDictionary<OperationId, GraphInstructionBinding> bindings;
 
     public VmExecutionGraphEmitter(
         VmTarget target,
@@ -173,7 +173,7 @@ public sealed class VmExecutionGraphEmitter
                         nodes.Add(new VmNode(operation.Id.Value,
                             new VmDispatch(kernelId, arguments, launch.Groups), dependencies));
                         var writes = operationBindings
-                            .Where(binding => binding.Access != GraphResourceAccess.Read)
+                            .Where(binding => binding.Access != ResourceAccess.Read)
                             .Select(binding => ResolveSource(frame, binding))
                             .Distinct(StringComparer.Ordinal).ToArray();
                         if (writes.Length == 0)
@@ -216,7 +216,7 @@ public sealed class VmExecutionGraphEmitter
         }
 
         var output = frame.Graph.Bindings(operation).FirstOrDefault(binding =>
-            binding.Access != GraphResourceAccess.Read);
+            binding.Access != ResourceAccess.Read);
         var collection = output is not null
             ? CollectionForFallback(frame, output)
             : InstructionCollectionIds.TierZeroFloat32;
@@ -239,7 +239,7 @@ public sealed class VmExecutionGraphEmitter
         ModelResourceBinding output)
     {
         var tensor = ResolveTensor(frame, output);
-        return tensor.ElementType == GraphElementType.Float16
+        return tensor.ElementType == ElementType.Float16
             ? InstructionCollectionIds.TierZeroFloat16
             : InstructionCollectionIds.TierZeroFloat32;
     }
@@ -287,7 +287,7 @@ public sealed class VmExecutionGraphEmitter
                 new VmThreadGroup(dispatch.GroupsX, dispatch.GroupsY, dispatch.GroupsZ));
         }
         var tensor = operationBindings
-            .Where(binding => binding.Access != GraphResourceAccess.Read)
+            .Where(binding => binding.Access != ResourceAccess.Read)
             .Select(binding => tensors[binding.Port])
             .FirstOrDefault() ?? tensors.Values.FirstOrDefault()
             ?? throw new InvalidDataException($"Operation '{operation.Id}' has no tensor bindings.");
@@ -364,8 +364,8 @@ public sealed class VmExecutionGraphEmitter
             ? VmAccess.ReadOnly
             : VmAccess.ReadWrite;
 
-    private static VmAccess Access(GraphResourceAccess access) =>
-        access == GraphResourceAccess.Read ? VmAccess.ReadOnly : VmAccess.ReadWrite;
+    private static VmAccess Access(ResourceAccess access) =>
+        access == ResourceAccess.Read ? VmAccess.ReadOnly : VmAccess.ReadWrite;
 
     private static VmSlotScope Scope(GraphDefinitionResourceKind kind) => kind switch
     {
@@ -385,11 +385,11 @@ public sealed class VmExecutionGraphEmitter
 
         return new VmTensor(tensor.ElementType switch
         {
-            GraphElementType.Byte => VmElementType.Byte,
-            GraphElementType.Int32 => VmElementType.Int32,
-            GraphElementType.UInt32 => VmElementType.UInt32,
-            GraphElementType.Float16 => VmElementType.Float16,
-            GraphElementType.Float32 => VmElementType.Float32,
+            ElementType.Byte => VmElementType.Byte,
+            ElementType.Int32 => VmElementType.Int32,
+            ElementType.UInt32 => VmElementType.UInt32,
+            ElementType.Float16 => VmElementType.Float16,
+            ElementType.Float32 => VmElementType.Float32,
             _ => throw new NotSupportedException($"VM emission does not support element type '{tensor.ElementType}'."),
         }, tensor.Dimensions);
     }

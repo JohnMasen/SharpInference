@@ -1,3 +1,4 @@
+using SharpInference.Instructions;
 
 namespace SharpInference.Graphs.Logical;
 
@@ -9,7 +10,7 @@ namespace SharpInference.Graphs.Logical;
 /// <param name="Annotation">Optional descriptive metadata.</param>
 public sealed record GraphOperationNode(
     GraphDefinitionNodeId Id,
-    GraphOperationId Operation,
+    OperationId Operation,
     IReadOnlyDictionary<string, string> Attributes,
     PrecisionRequirement Requirements,
     GraphAnnotation? Annotation = null)

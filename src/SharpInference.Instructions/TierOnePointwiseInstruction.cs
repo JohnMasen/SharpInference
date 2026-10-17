@@ -1,6 +1,5 @@
 using System.Security.Cryptography;
 using System.Text;
-using SharpInference.Graphs;
 
 namespace SharpInference.Instructions;
 
@@ -16,8 +15,8 @@ public abstract class TierOnePointwiseInstruction : Instruction
         Configuration = configuration;
         Signatures = Array.AsReadOnly<InstructionSignature>(
         [
-            new(Definition.Inputs.Select(input => new InstructionPort(input, GraphElementType.Float32, GraphResourceAccess.Read))
-                .Append(new("output", GraphElementType.Float32, GraphResourceAccess.Write)).ToArray(),
+            new(Definition.Inputs.Select(input => new InstructionPort(input, ElementType.Float32, ResourceAccess.Read))
+                .Append(new("output", ElementType.Float32, ResourceAccess.Write)).ToArray(),
                 [], TierOnePointwiseCatalog.Precision),
         ]);
     }
@@ -71,7 +70,7 @@ public abstract class TierOnePointwiseInstruction : Instruction
 
         var operands = tensors.Select(parameter =>
             new InstructionOperandDescription(parameter.Name, parameter.Tensor, parameter.Access, parameter.Source)).ToArray();
-        if (!Definition.TryAdapt(operands, new(GraphElementType.Float32, GraphElementType.Float32), out var diagnostic))
+        if (!Definition.TryAdapt(operands, new(ElementType.Float32, ElementType.Float32), out var diagnostic))
         {
             throw new InstructionAdaptationException(CollectionId, Name, diagnostic);
         }

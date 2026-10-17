@@ -1,3 +1,4 @@
+using SharpInference.Instructions;
 using SharpInference.Graphs;
 using SharpInference.Graphs.Logical;
 
@@ -5,19 +6,19 @@ namespace SharpInference.Tests;
 
 public sealed class NamedGraphConstructionTests
 {
-    private static readonly TensorDescriptor F = new(GraphElementType.Float32, [4]);
+    private static readonly TensorDescriptor F = new(ElementType.Float32, [4]);
 
     [Fact]
     public void ForwardResourceAndDependencyReferencesResolveAtBuild()
     {
         var builder = new GraphDefinitionBuilder("forward");
-        builder.AddNode("consumer", PrimitiveGraphOperations.Copy, node =>
+        builder.AddNode("consumer", PrimitiveOperations.Copy, node =>
         {
             node.AddInput("input", new ResourceId("temporary"));
             node.AddOutput("output", new ResourceId("output"));
             node.DependsOn(new GraphDefinitionNodeId("producer"));
         });
-        builder.AddNode("producer", PrimitiveGraphOperations.Copy, node =>
+        builder.AddNode("producer", PrimitiveOperations.Copy, node =>
         {
             node.AddInput("input", new ResourceId("input"));
             node.AddOutput("output", new ResourceId("temporary"));
@@ -73,7 +74,7 @@ public sealed class NamedGraphConstructionTests
         var output = builder.AddOutput("output", F);
         foreach (var id in new[] { "left", "right" })
         {
-            builder.AddNode(id, PrimitiveGraphOperations.Copy, node =>
+            builder.AddNode(id, PrimitiveOperations.Copy, node =>
             {
                 node.AddInput("input", input);
                 node.AddOutput("output", output);
@@ -103,17 +104,17 @@ public sealed class NamedGraphConstructionTests
         var builder = new GraphDefinitionBuilder("snapshots");
         var input = builder.AddInput("input", F);
         var output = builder.AddOutput("output", F);
-        builder.AddNode("first", PrimitiveGraphOperations.Copy, node =>
+        builder.AddNode("first", PrimitiveOperations.Copy, node =>
         {
             node.AddInput("input", input);
             node.AddOutput("output", output);
             node.AddAttribute("mode", "first");
-            node.RequirePrecision(new(GraphElementType.Float16, GraphElementType.Float32));
+            node.RequirePrecision(new(ElementType.Float16, ElementType.Float32));
         });
         var first = builder.Build();
         var firstXml = LogicalGraphXml.Serialize(first);
         builder.AddResource("later", "Later temporary", F);
-        builder.AddNode("second", PrimitiveGraphOperations.Copy, node =>
+        builder.AddNode("second", PrimitiveOperations.Copy, node =>
         {
             node.AddInput("input", input);
             node.AddOutput("output", output);
@@ -132,7 +133,7 @@ public sealed class NamedGraphConstructionTests
         Assert.Equal(["second"], second.TerminalWriters[output].Select(id => id.Value));
         var operation = Assert.IsType<GraphOperationNode>(first.Nodes[0]);
         Assert.Equal("first", operation.Attributes["mode"]);
-        Assert.Equal(new PrecisionRequirement(GraphElementType.Float16, GraphElementType.Float32),
+        Assert.Equal(new PrecisionRequirement(ElementType.Float16, ElementType.Float32),
             operation.Requirements);
         Assert.Empty(first.Validate());
         Assert.Empty(second.Validate());
@@ -143,7 +144,7 @@ public sealed class NamedGraphConstructionTests
     {
         var builder = new GraphDefinitionBuilder("repair");
         builder.AddOutput("output", F);
-        builder.AddNode("copy", PrimitiveGraphOperations.Copy, node =>
+        builder.AddNode("copy", PrimitiveOperations.Copy, node =>
         {
             node.AddInput("input", new ResourceId("input"));
             node.AddOutput("output", new ResourceId("output"));
@@ -164,14 +165,14 @@ public sealed class NamedGraphConstructionTests
     {
         var builder = new GraphDefinitionBuilder("invalid");
         var output = builder.AddOutput("output", F);
-        builder.AddNode("bad-resource", PrimitiveGraphOperations.Copy, node =>
+        builder.AddNode("bad-resource", PrimitiveOperations.Copy, node =>
         {
             node.AddInput("input", new ResourceId("missing-resource"));
             node.AddOutput("output", output);
             node.DependsOn(new GraphDefinitionNodeId("missing-dependency"));
         });
         builder.AddCall("bad-call", new GraphDefinitionId("missing-definition"), _ => { });
-        builder.AddNode("bad-scope", PrimitiveGraphOperations.Copy, node =>
+        builder.AddNode("bad-scope", PrimitiveOperations.Copy, node =>
         {
             node.AddInput("input", new ModelResourceNodeId(
                 GraphBindingOwner.Instance(new GraphDefinitionNodeId("missing-call")),
@@ -205,7 +206,7 @@ public sealed class NamedGraphConstructionTests
         var id = builder.AddResource("value", "Display name", F, kind, "external-value");
         if (kind is GraphDefinitionResourceKind.Output or GraphDefinitionResourceKind.InOut)
         {
-            builder.AddNode("initialize", new GraphOperationId("test.initialize"), node =>
+            builder.AddNode("initialize", new OperationId("test.initialize"), node =>
             {
                 if (kind == GraphDefinitionResourceKind.InOut)
                 {
@@ -236,7 +237,7 @@ public sealed class NamedGraphConstructionTests
         {
             builder.AddResource("input", "Same display name", F, GraphDefinitionResourceKind.Input);
             builder.AddResource("output", "Same display name", F, GraphDefinitionResourceKind.Output);
-            builder.AddNode("copy", PrimitiveGraphOperations.Copy, node =>
+            builder.AddNode("copy", PrimitiveOperations.Copy, node =>
             {
                 node.AddInput("input", new ResourceId("input"));
                 node.AddOutput("output", new ResourceId("output"));
@@ -249,7 +250,7 @@ public sealed class NamedGraphConstructionTests
         var invalid = new GraphDefinitionBuilder("display-is-not-id");
         invalid.AddResource("actual", "display", F, GraphDefinitionResourceKind.Input);
         var output = invalid.AddOutput("output", F);
-        invalid.AddNode("copy", PrimitiveGraphOperations.Copy, node =>
+        invalid.AddNode("copy", PrimitiveOperations.Copy, node =>
         {
             node.AddInput("input", new ResourceId("display"));
             node.AddOutput("output", output);
@@ -277,7 +278,7 @@ public sealed class NamedGraphConstructionTests
                     bind.AddOutput("output", childOutput);
                 });
                 var output = builder.AddOutput($"{id}-result", F);
-                builder.AddNode($"read-{id}", PrimitiveGraphOperations.Copy, node =>
+                builder.AddNode($"read-{id}", PrimitiveOperations.Copy, node =>
                 {
                     node.AddInput("input", new ModelResourceNodeId(
                         GraphBindingOwner.Instance(new GraphDefinitionNodeId(id)),
@@ -287,7 +288,7 @@ public sealed class NamedGraphConstructionTests
             }
 
             var parentOutput = builder.AddOutput("parent-result", F);
-            builder.AddNode("read-parent", PrimitiveGraphOperations.Copy, node =>
+            builder.AddNode("read-parent", PrimitiveOperations.Copy, node =>
             {
                 node.AddInput("input", parentValue);
                 node.AddOutput("output", parentOutput);
@@ -324,7 +325,7 @@ public sealed class NamedGraphConstructionTests
             bind.AddInput("input", input);
             bind.AddOutput("output", childOutput);
         });
-        builder.AddNode("read", PrimitiveGraphOperations.Copy, node =>
+        builder.AddNode("read", PrimitiveOperations.Copy, node =>
         {
             node.AddInput("input", new ModelResourceNodeId(
                 GraphBindingOwner.Instance(new GraphDefinitionNodeId(owner)), new ResourceId(resource)));
@@ -349,7 +350,7 @@ public sealed class NamedGraphConstructionTests
             bind.AddInput("input", input);
             bind.AddOutput("output", childOutput);
         });
-        builder.AddNode("read", PrimitiveGraphOperations.Copy, node =>
+        builder.AddNode("read", PrimitiveOperations.Copy, node =>
         {
             node.AddInput("input", new ResourceId("internal"));
             node.AddOutput("output", output);
@@ -398,14 +399,14 @@ public sealed class NamedGraphConstructionTests
             var internalValue = includeInternal
                 ? builder.AddResource("internal", "Internal", F)
                 : output;
-            builder.AddNode("copy", PrimitiveGraphOperations.Copy, node =>
+            builder.AddNode("copy", PrimitiveOperations.Copy, node =>
             {
                 node.AddInput("input", input);
                 node.AddOutput("output", internalValue);
             });
             if (includeInternal)
             {
-                builder.AddNode("finish", PrimitiveGraphOperations.Copy, node =>
+                builder.AddNode("finish", PrimitiveOperations.Copy, node =>
                 {
                     node.AddInput("input", internalValue);
                     node.AddOutput("output", output);

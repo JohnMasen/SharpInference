@@ -1,3 +1,4 @@
+using SharpInference.Instructions;
 using SharpInference.Graphs;
 using TensorOps = SharpInference.Architectures.RwkvPortableTensorOperations;
 using SharpInference.Graphs.Logical;
@@ -47,7 +48,7 @@ public sealed class PortableRwkv6GraphProvider
             ["token"] = [1],
             ["logits"] = [modelDimensions.VocabularySize],
         };
-        var types = new Dictionary<string, GraphElementType>(StringComparer.Ordinal);
+        var types = new Dictionary<string, ElementType>(StringComparer.Ordinal);
         foreach (var name in tensors.Names.Order(StringComparer.Ordinal))
         {
             var tensor = tensors.GetRequired(name);
@@ -58,7 +59,7 @@ public sealed class PortableRwkv6GraphProvider
 
                 var id = $"weight.{name}";
             var type = tensor.DataType == TensorDataType.Float16
-                ? GraphElementType.Float16 : GraphElementType.Float32;
+                ? ElementType.Float16 : ElementType.Float32;
             builder.AddWeight(id, name, new TensorDescriptor(type, tensor.Dimensions), name);
             shapes.Add(id, tensor.Dimensions.ToArray());
             types.Add(id, type);
@@ -72,7 +73,7 @@ public sealed class PortableRwkv6GraphProvider
             })
             {
                 var id = $"state.{layer}.{suffix}";
-                builder.AddState(id, new TensorDescriptor(GraphElementType.Float32, dimensions));
+                builder.AddState(id, new TensorDescriptor(ElementType.Float32, dimensions));
                 shapes.Add(id, dimensions);
             }
         }
@@ -82,9 +83,9 @@ public sealed class PortableRwkv6GraphProvider
             Func<RwkvArchitectureScope, T> build, RwkvArchitectureAnnotation? architecture = null) =>
             parent.Value(id, name, build, architecture);
         static void Within(RwkvArchitectureScope scope, Action build) => build();
-        string Node(GraphOperationId operation, (string Port, string Resource)[] inputs,
+        string Node(OperationId operation, (string Port, string Resource)[] inputs,
             int[] resultShape, string? resultId = null, IReadOnlyDictionary<string, string>? attributes = null,
-            GraphElementType type = GraphElementType.Float32)
+            ElementType type = ElementType.Float32)
         {
             var id = $"portable.{serial++:D5}";
             resultId ??= $"{id}_output";
@@ -103,7 +104,7 @@ public sealed class PortableRwkv6GraphProvider
                 types.Add(resultId, type);
             }
             builder.AddNode(id, operation, inputs, resultId, attributes,
-                new PrecisionRequirement(GraphElementType.Float32, GraphElementType.Float32));
+                new PrecisionRequirement(ElementType.Float32, ElementType.Float32));
             return resultId;
         }
         int[] Shape(string resource) => shapes[resource];
@@ -131,7 +132,7 @@ public sealed class PortableRwkv6GraphProvider
                     throw new InvalidDataException($"Missing RWKV-6 tensor '{name}'.");
                 }
 
-                return type == GraphElementType.Float32 ? id :
+                return type == ElementType.Float32 ? id :
                 Node(TensorOps.CastFp16ToFp32, [("input", id)], Shape(id));
         }
         string VectorWeight(string name, int length)
@@ -144,9 +145,9 @@ public sealed class PortableRwkv6GraphProvider
 
                 return Reshape(weight, length);
         }
-        string Unary(GraphOperationId op, string input) =>
+        string Unary(OperationId op, string input) =>
             Node(op, [("input", input)], Shape(input));
-        string Binary(GraphOperationId op, string left, string right)
+        string Binary(OperationId op, string left, string right)
         {
             if (!Shape(left).SequenceEqual(Shape(right)))
                 {
@@ -155,10 +156,10 @@ public sealed class PortableRwkv6GraphProvider
 
                 return Node(op, [("left", left), ("right", right)], Shape(left));
         }
-        string Add(string left, string right) => Binary(PrimitiveGraphOperations.Add, left, right);
-        string Sub(string left, string right) => Binary(PrimitiveGraphOperations.Subtract, left, right);
-        string Mul(string left, string right) => Binary(PrimitiveGraphOperations.Multiply, left, right);
-        string Mean(string input) => Node(PrimitiveGraphOperations.ReduceMean, [("input", input)], [1]);
+        string Add(string left, string right) => Binary(PrimitiveOperations.Add, left, right);
+        string Sub(string left, string right) => Binary(PrimitiveOperations.Subtract, left, right);
+        string Mul(string left, string right) => Binary(PrimitiveOperations.Multiply, left, right);
+        string Mean(string input) => Node(PrimitiveOperations.ReduceMean, [("input", input)], [1]);
         string HeadMean(string input) => Node(TensorOps.ReduceLastMean,
             [("input", input)], Shape(input)[..^1]);
         string ExpandHead(string input) => Broadcast(Reshape(input, heads, 1), heads, size);
@@ -181,14 +182,14 @@ public sealed class PortableRwkv6GraphProvider
                 }
 
                 var matrix = Matrix(name, Shape(input)[0]);
-            return Node(PrimitiveGraphOperations.MatVec,
+            return Node(PrimitiveOperations.MatVec,
                 [("matrix", matrix), ("input", input)], [Shape(matrix)[0]]);
         }
         string Normalize(string input, float epsilon)
         {
             var centered = Sub(input, Broadcast(Mean(input), Shape(input)));
-            var variance = Mean(Unary(PrimitiveGraphOperations.Square, centered));
-            var inverse = Unary(PrimitiveGraphOperations.ReciprocalSquareRoot,
+            var variance = Mean(Unary(PrimitiveOperations.Square, centered));
+            var inverse = Unary(PrimitiveOperations.ReciprocalSquareRoot,
                 Add(variance, Fill(epsilon, 1)));
             return Mul(centered, Broadcast(inverse, Shape(input)));
         }
@@ -196,8 +197,8 @@ public sealed class PortableRwkv6GraphProvider
         {
             var grouped = Reshape(input, heads, size);
             var centered = Sub(grouped, ExpandHead(HeadMean(grouped)));
-            var variance = HeadMean(Unary(PrimitiveGraphOperations.Square, centered));
-            var inverse = Unary(PrimitiveGraphOperations.ReciprocalSquareRoot,
+            var variance = HeadMean(Unary(PrimitiveOperations.Square, centered));
+            var inverse = Unary(PrimitiveOperations.ReciprocalSquareRoot,
                 Add(variance, Fill(64e-5f, heads)));
             return Reshape(Mul(centered, ExpandHead(inverse)), width);
         }
@@ -211,7 +212,7 @@ public sealed class PortableRwkv6GraphProvider
         string Outer(string left, string right) => Node(TensorOps.HeadOuter,
             [("left", left), ("right", right)], [heads, size, size]);
         void Store(string source, string state) =>
-            Node(PrimitiveGraphOperations.Copy, [("input", source)], Shape(state), state);
+            Node(PrimitiveOperations.Copy, [("input", source)], Shape(state), state);
 
         var x = ArchitectureValue(graphScope, "embedding", "Embedding", _ =>
         {
@@ -221,7 +222,7 @@ public sealed class PortableRwkv6GraphProvider
                 throw new InvalidDataException("The embedding does not match the vocabulary size.");
             }
 
-            var embedded = Node(PrimitiveGraphOperations.GatherRow,
+            var embedded = Node(PrimitiveOperations.GatherRow,
                 [("table", embedding), ("index", "token")], [width]);
             return Affine(Normalize(embedded, 1e-5f), "blocks.0.ln0.weight", "blocks.0.ln0.bias");
         }, new(Description: "Token embedding and initial affine LayerNorm."));
@@ -264,7 +265,7 @@ public sealed class PortableRwkv6GraphProvider
                         }
 
                         var groupedWeights = Reshape(w2, 5, width, hidden);
-                        var groupedInput = Reshape(Unary(PrimitiveGraphOperations.Tanh, w1), 5, hidden);
+                        var groupedInput = Reshape(Unary(PrimitiveOperations.Tanh, w1), 5, hidden);
                         var maa = Node(TensorOps.BatchedMatVec, [("matrix", groupedWeights), ("vector", groupedInput)], [5, width]);
                         string DynamicMix(int group) => Reshape(Slice(maa, 0, group, 1, 1, width), width);
                         string Mixed(int group, string suffix) => Mix(normalized, delta, Add(DynamicMix(group), VectorWeight(Att(suffix), width)));
@@ -284,13 +285,13 @@ public sealed class PortableRwkv6GraphProvider
                         gate = ArchitectureValue(projectionsScope, projections + ".g", "G: Output Gate", _ =>
                         {
                             var gateLinear = Project(Att("gate.weight"), xg);
-                            var gate = Mul(gateLinear, Unary(PrimitiveGraphOperations.Sigmoid, gateLinear));
+                            var gate = Mul(gateLinear, Unary(PrimitiveOperations.Sigmoid, gateLinear));
                             return gate;
                         }, new("output-gate", "Applies SiLU to the gate projection.", "g = silu(W_g x_g)"));
                         decay = ArchitectureValue(projectionsScope, projections + ".w", "W: Decay", _ =>
                         {
-                            var decayOffset = Add(Project(Att("time_decay_w2"), Unary(PrimitiveGraphOperations.Tanh, Project(Att("time_decay_w1"), xw))), VectorWeight(Att("time_decay"), width));
-                            var decay = Unary(PrimitiveGraphOperations.Exp, Sub(Fill(0, width), Unary(PrimitiveGraphOperations.Exp, decayOffset)));
+                            var decayOffset = Add(Project(Att("time_decay_w2"), Unary(PrimitiveOperations.Tanh, Project(Att("time_decay_w1"), xw))), VectorWeight(Att("time_decay"), width));
+                            var decay = Unary(PrimitiveOperations.Exp, Sub(Fill(0, width), Unary(PrimitiveOperations.Exp, decayOffset)));
                             return decay;
                         }, new("decay", "Computes low-rank time decay.", "w = exp(-exp(w0 + W2 tanh(W1 x_w)))"));
                     }, architecture: new("projection-and-gating", "R/K/V projections, SiLU output gate and exponential decay.", null));
@@ -360,9 +361,9 @@ public sealed class PortableRwkv6GraphProvider
                         var ffnReceptanceInput = Mix(ffnNormalized, ffnDelta, VectorWeight(prefix + "ffn.time_maa_r", width));
                         return (ffnKeyInput, ffnReceptanceInput);
                     }, new("temporal-mixing", "Produces key and receptance inputs from FFN history.", null));
-                    var ffnGate = ArchitectureValue(channelMixScope, channelMix + ".receptance", "Receptance Gate", _ => Unary(PrimitiveGraphOperations.Sigmoid, Project(prefix + "ffn.receptance.weight", ffnReceptanceInput)), new("receptance", "Computes the sigmoid FFN gate.", "r = sigmoid(W_r x_r)"));
+                    var ffnGate = ArchitectureValue(channelMixScope, channelMix + ".receptance", "Receptance Gate", _ => Unary(PrimitiveOperations.Sigmoid, Project(prefix + "ffn.receptance.weight", ffnReceptanceInput)), new("receptance", "Computes the sigmoid FFN gate.", "r = sigmoid(W_r x_r)"));
                     var projectedKey = ArchitectureValue(channelMixScope, channelMix + ".key", "Key Projection", _ => Project(prefix + "ffn.key.weight", ffnKeyInput), new("key-projection", "Projects to the FFN hidden width.", null));
-                    var hiddenValue = ArchitectureValue(channelMixScope, channelMix + ".activation", "ReLU Squared", _ => Unary(PrimitiveGraphOperations.Square, Unary(PrimitiveGraphOperations.Relu, projectedKey)), new("activation", "Applies squared ReLU.", "h = relu(W_k x_k)^2"));
+                    var hiddenValue = ArchitectureValue(channelMixScope, channelMix + ".activation", "ReLU Squared", _ => Unary(PrimitiveOperations.Square, Unary(PrimitiveOperations.Relu, projectedKey)), new("activation", "Applies squared ReLU.", "h = relu(W_k x_k)^2"));
                     channelMixOutput = ArchitectureValue(channelMixScope, channelMix + ".value", "Gated Value Projection", _ => Mul(Project(prefix + "ffn.value.weight", hiddenValue), ffnGate), new("value-projection", "Projects back to the embedding width and applies receptance.", "y = (W_v h) .* r"));
                 }, architecture: new("channel-mix", "Temporal input mixing and receptance-gated squared-ReLU feed forward.", null));
                     ffnScope.Child(layerPath + ".residual2", "Residual Add 2", residualScope =>

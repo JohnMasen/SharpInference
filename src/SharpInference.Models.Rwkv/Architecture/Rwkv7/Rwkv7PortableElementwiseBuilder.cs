@@ -1,3 +1,4 @@
+using SharpInference.Instructions;
 using SharpInference.Graphs;
 using SharpInference.Graphs.Logical;
 
@@ -23,9 +24,9 @@ internal sealed class Rwkv7PortableElementwiseBuilder
         ResourceId x,
         ResourceId previous,
         ResourceId coefficient) =>
-        Binary($"{id}.output", PrimitiveGraphOperations.Add, x,
-            Binary($"{id}.scale", PrimitiveGraphOperations.Multiply,
-                Binary($"{id}.difference", PrimitiveGraphOperations.Subtract, previous, x),
+        Binary($"{id}.output", PrimitiveOperations.Add, x,
+            Binary($"{id}.scale", PrimitiveOperations.Multiply,
+                Binary($"{id}.difference", PrimitiveOperations.Subtract, previous, x),
                 coefficient));
 
     internal ResourceId InterpolateValue(
@@ -33,9 +34,9 @@ internal sealed class Rwkv7PortableElementwiseBuilder
         ResourceId value,
         ResourceId firstValue,
         ResourceId gate) =>
-        Binary($"{id}.output", PrimitiveGraphOperations.Add, value,
-            Binary($"{id}.scale", PrimitiveGraphOperations.Multiply,
-                Binary($"{id}.difference", PrimitiveGraphOperations.Subtract, firstValue, value),
+        Binary($"{id}.output", PrimitiveOperations.Add, value,
+            Binary($"{id}.scale", PrimitiveOperations.Multiply,
+                Binary($"{id}.difference", PrimitiveOperations.Subtract, firstValue, value),
                 gate));
 
     internal ResourceId AdaptKey(
@@ -44,23 +45,23 @@ internal sealed class Rwkv7PortableElementwiseBuilder
         ResourceId adaptation,
         ResourceId keyAdaptWeight)
     {
-        var scaledKey = Binary($"{id}.scaled-key", PrimitiveGraphOperations.Multiply,
+        var scaledKey = Binary($"{id}.scaled-key", PrimitiveOperations.Multiply,
             key, keyAdaptWeight);
-        return Binary($"{id}.output", PrimitiveGraphOperations.Subtract,
-            Binary($"{id}.adapted", PrimitiveGraphOperations.Add, key,
-                Binary($"{id}.scale", PrimitiveGraphOperations.Multiply, adaptation, scaledKey)),
+        return Binary($"{id}.output", PrimitiveOperations.Subtract,
+            Binary($"{id}.adapted", PrimitiveOperations.Add, key,
+                Binary($"{id}.scale", PrimitiveOperations.Multiply, adaptation, scaledKey)),
             scaledKey);
     }
 
     internal ResourceId ReluSquare(
         string id,
         ResourceId input) =>
-        Unary($"{id}.output", PrimitiveGraphOperations.Square,
-            Unary($"{id}.relu", PrimitiveGraphOperations.Relu, input));
+        Unary($"{id}.output", PrimitiveOperations.Square,
+            Unary($"{id}.relu", PrimitiveOperations.Relu, input));
 
     private ResourceId Unary(
         string id,
-        GraphOperationId operation,
+        OperationId operation,
         ResourceId input)
     {
         var output = AddOutput(id);
@@ -74,7 +75,7 @@ internal sealed class Rwkv7PortableElementwiseBuilder
 
     private ResourceId Binary(
         string id,
-        GraphOperationId operation,
+        OperationId operation,
         ResourceId left,
         ResourceId right)
     {
@@ -99,6 +100,6 @@ internal sealed class Rwkv7PortableElementwiseBuilder
         return builder.AddResource(
             output,
             output,
-            new TensorDescriptor(GraphElementType.Float32, [width]));
+            new TensorDescriptor(ElementType.Float32, [width]));
     }
 }

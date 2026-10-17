@@ -1,3 +1,4 @@
+using SharpInference.Instructions;
 using System.Globalization;
 using SharpInference.Graphs;
 using SharpInference.Instructions.Phi4;
@@ -118,9 +119,9 @@ public sealed class Phi4AudioProjectionGraphModule : IPhi4GraphModule
         builder.Section("activation", GraphSectionTypes.Architecture, "Bias / GELU", scope =>
         {
             Emit(scope, "projector_gelu", Phi4AudioGraphOperations.BiasActivation,
-                [new("input", new("projector_up_output"), GraphResourceAccess.Read, View: new(0, F(checked(tokens * hiddenWidth)))),
+                [new("input", new("projector_up_output"), ResourceAccess.Read, View: new(0, F(checked(tokens * hiddenWidth)))),
                  GraphBindings.Read("bias", firstBias),
-                 new("output", new("projector_gelu_output"), GraphResourceAccess.Write, View: new(0, F(checked(tokens * hiddenWidth))))],
+                 new("output", new("projector_gelu_output"), ResourceAccess.Write, View: new(0, F(checked(tokens * hiddenWidth))))],
                 new Dictionary<string, string>
                 {
                     ["count"] = checked(tokens * hiddenWidth).ToString(CultureInfo.InvariantCulture),
@@ -140,7 +141,7 @@ public sealed class Phi4AudioProjectionGraphModule : IPhi4GraphModule
             var tensor = tensors.GetRequired(name);
             var id = "weight." + name;
             builder.AddResource(id, name, GraphResourceKind.Weight, GraphResourceLifetime.Model,
-                new TensorDescriptor(tensor.DataType == TensorDataType.Float16 ? GraphElementType.Float16 : GraphElementType.Float32,
+                new TensorDescriptor(tensor.DataType == TensorDataType.Float16 ? ElementType.Float16 : ElementType.Float32,
                     tensor.Dimensions), name);
             if (tensor.DataType == TensorDataType.Float32)
             {
@@ -153,11 +154,11 @@ public sealed class Phi4AudioProjectionGraphModule : IPhi4GraphModule
                 [GraphBindings.Read("input", id), GraphBindings.Write("output", converted)], new Dictionary<string, string>());
             return converted;
         }
-        static void Emit(Phi4GraphDefinitionBuilder.Phi4DefinitionScope scope, string id, GraphOperationId operation, NodeResourceBinding[] bindings, IReadOnlyDictionary<string, string> attributes)
+        static void Emit(Phi4GraphDefinitionBuilder.Phi4DefinitionScope scope, string id, OperationId operation, NodeResourceBinding[] bindings, IReadOnlyDictionary<string, string> attributes)
         {
             scope.AddNode(id, operation, bindings, null, attributes);
         }
     }
 
-    private static TensorDescriptor F(params int[] dimensions) => new(GraphElementType.Float32, dimensions);
+    private static TensorDescriptor F(params int[] dimensions) => new(ElementType.Float32, dimensions);
 }

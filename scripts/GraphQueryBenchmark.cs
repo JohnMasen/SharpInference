@@ -1,11 +1,14 @@
 #:project ..\src\SharpInference.Graphs.Core\SharpInference.Graphs.Core.csproj
 #:project ..\src\SharpInference.Graphs\SharpInference.Graphs.csproj
+#:project ..\src\SharpInference.Vm.Optimization\SharpInference.Vm.Optimization.csproj
+#:project ..\src\SharpInference.Instructions\SharpInference.Instructions.csproj
 
 using System.Diagnostics;
+using SharpInference.Instructions;
 using SharpInference.Graphs;
 using SharpInference.Graphs.Core;
 using static SharpInference.Graphs.Core.PatternElements;
-using SharpInference.Graphs.Execution;
+using SharpInference.Vm.Optimization.GraphHelper;
 
 // Run with: dotnet run --file scripts\GraphQueryBenchmark.cs -c Release
 Console.WriteLine("Median of 7 warmed runs; allocations are per invocation on this thread.");
@@ -111,23 +114,23 @@ static void Measure(string name, Func<int> action)
 static ExecutionGraph CreateExecutionGraph(int size)
 {
     var builder = new ExecutionGraphBuilder(new("benchmark"));
-    var tensor = new TensorDescriptor(GraphElementType.Float32, [4]);
+    var tensor = new TensorDescriptor(ElementType.Float32, [4]);
     for (var i = 0; i < size; i++)
         builder.AddResource(new(new($"r{i}"), $"r{i}", GraphDefinitionResourceKind.Temporary, tensor));
     for (var i = 0; i < size; i++)
     {
         var bindings = new List<ModelResourceBinding>
         {
-            new("output", new(GraphBindingOwner.Parent, new($"r{i}")), GraphResourceAccess.Write, $"n{i}:output"),
+            new("output", new(GraphBindingOwner.Parent, new($"r{i}")), ResourceAccess.Write, $"n{i}:output"),
         };
         if (i > 0)
             bindings.Add(new("input", new(GraphBindingOwner.Parent, new($"r{i - 1}")),
-                GraphResourceAccess.Read, $"n{i}:input"));
+                ResourceAccess.Read, $"n{i}:input"));
         var dependencies = new List<ExecutionNodeId>();
         if (i > 0) dependencies.Add(new($"n{i - 1}"));
         if (i > 5) dependencies.Add(new($"n{i - 5}"));
         builder.AddOperation(new(new($"n{i}"), new("core.copy", 1), new Dictionary<string, string>(),
-            new(GraphElementType.Float32, GraphElementType.Float32), new([new($"n{i}")])),
+            new(ElementType.Float32, ElementType.Float32), new([new($"n{i}")])),
             bindings, dependencies);
     }
     return builder.Build();

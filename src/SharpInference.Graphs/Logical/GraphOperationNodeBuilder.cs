@@ -1,3 +1,4 @@
+using SharpInference.Instructions;
 using System.Collections.ObjectModel;
 
 namespace SharpInference.Graphs.Logical;
@@ -9,7 +10,7 @@ public sealed class GraphOperationNodeBuilder
     private readonly List<ModelResourceBinding> bindings = [];
     private readonly List<GraphDefinitionNodeId> dependencies = [];
     private readonly Dictionary<string, string> attributes = new(StringComparer.Ordinal);
-    private PrecisionRequirement requirements = new(GraphElementType.Float32, GraphElementType.Float32);
+    private PrecisionRequirement requirements = new(ElementType.Float32, ElementType.Float32);
 
     internal GraphOperationNodeBuilder(string id) => this.id = id;
 
@@ -20,7 +21,7 @@ public sealed class GraphOperationNodeBuilder
         AddInput(port, new ModelResourceNodeId(GraphBindingOwner.Parent, resource));
 
     public void AddInput(string port, ModelResourceNodeId resource) =>
-        Bind(port, resource, GraphResourceAccess.Read);
+        Bind(port, resource, ResourceAccess.Read);
 
     public ResourceId AddOutput(string port, ResourceId resource)
     {
@@ -30,7 +31,7 @@ public sealed class GraphOperationNodeBuilder
 
     public ModelResourceNodeId AddOutput(string port, ModelResourceNodeId resource)
     {
-        Bind(port, resource, GraphResourceAccess.Write);
+        Bind(port, resource, ResourceAccess.Write);
         return resource;
     }
 
@@ -42,7 +43,7 @@ public sealed class GraphOperationNodeBuilder
 
     public ModelResourceNodeId AddInOut(string port, ModelResourceNodeId resource)
     {
-        Bind(port, resource, GraphResourceAccess.ReadWrite);
+        Bind(port, resource, ResourceAccess.ReadWrite);
         return resource;
     }
 
@@ -55,12 +56,12 @@ public sealed class GraphOperationNodeBuilder
     public void RequirePrecision(PrecisionRequirement value) =>
         requirements = value ?? throw new ArgumentNullException(nameof(value));
 
-    internal GraphOperationNode Build(GraphOperationId operation, GraphAnnotation? annotation) =>
+    internal GraphOperationNode Build(OperationId operation, GraphAnnotation? annotation) =>
         new(new(id), operation,
             new ReadOnlyDictionary<string, string>(new Dictionary<string, string>(attributes, StringComparer.Ordinal)),
             requirements, annotation);
 
-    private void Bind(string port, ModelResourceNodeId resource, GraphResourceAccess access)
+    private void Bind(string port, ModelResourceNodeId resource, ResourceAccess access)
     {
         LogicalGraphDefinition.RequireId(port, nameof(port));
         if (bindings.Any(binding => binding.Port == port))

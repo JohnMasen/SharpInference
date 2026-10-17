@@ -1,15 +1,16 @@
+using SharpInference.Instructions;
 using System.Xml.Linq;
 using System.Runtime.InteropServices;
 using SharpInference.Graphs;
 using SharpInference.Graphs.Core;
-using SharpInference.Graphs.Execution;
+using SharpInference.Vm.Optimization.GraphHelper;
 using SharpInference.Graphs.Logical;
 
 namespace SharpInference.Tests;
 
 public sealed class GraphSerializationTests
 {
-    private static readonly TensorDescriptor Vector = new(GraphElementType.Float32, [4]);
+    private static readonly TensorDescriptor Vector = new(ElementType.Float32, [4]);
 
     private const string LogicalFixture = """
         <Graph kind="LogicalGraphDefinition" version="3">
@@ -48,7 +49,7 @@ public sealed class GraphSerializationTests
         Assert.Equal(["write-custom", "read-custom"], graph.Structure.Edges.Select(edge => edge.Id.Value));
         Assert.Equal("input-key", graph.Resources.Single(resource => resource.Id.Value == "input").BindingKey);
         var node = Assert.IsType<GraphOperationNode>(Assert.Single(graph.Nodes));
-        Assert.Equal(PrimitiveGraphOperations.Copy, node.Operation);
+        Assert.Equal(PrimitiveOperations.Copy, node.Operation);
         Assert.Equal(["output", "input"], graph.Bindings(node).Select(binding => binding.Port));
         Assert.Equal(["copy"], graph.CompletionSinks.Select(id => id.Value));
         Assert.Empty(graph.Validate());
@@ -172,12 +173,38 @@ public sealed class GraphSerializationTests
     }
 
     [Fact]
+    public void ExecutionXmlSafetyLimitsRemainEnforcedAcrossAssemblies()
+    {
+        var logical = LogicalGraphDefinition.CreateListGraph("copy", Vector, [PrimitiveOperations.Copy]);
+        var program = new DefaultExecutionGraphConverter().Convert(logical, new("test", "cpu"));
+        var xml = ExecutionGraphXml.Serialize(program);
+        Assert.Equal(xml, ExecutionGraphXml.Serialize(ExecutionGraphXml.DeserializeProgram(xml)));
+
+        Assert.Throws<InvalidDataException>(() =>
+            ExecutionGraphXml.DeserializeProgram("<!DOCTYPE Graph [<!ENTITY x 'copy'>]>" + xml));
+        Assert.Contains("size limit", Assert.Throws<InvalidDataException>(() =>
+            ExecutionGraphXml.DeserializeProgram(new string(' ', 16 * 1024 * 1024 + 1))).Message,
+            StringComparison.Ordinal);
+
+        var deep = xml.Replace("<Dependencies />",
+            string.Concat(Enumerable.Repeat("<Nested>", 70)) +
+            string.Concat(Enumerable.Repeat("</Nested>", 70)), StringComparison.Ordinal);
+        Assert.NotEqual(xml, deep);
+        Assert.Contains("structural limit", Assert.Throws<InvalidDataException>(() =>
+            ExecutionGraphXml.DeserializeProgram(deep)).Message, StringComparison.Ordinal);
+        var tooManyElements = "<Graph kind=\"ExecutionGraphProgram\" version=\"3\">" +
+            string.Concat(Enumerable.Repeat("<Element />", 100_001)) + "</Graph>";
+        Assert.Contains("structural limit", Assert.Throws<InvalidDataException>(() =>
+            ExecutionGraphXml.DeserializeProgram(tooManyElements)).Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void ReadWriteBindingIsSerializedOnceAndSharedCallsRemainDistinct()
     {
         var child = LogicalGraphDefinition.Define("stateful", builder =>
         {
             var state = builder.AddInOut("state", Vector);
-            builder.AddNode("update", new GraphOperationId("test.update"),
+            builder.AddNode("update", new OperationId("test.update"),
                 node => { node.AddInOut("state", state); });
         });
         var parent = LogicalGraphDefinition.Define("parent", builder =>
@@ -204,7 +231,7 @@ public sealed class GraphSerializationTests
     public void CodeAndXmlGraphsProduceTheSameVmCpuSource()
     {
         var code = LogicalGraphDefinition.CreateListGraph("chain", Vector,
-            [PrimitiveGraphOperations.Copy, PrimitiveGraphOperations.Relu]);
+            [PrimitiveOperations.Copy, PrimitiveOperations.Relu]);
         var restored = LogicalGraphXml.DeserializeDefinition(LogicalGraphXml.Serialize(code));
         var context = new ExecutionGraphCompilationContext("test", "cpu");
         var first = new DefaultExecutionGraphConverter().Convert(code, context);
@@ -226,13 +253,13 @@ public sealed class GraphSerializationTests
             builder.AddInput("input", Vector);
             builder.AddOutput("output", Vector);
             builder.AddResource("positive", "Positive", Vector);
-            builder.AddNode("add", PrimitiveGraphOperations.Add, node =>
+            builder.AddNode("add", PrimitiveOperations.Add, node =>
             {
                 node.AddInput("left", new ResourceId("positive"));
                 node.AddInput("right", new ResourceId("input"));
                 node.AddOutput("output", new ResourceId("output"));
             });
-            builder.AddNode("relu", PrimitiveGraphOperations.Relu, node =>
+            builder.AddNode("relu", PrimitiveOperations.Relu, node =>
             {
                 node.AddInput("input", new ResourceId("input"));
                 node.AddOutput("output", new ResourceId("positive"));
@@ -259,12 +286,12 @@ public sealed class GraphSerializationTests
     public void ExecutionBuilderReportsMissingReferencesAndIsRepeatable()
     {
         var builder = new ExecutionGraphBuilder(new("root"));
-        var operation = new ExecutionOperationNode(new("copy"), PrimitiveGraphOperations.Copy,
-            new Dictionary<string, string>(), new(GraphElementType.Float32, GraphElementType.Float32), new([]));
+        var operation = new ExecutionOperationNode(new("copy"), PrimitiveOperations.Copy,
+            new Dictionary<string, string>(), new(ElementType.Float32, ElementType.Float32), new([]));
         builder.AddOperation(operation,
         [
-            new("input", new(GraphBindingOwner.Parent, new("input")), GraphResourceAccess.Read, "copy:input"),
-            new("output", new(GraphBindingOwner.Parent, new("output")), GraphResourceAccess.Write, "copy:output"),
+            new("input", new(GraphBindingOwner.Parent, new("input")), ResourceAccess.Read, "copy:input"),
+            new("output", new(GraphBindingOwner.Parent, new("output")), ResourceAccess.Write, "copy:output"),
         ]);
         Assert.Equal(2, builder.Validate().Count);
         Assert.Throws<InvalidDataException>(() => builder.Build());

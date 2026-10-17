@@ -1,4 +1,3 @@
-using SharpInference.Graphs;
 
 namespace SharpInference.Instructions;
 
@@ -27,14 +26,14 @@ public readonly record struct TierOneOperand
 /// <summary>Describes one primitive operation and its operands within a pointwise fusion.</summary>
 public sealed class TierOnePointwiseStage
 {
-    internal TierOnePointwiseStage(GraphOperationId operation, params TierOneOperand[] operands)
+    internal TierOnePointwiseStage(OperationId operation, params TierOneOperand[] operands)
     {
         Operation = operation;
         Operands = Array.AsReadOnly(operands.ToArray());
     }
 
     /// <summary>Gets the primitive graph operation evaluated by this stage.</summary>
-    public GraphOperationId Operation { get; }
+    public OperationId Operation { get; }
     /// <summary>Gets the ordered input and earlier-stage operands.</summary>
     public IReadOnlyList<TierOneOperand> Operands { get; }
 }
@@ -89,12 +88,12 @@ public sealed class TierOnePointwiseDefinition
         else
         {
             var output = operands.Single(operand => operand.Name == "output");
-            if (output.Access == GraphResourceAccess.Read ||
-                operands.Any(operand => operand.Name != "output" && operand.Access == GraphResourceAccess.Write))
+            if (output.Access == ResourceAccess.Read ||
+                operands.Any(operand => operand.Name != "output" && operand.Access == ResourceAccess.Write))
             {
                 diagnostic = "Unsupported operand access.";
             }
-            else if (operands.Any(operand => operand.Tensor.ElementType != GraphElementType.Float32 ||
+            else if (operands.Any(operand => operand.Tensor.ElementType != ElementType.Float32 ||
                          operand.Tensor.Layout != "dense" || operand.Tensor.Dimensions.Count == 0 ||
                          !operand.Tensor.Dimensions.SequenceEqual(output.Tensor.Dimensions)))
             {
@@ -113,7 +112,7 @@ public sealed class TierOnePointwiseDefinition
 public static class TierOnePointwiseCatalog
 {
     /// <summary>Gets the internal arithmetic and accumulator precision contract.</summary>
-    public static KernelPrecisionProfile Precision { get; } = new(GraphElementType.Float32, GraphElementType.Float32);
+    public static KernelPrecisionProfile Precision { get; } = new(ElementType.Float32, ElementType.Float32);
     /// <summary>Gets the complete set of supported FP32 pointwise fusion definitions.</summary>
     public static IReadOnlyList<TierOnePointwiseDefinition> Definitions { get; } = Array.AsReadOnly(Create());
     private static readonly IReadOnlyDictionary<string, TierOnePointwiseDefinition> ByName =
@@ -135,32 +134,32 @@ public static class TierOnePointwiseCatalog
         var t1 = TierOneOperand.Step(1);
         return
         [
-            new("add-rsqrt", ["a", "b"], new(PrimitiveGraphOperations.Add, a, b),
-                new(PrimitiveGraphOperations.ReciprocalSquareRoot, t0)),
-            new("maximum-rsqrt", ["a", "b"], new(PrimitiveGraphOperations.Maximum, a, b),
-                new(PrimitiveGraphOperations.ReciprocalSquareRoot, t0)),
-            new("multiply-add", ["a", "b", "c"], new(PrimitiveGraphOperations.Multiply, a, b),
-                new(PrimitiveGraphOperations.Add, t0, c)),
-            new("add-multiply-add", ["a", "b", "c", "d"], new(PrimitiveGraphOperations.Add, a, b),
-                new(PrimitiveGraphOperations.Multiply, t0, c), new(PrimitiveGraphOperations.Add, t1, d)),
-            new("multiply-multiply-add", ["a", "b", "c", "d"], new(PrimitiveGraphOperations.Multiply, a, b),
-                new(PrimitiveGraphOperations.Multiply, t0, c), new(PrimitiveGraphOperations.Add, t1, d)),
-            new("multiply-add-multiply", ["a", "b", "c", "d"], new(PrimitiveGraphOperations.Multiply, a, b),
-                new(PrimitiveGraphOperations.Add, t0, c), new(PrimitiveGraphOperations.Multiply, t1, d)),
-            new("difference-mix", ["a", "b", "c"], new(PrimitiveGraphOperations.Subtract, a, b),
-                new(PrimitiveGraphOperations.Multiply, t0, c), new(PrimitiveGraphOperations.Add, b, t1)),
-            new("multiply-add-subtract", ["a", "b", "c"], new(PrimitiveGraphOperations.Multiply, a, b),
-                new(PrimitiveGraphOperations.Add, t0, c), new(PrimitiveGraphOperations.Subtract, t1, b)),
-            new("multiply-self-sigmoid", ["a"], new(PrimitiveGraphOperations.Sigmoid, a),
-                new(PrimitiveGraphOperations.Multiply, a, t0)),
-            new("add-sigmoid", ["a", "b"], new(PrimitiveGraphOperations.Add, a, b),
-                new(PrimitiveGraphOperations.Sigmoid, t0)),
-            new("exp-subtract-exp", ["a", "b"], new(PrimitiveGraphOperations.Exp, a),
-                new(PrimitiveGraphOperations.Subtract, b, t0), new(PrimitiveGraphOperations.Exp, t1)),
-            new("sigmoid-multiply-exp", ["a", "b"], new(PrimitiveGraphOperations.Sigmoid, a),
-                new(PrimitiveGraphOperations.Multiply, b, t0), new(PrimitiveGraphOperations.Exp, t1)),
-            new("relu-square", ["a"], new(PrimitiveGraphOperations.Relu, a),
-                new(PrimitiveGraphOperations.Square, t0)),
+            new("add-rsqrt", ["a", "b"], new(PrimitiveOperations.Add, a, b),
+                new(PrimitiveOperations.ReciprocalSquareRoot, t0)),
+            new("maximum-rsqrt", ["a", "b"], new(PrimitiveOperations.Maximum, a, b),
+                new(PrimitiveOperations.ReciprocalSquareRoot, t0)),
+            new("multiply-add", ["a", "b", "c"], new(PrimitiveOperations.Multiply, a, b),
+                new(PrimitiveOperations.Add, t0, c)),
+            new("add-multiply-add", ["a", "b", "c", "d"], new(PrimitiveOperations.Add, a, b),
+                new(PrimitiveOperations.Multiply, t0, c), new(PrimitiveOperations.Add, t1, d)),
+            new("multiply-multiply-add", ["a", "b", "c", "d"], new(PrimitiveOperations.Multiply, a, b),
+                new(PrimitiveOperations.Multiply, t0, c), new(PrimitiveOperations.Add, t1, d)),
+            new("multiply-add-multiply", ["a", "b", "c", "d"], new(PrimitiveOperations.Multiply, a, b),
+                new(PrimitiveOperations.Add, t0, c), new(PrimitiveOperations.Multiply, t1, d)),
+            new("difference-mix", ["a", "b", "c"], new(PrimitiveOperations.Subtract, a, b),
+                new(PrimitiveOperations.Multiply, t0, c), new(PrimitiveOperations.Add, b, t1)),
+            new("multiply-add-subtract", ["a", "b", "c"], new(PrimitiveOperations.Multiply, a, b),
+                new(PrimitiveOperations.Add, t0, c), new(PrimitiveOperations.Subtract, t1, b)),
+            new("multiply-self-sigmoid", ["a"], new(PrimitiveOperations.Sigmoid, a),
+                new(PrimitiveOperations.Multiply, a, t0)),
+            new("add-sigmoid", ["a", "b"], new(PrimitiveOperations.Add, a, b),
+                new(PrimitiveOperations.Sigmoid, t0)),
+            new("exp-subtract-exp", ["a", "b"], new(PrimitiveOperations.Exp, a),
+                new(PrimitiveOperations.Subtract, b, t0), new(PrimitiveOperations.Exp, t1)),
+            new("sigmoid-multiply-exp", ["a", "b"], new(PrimitiveOperations.Sigmoid, a),
+                new(PrimitiveOperations.Multiply, b, t0), new(PrimitiveOperations.Exp, t1)),
+            new("relu-square", ["a"], new(PrimitiveOperations.Relu, a),
+                new(PrimitiveOperations.Square, t0)),
         ];
     }
 }

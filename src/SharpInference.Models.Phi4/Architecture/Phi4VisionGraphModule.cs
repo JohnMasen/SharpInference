@@ -1,3 +1,4 @@
+using SharpInference.Instructions;
 using System.Globalization;
 using SharpInference.Graphs;
 using SharpInference.Instructions.Phi4;
@@ -149,7 +150,7 @@ public sealed class Phi4VisionGraphModule : IPhi4GraphModule
             .AddResource("pixels", "Pixels", GraphResourceKind.Input, GraphResourceLifetime.External, F(crops, 3, cropSize, cropSize), graphInput: true)
             .AddResource("mask", "Patch mask", GraphResourceKind.Input, GraphResourceLifetime.External, F(crops, grid, grid), graphInput: true)
             .AddResource("mapping", "HD token mapping", GraphResourceKind.Input, GraphResourceLifetime.External,
-                new TensorDescriptor(GraphElementType.Int32, [imageTokens]), graphInput: true)
+                new TensorDescriptor(ElementType.Int32, [imageTokens]), graphInput: true)
             .AddResource("output", "Projected image embeddings", GraphResourceKind.Output, GraphResourceLifetime.External,
                 F(imageTokens, dimensions["embedding_width"]), graphOutput: true);
         var descriptors = new Dictionary<string, TensorDescriptor>(StringComparer.Ordinal);
@@ -196,7 +197,7 @@ public sealed class Phi4VisionGraphModule : IPhi4GraphModule
             {
                 var attention = Temporary(crops, grid, grid, width);
                 var tokens = checked(grid * grid);
-                Emit(scope, Phi4VisionGraphOperations.Attention, [View("query", query, GraphResourceAccess.Read, crops, tokens, width), View("key", key, GraphResourceAccess.Read, crops, tokens, width), View("value", value, GraphResourceAccess.Read, crops, tokens, width), View("mask", "mask", GraphResourceAccess.Read, crops, tokens), View("output", attention, GraphResourceAccess.Write, crops, tokens, width)], Attr(("heads", heads)));
+                Emit(scope, Phi4VisionGraphOperations.Attention, [View("query", query, ResourceAccess.Read, crops, tokens, width), View("key", key, ResourceAccess.Read, crops, tokens, width), View("value", value, ResourceAccess.Read, crops, tokens, width), View("mask", "mask", ResourceAccess.Read, crops, tokens), View("output", attention, ResourceAccess.Write, crops, tokens, width)], Attr(("heads", heads)));
                 return attention;
             }, architecture: new(null, "Computes masked multi-head attention.", "attention = softmax(mask(Q K^T / sqrt(head_size))) V"));
             var attentionOutput = attentionScope.SectionValue(attentionRegion + ".output", GraphSectionTypes.Architecture, "Output Projection", scope => Linear(scope, attention, prefix + "attn_out", width), architecture: new(null, "Projects attended features back to vision width.", null));
@@ -234,13 +235,13 @@ public sealed class Phi4VisionGraphModule : IPhi4GraphModule
                 var gathered = Temporary(imageTokens, width);
                 var subSeparator = Weight(scope, "v.sub_GN");
                 var globalSeparator = Weight(scope, "v.glb_GN");
-                Emit(scope, Phi4VisionGraphOperations.HdGather, [View("input", compressed, GraphResourceAccess.Read, checked(crops * (grid / 2) * (grid / 2)), width), GraphBindings.Read("mapping", "mapping"), GraphBindings.Read("sub_separator", subSeparator), GraphBindings.Read("global_separator", globalSeparator), GraphBindings.Write("output", gathered)]);
+                Emit(scope, Phi4VisionGraphOperations.HdGather, [View("input", compressed, ResourceAccess.Read, checked(crops * (grid / 2) * (grid / 2)), width), GraphBindings.Read("mapping", "mapping"), GraphBindings.Read("sub_separator", subSeparator), GraphBindings.Read("global_separator", globalSeparator), GraphBindings.Write("output", gathered)]);
                 return gathered;
             }, architecture: new(null, "Assembles local/global image tokens and separator embeddings.", null));
             outputScope.Section(outputRegion + ".projector", GraphSectionTypes.Architecture, "Multimodal Projector", scope =>
             {
                 var projected = Linear(scope, Gelu(scope, Linear(scope, gathered, "mm.0", dimensions["embedding_width"])), "mm.2", dimensions["embedding_width"]);
-                Emit(scope, PrimitiveGraphOperations.Copy, [GraphBindings.Read("input", projected), GraphBindings.Write("output", "output")]);
+                Emit(scope, PrimitiveOperations.Copy, [GraphBindings.Read("input", projected), GraphBindings.Write("output", "output")]);
             }, architecture: new(null, "Two linear projections with GELU map image tokens to decoder embeddings.", null));
         }, architecture: new(Description: "Pools patches, gathers HD tokens and projects to decoder width."));
         return builder.Build();
@@ -252,9 +253,9 @@ public sealed class Phi4VisionGraphModule : IPhi4GraphModule
             builder.AddResource(id, id, GraphResourceKind.Temporary, GraphResourceLifetime.Invocation, descriptors[id]);
             return id;
         }
-        void Emit(Phi4GraphDefinitionBuilder.Phi4DefinitionScope scope, GraphOperationId operation, NodeResourceBinding[] bindings, IReadOnlyDictionary<string, string>? attributes = null)
+        void Emit(Phi4GraphDefinitionBuilder.Phi4DefinitionScope scope, OperationId operation, NodeResourceBinding[] bindings, IReadOnlyDictionary<string, string>? attributes = null)
         {
-            var output = bindings.FirstOrDefault(binding => binding.Access == GraphResourceAccess.Write &&
+            var output = bindings.FirstOrDefault(binding => binding.Access == ResourceAccess.Write &&
                 binding.Resource.Value.EndsWith("_output", StringComparison.Ordinal));
             var id = output is null ? "vision.node." + index++ : output.Resource.Value[..^"_output".Length];
             scope.AddNode(id, operation, bindings, null, attributes);
@@ -265,13 +266,13 @@ public sealed class Phi4VisionGraphModule : IPhi4GraphModule
             {
                 var tensor = tensors.GetRequired(name);
                 id = "weight." + name;
-                var descriptor = new TensorDescriptor(tensor.DataType == TensorDataType.Float16 ? GraphElementType.Float16 : GraphElementType.Float32,
+                var descriptor = new TensorDescriptor(tensor.DataType == TensorDataType.Float16 ? ElementType.Float16 : ElementType.Float32,
                     tensor.Dimensions);
                 builder.AddResource(id, name, GraphResourceKind.Weight, GraphResourceLifetime.Model, descriptor, name);
                 descriptors.Add(id, descriptor);
                 weights.Add(name, id);
             }
-            if (!fp32 || descriptors[id].ElementType == GraphElementType.Float32)
+            if (!fp32 || descriptors[id].ElementType == ElementType.Float32)
             {
                 return id;
             }
@@ -306,9 +307,9 @@ public sealed class Phi4VisionGraphModule : IPhi4GraphModule
             var output = Temporary(shape);
             var weight = Weight(scope, prefix + ".weight", fp32: true);
             var bias = Weight(scope, prefix + ".bias", fp32: true);
-            Emit(scope, PrimitiveGraphOperations.Affine,
-                [View("left", source, GraphResourceAccess.Read, rows, inputWidth), GraphBindings.Read("right", weight),
-                 GraphBindings.Read("bias", bias), View("output", output, GraphResourceAccess.Write, rows, outputWidth)],
+            Emit(scope, PrimitiveOperations.Affine,
+                [View("left", source, ResourceAccess.Read, rows, inputWidth), GraphBindings.Read("right", weight),
+                 GraphBindings.Read("bias", bias), View("output", output, ResourceAccess.Write, rows, outputWidth)],
                 Attr(("transpose_left", "false"), ("transpose_right", "true")));
             return output;
         }
@@ -327,8 +328,8 @@ public sealed class Phi4VisionGraphModule : IPhi4GraphModule
     }
 
     /// <inheritdoc/>
-    private static TensorDescriptor F(params int[] dimensions) => new(GraphElementType.Float32, dimensions);
-    private static NodeResourceBinding View(string port, string source, GraphResourceAccess access, params int[] dimensions) =>
+    private static TensorDescriptor F(params int[] dimensions) => new(ElementType.Float32, dimensions);
+    private static NodeResourceBinding View(string port, string source, ResourceAccess access, params int[] dimensions) =>
         new(port, new(source), access, View: new(0, F(dimensions)));
     private static IReadOnlyDictionary<string, string> Attr(params (string Name, object Value)[] values) =>
         values.ToDictionary(value => value.Name, value => Convert.ToString(value.Value, CultureInfo.InvariantCulture)!, StringComparer.Ordinal);

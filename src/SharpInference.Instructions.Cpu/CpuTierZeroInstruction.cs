@@ -1,3 +1,4 @@
+using SharpInference.Instructions;
 using System.Globalization;
 using System.Text;
 using SharpInference.Graphs;
@@ -17,14 +18,14 @@ internal sealed class CpuTierZeroInstruction(Guid id, string name) : TierZeroIns
             var tensor = tensors[port];
             var type = tensor.Tensor.ElementType switch
             {
-                GraphElementType.Float16 => "System.Half", GraphElementType.Float32 => "float", GraphElementType.Int32 => "int",
+                ElementType.Float16 => "System.Half", ElementType.Float32 => "float", ElementType.Int32 => "int",
                 _ => throw new InstructionAdaptationException(CollectionId, Name, "Unsupported type."),
             };
             var variable = port == "output" ? "o" : $"s{Array.IndexOf(inputs, port)}";
             code.AppendLine($"{(port == "output" ? "System.Span" : "System.ReadOnlySpan")}<{type}> {variable} = System.Runtime.InteropServices.MemoryMarshal.Cast<byte,{type}>({tensor.Expression});");
         }
         var output = tensors["output"].Tensor.Dimensions;
-        var half = tensors["output"].Tensor.ElementType == GraphElementType.Float16;
+        var half = tensors["output"].Tensor.ElementType == ElementType.Float16;
         string Result(string expression) => half ? $"(System.Half)({expression})" : expression;
         const string primitive = "SharpInference.Backends.Cpu.CpuPrimitiveOperatorBackend.Instance.";
         int Product(IEnumerable<int> dims) => dims.Aggregate(1, (a, b) => checked(a * b));
@@ -48,7 +49,7 @@ internal sealed class CpuTierZeroInstruction(Guid id, string name) : TierZeroIns
             }
 
             if (Name is "core.mat-vec" or "core.gather-row" && !half &&
-                tensors[inputs[0]].Tensor.ElementType == GraphElementType.Float16)
+                tensors[inputs[0]].Tensor.ElementType == ElementType.Float16)
             {
                 invocation = "SharpInference.Instructions.Cpu.CpuInstructionNumerics." + method;
             }
@@ -113,7 +114,7 @@ internal sealed class CpuTierZeroInstruction(Guid id, string name) : TierZeroIns
                 code.AppendLine($"for(int i=0;i<o.Length;i++) o[i]=s0[{expression}];"); break;
             case "core.tensor.batched-mat-vec":
                 var matrix = tensors["matrix"].Tensor.Dimensions;
-                var matvec = !half && tensors["matrix"].Tensor.ElementType == GraphElementType.Float16
+                var matvec = !half && tensors["matrix"].Tensor.ElementType == ElementType.Float16
                     ? "SharpInference.Instructions.Cpu.CpuInstructionNumerics.MatVec" : primitive + "MatVec";
                 code.AppendLine($"for(int b=0;b<{matrix[0]};b++) {matvec}(s0.Slice(b*{matrix[1] * matrix[2]},{matrix[1] * matrix[2]}),s1.Slice(b*{matrix[2]},{matrix[2]}),o.Slice(b*{matrix[1]},{matrix[1]}),{matrix[1]},{matrix[2]});");
                 break;

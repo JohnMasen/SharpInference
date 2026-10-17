@@ -1,3 +1,4 @@
+using SharpInference.Instructions;
 using SharpInference.Graphs.Core;
 using SharpInference.Graphs.Internal;
 
@@ -57,7 +58,7 @@ public sealed class GraphDefinitionBuilder
         definitions.Add(definition.Id, definition);
     }
 
-    public TResult AddNode<TResult>(string id, GraphOperationId operation,
+    public TResult AddNode<TResult>(string id, OperationId operation,
         Func<GraphOperationNodeBuilder, TResult> configure, GraphAnnotation? annotation = null)
     {
         ArgumentNullException.ThrowIfNull(configure);
@@ -67,7 +68,7 @@ public sealed class GraphDefinitionBuilder
         return result;
     }
 
-    public void AddNode(string id, GraphOperationId operation,
+    public void AddNode(string id, OperationId operation,
         Action<GraphOperationNodeBuilder> configure, GraphAnnotation? annotation = null)
     {
         ArgumentNullException.ThrowIfNull(configure);
@@ -93,7 +94,7 @@ public sealed class GraphDefinitionBuilder
     }
 
     public GraphDefinitionNodeId AddCall(string id, LogicalGraphDefinition definition,
-        IEnumerable<(string Port, ResourceId Resource, GraphResourceAccess Access)> bindings,
+        IEnumerable<(string Port, ResourceId Resource, ResourceAccess Access)> bindings,
         IEnumerable<GraphDefinitionNodeId>? dependencies = null, GraphAnnotation? annotation = null) =>
         AddCall(id, definition, node =>
         {
@@ -101,9 +102,9 @@ public sealed class GraphDefinitionBuilder
             {
                 switch (binding.Access)
                 {
-                    case GraphResourceAccess.Read: node.AddInput(binding.Port, binding.Resource); break;
-                    case GraphResourceAccess.Write: node.AddOutput(binding.Port, binding.Resource); break;
-                    case GraphResourceAccess.ReadWrite: node.AddInOut(binding.Port, binding.Resource); break;
+                    case ResourceAccess.Read: node.AddInput(binding.Port, binding.Resource); break;
+                    case ResourceAccess.Write: node.AddOutput(binding.Port, binding.Resource); break;
+                    case ResourceAccess.ReadWrite: node.AddInOut(binding.Port, binding.Resource); break;
                     default: throw new ArgumentOutOfRangeException(nameof(bindings));
                 }
             }

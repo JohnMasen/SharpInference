@@ -30,17 +30,19 @@ SharpInference 是一个实验性的 .NET 推理编译器，提供 CPU 与 Direc
 
 ## 具名建图、校验与 XML
 
-`SharpInference.Graphs` 是逻辑图和执行图的薄辅助层；底层查询和改写继续使用
+`SharpInference.Graphs` 提供逻辑图和共享图辅助能力；执行图及其处理工具位于
+`SharpInference.Vm.Optimization.GraphHelper`，底层查询和改写继续使用
 `SharpInference.Graphs.Core`。建图通过名字后期绑定，不再需要端口契约类或泛型资源标签。
 下面描述 `output = ReLU(input)`，操作可以先引用资源，再声明资源：
 
 ```csharp
+using SharpInference.Instructions;
 using SharpInference.Graphs;
 using SharpInference.Graphs.Logical;
 
-var vector = new TensorDescriptor(GraphElementType.Float32, [4]);
+var vector = new TensorDescriptor(ElementType.Float32, [4]);
 var builder = new GraphDefinitionBuilder("relu");
-builder.AddNode("relu", PrimitiveGraphOperations.Relu, node =>
+builder.AddNode("relu", PrimitiveOperations.Relu, node =>
 {
     node.AddInput("input", new ResourceId("input"));
     node.AddOutput("output", new ResourceId("output"));
@@ -214,12 +216,12 @@ expected-logits 文件。
 | 区域 | 职责 |
 | --- | --- |
 | `src/SharpInference.Graphs.Core` | 通用强类型图、View、算法、模式与重写 |
-| `src/SharpInference.Graphs` | 逻辑图和执行图领域模型、XML、转换与重写 |
+| `src/SharpInference.Graphs` | 逻辑图模型、共享图查询、校验与 XML 辅助 |
 | `src/SharpInference.Models.Rwkv` | RWKV 逻辑图提供器 |
 | `src/SharpInference.Models.Phi4` | Phi-4 图与模型组件 |
-| `src/SharpInference.Instructions*` | VM 指令契约及 CPU/D3D12 实现 |
+| `src/SharpInference.Instructions*` | 张量、操作、访问与精度契约，VM 指令及 CPU/D3D12 实现 |
 | `src/SharpInference.Vm` | VM 程序契约 |
-| `src/SharpInference.Vm.Optimization` | 执行图到 VM 的发射与模型绑定 |
+| `src/SharpInference.Vm.Optimization` | GraphHelper 执行图、转换、编译、改写、优化与 VM 发射 |
 | `src/SharpInference.Backends.CpuVm` | CPU VM 编译器与执行器 |
 | `src/SharpInference.Backends.D3D12Vm` | D3D12 VM 编译器与执行器 |
 | `src/SharpInference.Tests` | 图、Emitter 与端到端推理测试 |
@@ -227,19 +229,24 @@ expected-logits 文件。
 
 ### 图领域命名空间
 
-图领域项目按一个类型一个文件组织，包含 record、接口、枚举和内部分析记录：
+图相关项目按一个类型一个文件组织，包含 record、接口、枚举和内部分析记录：
 
-- `SharpInference.Graphs`：共享模型契约、图查询、张量与精度基础类型。
+- `SharpInference.Instructions`：`ElementType`、`TensorDescriptor`、`ResourceAccess`、
+  `PrecisionRequirement`、`NumericTypeCompatibility`、`OperationId` 和 `PrimitiveOperations`。
+- `SharpInference.Graphs`：共享模型契约、绑定、诊断与图查询。
 - `SharpInference.Graphs.Logical`（[Logical](src/SharpInference.Graphs/Logical)）：
   逻辑图定义、节点、边、Builder、端口、诊断与校验。
-- `SharpInference.Graphs.Execution`（[Execution](src/SharpInference.Graphs/Execution)）：
+- `SharpInference.Vm.Optimization.GraphHelper`（[GraphHelper](src/SharpInference.Vm.Optimization/GraphHelper)）：
   执行图程序、节点、边、Builder、转换、编译与重写。
-- `SharpInference.Graphs.Internal`：两种序列化器共用的内部 XML 辅助实现。
+- `SharpInference.Graphs.Internal`：共享构造、校验与 XML 辅助。
+  GraphHelper 跨程序集需要的现有工具已公开，不使用友元程序集。
 
 逻辑图使用 `LogicalGraphXml.Serialize` / `DeserializeDefinition`，
 执行图程序使用 `ExecutionGraphXml.Serialize` / `DeserializeProgram`。
 两者替代原 `GraphXml` 入口，XML 格式保持不变。
-消费者需要导入对应的逻辑图或执行图命名空间，项目和程序集边界不变。
+消费者需要导入对应的逻辑图或 GraphHelper 命名空间，并引用其所属项目。
+Graphs 仅依赖 Graphs.Core 和 Instructions，不再依赖 Abstractions，也不反向依赖
+Vm.Optimization；Instructions 不依赖两个图项目。
 
 ## 许可证
 

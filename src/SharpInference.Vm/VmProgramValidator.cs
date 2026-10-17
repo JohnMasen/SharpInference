@@ -160,7 +160,7 @@ public static class VmProgramValidator
                             }
 
                             if (operation.ParameterAccesses.TryGetValue(argument.Parameter, out var portAccess) &&
-                                portAccess != SharpInference.Graphs.GraphResourceAccess.Read && source.Access == VmAccess.ReadOnly)
+                                portAccess != ResourceAccess.Read && source.Access == VmAccess.ReadOnly)
                             {
                                 Fail($"Node '{node.Id}' writes a read-only parameter.");
                             }

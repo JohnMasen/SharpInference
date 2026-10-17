@@ -34,15 +34,15 @@ public static class VmInstructionParameters
             var (value, offset) = expression(parameter);
             var type = parameter.Tensor.ElementType switch
             {
-                VmElementType.Float16 => GraphElementType.Float16,
-                VmElementType.Float32 => GraphElementType.Float32,
-                VmElementType.Int32 => GraphElementType.Int32,
-                VmElementType.UInt32 => GraphElementType.UInt32,
-                VmElementType.Byte => GraphElementType.Byte,
+                VmElementType.Float16 => ElementType.Float16,
+                VmElementType.Float32 => ElementType.Float32,
+                VmElementType.Int32 => ElementType.Int32,
+                VmElementType.UInt32 => ElementType.UInt32,
+                VmElementType.Byte => ElementType.Byte,
                 _ => throw new NotSupportedException($"Unsupported instruction type '{parameter.Tensor.ElementType}'."),
             };
             result.Add(new InstructionTensorParameter(argument.Parameter, new(type, parameter.Tensor.Dimensions),
-                parameter.Access == VmAccess.ReadOnly ? GraphResourceAccess.Read : GraphResourceAccess.ReadWrite,
+                parameter.Access == VmAccess.ReadOnly ? ResourceAccess.Read : ResourceAccess.ReadWrite,
                 parameter.Name, value, offset, argument.ByteOffset));
         }
         result.AddRange(operation.Attributes.OrderBy(pair => pair.Key, StringComparer.Ordinal)

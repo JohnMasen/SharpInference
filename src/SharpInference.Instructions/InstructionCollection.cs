@@ -1,4 +1,3 @@
-using SharpInference.Graphs;
 using System.Reflection;
 
 namespace SharpInference.Instructions;
@@ -53,7 +52,7 @@ public sealed record InstructionCollectionDescription(Guid Id, string Name, int 
 /// <param name="Name">The tensor port name used to match invocation parameters.</param>
 /// <param name="ElementType">The scalar storage representation of each tensor element.</param>
 /// <param name="Access">The permitted resource access.</param>
-public sealed record InstructionPort(string Name, GraphElementType ElementType, GraphResourceAccess Access);
+public sealed record InstructionPort(string Name, ElementType ElementType, ResourceAccess Access);
 /// <summary>Describes supported tensor ports, attribute names, and internal arithmetic precision.</summary>
 public sealed record InstructionSignature
 {
@@ -97,7 +96,7 @@ public abstract record InstructionParameter(string Name);
 /// <param name="OffsetExpression">The generated expression for the tensor's typed element offset.</param>
 /// <param name="ByteOffset">The byte offset within the source resource.</param>
 public sealed record InstructionTensorParameter(
-    string Name, TensorDescriptor Tensor, GraphResourceAccess Access, string Source,
+    string Name, TensorDescriptor Tensor, ResourceAccess Access, string Source,
     string Expression, string OffsetExpression, ulong ByteOffset = 0) : InstructionParameter(Name);
 /// <summary>Supplies a named string attribute to an instruction.</summary>
 /// <param name="Name">The attribute name required by the instruction signature.</param>
@@ -243,7 +242,7 @@ public abstract class Instruction
         var matches = Signatures.Where(signature => signature.Ports.Count == tensors.Length &&
             attributes.SetEquals(signature.Attributes) && signature.Ports.All(port => tensors.Any(parameter =>
                 parameter.Name == port.Name && parameter.Tensor.ElementType == port.ElementType &&
-                (port.Access == GraphResourceAccess.Read || parameter.Access != GraphResourceAccess.Read)))).ToArray();
+                (port.Access == ResourceAccess.Read || parameter.Access != ResourceAccess.Read)))).ToArray();
         if (matches.Length == 0)
         {
             throw new InstructionAdaptationException(CollectionId, Name, "No supported parameter signature.");
@@ -351,7 +350,7 @@ public sealed class InstructionRegistry : IInstructionCollectionProvider, IInstr
             var ports = binding.ReadWritePorts ?? [];
             if (ports.Any(string.IsNullOrWhiteSpace) || ports.Distinct(StringComparer.Ordinal).Count() != ports.Count ||
                 !instruction.Signatures.Any(signature => ports.ToHashSet(StringComparer.Ordinal).SetEquals(
-                    signature.Ports.Where(port => port.Access == GraphResourceAccess.ReadWrite).Select(port => port.Name))))
+                    signature.Ports.Where(port => port.Access == ResourceAccess.ReadWrite).Select(port => port.Name))))
             {
                 throw new InvalidDataException($"Graph mapping '{binding.Operation}' has incompatible read/write ports.");
             }

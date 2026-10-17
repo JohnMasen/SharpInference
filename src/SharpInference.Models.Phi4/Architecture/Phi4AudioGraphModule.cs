@@ -1,3 +1,4 @@
+using SharpInference.Instructions;
 using System.Globalization;
 using SharpInference.Graphs;
 using SharpInference.Instructions.Phi4;
@@ -254,9 +255,9 @@ public sealed class Phi4AudioGraphModule : IPhi4GraphModule
             builder.AddResource(id, id, GraphResourceKind.Temporary, GraphResourceLifetime.Invocation, resources[id]);
             return id;
         }
-        void Emit(Phi4GraphDefinitionBuilder.Phi4DefinitionScope scope, GraphOperationId operation, NodeResourceBinding[] bindings, IReadOnlyDictionary<string, string>? attributes = null)
+        void Emit(Phi4GraphDefinitionBuilder.Phi4DefinitionScope scope, OperationId operation, NodeResourceBinding[] bindings, IReadOnlyDictionary<string, string>? attributes = null)
         {
-            var output = bindings.FirstOrDefault(binding => binding.Access == GraphResourceAccess.Write &&
+            var output = bindings.FirstOrDefault(binding => binding.Access == ResourceAccess.Write &&
                 binding.Resource.Value.EndsWith("_output", StringComparison.Ordinal));
             var id = output is null ? "conformer.node." + index++ : output.Resource.Value[..^"_output".Length];
             scope.AddNode(id, operation, bindings, null, attributes);
@@ -270,7 +271,7 @@ public sealed class Phi4AudioGraphModule : IPhi4GraphModule
 
             var tensor = tensors.GetRequired(name);
             var id = "weight." + name;
-            var descriptor = new TensorDescriptor(tensor.DataType == TensorDataType.Float16 ? GraphElementType.Float16 : GraphElementType.Float32,
+            var descriptor = new TensorDescriptor(tensor.DataType == TensorDataType.Float16 ? ElementType.Float16 : ElementType.Float32,
                 tensor.Dimensions);
             builder.AddResource(id, name, GraphResourceKind.Weight, GraphResourceLifetime.Model, descriptor, name);
             resources.Add(id, descriptor);
@@ -342,8 +343,8 @@ public sealed class Phi4AudioGraphModule : IPhi4GraphModule
             var output = Temporary(tokens, width);
             var count = checked(tokens * width);
             Emit(scope, Phi4AudioGraphOperations.Residual,
-                [Flat("hidden", source, GraphResourceAccess.Read, count), Flat("update", update, GraphResourceAccess.Read, count),
-                 Flat("output", output, GraphResourceAccess.Write, count)], Attr(("count", count), ("scale", scale)));
+                [Flat("hidden", source, ResourceAccess.Read, count), Flat("update", update, ResourceAccess.Read, count),
+                 Flat("output", output, ResourceAccess.Write, count)], Attr(("count", count), ("scale", scale)));
             return output;
         }
         string Conv1D(Phi4GraphDefinitionBuilder.Phi4DefinitionScope scope, string source, string prefix, int kernel, int padding, int groups)
@@ -353,7 +354,7 @@ public sealed class Phi4AudioGraphModule : IPhi4GraphModule
             var weight = Weight(scope, prefix + ".weight");
             var bias = Weight(scope, prefix + ".bias");
             Emit(scope, Phi4AudioGraphOperations.Conv1D,
-                [new("input", new(source), GraphResourceAccess.Read, View: new(0, F(tokens, width))),
+                [new("input", new(source), ResourceAccess.Read, View: new(0, F(tokens, width))),
                  GraphBindings.Read("weight", weight), GraphBindings.Read("bias", bias), GraphBindings.Write("output", output)],
                 Attr(("input_length", tokens), ("input_channels", width), ("output_length", outputLength), ("output_channels", width),
                     ("kernel", kernel), ("padding", padding), ("stride", 1), ("groups", groups), ("activation", "none")));
@@ -365,17 +366,17 @@ public sealed class Phi4AudioGraphModule : IPhi4GraphModule
             var zero = Zero(scope, size);
             var count = checked(tokens * size);
             Emit(scope, Phi4AudioGraphOperations.BiasActivation,
-                [Flat("input", source, GraphResourceAccess.Read, count), GraphBindings.Read("bias", zero),
-                 Flat("output", output, GraphResourceAccess.Write, count)], Attr(("count", count), ("width", size), ("activation", activation)));
+                [Flat("input", source, ResourceAccess.Read, count), GraphBindings.Read("bias", zero),
+                 Flat("output", output, ResourceAccess.Write, count)], Attr(("count", count), ("width", size), ("activation", activation)));
             return output;
         }
     }
 
     /// <inheritdoc/>
 
-    private static NodeResourceBinding Flat(string port, string id, GraphResourceAccess access, int count) =>
+    private static NodeResourceBinding Flat(string port, string id, ResourceAccess access, int count) =>
         new(port, new(id), access, View: new(0, F(count)));
-    private static TensorDescriptor F(params int[] dimensions) => new(GraphElementType.Float32, dimensions);
+    private static TensorDescriptor F(params int[] dimensions) => new(ElementType.Float32, dimensions);
     private static IReadOnlyDictionary<string, string> Attr(params (string Name, object Value)[] values) =>
         values.ToDictionary(value => value.Name, value => Convert.ToString(value.Value, CultureInfo.InvariantCulture)!, StringComparer.Ordinal);
 }

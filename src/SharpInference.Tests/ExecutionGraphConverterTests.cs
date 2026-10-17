@@ -1,14 +1,15 @@
+using SharpInference.Instructions;
 using SharpInference.Graphs;
 using SharpInference.Graphs.Core;
 using SharpInference.Vm.Optimization;
-using SharpInference.Graphs.Execution;
+using SharpInference.Vm.Optimization.GraphHelper;
 using SharpInference.Graphs.Logical;
 
 namespace SharpInference.Tests;
 
 public sealed class ExecutionGraphConverterTests
 {
-    private static readonly TensorDescriptor F = new(GraphElementType.Float32, [4]);
+    private static readonly TensorDescriptor F = new(ElementType.Float32, [4]);
 
     [Fact]
     public void ConverterPreservesDefinitionsCallsAndConcreteOperations()
@@ -24,7 +25,7 @@ public sealed class ExecutionGraphConverterTests
                 bindings.AddInput("input", input);
                 bindings.AddOutput("output", childOutput);
             }, new GraphAnnotation("Attention 0", "attention-instance"));
-            builder.AddNode("finish", PrimitiveGraphOperations.Copy, node =>
+            builder.AddNode("finish", PrimitiveOperations.Copy, node =>
             {
                 node.AddInput("input", childOutput);
                 node.AddOutput("output", output);
@@ -42,7 +43,7 @@ public sealed class ExecutionGraphConverterTests
         Assert.Equal(["attention-0"], call.Source.LogicalNodes.Select(node => node.Value));
         Assert.Equal(new GraphDefinitionId("model"), model.Source!.Definition);
         var operation = Assert.IsType<ExecutionOperationNode>(model.Nodes[1]);
-        Assert.Equal(PrimitiveGraphOperations.Copy, operation.Operation);
+        Assert.Equal(PrimitiveOperations.Copy, operation.Operation);
         Assert.Equal(["finish"], operation.Source.LogicalNodes.Select(node => node.Value));
         var attention = program.Graphs.Single(graph => graph.Id.Value == "attention");
         Assert.Equal("attention", attention.Architecture!.Role);
@@ -70,7 +71,7 @@ public sealed class ExecutionGraphConverterTests
                 bindings.AddInput("input", input);
                 bindings.AddOutput("output", secondOutput);
             });
-            builder.AddNode("finish", PrimitiveGraphOperations.Copy, node =>
+            builder.AddNode("finish", PrimitiveOperations.Copy, node =>
             {
                 node.AddInput("input", secondOutput);
                 node.AddOutput("output", output);
@@ -122,30 +123,30 @@ public sealed class ExecutionGraphConverterTests
         var child = Graph("child",
             [Resource("input", GraphDefinitionResourceKind.Input),
              Resource("output", GraphDefinitionResourceKind.Output)],
-            Operation("copy", PrimitiveGraphOperations.Copy,
-                [Binding("input", "input", GraphResourceAccess.Read),
-                 Binding("output", "output", GraphResourceAccess.Write)]));
+            Operation("copy", PrimitiveOperations.Copy,
+                [Binding("input", "input", ResourceAccess.Read),
+                 Binding("output", "output", ResourceAccess.Write)]));
         var bindings = new List<ModelResourceBinding>();
         if (scenario != "missing-input")
         {
             bindings.Add(Binding("input", "input", scenario == "wrong-input-access"
-                ? GraphResourceAccess.Write : GraphResourceAccess.Read));
+                ? ResourceAccess.Write : ResourceAccess.Read));
         }
 
         if (scenario != "missing-output")
         {
             bindings.Add(Binding("output", "output", scenario == "wrong-output-access"
-                ? GraphResourceAccess.Read : GraphResourceAccess.Write));
+                ? ResourceAccess.Read : ResourceAccess.Write));
         }
 
         if (scenario == "unknown-port")
         {
-            bindings.Add(Binding("unknown", "input", GraphResourceAccess.Read));
+            bindings.Add(Binding("unknown", "input", ResourceAccess.Read));
         }
 
         var input = scenario == "incompatible-tensor"
             ? new ExecutionGraphResource(new("input"), "input", GraphDefinitionResourceKind.Input,
-                new(GraphElementType.Float32, [8]))
+                new(ElementType.Float32, [8]))
             : Resource("input", GraphDefinitionResourceKind.Input);
         var root = Graph("root",
             [input, Resource("output", GraphDefinitionResourceKind.Output)],
@@ -183,12 +184,12 @@ public sealed class ExecutionGraphConverterTests
             Resource("temporary", GraphDefinitionResourceKind.Temporary),
             Resource("output", GraphDefinitionResourceKind.Output),
         };
-        var copy = Operation("copy", PrimitiveGraphOperations.Copy,
-            [Binding("input", "input", GraphResourceAccess.Read),
-             Binding("output", "temporary", GraphResourceAccess.Write)]);
-        var relu = Operation("relu", PrimitiveGraphOperations.Relu,
-            [Binding("input", "temporary", GraphResourceAccess.Read),
-             Binding("output", "output", GraphResourceAccess.Write)],
+        var copy = Operation("copy", PrimitiveOperations.Copy,
+            [Binding("input", "input", ResourceAccess.Read),
+             Binding("output", "temporary", ResourceAccess.Write)]);
+        var relu = Operation("relu", PrimitiveOperations.Relu,
+            [Binding("input", "temporary", ResourceAccess.Read),
+             Binding("output", "output", ResourceAccess.Write)],
             [new ExecutionNodeId("copy")]);
         var program = new ExecutionGraphProgram(
             [Graph("root", resources, copy, relu)]);
@@ -226,26 +227,26 @@ public sealed class ExecutionGraphConverterTests
             "child",
             [Resource("input", GraphDefinitionResourceKind.Input),
              Resource("output", GraphDefinitionResourceKind.Output)],
-            Operation("copy", PrimitiveGraphOperations.Copy,
-                [Binding("input", "input", GraphResourceAccess.Read),
-                 Binding("output", "output", GraphResourceAccess.Write)]));
+            Operation("copy", PrimitiveOperations.Copy,
+                [Binding("input", "input", ResourceAccess.Read),
+                 Binding("output", "output", ResourceAccess.Write)]));
         var root = Graph(
             "root",
             [Resource("input", GraphDefinitionResourceKind.Input),
              Resource("temporary", GraphDefinitionResourceKind.Temporary),
              Resource("output", GraphDefinitionResourceKind.Output)],
-            Operation("first", PrimitiveGraphOperations.Copy,
-                [Binding("input", "input", GraphResourceAccess.Read),
-                 Binding("output", "temporary", GraphResourceAccess.Write)]),
-            Operation("second", PrimitiveGraphOperations.Relu,
-                [Binding("input", "temporary", GraphResourceAccess.Read),
-                 Binding("output", "output", GraphResourceAccess.Write)],
+            Operation("first", PrimitiveOperations.Copy,
+                [Binding("input", "input", ResourceAccess.Read),
+                 Binding("output", "temporary", ResourceAccess.Write)]),
+            Operation("second", PrimitiveOperations.Relu,
+                [Binding("input", "temporary", ResourceAccess.Read),
+                 Binding("output", "output", ResourceAccess.Write)],
                 [new ExecutionNodeId("first")]),
             Call(
                 "child-call",
                 "child",
-                [Binding("input", "input", GraphResourceAccess.Read),
-                 Binding("output", "output", GraphResourceAccess.Write)]));
+                [Binding("input", "input", ResourceAccess.Read),
+                 Binding("output", "output", ResourceAccess.Write)]));
         var program = new ExecutionGraphProgram([root, child]);
 
         var fused = ExecutionGraphRewriter.FuseNodesToOperation(
@@ -254,8 +255,8 @@ public sealed class ExecutionGraphConverterTests
             [new ExecutionNodeId("first"), new ExecutionNodeId("second")],
             new("fused"),
             new("test.fused"),
-            [Binding("input", "input", GraphResourceAccess.Read),
-             Binding("output", "output", GraphResourceAccess.Write)]);
+            [Binding("input", "input", ResourceAccess.Read),
+             Binding("output", "output", ResourceAccess.Write)]);
         Assert.Contains(fused.Graphs.Single(graph => graph.Id.Value == "root").Nodes,
             node => node is ExecutionOperationNode operation &&
                 operation.Operation.Name == "test.fused");
@@ -280,8 +281,8 @@ public sealed class ExecutionGraphConverterTests
                 [Resource("input", GraphDefinitionResourceKind.Input)],
                 Operation(
                     "replacement",
-                    PrimitiveGraphOperations.Copy,
-                    [Binding("input", "input", GraphResourceAccess.Read)]),
+                    PrimitiveOperations.Copy,
+                    [Binding("input", "input", ResourceAccess.Read)]),
                 source: new(source.Id))]);
         var path = Path.Combine(
             Directory.GetCurrentDirectory(),
@@ -331,9 +332,9 @@ public sealed class ExecutionGraphConverterTests
             "child",
             [Resource("input", GraphDefinitionResourceKind.Input),
              Resource("output", GraphDefinitionResourceKind.Output)],
-            Operation("copy", PrimitiveGraphOperations.Copy,
-                [Binding("input", "input", GraphResourceAccess.Read),
-                 Binding("output", "output", GraphResourceAccess.Write)]),
+            Operation("copy", PrimitiveOperations.Copy,
+                [Binding("input", "input", ResourceAccess.Read),
+                 Binding("output", "output", ResourceAccess.Write)]),
             GraphCompileBoundary.Atomic,
             new("Attention", "attention", "Reusable attention body",
                 new Dictionary<string, string> { ["layer"] = "1" }),
@@ -345,8 +346,8 @@ public sealed class ExecutionGraphConverterTests
             Call(
                 "attention-1",
                 "child",
-                [Binding("input", "input", GraphResourceAccess.Read),
-                 Binding("output", "output", GraphResourceAccess.Write)],
+                [Binding("input", "input", ResourceAccess.Read),
+                 Binding("output", "output", ResourceAccess.Write)],
                 GraphCompileBoundary.Atomic,
                 new([new("logical-call")], "preserve-call"),
                 new("Layer 1", "decoder-layer")),
@@ -447,7 +448,7 @@ public sealed class ExecutionGraphConverterTests
     private static ModelResourceBinding Binding(
         string port,
         string resource,
-        GraphResourceAccess access,
+        ResourceAccess access,
         string? node = null) =>
         new(
             port,
@@ -457,7 +458,7 @@ public sealed class ExecutionGraphConverterTests
 
     private static NodeSpec Operation(
         string id,
-        GraphOperationId operation,
+        OperationId operation,
         IReadOnlyList<ModelResourceBinding> bindings,
         IReadOnlyList<ExecutionNodeId>? dependencies = null) =>
         new(
@@ -466,7 +467,7 @@ public sealed class ExecutionGraphConverterTests
                 operation,
                 new Dictionary<string, string>(),
                 new PrecisionRequirement(
-                    GraphElementType.Float32, GraphElementType.Float32),
+                    ElementType.Float32, ElementType.Float32),
                 new ExecutionSourceMap([])),
             bindings.Select(binding => binding with
             {
@@ -508,7 +509,7 @@ public sealed class ExecutionGraphConverterTests
             {
                 var input = builder.AddInput("input", F);
                 var output = builder.AddOutput("output", F);
-                builder.AddNode("copy", new GraphOperationId(operation), node =>
+                builder.AddNode("copy", new OperationId(operation), node =>
                 {
                     node.AddInput("input", input);
                     node.AddOutput("output", output);

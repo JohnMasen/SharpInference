@@ -1,3 +1,4 @@
+using SharpInference.Instructions;
 using System.Xml.Linq;
 using SharpInference.Graphs.Core;
 using SharpInference.Graphs.Logical;
@@ -6,9 +7,9 @@ using static SharpInference.Graphs.Internal.GraphXmlSupport;
 namespace SharpInference.Graphs.Internal;
 
 /// <summary>Encodes each resource binding once, preserving explicit edge identities and order.</summary>
-internal static class ModelGraphXml
+public static class ModelGraphXml
 {
-    internal static IEnumerable<XElement> WriteRelations<TNode, TEdge>(IGraphView<TNode, TEdge> graph)
+    public static IEnumerable<XElement> WriteRelations<TNode, TEdge>(IGraphView<TNode, TEdge> graph)
         where TNode : IModelGraphNode
         where TEdge : IModelGraphEdge
     {
@@ -39,8 +40,8 @@ internal static class ModelGraphXml
                     new XAttribute("resource", resourceNode.ResourceNodeId.Resource.Value),
                     resourceNode.ResourceNodeId.Owner.IsParent ? null :
                         new XAttribute("instance", resourceNode.ResourceNodeId.Owner.Call!.Value.Value),
-                    new XAttribute("access", read is not null && write is not null ? GraphResourceAccess.ReadWrite :
-                        read is not null ? GraphResourceAccess.Read : GraphResourceAccess.Write),
+                    new XAttribute("access", read is not null && write is not null ? ResourceAccess.ReadWrite :
+                        read is not null ? ResourceAccess.Read : ResourceAccess.Write),
                     read is null ? null : new XAttribute("readEdge", read.Id.Value),
                     read is null ? null : new XAttribute("readOrder", order[read.Id]),
                     write is null ? null : new XAttribute("writeEdge", write.Id.Value),
@@ -55,7 +56,7 @@ internal static class ModelGraphXml
                 new XAttribute("order", order[edge.Id]))));
     }
 
-    internal static TEdge[] ReadRelations<TEdge>(XElement graph,
+    public static TEdge[] ReadRelations<TEdge>(XElement graph,
         Func<GraphEdgeId, GraphNodeId, GraphNodeId, string, string, TEdge> read,
         Func<GraphEdgeId, GraphNodeId, GraphNodeId, string, string, TEdge> write,
         Func<GraphEdgeId, GraphNodeId, GraphNodeId, TEdge> dependency)
@@ -76,13 +77,13 @@ internal static class ModelGraphXml
                 GraphBindingOwner.Instance(new GraphDefinitionNodeId(
                     LogicalGraphDefinition.RequireId(instance, "instance")));
             var resource = new ModelResourceNodeId(owner, new(Required(element, "resource"))).GraphId;
-            var access = DefinitionEnumValue<GraphResourceAccess>(element, "access");
-            if (access != GraphResourceAccess.Write)
+            var access = DefinitionEnumValue<ResourceAccess>(element, "access");
+            if (access != ResourceAccess.Write)
                 Add(Number(element, "readOrder"),
                     read(new(Required(element, "readEdge")), resource, node, port, id));
             else if (element.Attribute("readEdge") is not null || element.Attribute("readOrder") is not null)
                 throw new InvalidDataException($"Write-only binding '{id}' contains a read edge.");
-            if (access != GraphResourceAccess.Read)
+            if (access != ResourceAccess.Read)
                 Add(Number(element, "writeOrder"),
                     write(new(Required(element, "writeEdge")), node, resource, port, id));
             else if (element.Attribute("writeEdge") is not null || element.Attribute("writeOrder") is not null)

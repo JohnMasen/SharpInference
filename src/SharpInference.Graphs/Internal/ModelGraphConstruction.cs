@@ -1,10 +1,11 @@
+using SharpInference.Instructions;
 using SharpInference.Graphs.Core;
 
 namespace SharpInference.Graphs.Internal;
 
-internal static class ModelGraphConstruction
+public static class ModelGraphConstruction
 {
-    internal static IEnumerable<TEdge> ExpandBindings<TEdge>(
+    public static IEnumerable<TEdge> ExpandBindings<TEdge>(
         GraphNodeId node,
         IEnumerable<ModelResourceBinding> bindings,
         Func<GraphEdgeId, GraphNodeId, GraphNodeId, string, string, TEdge> read,
@@ -12,12 +13,12 @@ internal static class ModelGraphConstruction
     {
         foreach (var binding in bindings)
         {
-            if (binding.Access != GraphResourceAccess.Write)
+            if (binding.Access != ResourceAccess.Write)
             {
                 yield return read(new($"binding:{binding.BindingId}:read"),
                     binding.Resource.GraphId, node, binding.Port, binding.BindingId);
             }
-            if (binding.Access != GraphResourceAccess.Read)
+            if (binding.Access != ResourceAccess.Read)
             {
                 yield return write(new($"binding:{binding.BindingId}:write"),
                     node, binding.Resource.GraphId, binding.Port, binding.BindingId);
@@ -25,7 +26,7 @@ internal static class ModelGraphConstruction
         }
     }
 
-    internal static IReadOnlyList<GraphDiagnostic> Validate<TNode, TEdge>(
+    public static IReadOnlyList<GraphDiagnostic> Validate<TNode, TEdge>(
         string graph,
         IReadOnlyList<TNode> nodes,
         IReadOnlyList<TEdge> edges,
@@ -122,7 +123,7 @@ internal static class ModelGraphConstruction
             diagnostics.Add(new(GraphDiagnosticSeverity.Error, code, message, node, resource, port, graph));
     }
 
-    internal static void ThrowIfErrors(IEnumerable<GraphDiagnostic> diagnostics)
+    public static void ThrowIfErrors(IEnumerable<GraphDiagnostic> diagnostics)
     {
         var errors = diagnostics.Where(diagnostic => diagnostic.Severity == GraphDiagnosticSeverity.Error).ToArray();
         if (errors.Length != 0)
@@ -130,7 +131,7 @@ internal static class ModelGraphConstruction
                 errors.Select(error => $"{error.Code} [{error.Graph}]: {error.Message}")));
     }
 
-    internal static bool SameTensor(TensorDescriptor left, TensorDescriptor right) =>
+    public static bool SameTensor(TensorDescriptor left, TensorDescriptor right) =>
         left.ElementType == right.ElementType && left.Layout == right.Layout &&
         left.Dimensions.SequenceEqual(right.Dimensions);
 }
