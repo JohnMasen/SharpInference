@@ -166,11 +166,12 @@ public sealed class VmSessionResources : IDisposable
         ValidateContracts(programs);
         var first = programs[0];
         var stateSlots = first.Slots.ToDictionary(slot => slot.Id, StringComparer.Ordinal);
+        var sessionState = SessionStateEntries(first).ToArray();
         StateProgram = new VmProgram("session-state", first.Abi, VmTarget.Cpu,
-            first.State.Entries.Select(entry => stateSlots[entry.Slot] with { Id = entry.Name, Access = VmAccess.ReadWrite }),
+            sessionState.Select(entry => stateSlots[entry.Slot] with { Id = entry.Name }),
             [new VmDefinition("state", VmDefinitionKind.Function, [], [])], [new VmEntry("state", "state", [])],
             new VmState(first.State.Schema, first.State.Version,
-                first.State.Entries.Select(entry => new VmStateEntry(entry.Name, entry.Name))));
+                sessionState.Select(entry => new VmStateEntry(entry.Name, entry.Name))));
         try
         {
             foreach (var program in programs)
@@ -209,7 +210,7 @@ public sealed class VmSessionResources : IDisposable
         }
     }
 
-    /// <summary>Gets the state-only program exposing canonical named session-state slots.</summary>
+    /// <summary>Gets only explicitly registered session state, retaining its declared access permissions.</summary>
     public VmProgram StateProgram { get; }
 
     internal static void ValidateContracts(IReadOnlyList<VmProgram> programs)
@@ -221,13 +222,27 @@ public sealed class VmSessionResources : IDisposable
         }
 
         var first = programs[0];
+        var firstState = SessionStateEntries(first).ToArray();
         var descriptors = new Dictionary<string, VmTensor>(StringComparer.Ordinal);
+        var stateAccesses = new Dictionary<string, VmAccess>(StringComparer.Ordinal);
         foreach (var program in programs)
         {
-            if (program.State.Schema != first.State.Schema || program.State.Version != first.State.Version ||
-                !program.State.Entries.Select(entry => entry.Name).SequenceEqual(first.State.Entries.Select(entry => entry.Name)))
+            var sessionState = SessionStateEntries(program).ToArray();
+            if (!sessionState.Select(entry => entry.Name).SequenceEqual(firstState.Select(entry => entry.Name)) ||
+                firstState.Length != 0 &&
+                (program.State.Schema != first.State.Schema || program.State.Version != first.State.Version))
             {
                 throw new InvalidDataException("Session programs require compatible State contracts.");
+            }
+
+            foreach (var entry in sessionState)
+            {
+                var access = program.Slots.Single(slot => slot.Id == entry.Slot).Access;
+                if (stateAccesses.TryGetValue(entry.Name, out var existing) && existing != access)
+                {
+                    throw new InvalidDataException($"Session state '{entry.Name}' has incompatible access permissions.");
+                }
+                stateAccesses[entry.Name] = access;
             }
 
             foreach (var slot in program.Slots.Where(slot => slot.Scope == VmSlotScope.Session))
@@ -247,6 +262,13 @@ public sealed class VmSessionResources : IDisposable
                 }
             }
         }
+    }
+
+    private static IEnumerable<VmStateEntry> SessionStateEntries(VmProgram program)
+    {
+        var sessionSlots = program.Slots.Where(slot => slot.Scope == VmSlotScope.Session)
+            .Select(slot => slot.Id).ToHashSet(StringComparer.Ordinal);
+        return program.State.Entries.Where(entry => sessionSlots.Contains(entry.Slot));
     }
 
     internal VmResourceLease Acquire(VmProgram program, VmSlot slot)

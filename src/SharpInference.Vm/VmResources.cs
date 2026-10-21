@@ -458,9 +458,7 @@ public sealed class VmBindings : IDisposable
             {
                 foreach (var group in program.Slots.GroupBy(slot => resources[slot.Id].Identity))
                 {
-                    var access = group.Any(slot => slot.Access == VmAccess.ReadWrite ||
-                        allowInvalidState && resources[slot.Id].Access == VmAccess.ReadWrite &&
-                            program.State.Entries.Any(entry => entry.Slot == slot.Id))
+                    var access = group.Any(slot => slot.Access == VmAccess.ReadWrite)
                         ? VmAccess.ReadWrite : VmAccess.ReadOnly;
                     activeUses.Add(resources[group.First().Id].AcquireUse(access));
                 }
@@ -562,7 +560,9 @@ public sealed class VmBindings : IDisposable
     {
         lock (gate)
         {
-            return resources[slotId].Access == VmAccess.ReadWrite;
+            return program.State.Entries.Any(entry => entry.Slot == slotId) &&
+                program.Slots.Single(slot => slot.Id == slotId).Access == VmAccess.ReadWrite &&
+                resources[slotId].Access == VmAccess.ReadWrite;
         }
     }
 
@@ -573,6 +573,11 @@ public sealed class VmBindings : IDisposable
             if (!program.State.Entries.Any(entry => entry.Slot == slotId))
             {
                 throw new InvalidOperationException("State transfer cannot write an unregistered slot.");
+            }
+
+            if (!CanRestoreState(slotId))
+            {
+                throw new InvalidOperationException($"State slot '{slotId}' is read-only.");
             }
 
             resources[slotId].WriteBound(0, source);
@@ -716,7 +721,7 @@ public sealed class VmExecutionLease : IDisposable
         }
     }
 
-    /// <summary>Restores a complete validated state snapshot through a state-access lease.</summary>
+    /// <summary>Restores a complete validated snapshot only when every state binding and resource permits writes.</summary>
     /// <param name="values">The complete state payload map keyed by registered state slot name.</param>
     public void RestoreState(IReadOnlyDictionary<string, ReadOnlyMemory<byte>> values)
     {
@@ -737,8 +742,12 @@ public sealed class VmExecutionLease : IDisposable
             var staged = program.State.Entries.Select(entry =>
             {
                 var slot = program.Slots.Single(candidate => candidate.Id == entry.Slot);
-                if (!values.TryGetValue(entry.Name, out var bytes) || (ulong)bytes.Length != slot.Tensor.ByteLength ||
-                    !Bindings.CanRestoreState(entry.Slot))
+                if (!Bindings.CanRestoreState(entry.Slot))
+                {
+                    throw new InvalidOperationException($"State slot '{entry.Slot}' is read-only.");
+                }
+
+                if (!values.TryGetValue(entry.Name, out var bytes) || (ulong)bytes.Length != slot.Tensor.ByteLength)
                 {
                     throw new InvalidDataException($"State entry '{entry.Name}' has incompatible storage.");
                 }

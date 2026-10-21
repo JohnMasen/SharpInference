@@ -6,7 +6,7 @@ using SharpInference.Graphs.Logical;
 
 namespace SharpInference.Architectures.Phi4;
 
-/// <summary>Builds and validates the Phi-4 vision transformer and high-definition embedding projection graph.</summary>
+/// <summary>Builds the Phi-4 vision graph package with high-definition projection for explicit caller validation.</summary>
 public sealed class Phi4VisionGraphModule : IPhi4GraphModule
 {
     private readonly int crops;
@@ -135,24 +135,22 @@ public sealed class Phi4VisionGraphModule : IPhi4GraphModule
     }
 
     /// <inheritdoc/>
-    public LogicalGraphDefinition Build(IModelTensorCatalog tensors)
+    public GraphPackage<LogicalGraph> Build(IModelTensorCatalog tensors)
     {
         var metadata = ReadMetadata(tensors);
         var dimensions = metadata.Dimensions.ToDictionary(value => value.Key, value => checked((int)value.Value), StringComparer.Ordinal);
         var width = dimensions["width"];
         var grid = dimensions["grid"];
         var cropSize = dimensions["crop_size"];
-        var builder = new Phi4GraphDefinitionBuilder(new(ArchitectureId, 2, "forward"),
+        var builder = new Phi4GraphComposer(new(ArchitectureId, 2, "forward"),
                 new GraphModelSignature(ArchitectureId, "phi4.vision.empty@1", dimensions))
             .Root("root", GraphSectionTypes.Graph, "Vision encoder and HD projection", architecture: new(
                 Description: "Patch embedding, vision transformer Blocks, HD token gathering and multimodal projection.",
                 DefaultView: GraphArchitectureView.Architecture))
-            .AddResource("pixels", "Pixels", GraphResourceKind.Input, GraphResourceLifetime.External, F(crops, 3, cropSize, cropSize), graphInput: true)
-            .AddResource("mask", "Patch mask", GraphResourceKind.Input, GraphResourceLifetime.External, F(crops, grid, grid), graphInput: true)
-            .AddResource("mapping", "HD token mapping", GraphResourceKind.Input, GraphResourceLifetime.External,
-                new TensorDescriptor(ElementType.Int32, [imageTokens]), graphInput: true)
-            .AddResource("output", "Projected image embeddings", GraphResourceKind.Output, GraphResourceLifetime.External,
-                F(imageTokens, dimensions["embedding_width"]), graphOutput: true);
+            .Resource("pixels", F(crops, 3, cropSize, cropSize), GraphIO.In, name: "Pixels")
+            .Resource("mask", F(crops, grid, grid), GraphIO.In, name: "Patch mask")
+            .Resource("mapping", new TensorDescriptor(ElementType.Int32, [imageTokens]), GraphIO.In, name: "HD token mapping")
+            .Resource("output", F(imageTokens, dimensions["embedding_width"]), GraphIO.Out, name: "Projected image embeddings");
         var descriptors = new Dictionary<string, TensorDescriptor>(StringComparer.Ordinal);
         var weights = new Dictionary<string, string>(StringComparer.Ordinal);
         var converted = new Dictionary<string, string>(StringComparer.Ordinal);
@@ -250,17 +248,17 @@ public sealed class Phi4VisionGraphModule : IPhi4GraphModule
         {
             var id = "vision.node." + index++ + "_output";
             descriptors.Add(id, F(shape));
-            builder.AddResource(id, id, GraphResourceKind.Temporary, GraphResourceLifetime.Invocation, descriptors[id]);
+            builder.Resource(id, descriptors[id]);
             return id;
         }
-        void Emit(Phi4GraphDefinitionBuilder.Phi4DefinitionScope scope, OperationId operation, NodeResourceBinding[] bindings, IReadOnlyDictionary<string, string>? attributes = null)
+        void Emit(Phi4GraphComposer.Scope scope, OperationId operation, NodeResourceBinding[] bindings, IReadOnlyDictionary<string, string>? attributes = null)
         {
             var output = bindings.FirstOrDefault(binding => binding.Access == ResourceAccess.Write &&
-                binding.Resource.Value.EndsWith("_output", StringComparison.Ordinal));
-            var id = output is null ? "vision.node." + index++ : output.Resource.Value[..^"_output".Length];
+                binding.Resource.EndsWith("_output", StringComparison.Ordinal));
+            var id = output is null ? "vision.node." + index++ : output.Resource[..^"_output".Length];
             scope.AddNode(id, operation, bindings, null, attributes);
         }
-        string Weight(Phi4GraphDefinitionBuilder.Phi4DefinitionScope scope, string name, bool fp32 = false)
+        string Weight(Phi4GraphComposer.Scope scope, string name, bool fp32 = false)
         {
             if (!weights.TryGetValue(name, out var id))
             {
@@ -268,7 +266,7 @@ public sealed class Phi4VisionGraphModule : IPhi4GraphModule
                 id = "weight." + name;
                 var descriptor = new TensorDescriptor(tensor.DataType == TensorDataType.Float16 ? ElementType.Float16 : ElementType.Float32,
                     tensor.Dimensions);
-                builder.AddResource(id, name, GraphResourceKind.Weight, GraphResourceLifetime.Model, descriptor, name);
+                builder.Resource(id, descriptor, scope: ResourceScope.Global, usage: ResourceUsage.Weight, permission: ResourcePermission.ReadOnly, bindingKey: name, name: name);
                 descriptors.Add(id, descriptor);
                 weights.Add(name, id);
             }
@@ -288,7 +286,7 @@ public sealed class Phi4VisionGraphModule : IPhi4GraphModule
             converted.Add(name, destination);
             return destination;
         }
-        string Norm(Phi4GraphDefinitionBuilder.Phi4DefinitionScope scope, string source, string prefix)
+        string Norm(Phi4GraphComposer.Scope scope, string source, string prefix)
         {
             var output = Temporary(descriptors[source].Dimensions.ToArray());
             var weight = Weight(scope, prefix + ".weight");
@@ -298,7 +296,7 @@ public sealed class Phi4VisionGraphModule : IPhi4GraphModule
                  GraphBindings.Write("output", output)], Attr(("epsilon", 1e-6f)));
             return output;
         }
-        string Linear(Phi4GraphDefinitionBuilder.Phi4DefinitionScope scope, string source, string prefix, int outputWidth)
+        string Linear(Phi4GraphComposer.Scope scope, string source, string prefix, int outputWidth)
         {
             var shape = descriptors[source].Dimensions.ToArray();
             var inputWidth = shape[^1];
@@ -313,13 +311,13 @@ public sealed class Phi4VisionGraphModule : IPhi4GraphModule
                 Attr(("transpose_left", "false"), ("transpose_right", "true")));
             return output;
         }
-        string Add(Phi4GraphDefinitionBuilder.Phi4DefinitionScope scope, string left, string right)
+        string Add(Phi4GraphComposer.Scope scope, string left, string right)
         {
             var output = Temporary(descriptors[left].Dimensions.ToArray());
             scope.Add(output[..^"_output".Length], left, right, output);
             return output;
         }
-        string Gelu(Phi4GraphDefinitionBuilder.Phi4DefinitionScope scope, string source)
+        string Gelu(Phi4GraphComposer.Scope scope, string source)
         {
             var output = Temporary(descriptors[source].Dimensions.ToArray());
             Emit(scope, Phi4VisionGraphOperations.Gelu, [GraphBindings.Read("input", source), GraphBindings.Write("output", output)]);
@@ -330,7 +328,7 @@ public sealed class Phi4VisionGraphModule : IPhi4GraphModule
     /// <inheritdoc/>
     private static TensorDescriptor F(params int[] dimensions) => new(ElementType.Float32, dimensions);
     private static NodeResourceBinding View(string port, string source, ResourceAccess access, params int[] dimensions) =>
-        new(port, new(source), access, View: new(0, F(dimensions)));
+        new(port, source, access, View: new(0, F(dimensions)));
     private static IReadOnlyDictionary<string, string> Attr(params (string Name, object Value)[] values) =>
         values.ToDictionary(value => value.Name, value => Convert.ToString(value.Value, CultureInfo.InvariantCulture)!, StringComparer.Ordinal);
 }

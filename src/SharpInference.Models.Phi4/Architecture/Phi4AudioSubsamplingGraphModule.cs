@@ -6,7 +6,7 @@ using SharpInference.Graphs.Logical;
 
 namespace SharpInference.Architectures.Phi4;
 
-/// <summary>Builds and validates the convolutional subsampling stage of the Phi-4 audio encoder.</summary>
+/// <summary>Builds the Phi-4 audio subsampling graph package for explicit caller validation.</summary>
 public sealed class Phi4AudioSubsamplingGraphModule : IPhi4GraphModule
 {
     private static readonly string[] Prefixes = ["a.conv1d.0", "a.conv1d.2", "a.conv1d.3", "a.conv1d.5", "a.conv1d.6"];
@@ -78,21 +78,19 @@ public sealed class Phi4AudioSubsamplingGraphModule : IPhi4GraphModule
     }
 
     /// <inheritdoc/>
-    public LogicalGraphDefinition Build(IModelTensorCatalog tensors)
+    public GraphPackage<LogicalGraph> Build(IModelTensorCatalog tensors)
     {
         var metadata = ReadMetadata(tensors);
         var features = checked((int)metadata.Dimensions["features"]);
         var channels = checked((int)metadata.Dimensions["channels"]);
-        var builder = new Phi4GraphDefinitionBuilder(new(ArchitectureId, 2, "phi4.audio.subsampling.forward"),
+        var builder = new Phi4GraphComposer(new(ArchitectureId, 2, "phi4.audio.subsampling.forward"),
                 new GraphModelSignature("phi4.audio.subsampling", "phi4.audio.subsampling.empty@1",
                     metadata.Dimensions.ToDictionary(value => value.Key, value => checked((int)value.Value), StringComparer.Ordinal)))
             .Root("root", GraphSectionTypes.Graph, "Audio subsampling", architecture: new(
                 Description: "Feature normalization, strided/depthwise/pointwise convolutions and token-major flattening.",
                 DefaultView: GraphArchitectureView.Architecture))
-            .AddResource("audio_features", "Audio features", GraphResourceKind.Input, GraphResourceLifetime.External,
-                F(frames, features), graphInput: true)
-            .AddResource("frame_count", "Valid frame count", GraphResourceKind.Input, GraphResourceLifetime.External,
-                new TensorDescriptor(ElementType.Int32, [1]), graphInput: true);
+            .Resource("audio_features", F(frames, features), GraphIO.In, name: "Audio features")
+            .Resource("frame_count", new TensorDescriptor(ElementType.Int32, [1]), GraphIO.In, name: "Valid frame count");
         builder.Section("normalization", GraphSectionTypes.Architecture, "Feature Normalization", scope =>
         {
             Temporary("normalize_output", frames, features);
@@ -123,7 +121,7 @@ public sealed class Phi4AudioSubsamplingGraphModule : IPhi4GraphModule
                 var weight = Weight(scope, Prefixes[index] + ".weight");
                 var bias = Weight(scope, Prefixes[index] + ".bias");
                 Emit(scope, $"convolution_{index}", Phi4AudioGraphOperations.Conv2D,
-                    [new("input", new(source), ResourceAccess.Read, View: new(0, F(height, width, inputChannels))),
+                    [new("input", source, ResourceAccess.Read, View: new(0, F(height, width, inputChannels))),
                  GraphBindings.Read("weight", weight), GraphBindings.Read("bias", bias), GraphBindings.Write("output", destination)],
                     Attr(("input_height", height), ("input_width", width), ("input_channels", inputChannels),
                         ("output_height", outputHeight), ("output_width", outputWidth), ("output_channels", channels),
@@ -135,8 +133,7 @@ public sealed class Phi4AudioSubsamplingGraphModule : IPhi4GraphModule
                 inputChannels = channels;
             }, architecture: new(Description: $"Kernel {kernel}, stride {stride}, groups {groups}; includes weight conversion and the configured activation."));
         }
-        builder.AddResource("output", "Subsampled audio features", GraphResourceKind.Output, GraphResourceLifetime.External,
-            F(height, checked(width * channels)), graphOutput: true);
+        builder.Resource("output", F(height, checked(width * channels)), GraphIO.Out, name: "Subsampled audio features");
         builder.Section("flattening", GraphSectionTypes.Architecture, "Token-Major Flattening", scope =>
         {
             Emit(scope, "flatten", Phi4AudioGraphOperations.FlattenSubsampling,
@@ -145,15 +142,13 @@ public sealed class Phi4AudioSubsamplingGraphModule : IPhi4GraphModule
         }, architecture: new(Description: "Flattens frequency/channel features into the Conformer token width."));
         return builder.Build();
 
-        void Temporary(string id, params int[] dimensions) => builder.AddResource(id, id,
-            GraphResourceKind.Temporary, GraphResourceLifetime.Invocation, F(dimensions));
-        string Weight(Phi4GraphDefinitionBuilder.Phi4DefinitionScope scope, string name)
+        void Temporary(string id, params int[] dimensions) => builder.Resource(id, F(dimensions));
+        string Weight(Phi4GraphComposer.Scope scope, string name)
         {
             var tensor = tensors.GetRequired(name);
             var id = "weight." + name;
-            builder.AddResource(id, name, GraphResourceKind.Weight, GraphResourceLifetime.Model,
-                new TensorDescriptor(tensor.DataType == TensorDataType.Float16 ? ElementType.Float16 : ElementType.Float32,
-                    tensor.Dimensions), name);
+            builder.Resource(id, new TensorDescriptor(tensor.DataType == TensorDataType.Float16 ? ElementType.Float16 : ElementType.Float32,
+                    tensor.Dimensions), scope: ResourceScope.Global, usage: ResourceUsage.Weight, permission: ResourcePermission.ReadOnly, bindingKey: name, name: name);
             if (tensor.DataType == TensorDataType.Float32)
             {
                 return id;
@@ -165,7 +160,7 @@ public sealed class Phi4AudioSubsamplingGraphModule : IPhi4GraphModule
                 [GraphBindings.Read("input", id), GraphBindings.Write("output", converted)], new Dictionary<string, string>());
             return converted;
         }
-        static void Emit(Phi4GraphDefinitionBuilder.Phi4DefinitionScope scope, string id, OperationId operation, NodeResourceBinding[] bindings, IReadOnlyDictionary<string, string> attributes)
+        static void Emit(Phi4GraphComposer.Scope scope, string id, OperationId operation, NodeResourceBinding[] bindings, IReadOnlyDictionary<string, string> attributes)
         {
             scope.AddNode(id, operation, bindings, null, attributes);
         }

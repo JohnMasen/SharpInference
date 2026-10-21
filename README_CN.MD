@@ -1,6 +1,6 @@
 # SharpInference
 
-[English](./README.md) | 简体中文
+[English](./README.MD) | 简体中文
 
 SharpInference 是一个实验性的 .NET 推理编译器，提供 CPU 与 Direct3D 12 VM
 后端。项目仍在持续开发中。
@@ -9,31 +9,28 @@ SharpInference 是一个实验性的 .NET 推理编译器，提供 CPU 与 Direc
 
 ```text
 模型张量目录 + 模型图提供器
-  -> LogicalGraphDefinition
-  -> ExecutionGraphProgram
+  -> GraphPackage<LogicalGraph>
+  -> GraphPackage<ExecutionGraph>
   -> VmExecutionGraphEmitter
   -> VmProgram
   -> CpuVmCompiler / D3D12VmCompiler
   -> CPU 程序集 / GPU DXIL
 ```
 
-图层统一使用强类型通用图库：
+计算源模型分为三个层次：`Graph` 定义资源、操作／调用、命名绑定和显式
+`GraphFlow`；`LogicalGraph` 增加编译意图；`ExecutionGraph` 增加选定实现、
+存储安排及来源。通用结构投影和算法继续使用未改动的 `SharpInference.Graphs.Core`。
 
-- 成品图以 `Graph<TNode, TEdge>` 表示结构；
-- Resource、Operation 和 GraphCall 是节点；
-- Dependency、Read 和 Write 是边；
-- 逻辑图与执行图共享遍历、View、模式匹配和批量重写能力。
-- 实验时可显式插入 `XmlExecutionGraphProgramPostprocessor`，用经过校验的预写
+- 实验时可显式插入 `XmlExecutionPackagePostprocessor`，用经过校验的预写
   执行图 XML 替换转换结果。
 
 旧图与旧运行时执行路径已经删除，不保留兼容执行路径，也不会静默回退。
 
 ## 具名建图、校验与 XML
 
-`SharpInference.Graphs` 提供逻辑图和共享图辅助能力；执行图及其处理工具位于
-`SharpInference.Vm.Optimization.GraphHelper`，底层查询和改写继续使用
-`SharpInference.Graphs.Core`。建图通过名字后期绑定，不再需要端口契约类或泛型资源标签。
-下面描述 `output = ReLU(input)`，操作可以先引用资源，再声明资源：
+`SharpInference.Graphs` 提供可编辑的计算定义；构造登记声明，显式验证只读报告问题。
+Package 自身就是同阶段图的集合，通过 `MainGraphId` 明确入口。
+下面描述 `output = ReLU(input)`：
 
 ```csharp
 using SharpInference.Instructions;
@@ -41,67 +38,90 @@ using SharpInference.Graphs;
 using SharpInference.Graphs.Logical;
 
 var vector = new TensorDescriptor(ElementType.Float32, [4]);
-var builder = new GraphDefinitionBuilder("relu");
-builder.AddNode("relu", PrimitiveOperations.Relu, node =>
+var logical = InferenceGraphBuilder.Builder<LogicalGraph>("relu", graph =>
 {
-    node.AddInput("input", new ResourceId("input"));
-    node.AddOutput("output", new ResourceId("output"));
+    var input = graph.Resource("input", vector, GraphIO.In);
+    var output = graph.Resource("output", vector, GraphIO.Out);
+    // output = ReLU(input)
+    var relu = graph.Operation("relu", Operations.ReLU);
+    relu.Bind("input", input, ResourceAccess.Read);
+    relu.Bind("output", output, ResourceAccess.Write);
 });
-builder.AddInput("input", vector);
-builder.AddOutput("output", vector);
-
-var diagnostics = builder.Validate();
+var package = new GraphPackage<LogicalGraph>(logical);
+var diagnostics = package.Validate();
 foreach (var diagnostic in diagnostics)
     Console.WriteLine($"{diagnostic.Code}: {diagnostic.Message}");
-var logical = builder.Build(); // 有 Error 则明确失败，不返回部分图。
+var xml = GraphPackageXml.Serialize(package);
+var restored = GraphPackageXml.Deserialize<LogicalGraph>(xml);
 ```
 
-名字区分大小写，资源和节点各有命名空间；资源访问与执行依赖是不同关系。
-逻辑图在完整声明上推导唯一生产者依赖，不以添加顺序串行化多写入者。
-`Validate()` 不修改 Builder；每次 `Build()` 返回独立图快照。
-执行图构造也支持名字引用，但保留显式执行依赖，不套用逻辑图的隐式推导。
-执行程序的 `Validate()` 另外检查调用目标、端口兼容性和单根调用 DAG。
+名字区分大小写，绑定支持资源对象和字符串身份。`Validate()` 不改源图；
+构造不自动验证或补边。转换／编译先捕获快照，验证整个 Package，再分析值来源与依赖，
+不以声明顺序强制串行化。`CompileBoundary` 仅表达逻辑作者意图；
+Execution 不保留该字段，也不将它作为强制内联规则。
 
-子图调用显式绑定所有输入、输出和 InOut。调用与子图定义是不同身份，
-同一定义可以复用，调用绑定互不覆盖：
+子图调用显式绑定接口；同一定义可复用，调用点各有身份和实参：
 
 ```csharp
-var parent = new GraphDefinitionBuilder("model");
-parent.AddInput("input", vector);
-parent.AddOutput("output", vector);
-parent.AddCall("activation", logical, call =>
+var parent = InferenceGraphBuilder.Builder<LogicalGraph>("model", graph =>
 {
-    call.AddInput("input", new ResourceId("input"));
-    call.AddOutput("output", new ResourceId("output"));
+    var input = graph.Resource("input", vector, GraphIO.In);
+    var output = graph.Resource("output", vector, GraphIO.Out);
+    // output = relu(input)
+    var call = graph.Call("activation", logical);
+    call.Bind("input", input, ResourceAccess.Read);
+    call.Bind("output", output, ResourceAccess.Write);
 });
-var model = parent.Build();
-
-var xml = LogicalGraphXml.Serialize(model);
-var restored = LogicalGraphXml.DeserializeDefinition(xml);
+var model = new GraphPackage<LogicalGraph>(parent, logical);
+var modelXml = GraphPackageXml.Serialize(model);
 ```
 
-`LogicalGraphXml` 和 `ExecutionGraphXml` 仅接受 XML **v3**，旧格式不兼容。
-XML 保存普通资源、操作、调用、`Bindings` 和 `Dependencies`，不恢复用户 CLR 类型。
-ReadWrite 绑定只保存一次，必要的读写边身份和关系顺序仍保留；
-执行图的来源映射、架构注解、显式依赖及精度不会在往返时被重新推导。
-读取后统一校验，禁止 DTD 和外部实体，并限制文档大小、元素数量和深度。
+资源用 `GraphIO`、`Scope`（Call／Session／Global）、可选 `Usage`、独立的
+`IsState`、权限及可选 `BindingKey` 描述数据。资源和 Action 的 `Category`
+为可扩展字符串。`first.Then(second)` 将完成到开始的约束写入 `GraphFlow`，
+允许分支和汇合，不等于把所有动作按登记顺序串行执行。
+
+`GraphPackageXml` 统一使用 **version 1**，`stage` 为 business／logical／execution。
+形状保存为 `Tensor/Dimension`，元数据为 `Metadata/Entry`，Action 内保存 `Binding`，
+`GraphFlow/Then` 保存显式偏序。执行包另有 `Target` 子节点、资源 `Storage`、
+动作 `Implementation`／`Dispatch`／`Sources`。旧图 XML 和候选 draft XML 不兼容。
+反序列化恢复声明，业务验证由显式 `Validate()` 或编译入口执行。
+XML 禁止 DTD 和外部实体，并限制文档大小、元素数量和深度。
 XML 只包含图描述，不包含实际权重、输入或运行中状态的数值。
-查看器同样使用 v3，见 [GraphView](tools/GraphView/README.md)。
+查看器能力见 [GraphView](tools/GraphView/README.md)，与源包协议分别说明。
 
 ## 可选执行图 Postprocessor
 
 三个 Pass 都不依赖模型名称，需要显式启用；默认 Converter 和 Emitter 不自动
-优化。输入输出都是使用现有节点、边和 GraphCall 的执行图程序：
+优化。输入输出都是 `GraphPackage<ExecutionGraph>`：
 
 ```csharp
-var compiler = new ExecutionGraphCompiler(
+using SharpInference.Instructions.Cpu;
+using SharpInference.Vm;
+using SharpInference.Vm.Optimization;
+using SharpInference.Vm.Optimization.GraphHelper;
+
+IInstructionCollectionProvider[] providers = [new CpuFloat32InstructionCollection()];
+var context = new ExecutionGraphCompilationContext("example", "cpu-vm");
+var compiler = new ExecutionGraphCompiler(providers,
 [
     new DependencyReductionPostprocessor(),
     new TemporaryResourceReusePostprocessor(),
     new OperationTemplateSharingPostprocessor(),
 ]);
-var execution = compiler.Compile(logical, context);
+var execution = compiler.Compile(package, context);
+// package 为 GraphPackage<LogicalGraph>。
+var program = execution.Compile(VmTarget.Cpu, providers, options: null);
 ```
+
+Converter 和 Compiler 都需要 providers。逻辑转换或直接执行包 Compile 的准备阶段
+选择实现与精度；Emitter 消费已准备好的执行包，不负责挑选实现。
+Compiler 统一构造器为 `(providers, postprocessors: null, converter: null)`；
+自定义转换器使用 `new ExecutionGraphCompiler(providers, converter: customConverter)`。
+转换后及每步后处理后，Prepare 统一重算依赖、补齐存储、选择并校验实现；
+Emitter 只读校验实现合同，不选择实现。独立执行包应用后处理时使用
+`new ExecutionPassContext(context, index, processor.Name)`，逻辑 Source 可空，
+无需伪造 LogicalGraph。
 
 - 依赖精简保持所有依赖可达性，正确处理平行边，不改变资源绑定。
 - Temporary 复用要求 TensorDescriptor 完全一致，并由依赖偏序证明生命周期
@@ -216,12 +236,12 @@ expected-logits 文件。
 | 区域 | 职责 |
 | --- | --- |
 | `src/SharpInference.Graphs.Core` | 通用强类型图、View、算法、模式与重写 |
-| `src/SharpInference.Graphs` | 逻辑图模型、共享图查询、校验与 XML 辅助 |
+| `src/SharpInference.Graphs` | 逻辑图和执行图模型、构图、查询、校验与 XML 辅助 |
 | `src/SharpInference.Models.Rwkv` | RWKV 逻辑图提供器 |
 | `src/SharpInference.Models.Phi4` | Phi-4 图与模型组件 |
 | `src/SharpInference.Instructions*` | 张量、操作、访问与精度契约，VM 指令及 CPU/D3D12 实现 |
 | `src/SharpInference.Vm` | VM 程序契约 |
-| `src/SharpInference.Vm.Optimization` | GraphHelper 执行图、转换、编译、改写、优化与 VM 发射 |
+| `src/SharpInference.Vm.Optimization` | 转换、编译、改写、优化与 VM 发射；消费两种图模型 |
 | `src/SharpInference.Backends.CpuVm` | CPU VM 编译器与执行器 |
 | `src/SharpInference.Backends.D3D12Vm` | D3D12 VM 编译器与执行器 |
 | `src/SharpInference.Tests` | 图、Emitter 与端到端推理测试 |
@@ -229,23 +249,27 @@ expected-logits 文件。
 
 ### 图领域命名空间
 
-图相关项目按一个类型一个文件组织，包含 record、接口、枚举和内部分析记录：
+图领域命名空间按职责组织：
 
 - `SharpInference.Instructions`：`ElementType`、`TensorDescriptor`、`ResourceAccess`、
   `PrecisionRequirement`、`NumericTypeCompatibility`、`OperationId` 和 `PrimitiveOperations`。
-- `SharpInference.Graphs`：共享模型契约、绑定、诊断与图查询。
+- `SharpInference.Graphs`：可编辑 Graph、资源／Action、绑定、Package、诊断、查询和 GraphPackageXml。
 - `SharpInference.Graphs.Logical`（[Logical](src/SharpInference.Graphs/Logical)）：
-  逻辑图定义、节点、边、Builder、端口、诊断与校验。
+  LogicalGraph 及其逻辑编译边界意图。
+- `SharpInference.Graphs.Execution`（[Execution](src/SharpInference.Graphs/Execution)）：
+  ExecutionGraph、选定实现、存储安排、目标及来源。
 - `SharpInference.Vm.Optimization.GraphHelper`（[GraphHelper](src/SharpInference.Vm.Optimization/GraphHelper)）：
-  执行图程序、节点、边、Builder、转换、编译与重写。
+  转换、编译、后处理契约与重写，不再定义执行图模型。
 - `SharpInference.Graphs.Internal`：共享构造、校验与 XML 辅助。
-  GraphHelper 跨程序集需要的现有工具已公开，不使用友元程序集。
+  GraphXmlSupport 等 XML 实现细节保持 internal。
 
-逻辑图使用 `LogicalGraphXml.Serialize` / `DeserializeDefinition`，
-执行图程序使用 `ExecutionGraphXml.Serialize` / `DeserializeProgram`。
-两者替代原 `GraphXml` 入口，XML 格式保持不变。
-消费者需要导入对应的逻辑图或 GraphHelper 命名空间，并引用其所属项目。
-Graphs 仅依赖 Graphs.Core 和 Instructions，不再依赖 Abstractions，也不反向依赖
+三阶段均使用 `GraphPackageXml.Serialize(package)` 和
+`GraphPackageXml.Deserialize<TGraph>(xml)`，其中 TGraph 为 Graph、
+LogicalGraph 或 ExecutionGraph。旧 GraphXml、LogicalGraphXml、
+ExecutionGraphXml 入口已移除。
+消费者导入对应的 Logical 或 Execution 命名空间并引用 Graphs。
+构造、查询、校验和读写执行图不需要引用优化器；优化器依赖两种图模型，不能反向引用。
+Graphs 仅依赖 Graphs.Core 和 Instructions，不依赖 Abstractions、Vm，也不反向依赖
 Vm.Optimization；Instructions 不依赖两个图项目。
 
 ## 许可证

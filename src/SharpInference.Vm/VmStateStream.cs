@@ -64,7 +64,7 @@ public static class VmStateStream
         }
     }
 
-    /// <summary>Stages and validates a state stream within the byte budget before restoring registered state slots.</summary>
+    /// <summary>Requires writable state bindings, then stages and validates the stream within the byte budget before restoring.</summary>
     /// <param name="source">The readable state stream; the caller retains ownership of the stream.</param>
     /// <param name="program">The program declaring the state entries and tensor descriptors to transfer.</param>
     /// <param name="access">The active state-access lease belonging to the supplied program.</param>
@@ -88,6 +88,14 @@ public static class VmStateStream
         }
 
         var slots = program.Slots.ToDictionary(slot => slot.Id, StringComparer.Ordinal);
+        foreach (var entry in program.State.Entries)
+        {
+            if (!access.CanRestoreState(entry.Slot))
+            {
+                throw new InvalidOperationException($"State slot '{entry.Slot}' is read-only.");
+            }
+        }
+
         var staged = new List<(string Slot, byte[] Bytes)>();
         using var reader = new BinaryReader(source, TextEncoding, leaveOpen: true);
         try
@@ -105,7 +113,7 @@ public static class VmStateStream
             {
                 var slot = slots[entry.Slot];
                 var tensor = slot.Tensor;
-                if (!access.CanRestoreState(entry.Slot) || ReadText(reader) != entry.Name ||
+                if (ReadText(reader) != entry.Name ||
                     reader.ReadInt32() != (int)tensor.ElementType ||
                     reader.ReadInt32() != tensor.Dimensions.Count)
                 {

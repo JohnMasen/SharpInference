@@ -6,7 +6,7 @@ using SharpInference.Graphs.Logical;
 
 namespace SharpInference.Architectures.Phi4;
 
-/// <summary>Builds and validates a stateful Phi-4 decoder graph with token or embedding input and optional LoRA adaptation.</summary>
+/// <summary>Builds a stateful Phi-4 decoder graph package; callers explicitly validate before compilation.</summary>
 public sealed class Phi4TextGraphModule : IPhi4GraphModule
 {
     private readonly int context;
@@ -131,7 +131,7 @@ public sealed class Phi4TextGraphModule : IPhi4GraphModule
     }
 
     /// <inheritdoc/>
-    public LogicalGraphDefinition Build(IModelTensorCatalog tensors)
+    public GraphPackage<LogicalGraph> Build(IModelTensorCatalog tensors)
     {
         var dimensions = ReadMetadata(tensors).Dimensions.ToDictionary(value => value.Key, value => checked((int)value.Value));
         var p = ((Phi4PackageTensorCatalog)tensors).TextParameters;
@@ -140,16 +140,14 @@ public sealed class Phi4TextGraphModule : IPhi4GraphModule
         var kv = checked(p.KeyValueHeads * head);
         var intermediate = dimensions["intermediate"];
         var abi = $"phi4.text.kv@1:{p.Layers}:{p.QueryHeads}:{p.KeyValueHeads}:{head}:{context}:{adapter}";
-        var builder = new Phi4GraphDefinitionBuilder(new(ArchitectureId, 2, "forward"),
+        var builder = new Phi4GraphComposer(new(ArchitectureId, 2, "forward"),
                 new GraphModelSignature(ArchitectureId, abi, dimensions))
             .Root("root", GraphSectionTypes.Graph, "Phi4 decoder", architecture: new(
                 Description: "Token embedding, grouped-query decoder Blocks and tied language-model head.",
                 DefaultView: GraphArchitectureView.Architecture, Step: GraphArchitectureStep.Token))
             .SetStateSchema(new(abi))
-            .AddResource("position", "Position", GraphResourceKind.Input, GraphResourceLifetime.External,
-                new TensorDescriptor(ElementType.Int32, [1]), graphInput: true)
-            .AddResource("logits", "Logits", GraphResourceKind.Output, GraphResourceLifetime.External,
-                F(dimensions["vocabulary"]), graphOutput: true);
+            .Resource("position", new TensorDescriptor(ElementType.Int32, [1]), GraphIO.In, name: "Position")
+            .Resource("logits", F(dimensions["vocabulary"]), GraphIO.Out, name: "Logits");
         var descriptors = new Dictionary<string, TensorDescriptor>();
         var weights = new Dictionary<string, string>();
         var converted = new Dictionary<string, string>();
@@ -158,11 +156,10 @@ public sealed class Phi4TextGraphModule : IPhi4GraphModule
         {
             if (embeddingInput)
             {
-                builder.AddResource("embedding", "Embedding", GraphResourceKind.Input, GraphResourceLifetime.External, F(width), graphInput: true);
+                builder.Resource("embedding", F(width), GraphIO.In, name: "Embedding");
                 return "embedding";
             }
-            builder.AddResource("token", "Token", GraphResourceKind.Input, GraphResourceLifetime.External,
-                new TensorDescriptor(ElementType.Int32, [1]), graphInput: true);
+            builder.Resource("token", new TensorDescriptor(ElementType.Int32, [1]), GraphIO.In, name: "Token");
             var embedded = Temporary(width);
             var table = Weight(scope, "text.token_embd.weight");
             Emit(scope, PrimitiveOperations.GatherRow,
@@ -246,30 +243,30 @@ public sealed class Phi4TextGraphModule : IPhi4GraphModule
         {
             var id = "text.node." + index++ + "_output";
             descriptors.Add(id, F(shape));
-            builder.AddResource(id, id, GraphResourceKind.Temporary, GraphResourceLifetime.Invocation, descriptors[id]);
+            builder.Resource(id, descriptors[id]);
             return id;
         }
         string Cache(string id)
         {
-            builder.AddResource(id, id, GraphResourceKind.SessionState, GraphResourceLifetime.Session, F(context, p.KeyValueHeads, head));
+            builder.Resource(id, F(context, p.KeyValueHeads, head), GraphIO.InOut, scope: ResourceScope.Session, isState: true);
             builder.AddStateSlot(id, id);
             return id;
         }
-        void Emit(Phi4GraphDefinitionBuilder.Phi4DefinitionScope scope, OperationId operation, NodeResourceBinding[] bindings, IReadOnlyDictionary<string, string>? attributes = null)
+        void Emit(Phi4GraphComposer.Scope scope, OperationId operation, NodeResourceBinding[] bindings, IReadOnlyDictionary<string, string>? attributes = null)
         {
             var output = bindings.FirstOrDefault(binding => binding.Access == ResourceAccess.Write &&
-                binding.Resource.Value.EndsWith("_output", StringComparison.Ordinal));
-            var id = output is null ? "text.node." + index++ : output.Resource.Value[..^"_output".Length];
+                binding.Resource.EndsWith("_output", StringComparison.Ordinal));
+            var id = output is null ? "text.node." + index++ : output.Resource[..^"_output".Length];
             scope.AddNode(id, operation, bindings, null, attributes);
         }
-        string Weight(Phi4GraphDefinitionBuilder.Phi4DefinitionScope scope, string name, bool fp32 = false)
+        string Weight(Phi4GraphComposer.Scope scope, string name, bool fp32 = false)
         {
             if (!weights.TryGetValue(name, out var id))
             {
                 var tensor = tensors.GetRequired(name);
                 id = "weight." + name;
                 var descriptor = new TensorDescriptor(tensor.DataType == TensorDataType.Float16 ? ElementType.Float16 : ElementType.Float32, tensor.Dimensions);
-                builder.AddResource(id, name, GraphResourceKind.Weight, GraphResourceLifetime.Model, descriptor, name);
+                builder.Resource(id, descriptor, scope: ResourceScope.Global, usage: ResourceUsage.Weight, permission: ResourcePermission.ReadOnly, bindingKey: name, name: name);
                 descriptors.Add(id, descriptor);
                 weights.Add(name, id);
             }
@@ -288,7 +285,7 @@ public sealed class Phi4TextGraphModule : IPhi4GraphModule
             converted.Add(name, destination);
             return destination;
         }
-        string Norm(Phi4GraphDefinitionBuilder.Phi4DefinitionScope scope, string source, string name)
+        string Norm(Phi4GraphComposer.Scope scope, string source, string name)
         {
             var output = Temporary(width);
             var weight = Weight(scope, name, fp32: true);
@@ -296,14 +293,14 @@ public sealed class Phi4TextGraphModule : IPhi4GraphModule
                 Attr(("epsilon", p.RmsEpsilon)));
             return output;
         }
-        string Project(Phi4GraphDefinitionBuilder.Phi4DefinitionScope scope, string source, string name, int outputWidth)
+        string Project(Phi4GraphComposer.Scope scope, string source, string name, int outputWidth)
         {
             var output = Temporary(outputWidth);
             var weight = Weight(scope, name);
             scope.MatVec(output[..^"_output".Length], weight, source, output);
             return output;
         }
-        string Linear(Phi4GraphDefinitionBuilder.Phi4DefinitionScope scope, string source, string name, int outputWidth)
+        string Linear(Phi4GraphComposer.Scope scope, string source, string name, int outputWidth)
         {
             var output = Project(scope, source, name, outputWidth);
             if (adapter == Phi4Adapter.None)
@@ -319,7 +316,7 @@ public sealed class Phi4TextGraphModule : IPhi4GraphModule
                 Attr(("scale", AdapterScale((Phi4PackageTensorCatalog)tensors, tensors.GetRequired(a).Dimensions[0]))));
             return combined;
         }
-        string Add(Phi4GraphDefinitionBuilder.Phi4DefinitionScope scope, string left, string right)
+        string Add(Phi4GraphComposer.Scope scope, string left, string right)
         {
             var output = Temporary(width);
             scope.Add(output[..^"_output".Length], left, right, output);

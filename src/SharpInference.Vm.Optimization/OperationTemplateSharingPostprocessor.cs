@@ -4,115 +4,91 @@ using System.Text;
 using System.Text.Json;
 using SharpInference.Graphs;
 using SharpInference.Graphs.Core;
-using static SharpInference.Graphs.Core.PatternElements;
+using SharpInference.Graphs.Execution;
 using SharpInference.Vm.Optimization.GraphHelper;
 
 namespace SharpInference.Vm.Optimization;
 
-/// <summary>Extracts repeated operation contracts into parameterized atomic graphs without eliminating executions.</summary>
+/// <summary>Shares repeated operation definitions while retaining each call and its bindings.</summary>
 public sealed class OperationTemplateSharingPostprocessor : IExecutionGraphPostprocessor
 {
     public string Name => "share-execution-operation-templates";
 
-    public ExecutionGraphProgram Process(
-        ExecutionGraphProgram program, ExecutionGraphPostprocessContext context)
+    public GraphPackage<ExecutionGraph> Process(GraphPackage<ExecutionGraph> package, ExecutionPassContext context)
     {
-        ArgumentNullException.ThrowIfNull(program);
+        ArgumentNullException.ThrowIfNull(package);
         ArgumentNullException.ThrowIfNull(context);
-        var graphIds = program.Graphs.Select(graph => graph.Id).ToHashSet();
-        var result = new List<ExecutionGraph>();
+        GraphValidation.ThrowIfErrors(package.Validate());
+        var result = package.Snapshot();
+        var definitions = result.ToDictionary(graph => graph.Id, graph => (SharpInference.Graphs.Graph)graph, StringComparer.Ordinal);
+        var ids = result.Select(graph => graph.Id).ToHashSet(StringComparer.Ordinal);
         var templates = new List<ExecutionGraph>();
-        foreach (var graph in program.Graphs)
+        foreach (var graph in result)
         {
-            var groups = new Dictionary<string, List<ExecutionOperationNode>>(StringComparer.Ordinal);
-            var bindings = new Dictionary<ExecutionNodeId, IReadOnlyList<ModelResourceBinding>>();
-            var candidates = graph.Structure.Match(
-                Pattern.Create(Node().Where<ExecutionOperationNode>(_ => true)));
-            foreach (var operation in candidates.Select(match => (ExecutionOperationNode)match.Nodes.Single()))
+            var candidates = graph.Actions.OfType<ExecutionOperation>().Where(operation =>
+                operation.Bindings.Count > 0 && operation.Bindings.All(binding =>
+                    binding.Target.TargetKind == ResourceTarget.Graph &&
+                    (binding.Target.Target is null || binding.Target.Target == graph.Id)) &&
+                operation.Bindings.Select(binding => binding.Target.TargetProperty).Distinct(StringComparer.Ordinal).Count() ==
+                    operation.Bindings.Count).ToArray();
+            string Key(ExecutionOperation operation) => JsonSerializer.Serialize(new
             {
-                var ports = graph.Bindings(operation);
-                // Alias-bearing and instance-scoped contracts remain untouched.
-                if (ports.Count == 0 || ports.Any(port => !port.Resource.Owner.IsParent) ||
-                    ports.Select(port => port.Resource).Distinct().Count() != ports.Count)
+                operation.Category, operation.Operation, operation.Precision, operation.SelectedImplementation,
+                Attributes = operation.Attributes.OrderBy(pair => pair.Key, StringComparer.Ordinal),
+                Ports = operation.Bindings.OrderBy(binding => binding.SourceProperty, StringComparer.Ordinal).Select(binding =>
                 {
-                    continue;
-                }
-
-                bindings.Add(operation.Id, ports);
-                var key = Signature(graph, operation, ports);
-                if (!groups.TryGetValue(key, out var group))
-                {
-                    groups.Add(key, group = []);
-                }
-
-                group.Add(operation);
-            }
-
-            var calls = new Dictionary<ExecutionNodeId, ExecutionGraphCallNode>();
-            foreach (var (key, operations) in groups.Where(pair => pair.Value.Count > 1))
+                    if (!GraphValidation.TryResolve(graph, binding.Target, definitions, out var resource))
+                        throw new InvalidDataException($"Cannot resolve template port '{binding.SourceProperty}'.");
+                    return new { binding.SourceProperty, binding.Access, resource.Tensor };
+                }),
+            });
+            foreach (var group in candidates.GroupBy(Key).Where(group => group.Count() > 1))
             {
-                var idBase = "shared-operation." + Convert.ToHexStringLower(
-                    SHA256.HashData(Encoding.UTF8.GetBytes(graph.Id.Value + "\n" + key)));
-                var id = new ExecutionGraphId(idBase);
-                for (var suffix = 1; !graphIds.Add(id); suffix++)
+                var name = "shared-operation." + Convert.ToHexStringLower(
+                    SHA256.HashData(Encoding.UTF8.GetBytes(graph.Id + "\n" + group.Key)));
+                var id = name;
+                for (var suffix = 1; !ids.Add(id); suffix++)
+                    id = name + "." + suffix;
+                var template = new ExecutionGraph { Id = id };
+                var exemplar = group.First();
+                var body = template.Operation("body", exemplar.Operation);
+                body.Category = exemplar.Category;
+                body.Precision = exemplar.Precision;
+                body.SelectedImplementation = exemplar.SelectedImplementation;
+                foreach (var pair in exemplar.Attributes)
+                    body.Attributes.Add(pair.Key, pair.Value);
+                body.Sources.AddRange(group.SelectMany(operation => operation.Sources).Distinct());
+                foreach (var binding in exemplar.Bindings)
                 {
-                    id = new(idBase + "." + suffix);
-                }
-
-                var exemplar = operations[0];
-                var ports = bindings[exemplar.Id];
-                var builder = new ExecutionGraphBuilder(id, GraphCompileBoundary.Atomic);
-                foreach (var port in ports)
-                {
-                    var resource = (ExecutionResourceNode)graph.Structure.GetNode(port.Resource.GraphId);
-                    builder.AddResource(new(new(port.Port), port.Port, port.Access switch
+                    GraphValidation.TryResolve(graph, binding.Target, definitions, out var actual);
+                    var resource = template.Resource(binding.SourceProperty, actual.Tensor, binding.Access switch
                     {
-                        ResourceAccess.Read => GraphDefinitionResourceKind.Input,
-                        ResourceAccess.Write => GraphDefinitionResourceKind.Output,
-                        _ => GraphDefinitionResourceKind.InOut,
-                    }, resource.Tensor));
+                        ResourceAccess.Read => GraphIO.In,
+                        ResourceAccess.Write => GraphIO.Out,
+                        _ => GraphIO.InOut,
+                    });
+                    template.Storage.Add(resource.Id, new(ResourceStorageKind.ExternalArgument));
+                    body.Bind(binding.SourceProperty, resource, binding.Access);
                 }
-                builder.AddOperation(exemplar with
+                foreach (var operation in group)
                 {
-                    Id = new("body"),
-                    Source = new(operations.SelectMany(operation => operation.Source.LogicalNodes)
-                        .Distinct().ToArray(), Name),
-                    Architecture = null,
-                }, ports.Select(port => port with
-                {
-                    Resource = new(GraphBindingOwner.Parent, new(port.Port)),
-                    BindingId = $"body:{port.Port}",
-                }));
-                templates.Add(builder.Build());
-                foreach (var operation in operations)
-                {
-                    calls.Add(operation.Id, new(operation.Id, id, GraphCompileBoundary.Atomic,
-                        operation.Source with { Transformation = Name }, operation.Architecture));
+                    var index = graph.Actions.IndexOf(operation);
+                    var call = graph.Call(operation.Id, template);
+                    graph.Actions.RemoveAt(graph.Actions.Count - 1);
+                    call.Category = operation.Category == "operation" ? "call" : operation.Category;
+                    call.Metadata.Add("transformation", Name);
+                    call.Bindings.AddRange(operation.Bindings);
+                    call.Sources.AddRange(operation.Sources);
+                    foreach (var pair in operation.Metadata)
+                        call.Metadata.TryAdd(pair.Key, pair.Value);
+                    graph.Actions[index] = call;
                 }
+                templates.Add(template);
             }
-            result.Add(calls.Count == 0 ? graph : ExecutionDependencyAnalysis.WithStructure(graph,
-                new Graph<ExecutionGraphStructureNode, ExecutionGraphEdge>(
-                    graph.Structure.Nodes.Select(node =>
-                        node is ExecutionOperationNode operation &&
-                        calls.TryGetValue(operation.Id, out var call) ? call : node),
-                    graph.Structure.Edges)));
         }
-        return new(result.Concat(templates));
+        foreach (var template in templates)
+            result.Add(template);
+        return result;
     }
 
-    private static string Signature(
-        ExecutionGraph graph, ExecutionOperationNode operation,
-        IReadOnlyList<ModelResourceBinding> ports) =>
-        JsonSerializer.Serialize(new
-        {
-            operation.Operation,
-            operation.Requirements,
-            Attributes = operation.Attributes.OrderBy(pair => pair.Key, StringComparer.Ordinal).ToArray(),
-            Ports = ports.Select(port => new
-            {
-                port.Port,
-                port.Access,
-                Tensor = ((ExecutionResourceNode)graph.Structure.GetNode(port.Resource.GraphId)).Tensor,
-            }).ToArray(),
-        });
 }

@@ -1,7 +1,7 @@
 using SharpInference.Instructions;
 using SharpInference.Graphs;
 using SharpInference.Graphs.Core;
-using static SharpInference.Graphs.Core.PatternElements;
+using SharpInference.Graphs.Execution;
 using SharpInference.Vm.Optimization.GraphHelper;
 
 namespace SharpInference.Vm.Optimization;
@@ -24,104 +24,79 @@ public sealed class TemporaryResourceReusePostprocessor : IExecutionGraphPostpro
 
     public string Name => "reuse-execution-temporaries";
 
-    public ExecutionGraphProgram Process(
-        ExecutionGraphProgram program, ExecutionGraphPostprocessContext context)
+    public GraphPackage<ExecutionGraph> Process(GraphPackage<ExecutionGraph> package, ExecutionPassContext context)
     {
-        ArgumentNullException.ThrowIfNull(program);
+        ArgumentNullException.ThrowIfNull(package);
         ArgumentNullException.ThrowIfNull(context);
-        return new(program.Graphs.Select(graph =>
+        GraphValidation.ThrowIfErrors(package.Validate());
+        var result = package.Snapshot();
+        foreach (var graph in result)
         {
-            var boundPorts = program.Graphs.SelectMany(caller =>
-                caller.Structure.Match(Pattern.Create(
-                        Node().Where<ExecutionGraphCallNode>(call => call.Target == graph.Id)))
-                    .Select(match => (ExecutionGraphCallNode)match.Nodes.Single())
-                    .SelectMany(call => caller.Bindings(call).Select(binding => binding.Port)
-                        .Concat(caller.Structure.Match(Pattern.Create(Node().Where<ExecutionResourceNode>(resource =>
-                                !resource.ResourceNodeId.Owner.IsParent &&
-                                resource.ResourceNodeId.Owner.Call!.Value.Value == call.Id.Value)))
-                            .Select(match => (ExecutionResourceNode)match.Nodes.Single())
-                            .Select(resource => resource.Resource.Id.Value))))
-                .ToHashSet(StringComparer.Ordinal);
-            return Reuse(graph, boundPorts);
-        }));
+            var protectedIds = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var caller in result)
+            {
+                foreach (var binding in caller.Actions.SelectMany(action => action.Bindings))
+                {
+                    var reference = binding.Target;
+                    if (caller.Id != graph.Id && reference.TargetKind == ResourceTarget.Graph && reference.Target == graph.Id)
+                        protectedIds.Add(reference.TargetProperty);
+                    if (reference.TargetKind == ResourceTarget.Call &&
+                        caller.Actions.OfType<CallAction>().Any(call => call.Id == reference.Target && call.Target == graph.Id))
+                        protectedIds.Add(reference.TargetProperty);
+                }
+            }
+            var structure = graph.DependencyGraph();
+            var order = structure.TopologicalOrder();
+            var positions = order.Select((node, index) => (node.Action.Id, index))
+                .ToDictionary(pair => pair.Id, pair => pair.index, StringComparer.Ordinal);
+            var reach = structure.CreateReachabilityIndex(order, order);
+            bool Before(GraphAction first, GraphAction second) => first != second &&
+                reach.IsReachable(new GraphNodeId(first.Id), new GraphNodeId(second.Id));
+            var slots = new List<(Resource Resource, GraphAction[] Last, string Slot)>();
+            var lifetimes = new List<(Resource Resource, GraphAction First, GraphAction[] Last)>();
+            foreach (var resource in graph.Resources.Where(resource =>
+                resource.Scope == ResourceScope.Call && resource.GraphIO == GraphIO.Internal &&
+                !resource.IsState && resource.Permission == ResourcePermission.ReadWrite &&
+                resource.Usage is null or ResourceUsage.Temporary && resource.BindingKey is null &&
+                !protectedIds.Contains(resource.Id)))
+            {
+                var accesses = graph.Readers(resource).Concat(graph.Writers(resource)).Distinct().ToArray();
+                if (accesses.Length == 0 || accesses.Any(action => action is not ExecutionOperation))
+                    continue;
+                var first = accesses.MinBy(action => positions[action.Id])!;
+                var initialBindings = first.Bindings.Where(binding =>
+                    binding.Target.TargetKind == ResourceTarget.Graph &&
+                    (binding.Target.Target is null || binding.Target.Target == graph.Id) &&
+                    binding.Target.TargetProperty == resource.Id).ToArray();
+                if (first is not ExecutionOperation operation || initialBindings.Length != 1 ||
+                    initialBindings[0].Access != ResourceAccess.Write || initialBindings[0].SourceProperty != "output" ||
+                    operation.Operation.Version != 1 || !CompleteOutputOperations.Contains(operation.Operation.Name) ||
+                    accesses.Any(action => action != first && !Before(first, action)))
+                    continue;
+                lifetimes.Add((resource, first, accesses.Where(action =>
+                    !accesses.Any(other => Before(action, other))).ToArray()));
+            }
+            foreach (var lifetime in lifetimes.OrderBy(lifetime => positions[lifetime.First.Id]))
+            {
+                var index = slots.FindIndex(slot =>
+                    slot.Resource.Category == lifetime.Resource.Category &&
+                    GraphValidation.SameTensor(slot.Resource.Tensor, lifetime.Resource.Tensor) &&
+                    slot.Last.All(last => Before(last, lifetime.First)));
+                if (index < 0)
+                {
+                    var storage = graph.Storage.GetValueOrDefault(lifetime.Resource.Id);
+                    var slot = storage?.Slot ?? lifetime.Resource.Id;
+                    slots.Add((lifetime.Resource, lifetime.Last, slot));
+                }
+                else
+                {
+                    var slot = slots[index];
+                    graph.Storage[lifetime.Resource.Id] = new(ResourceStorageKind.LocalBuffer, slot.Slot);
+                    slots[index] = (lifetime.Resource, lifetime.Last, slot.Slot);
+                }
+            }
+        }
+        return result;
     }
 
-    private static ExecutionGraph Reuse(ExecutionGraph graph, HashSet<string> boundPorts)
-    {
-        var analysis = new ExecutionDependencyAnalysis(graph);
-        var lifetimes = new List<Lifetime>();
-        var candidates = graph.Structure.Match(Pattern.Create(Node().Where<ExecutionResourceNode>(resource =>
-            resource.ResourceNodeId.Owner.IsParent &&
-            resource.Kind == GraphDefinitionResourceKind.Temporary &&
-            resource.Resource.BindingKey is null &&
-            !boundPorts.Contains(resource.Resource.Id.Value))));
-        foreach (var resource in candidates.Select(match => (ExecutionResourceNode)match.Nodes.Single()))
-        {
-            var accesses = graph.Structure.Readers(resource)
-                .Concat(graph.Structure.Writers(resource))
-                .DistinctBy(node => node.GraphId).OfType<ExecutionGraphNode>().ToArray();
-            if (accesses.Length == 0 ||
-                accesses.Any(node => node is not ExecutionOperationNode))
-            {
-                continue;
-            }
-
-            var first = accesses.OrderBy(node => analysis.Position(node.GraphId)).First();
-            var firstBindings = graph.Bindings(first).Where(value =>
-                value.Resource == resource.ResourceNodeId).ToArray();
-            if (firstBindings.Length != 1 ||
-                firstBindings[0].Access != ResourceAccess.Write ||
-                firstBindings[0].Port != "output" ||
-                first is not ExecutionOperationNode operation ||
-                operation.Operation.Version != 1 ||
-                !CompleteOutputOperations.Contains(operation.Operation.Name) ||
-                accesses.Any(node => node != first && !analysis.Before(first.GraphId, node.GraphId)))
-            {
-                continue;
-            }
-
-            var last = accesses.Where(node => !accesses.Any(other =>
-                analysis.Before(node.GraphId, other.GraphId))).Select(node => node.GraphId).ToArray();
-            lifetimes.Add(new(resource, first.GraphId, last));
-        }
-
-        var replacements = new Dictionary<GraphNodeId, GraphNodeId>();
-        var slots = new List<Lifetime>();
-        foreach (var lifetime in lifetimes.OrderBy(value => analysis.Position(value.First)))
-        {
-            var slotIndex = slots.FindIndex(slot =>
-                SameTensor(slot.Resource.Tensor, lifetime.Resource.Tensor) &&
-                slot.Last.All(last => analysis.Before(last, lifetime.First)));
-            if (slotIndex < 0)
-            {
-                slots.Add(lifetime);
-                continue;
-            }
-            var slot = slots[slotIndex];
-            replacements.Add(lifetime.Resource.GraphId, slot.Resource.GraphId);
-            slots[slotIndex] = lifetime with { Resource = slot.Resource };
-        }
-        if (replacements.Count == 0)
-        {
-            return graph;
-        }
-
-        GraphNodeId Map(GraphNodeId id) => replacements.GetValueOrDefault(id, id);
-        var structure = new Graph<ExecutionGraphStructureNode, ExecutionGraphEdge>(
-            graph.Structure.Nodes.Where(node => !replacements.ContainsKey(node.GraphId)),
-            graph.Structure.Edges.Select(edge => edge switch
-            {
-                ExecutionResourceReadEdge read => read with { Source = Map(read.Source) },
-                ExecutionResourceWriteEdge write => write with { Target = Map(write.Target) },
-                _ => edge,
-            }));
-        return ExecutionDependencyAnalysis.WithStructure(graph, structure);
-    }
-
-    internal static bool SameTensor(TensorDescriptor first, TensorDescriptor second) =>
-        first.ElementType == second.ElementType && first.Layout == second.Layout &&
-        first.Dimensions.SequenceEqual(second.Dimensions);
-
-    private sealed record Lifetime(
-        ExecutionResourceNode Resource, GraphNodeId First, GraphNodeId[] Last);
 }

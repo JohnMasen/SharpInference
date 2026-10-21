@@ -49,10 +49,9 @@ public static class VmProgramValidator
         foreach (var state in program.State.Entries)
         {
             RequireName(state.Slot, "state slot");
-            if (!slots.TryGetValue(state.Slot, out var slot) || slot.Scope != VmSlotScope.Session ||
-                !stateSlots.Add(state.Slot))
+            if (!slots.ContainsKey(state.Slot) || !stateSlots.Add(state.Slot))
             {
-                Fail($"State '{state.Name}' must reference a distinct session slot.");
+                Fail($"State '{state.Name}' must reference a distinct program slot.");
             }
         }
 

@@ -4,46 +4,46 @@ using SharpInference.Graphs.Logical;
 
 namespace SharpInference.Architectures.Rwkv7;
 
-/// <summary>Composes RWKV-7 FP32 elementwise expressions in the definition IR.</summary>
+/// <summary>Composes RWKV-7 FP32 elementwise expressions in a logical graph.</summary>
 internal sealed class Rwkv7PortableElementwiseBuilder
 {
-    private readonly GraphDefinitionBuilder builder;
+    private readonly LogicalGraph graph;
     private readonly int width;
     private readonly HashSet<string> names = new(StringComparer.Ordinal);
 
     internal Rwkv7PortableElementwiseBuilder(
-        GraphDefinitionBuilder builder,
+        LogicalGraph graph,
         int width)
     {
-        this.builder = builder ?? throw new ArgumentNullException(nameof(builder));
+        this.graph = graph ?? throw new ArgumentNullException(nameof(graph));
         this.width = width > 0 ? width : throw new ArgumentOutOfRangeException(nameof(width));
     }
 
-    internal ResourceId Mix(
+    internal string Mix(
         string id,
-        ResourceId x,
-        ResourceId previous,
-        ResourceId coefficient) =>
+        string x,
+        string previous,
+        string coefficient) =>
         Binary($"{id}.output", PrimitiveOperations.Add, x,
             Binary($"{id}.scale", PrimitiveOperations.Multiply,
                 Binary($"{id}.difference", PrimitiveOperations.Subtract, previous, x),
                 coefficient));
 
-    internal ResourceId InterpolateValue(
+    internal string InterpolateValue(
         string id,
-        ResourceId value,
-        ResourceId firstValue,
-        ResourceId gate) =>
+        string value,
+        string firstValue,
+        string gate) =>
         Binary($"{id}.output", PrimitiveOperations.Add, value,
             Binary($"{id}.scale", PrimitiveOperations.Multiply,
                 Binary($"{id}.difference", PrimitiveOperations.Subtract, firstValue, value),
                 gate));
 
-    internal ResourceId AdaptKey(
+    internal string AdaptKey(
         string id,
-        ResourceId key,
-        ResourceId adaptation,
-        ResourceId keyAdaptWeight)
+        string key,
+        string adaptation,
+        string keyAdaptWeight)
     {
         var scaledKey = Binary($"{id}.scaled-key", PrimitiveOperations.Multiply,
             key, keyAdaptWeight);
@@ -53,43 +53,39 @@ internal sealed class Rwkv7PortableElementwiseBuilder
             scaledKey);
     }
 
-    internal ResourceId ReluSquare(
+    internal string ReluSquare(
         string id,
-        ResourceId input) =>
+        string input) =>
         Unary($"{id}.output", PrimitiveOperations.Square,
             Unary($"{id}.relu", PrimitiveOperations.Relu, input));
 
-    private ResourceId Unary(
+    private string Unary(
         string id,
         OperationId operation,
-        ResourceId input)
+        string input)
     {
         var output = AddOutput(id);
-        builder.AddNode(id, operation, node =>
-        {
-            node.AddInput("input", input);
-            return node.AddOutput("output", output);
-        });
+        var node = graph.Operation(id, operation);
+        node.Bind("input", input, ResourceAccess.Read);
+        node.Bind("output", output, ResourceAccess.Write);
         return output;
     }
 
-    private ResourceId Binary(
+    private string Binary(
         string id,
         OperationId operation,
-        ResourceId left,
-        ResourceId right)
+        string left,
+        string right)
     {
         var output = AddOutput(id);
-        builder.AddNode(id, operation, node =>
-        {
-            node.AddInput("left", left);
-            node.AddInput("right", right);
-            return node.AddOutput("output", output);
-        });
+        var node = graph.Operation(id, operation);
+        node.Bind("left", left, ResourceAccess.Read);
+        node.Bind("right", right, ResourceAccess.Read);
+        node.Bind("output", output, ResourceAccess.Write);
         return output;
     }
 
-    private ResourceId AddOutput(string id)
+    private string AddOutput(string id)
     {
         if (string.IsNullOrWhiteSpace(id) || !names.Add(id))
         {
@@ -97,9 +93,7 @@ internal sealed class Rwkv7PortableElementwiseBuilder
         }
 
         var output = $"{id}_output";
-        return builder.AddResource(
-            output,
-            output,
-            new TensorDescriptor(ElementType.Float32, [width]));
+        graph.Resource(output, new TensorDescriptor(ElementType.Float32, [width]));
+        return output;
     }
 }

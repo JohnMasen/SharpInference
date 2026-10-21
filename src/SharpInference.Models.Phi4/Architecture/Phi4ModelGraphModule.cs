@@ -42,11 +42,6 @@ public sealed class Phi4ModelGraphModule : IPhi4GraphModule
     /// <inheritdoc/>
     public string ArchitectureId => "phi4";
 
-    /// <summary>
-    /// The legacy runtime operation validator. The definition IR is not currently consumable by
-    /// the Runtime/D3D12 pipeline.
-    /// </summary>
-
     /// <inheritdoc/>
     public bool CanLoad(IModelTensorCatalog tensors) =>
         text.CanLoad(tensors) && encoders.Values.All(module => module.CanLoad(tensors));
@@ -69,13 +64,13 @@ public sealed class Phi4ModelGraphModule : IPhi4GraphModule
     }
 
     /// <inheritdoc/>
-    public LogicalGraphDefinition Build(IModelTensorCatalog tensors)
+    public GraphPackage<LogicalGraph> Build(IModelTensorCatalog tensors)
     {
         var metadata = ReadMetadata(tensors);
         var dimensions = metadata.Dimensions.ToDictionary(
             pair => pair.Key, pair => checked((int)pair.Value), StringComparer.Ordinal);
         var decoder = text.Build(tensors);
-        var builder = new Phi4GraphDefinitionBuilder(
+        var builder = new Phi4GraphComposer(
                 new(ArchitectureId, 2, "forward"),
                 new GraphModelSignature(ArchitectureId, "phi4.definition@1", dimensions))
             .Root("root", GraphSectionTypes.Graph, "Phi4 model-owned component composition",
@@ -94,13 +89,10 @@ public sealed class Phi4ModelGraphModule : IPhi4GraphModule
             };
             foreach (var (port, module) in encoders)
             {
-                var input = fused.Resources.SingleOrDefault(resource =>
-                    resource.Id.Value == port && resource.Kind == GraphDefinitionResourceKind.Input)
+                var input = fused.Inputs.SingleOrDefault(resource => resource.Id == port)
                     ?? throw new InvalidDataException($"Fusion has no encoder port '{port}'.");
                 var component = module.Build(tensors);
-                var output = component.Resources.Single(resource =>
-                    resource.Id.Value == "output" &&
-                    resource.Kind == GraphDefinitionResourceKind.Output);
+                var output = component.Outputs.Single(resource => resource.Id == "output");
                 if (!Same(output.Tensor, input.Tensor))
                 {
                     throw new InvalidDataException(
@@ -114,21 +106,10 @@ public sealed class Phi4ModelGraphModule : IPhi4GraphModule
             }
             builder.AppendDefinition(fused, "fusion", aliases);
             builder
-                .AddResource(
-                    "select_prompt_embedding_output",
-                    "Selected fused token",
-                    GraphResourceKind.Temporary,
-                    GraphResourceLifetime.Invocation,
-                    new TensorDescriptor(
+                .Resource("select_prompt_embedding_output", new TensorDescriptor(
                         ElementType.Float32,
-                        [dimensions["embedding_width"]]))
-                .AddResource(
-                    "prompt_index",
-                    "Prompt row",
-                    GraphResourceKind.Input,
-                    GraphResourceLifetime.External,
-                    new TensorDescriptor(ElementType.Int32, [1]),
-                    graphInput: true);
+                        [dimensions["embedding_width"]]), name: "Selected fused token")
+                .Resource("prompt_index", new TensorDescriptor(ElementType.Int32, [1]), GraphIO.In, name: "Prompt row");
             builder.Section(
                 "prompt-selection",
                 GraphSectionTypes.Architecture,

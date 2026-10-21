@@ -43,12 +43,12 @@ public sealed class RwkvPostprocessorTests(ITestOutputHelper output)
             : new PortableRwkv7GraphProvider().Build(catalog);
         var backend = gpu ? "d3d12-vm" : "cpu-vm";
         var compilation = new ExecutionGraphCompilationContext(architecture, backend);
-        var original = new DefaultExecutionGraphConverter().Convert(logical, compilation);
         var expected = MemoryMarshal.Cast<byte, float>(
             File.ReadAllBytes(Path.Combine(directory, $"expected-logits-{model}.bin"))).ToArray();
         IInstructionCollectionProvider[] providers = gpu
             ? [new GpuFloat32InstructionCollection(), new GpuFloat16InstructionCollection()]
             : [new CpuFloat32InstructionCollection(), new CpuFloat16InstructionCollection()];
+        var original = new DefaultExecutionGraphConverter(providers).Convert(logical, compilation);
         var emitter = new VmExecutionGraphEmitter(gpu ? VmTarget.Direct3D12 : VmTarget.Cpu, providers);
         float[][]? baseline = null;
 
@@ -76,8 +76,9 @@ public sealed class RwkvPostprocessorTests(ITestOutputHelper output)
             var execution = original;
             for (var index = 0; index < passes.Count; index++)
             {
-                execution = new(passes[index].Process(execution,
-                    new(logical, compilation, index, passes[index].Name)).Graphs);
+                execution = passes[index].Process(execution,
+                    new(logical, compilation, index, passes[index].Name));
+                GraphValidation.ThrowIfErrors(execution.Validate());
             }
 
             stopwatch.Stop();
@@ -162,8 +163,7 @@ public sealed class RwkvPostprocessorTests(ITestOutputHelper output)
             var mae = logits[^1].Zip(expected, (actual, reference) => MathF.Abs(actual - reference)).Average();
             Assert.True(mae <= 0.0011f, $"{architecture}/{backend}/{mask} MAE={mae:G9}");
             var kernels = program.Definitions.Count(definition => definition.Kind == VmDefinitionKind.Kernel);
-            var dependencies = execution.Graphs.Sum(graph =>
-                graph.Nodes.Sum(node => graph.Dependencies(node).Count));
+            var dependencies = execution.Sum(graph => graph.GraphFlow.Count);
             output.WriteLine(string.Create(CultureInfo.InvariantCulture,
                 $"BENCH,{architecture},{backend},{reverse},{mask},{program.Slots.Count},{kernels},{dependencies},{passMs:F3},{emitMs:F3},{compileMs:F3},{executorMs:F3},{samples.Average():F6},{samples[samples.Length / 2]:F6},{samples[(int)(samples.Length * 0.95)]:F6},{mae:G9}"));
         }

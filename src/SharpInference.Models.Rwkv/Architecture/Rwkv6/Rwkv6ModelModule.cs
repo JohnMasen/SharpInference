@@ -40,5 +40,5 @@ public sealed class Rwkv6ModelModule
     }
 
     /// <inheritdoc/>
-    public LogicalGraphDefinition Build(IModelTensorCatalog tensors) => provider.Build(tensors);
+    public GraphPackage<LogicalGraph> Build(IModelTensorCatalog tensors) => provider.Build(tensors);
 }

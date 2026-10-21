@@ -156,7 +156,7 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;color:#bccce0}
     "readableTitle": ["可读视图（F）：恢复 100% 比例；选中节点时以它为中心", "Readable view (F): restore 100% zoom and center the selection"],
     "zoomOut": ["缩小", "Zoom out"],
     "zoomIn": ["放大", "Zoom in"],
-    "chooseFile": ["请选择 SharpInference Graph 或 ExecutionPlan XML。", "Choose a SharpInference Graph or ExecutionPlan XML file."],
+    "chooseFile": ["请选择 SharpInference GraphPackage 或 ExecutionPlan XML。", "Choose a SharpInference GraphPackage or ExecutionPlan XML file."],
     "canvas": ["节点关系图", "Node graph"],
     "emptyTitle": ["把模型结构变成可探索的节点图", "Explore your model as a node graph"],
     "emptyHelp": ["点击“打开 XML 文件”，也可将文件拖放到这里。", "Click “Open XML file” or drop a file here."],
@@ -167,16 +167,19 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;color:#bccce0}
     "helpTitle": ["使用说明", "How to use"],
     "helpNodes": ["节点上边缘方块代表输入，下边缘方块代表输出；连线连接对应端口，悬停查看完整名称与资源。单击节点查看详情，拖动调整位置；双击层调用进入对应定义。", "Blocks on the top edge are inputs; blocks on the bottom edge are outputs. Edges attach to their ports; hover for full names and resources. Click a node for details, drag to reposition it, or double-click a layer call to enter its definition."],
     "helpEdges": ["单击连线以金黄色高亮线条、箭头及两端节点，并查看连接资源；再次单击节点恢复节点选择。", "Click an edge to highlight its line, arrow and endpoints in gold and inspect its resources. Click a node to return to node selection."],
-    "helpRegions": ["Definition 包含真实算子和对子图 Definition 的调用。architecture.path 注解生成可展开的展示模块；双击模块展开，双击图调用进入对应定义。", "A Definition contains real operations and calls to child Definitions. architecture.path annotations create expandable display modules; double-click a module to expand it or a graph call to enter its definition."],
-    "helpMetadata": ["架构连线由真实资源绑定聚合生成。Architecture 的 Ports/Port 可用 resource、direction（in/out）、name 为边界命名；Description、Formula 提供说明。defaultCollapsed=false 让结构容器透明展开，repeatGroup=true 标记可切换的重复组。所属计算上下文声明 step=token 时，紫色虚线表示末次状态写入到下一 token 首次读取，不参与本步排序。", "Architecture edges aggregate real resource bindings. Architecture Ports/Port uses resource, direction (in/out) and name to label boundaries; Description and Formula provide documentation. defaultCollapsed=false expands a container transparently; repeatGroup=true marks a toggleable repeated group. With step=token in the computation context, purple dashed edges connect the last state write to the first read of the next token and do not affect current-step ordering."],
+    "helpRegions": ["GraphPackage 包含平铺的 Graph，Call 通过 target 引用辅助图。Metadata/Entry 的 architecture.path 生成可展开的展示模块；双击模块展开，双击调用进入目标图。", "GraphPackage contains flat Graph definitions; Call targets an auxiliary graph. Metadata/Entry architecture.path creates expandable display modules; double-click a module to expand it or a call to enter its target graph."],
+    "helpMetadata": ["架构连线由真实 Binding 聚合生成。Metadata/Entry 的 architecture.description、architecture.formula 提供说明。defaultCollapsed=false 透明展开，repeatGroup=true 标记重复组。step=token 时，紫色虚线连接 isState 资源末次写入与下一 token 首次读取，不参与本步排序。", "Architecture edges aggregate real Bindings. Metadata/Entry architecture.description and architecture.formula provide documentation. defaultCollapsed=false expands transparently; repeatGroup=true marks repeated groups. With step=token, purple dashed edges connect an isState resource's last write to its first read in the next token, without ranking the current step."],
     "helpReadable": ["默认以 100% 可读比例显示节点，拖动画布探索大图。“适应画布”显示全貌，但大图文字会缩小；“可读视图”（F）恢复 100%，有选中节点时以它为中心。输入框内不触发 F 快捷键。搜索后点击“下一个”定位匹配节点。", "Nodes start at readable 100% zoom. Pan to explore large graphs. “Fit to canvas” shows the whole graph but may shrink text; “Readable view” (F) restores 100% and centers the selection. F is ignored in text fields. Search and use “Next” to locate matches."],
     "helpHistory": ["“后退 / 前进”或 Alt + ← / → 导航本文件内的视图历史，恢复画布位置、显示选项和选中内容。打开新文件会重置历史。", "Use Back / Forward or Alt + ← / → to navigate this file’s view history, restoring canvas position, display options and selection. Opening another file resets history."],
     "helpWeights": ["默认隐藏权重和常量节点，减少连线噪声；它们的绑定仍可在节点详情中查看。", "Weights and constants are hidden by default to reduce clutter; their bindings remain available in node details."],
-    "helpOrder": ["连线按 XML 执行顺序连接资源的最近写入者与读取者。ReadWrite 同时读写，不绘制节点自身的回边。层定义显示模板端口，不代表已展开的全部实例。", "Edges connect resource readers to their latest writers in XML execution order. ReadWrite accesses read and write; ordinary self-edges are omitted. Layer definitions show template ports rather than all expanded instances."],
+    "helpOrder": ["Then 是偏序约束，不是文档顺序执行表。资源边按 Then 拓扑序投影读写，未约束的动作保持声明顺序用于展示，不推断编译调度。ReadWrite 保留一条 Binding，投影输入输出端口；辅助图显示模板而非展开的实例。", "Then is a partial order, not a document-sequential schedule. Resource edges project accesses in Then topological order; unconstrained actions retain declaration order for display, not inferred compilation scheduling. ReadWrite retains one Binding with input/output ports; auxiliary graphs show templates, not expanded instances."],
     "invalidId": ["{0} 的 id 为空或重复：{1}", "{0} has an empty or duplicate id: {1}"],
     "xmlError": ["XML 格式错误：{0}", "Invalid XML: {0}"],
-    "invalidRoot": ["不支持的 XML：根元素必须为 Graph 或 ExecutionPlan。", "Unsupported XML: the root element must be Graph or ExecutionPlan."],
-    "unsupportedGraphVersion": ["不支持的 Graph 版本：{0}。仅支持 XML v3；请重新导出旧图。", "Unsupported Graph version: {0}. Only XML v3 is supported; re-export older graphs."],
+    "invalidRoot": ["不支持的 XML：根元素必须为 GraphPackage 或 ExecutionPlan。", "Unsupported XML: the root element must be GraphPackage or ExecutionPlan."],
+    "unsupportedGraphVersion": ["不支持的 GraphPackage 版本或阶段：{0}。", "Unsupported GraphPackage version or stage: {0}."],
+    "businessGraph": ["基本图（业务）", "Business graph"],
+    "packageIssue": ["可编辑源问题：{0}", "Editable source issue: {0}"],
+    "missingGraphCategory": ["图元素缺少类别：{0} / {1}", "Graph element is missing a category: {0} / {1}"],
     "invalidPlan": ["执行计划无效或不支持：{0}", "Invalid or unsupported execution plan: {0}"],
     "planInfo": ["执行计划", "Execution plan"],
     "planNotice": ["这是设计用执行计划；查看器展示计划，不编译或运行 VM。双击函数或 Kernel 查看内部步骤。", "This is a design execution plan. The viewer does not compile or execute a VM. Double-click a function or Kernel to inspect its steps."],
@@ -212,7 +215,7 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;color:#bccce0}
     "switchingView": ["正在切换视图 · {0}：{1}/{2}", "Switching view · {0}: {1}/{2}"],
     "mainOperators": ["主图 · 全部算子/调用", "Main graph · All operations/calls"],
     "openFailed": ["打开失败：{0}", "Open failed: {0}"],
-    "fileFailed": ["文件未打开，请选择有效的 Graph 或 ExecutionPlan XML。", "No file opened. Choose a valid Graph or ExecutionPlan XML file."],
+    "fileFailed": ["文件未打开，请选择有效的 GraphPackage 或 ExecutionPlan XML。", "No file opened. Choose a valid GraphPackage or ExecutionPlan XML file."],
     "portCollision": ["端口和资源 id 重复：{0}/{1}", "Port and resource id collision: {0}/{1}"],
     "elementId": ["元素 id 为空或重复：{0}/{1}", "Empty or duplicate element id: {0}/{1}"],
     "regionDepth": ["Region 嵌套超过 64 层：{0}", "Region nesting exceeds 64 levels: {0}"],
@@ -229,14 +232,14 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;color:#bccce0}
     "invalidPort": ["Region {0} 的架构端口无效或重复：{1}", "Region {0} has an invalid or duplicate architecture port: {1}"],
     "unknownRegionChild": ["Region {0} 含未知元素：{1}", "Region {0} contains an unknown element: {1}"],
     "unknownNodeChild": ["Nodes 含未知元素：{0}", "Nodes contains an unknown element: {0}"],
-    "mainArchitecture": ["主图 · Region 架构", "Main graph · Region architecture"],
+    "mainArchitecture": ["主图 · 元数据架构", "Main graph · Metadata architecture"],
     "allOperators": ["{0} · 全部算子", "{0} · All operations"],
     "portBindingMismatch": ["Region {0} 的架构端口与实际绑定不符：{1}", "Region {0} has an architecture port that does not match its bindings: {1}"],
     "missingHistoryNode": ["导航失败：历史视图中的节点不存在。", "Navigation failed: the historical node no longer exists."],
     "missingHistoryEdge": ["导航失败：历史视图中的连线不存在。", "Navigation failed: the historical edge no longer exists."],
     "missingView": ["导航失败：找不到视图 {0}", "Navigation failed: view not found: {0}"],
     "missingScope": ["找不到所选图或 Region。", "The selected graph or Region was not found."],
-    "expandRegionHint": ["双击进入子图 Definition", "Double-click to enter child Definitions"],
+    "expandRegionHint": ["双击展开模块", "Double-click to expand the module"],
     "expandOperatorsHint": ["双击查看算子", "Double-click to view operations"],
     "stateBoundary": ["跨 token 状态{0}", "Cross-token state {0}"],
     "output": ["输出", "output"],
@@ -262,7 +265,7 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;color:#bccce0}
     "executionNodes": ["执行节点", "execution nodes"],
     "drawingFailed": ["绘图失败：{0}", "Drawing failed: {0}"],
     "overviewClick": ["单击查看节点详情；单击连线高亮两端节点；双击层调用查看模板内部算子。", "Click to inspect node details, click an edge to highlight its endpoints, or double-click a layer call to explore its template."],
-    "overviewRegions": ["当前层级来自 Definition/Call 或 architecture.path 注解，连线由真实算子和调用的资源绑定聚合。双击模块展开，双击调用进入子图 Definition。", "This hierarchy comes from Definitions/Calls or architecture.path annotations; edges aggregate real operation and call bindings. Double-click a module to expand it or a call to enter its child Definition."],
+    "overviewRegions": ["当前层级是 architecture.path 元数据生成的查看器模块，不是 GraphPackage 的 Region/Architecture 实体。连线由真实 Binding 聚合；双击模块展开，双击 Call 进入目标 Graph。", "This hierarchy consists of viewer modules generated from architecture.path metadata, not GraphPackage Region/Architecture entities. Edges aggregate real Bindings; double-click a module to expand it or a Call to enter its target Graph."],
     "overviewMetadata": ["Architecture 是展示元数据，不是执行节点。路径容器仅在查看器内部构建，状态写入保留原执行位置。层定义中的资源和端口是模板，不是具体层实例。", "Architecture is display metadata, not an execution node. Path containers exist only inside the viewer; state writes keep their original execution positions. Definition resources and ports are templates, not concrete layer instances."],
     "model": ["模型", "Model"],
     "tips": ["操作提示", "Tips"],
@@ -270,11 +273,11 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;color:#bccce0}
     "overviewHistory": ["后退 / 前进（Alt + ← / →）恢复已访问视图的位置、选项与选中内容；新文件会重置导航历史。", "Back / Forward (Alt + ← / →) restores visited views, positions, options and selection. Opening another file resets history."],
     "overviewControls": ["滚轮缩放 / 拖动节点调整布局 / 拖动空白处平移画布 / 搜索定位。跨层连线绕开中间节点，手动位置在当前文件内保留。默认隐藏权重和常量；连线依据最近写入者，纯执行依赖使用虚线。", "Scroll to zoom, drag nodes to adjust layout, drag empty space to pan, and search to locate nodes. Long edges avoid intermediate nodes; manual positions are retained within the current file. Weights/constants are hidden by default; edges use the latest writer and pure ordering dependencies are dashed."],
     "templateHint": ["当前为可复用层的模板图。端口是抽象资源，不是某个层实例的实际权重或状态。", "This is a reusable layer template. Ports represent abstract resources, not a particular instance’s weights or state."],
-    "expandRegion": ["展开 Region →", "Expand Region →"],
+    "expandRegion": ["展开模块 →", "Expand module →"],
     "viewOperators": ["查看对应算子 →", "View operations →"],
     "enterDefinition": ["进入层定义 →", "Enter layer definition →"],
     "viewAll": ["查看全部算子 →", "View all operations →"],
-    "descendants": ["{0} 个算子/调用；范围为该 Region 的全部后代。", "{0} operations/calls, covering all descendants of this Region."],
+    "descendants": ["{0} 个算子/调用；范围为该展示模块的全部后代。", "{0} operations/calls, covering all descendants of this display module."],
     "descriptionFormula": ["说明与公式", "Description and formula"],
     "boundaries": ["边界名称", "Boundary labels"],
     "attributes": ["算子属性", "Operation attributes"],
@@ -386,9 +389,8 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;color:#bccce0}
   }
   function graphType() {
     if (state.plan) return t("targetGraph", state.plan.kind.toUpperCase());
-    const kind = attr(state.root, "kind");
-    if (kind === "LogicalGraphDefinition") return t("logicalGraph");
-    if (kind === "ExecutionGraph" || kind === "ExecutionGraphProgram") return t("executionGraph");
+    const stage = attr(state.root, "stage");
+    if (stage) return t(stage === "business" ? "businessGraph" : stage === "logical" ? "logicalGraph" : "executionGraph");
     return t("unspecifiedGraph");
   }
   function updateGraphType() {
@@ -412,96 +414,20 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;color:#bccce0}
     if (error) throw new ViewerError("xmlError", error.textContent.trim().slice(0, 220));
     const root = documentXml.documentElement;
     if (root.localName === "ExecutionPlan") return parseExecutionPlan(root, checkpoint);
-    if (root.localName !== "Graph") throw new ViewerError("invalidRoot");
-    if (attr(root, "version") !== "3")
-      throw new ViewerError("unsupportedGraphVersion", attr(root, "version") || "(missing)");
-    if (attr(root, "kind") === "LogicalGraphDefinition") return parseDefinitionGraph(root, checkpoint);
-    if (attr(root, "kind") === "ExecutionGraphProgram") return parseExecutionGraphProgram(root, checkpoint);
-    throw new ViewerError("missingStructure");
+    if (root.localName !== "GraphPackage") throw new ViewerError("invalidRoot");
+    if (attr(root, "version") !== "1" || !["business", "logical", "execution"].includes(attr(root, "stage")))
+      throw new ViewerError("unsupportedGraphVersion", `${attr(root, "version")} / ${attr(root, "stage")}`);
+    return parseGraphPackage(root, checkpoint);
   }
-  async function parseExecutionGraphProgram(source, checkpoint) {
-    const rootId = attr(child(source, "Root"), "graph");
-    const sourceGraphs = namedMap(child(source, "Graphs"), "ExecutionGraph");
-    if (!rootId || !sourceGraphs.has(rootId)) throw new ViewerError("missingDefinition", "root", rootId);
-    const documentXml = document.implementation.createDocument("", "Graph");
-    const create = (name, attributes = {}) => {
-      const element = documentXml.createElement(name);
-      for (const [key, value] of Object.entries(attributes))
-        if (value) element.setAttribute(key, value);
-      return element;
-    };
-    const copyChildren = (target, sourceElement) => {
-      if (sourceElement) for (const item of sourceElement.children)
-        target.append(documentXml.importNode(item, true));
-    };
-    const converted = documentXml.documentElement;
-    converted.setAttribute("kind", "LogicalGraphDefinition");
-    converted.setAttribute("version", attr(source, "version"));
-    converted.append(create("Root", { definition: rootId }));
-    const definitions = create("Definitions");
-    const totalNodes = Array.from(sourceGraphs.values()).reduce((sum, graph) =>
-      sum + child(graph, "Nodes").children.length, 0);
-    let completedNodes = 0;
-    for (const [id, graph] of sourceGraphs) {
-      const definition = create("Definition", {
-        id, compileBoundary: attr(graph, "compileBoundary")
-      });
-      const architecture = child(graph, "Architecture");
-      if (architecture) {
-        const annotation = create("Annotation", {
-          name: attr(architecture, "name"), role: attr(architecture, "role"),
-          description: attr(architecture, "description")
-        });
-        copyChildren(annotation, architecture);
-        definition.append(annotation);
-      }
-      const nodes = create("Nodes");
-      for (const sourceNode of child(graph, "Nodes").children) {
-        if (completedNodes++ % 64 === 0)
-          await checkpoint("convertExecution", completedNodes - 1, totalNodes);
-        if (sourceNode.localName === "Resource") {
-          nodes.append(documentXml.importNode(sourceNode, true));
-          continue;
-        }
-        const isCall = sourceNode.localName === "GraphCall";
-        const node = create(isCall ? "Call" : "Operation",
-          isCall
-            ? { id: attr(sourceNode, "id"), definition: attr(sourceNode, "target") }
-            : { id: attr(sourceNode, "id"), operation: attr(sourceNode, "operation"),
-                operationVersion: attr(sourceNode, "operationVersion") });
-        const nodeArchitecture = child(sourceNode, "Architecture");
-        if (nodeArchitecture) {
-          const annotation = create("Annotation", {
-            name: attr(nodeArchitecture, "name"), role: attr(nodeArchitecture, "role"),
-            description: attr(nodeArchitecture, "description")
-          });
-          copyChildren(annotation, nodeArchitecture);
-          node.append(annotation);
-        }
-        for (const name of ["Attributes", "Precision", "SourceMap"]) {
-          const item = child(sourceNode, name);
-          if (item) node.append(documentXml.importNode(item, true));
-        }
-        nodes.append(node);
-      }
-      definition.append(nodes);
-      for (const name of ["Bindings", "Dependencies", "SourceMap"]) {
-        const item = child(graph, name);
-        if (item) definition.append(documentXml.importNode(item, true));
-      }
-      definitions.append(definition);
-    }
-    converted.append(definitions);
-    await checkpoint("convertExecution", totalNodes, totalNodes);
-    const result = await parseDefinitionGraph(converted, checkpoint);
-    result.root.setAttribute("kind", "ExecutionGraphProgram");
-    return result;
-  }
-  async function parseDefinitionGraph(source, checkpoint) {
-    const rootRef = child(source, "Root"), definitionsElement = child(source, "Definitions");
-    const rootId = attr(rootRef, "definition");
-    const sourceDefinitions = namedMap(definitionsElement, "Definition");
-    if (!rootId || !sourceDefinitions.has(rootId)) throw new ViewerError("missingDefinition", "root", rootId);
+  async function parseGraphPackage(source, checkpoint) {
+    const rootId = attr(source, "main");
+    const sourceDefinitions = namedMap(child(source, "Graphs"), "Graph");
+    const sourceActionIds = new Map(Array.from(sourceDefinitions, ([id, graph]) =>
+      [id, new Set(Array.from(child(graph, "Actions")?.children || [], item => attr(item, "id")))]));
+    const issues = [], originals = new WeakMap();
+    const issue = detail => issues.push(detail);
+    if (!rootId) issue("GraphPackage main is missing; no main graph was inferred.");
+    else if (!sourceDefinitions.has(rootId)) issue(`main Graph '${rootId}' is missing.`);
     const documentXml = document.implementation.createDocument("", "Graph");
     const copy = element => documentXml.importNode(element, true);
     const create = (name, attributes = {}) => {
@@ -511,34 +437,38 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;color:#bccce0}
       return element;
     };
     const converted = documentXml.documentElement;
-    converted.setAttribute("kind", "LogicalGraphDefinition");
+    converted.setAttribute("stage", attr(source, "stage"));
     converted.setAttribute("version", attr(source, "version"));
     const resources = create("Resources");
     const table = create("LayerDefinitions");
     const nodeOrder = new WeakMap();
-    const indexes = new WeakMap(), exposedIds = new WeakMap();
+    const indexes = new WeakMap(), resourceIndexes = new WeakMap(), exposedIndexes = new WeakMap();
+    const graphResources = graph => {
+      if (!graph) return new Map();
+      if (!resourceIndexes.has(graph)) resourceIndexes.set(graph, namedMap(child(graph, "Resources"), "Resource"));
+      return resourceIndexes.get(graph);
+    };
     const totalNodes = Array.from(sourceDefinitions.values()).reduce((sum, definition) =>
-      sum + Array.from(child(definition, "Nodes").children)
-        .filter(item => item.localName !== "Resource").length, 0);
+      sum + (child(definition, "Actions")?.children.length || 0), 0);
     let completedNodes = 0;
     converted.append(resources, table);
 
     const annotation = (element, includeBoundary = false) => {
-      const sourceAnnotation = child(element, "Annotation");
-      if (!sourceAnnotation) return null;
-      const attributes = new Map(children(sourceAnnotation, "Attribute")
-        .map(item => [attr(item, "name"), attr(item, "value")]));
+      const sourceAnnotation = child(element, "Metadata");
+      if (!sourceAnnotation && !attr(element, "description") && !attr(element, "name")) return null;
+      const attributes = new Map(children(sourceAnnotation, "Entry")
+        .map(item => [attr(item, "key"), attr(item, "value")]));
       const result = create("Architecture", {
-        name: attr(sourceAnnotation, "name") || attributes.get("architecture.name"),
-        role: attr(sourceAnnotation, "role"),
+        name: attr(element, "name") || attributes.get("architecture.name"),
+        role: attributes.get("architecture.role"),
         path: attributes.get("architecture.path"),
       });
       for (const name of ["step", "defaultView", "defaultCollapsed", "repeatGroup"]) {
         const value = attributes.get(`architecture.${name}`) || attributes.get(name);
         if (value) result.setAttribute(name, value);
       }
-      const description = [attr(sourceAnnotation, "description"),
-        includeBoundary ? `Compile boundary: ${attr(element, "compileBoundary")}` : ""]
+      const description = [attr(element, "description") || attributes.get("architecture.description"),
+        includeBoundary && attr(element, "compileBoundary") ? `Compile boundary: ${attr(element, "compileBoundary")}` : ""]
         .filter(Boolean).join("\n");
       if (description) {
         const item = create("Description");
@@ -561,83 +491,94 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;color:#bccce0}
         layout: attr(tensor, "layout"),
       };
     };
-    const resource = item => create("Resource", {
-      id: attr(item, "id"), name: attr(item, "name"), kind: attr(item, "kind"),
-      bindingKey: attr(item, "bindingKey"), ...tensorAttributes(item),
-    });
-    const resourceGraphId = (sourceResource, name = "id") => {
-      const instance = attr(sourceResource, "instance");
-      return instance
-        ? `resource:instance:${instance}:${attr(sourceResource, name)}`
-        : `resource:parent:${attr(sourceResource, name)}`;
+    const resource = item => {
+      const result = create("Resource", {
+        id: attr(item, "id"), kind: attr(item, "usage") || (attr(item, "isState") === "true" ? "State" : attr(item, "graphIO") || "Internal"),
+        graphIO: attr(item, "graphIO") || "Internal", scope: attr(item, "scope") || "Call",
+        isState: attr(item, "isState") || "false", permission: attr(item, "permission") || "ReadWrite",
+        usage: attr(item, "usage"), category: attr(item, "category") || "resource",
+        bindingKey: attr(item, "bindingKey"), ...tensorAttributes(item),
+      });
+      const storage = child(item, "Storage");
+      if (storage) result.append(copy(storage));
+      originals.set(result, item);
+      return result;
     };
     function definitionIndex(definition) {
       if (indexes.has(definition)) return indexes.get(definition);
-      const resources = new Map(children(child(definition, "Nodes"), "Resource")
-        .map(item => [resourceGraphId(item), item]));
+      const resources = graphResources(definition);
+      const actions = new Map();
       const accesses = new Map(), dependencies = new Map();
-      for (const binding of children(child(definition, "Bindings"), "Binding")) {
-        const id = attr(binding, "node");
-        if (!accesses.has(id)) accesses.set(id, []);
-        accesses.get(id).push(binding);
+      for (const action of child(definition, "Actions")?.children || []) {
+        const id = attr(action, "id");
+        if (!id || actions.has(id)) throw new ViewerError("invalidId", "Action", id);
+        actions.set(id, action);
+        accesses.set(id, children(action, "Binding"));
       }
-      const bindingOrder = binding => Math.min(...["readOrder", "writeOrder"]
-        .filter(name => binding.hasAttribute(name)).map(name => Number(attr(binding, name))));
-      for (const bindings of accesses.values())
-        bindings.sort((first, second) => bindingOrder(first) - bindingOrder(second));
-      for (const dependency of children(child(definition, "Dependencies"), "Dependency")
-        .sort((first, second) => Number(attr(first, "order")) - Number(attr(second, "order")))) {
-        const id = attr(dependency, "target");
+      for (const dependency of children(child(definition, "GraphFlow"), "Then")) {
+        const fromGraph = attr(dependency, "fromGraph") || attr(definition, "id");
+        const toGraph = attr(dependency, "toGraph") || attr(definition, "id");
+        if (!sourceActionIds.get(fromGraph)?.has(attr(dependency, "from")) ||
+            !sourceActionIds.get(toGraph)?.has(attr(dependency, "to")))
+          issue(`Then ${fromGraph}/${attr(dependency, "from")} → ${toGraph}/${attr(dependency, "to")} has a missing reference.`);
+        if (fromGraph !== attr(definition, "id") || toGraph !== attr(definition, "id")) continue;
+        const id = attr(dependency, "to");
         if (!dependencies.has(id)) dependencies.set(id, []);
         dependencies.get(id).push(dependency);
       }
-      const result = { resources, accesses, dependencies };
+      const result = { resources, actions, accesses, dependencies };
       indexes.set(definition, result);
       return result;
     }
     const dependencies = (sourceNode, definition) => {
       const result = create("DependsOn");
       for (const edge of definitionIndex(definition).dependencies.get(attr(sourceNode, "id")) || [])
-        result.append(create("ElementRef", { id: attr(edge, "source") }));
+        if (definitionIndex(definition).actions.has(attr(edge, "from")))
+          result.append(create("ElementRef", { id: attr(edge, "from"), edgeKind: "then" }));
       return result;
     };
     const node = (sourceNode, definition, exposedResources) => {
       const result = sourceNode.localName === "Call"
-        ? create("Call", { id: attr(sourceNode, "id"), definition: attr(sourceNode, "definition") })
+        ? create("Call", { id: attr(sourceNode, "id"), definition: attr(sourceNode, "target") })
         : create("Node", { id: attr(sourceNode, "id"),
-          operation: `${attr(sourceNode, "operation")}@${attr(sourceNode, "operationVersion")}` });
+          operation: `${attr(sourceNode, "operation")}@${attr(sourceNode, "version")}` });
+      result.setAttribute("category", attr(sourceNode, "category") || (sourceNode.localName === "Call" ? "call" : "operation"));
+      originals.set(result, sourceNode);
+      if (sourceNode.localName === "Call" && !sourceDefinitions.has(attr(sourceNode, "target")))
+        issue(`Call ${attr(definition, "id")}/${attr(sourceNode, "id")} targets missing Graph '${attr(sourceNode, "target")}'.`);
       const index = definitionIndex(definition);
       const resourcesByGraphId = index.resources;
       const sourceBindings = index.accesses.get(attr(sourceNode, "id")) || [];
       if (sourceBindings.length) {
         const bindings = create("Bindings");
         for (const sourceBinding of sourceBindings) {
-          const graphResourceId = resourceGraphId(sourceBinding, "resource");
-          const sourceResource = resourcesByGraphId.get(graphResourceId);
-          if (!sourceResource)
-            throw new ViewerError("missingResource", attr(definition, "id"),
-              attr(sourceNode, "id"), graphResourceId);
-          const instance = attr(sourceResource, "instance");
-          const resourceId = attr(sourceResource, "id");
+          const targetKind = attr(sourceBinding, "targetKind"), target = attr(sourceBinding, "target");
+          const property = attr(sourceBinding, "targetProperty");
+          let targetGraph, instance = "";
+          if (targetKind === "Graph") targetGraph = sourceDefinitions.get(target || attr(definition, "id"));
+          else if (targetKind === "Call") {
+            instance = target;
+            const call = index.actions.get(target);
+            if (call?.localName === "Call") targetGraph = sourceDefinitions.get(attr(call, "target"));
+          }
+          const sourceResource = graphResources(targetGraph).get(property);
+          const local = targetGraph === definition && targetKind === "Graph";
+          const resourceId = local ? property : `${targetKind}:${target || attr(definition, "id")}/${property}`;
+          if (!sourceResource) issue(`Binding ${attr(definition, "id")}/${attr(sourceNode, "id")}.${attr(sourceBinding, "property")} → ${targetKind}:${target}/${property} is unresolved.`);
           const binding = create("Binding", {
-            id: attr(sourceBinding, "id"), port: attr(sourceBinding, "port"),
-            resource: instance ? `${instance}/${resourceId}` : resourceId,
+            port: attr(sourceBinding, "property"), resource: resourceId,
+            targetKind, target, targetProperty: property,
             access: attr(sourceBinding, "access"),
           });
-          for (const name of ["readEdge", "readOrder", "writeEdge", "writeOrder"])
-            if (sourceBinding.hasAttribute(name)) binding.setAttribute(name, attr(sourceBinding, name));
-          if (instance) {
-            const exposedId = `${instance}/${resourceId}`;
-            if (!exposedIds.has(exposedResources))
-              exposedIds.set(exposedResources, new Set(children(exposedResources, "Resource")
-                .map(item => attr(item, "id"))));
-            const ids = exposedIds.get(exposedResources);
-            if (!ids.has(exposedId)) {
-              const exposed = resource(sourceResource);
-              exposed.setAttribute("id", exposedId);
-              exposed.setAttribute("name", `${instance}/${attr(sourceResource, "name") || resourceId}`);
+          if (!resourcesByGraphId.has(resourceId) || !local) {
+            if (!exposedIndexes.has(exposedResources))
+              exposedIndexes.set(exposedResources, new Set(children(exposedResources, "Resource").map(item => attr(item, "id"))));
+            const exposedIds = exposedIndexes.get(exposedResources);
+            if (!exposedIds.has(resourceId)) {
+              const exposed = sourceResource ? resource(sourceResource) : create("Resource", { category: "unresolved", kind: "Unresolved" });
+              exposed.setAttribute("id", resourceId);
               exposedResources.append(exposed);
-              ids.add(exposedId);
+              exposedIds.add(resourceId);
             }
           }
           bindings.append(binding);
@@ -647,25 +588,40 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;color:#bccce0}
       result.append(dependencies(sourceNode, definition));
       const metadata = annotation(sourceNode);
       if (metadata) result.append(metadata);
-      const sourceMap = child(sourceNode, "SourceMap");
-      if (sourceMap) result.append(copy(sourceMap));
+      for (const name of ["Attributes", "Precision", "Implementation", "Sources", "Metadata"]) {
+        const item = child(sourceNode, name);
+        if (item) result.append(copy(item));
+      }
       return result;
     };
     const region = async (definition, exposedResources) => {
-      const sourceAnnotation = child(definition, "Annotation");
+      definitionIndex(definition);
       const result = create("Region", {
         id: attr(definition, "id"),
         type: "graph",
-        name: attr(sourceAnnotation, "name") || attr(definition, "id"),
-        role: attr(sourceAnnotation, "role"),
+        name: attr(definition, "name") || attr(definition, "id"),
       });
       const metadata = annotation(definition, true);
       if (metadata) result.append(metadata);
-      const sourceNodes = Array.from(child(definition, "Nodes").children)
-        .filter(item => item.localName !== "Resource");
+      const declared = Array.from(child(definition, "Actions")?.children || []);
+      const index = definitionIndex(definition);
+      const pending = new Map(declared.map(item => [attr(item, "id"), 0]));
+      const outgoing = new Map(declared.map(item => [attr(item, "id"), []]));
+      for (const [to, flows] of index.dependencies) for (const flow of flows) {
+        const from = attr(flow, "from");
+        if (!pending.has(from) || !pending.has(to)) continue;
+        pending.set(to, pending.get(to) + 1); outgoing.get(from).push(to);
+      }
+      const ready = declared.filter(item => pending.get(attr(item, "id")) === 0);
+      for (let i = 0; i < ready.length; i++) for (const to of outgoing.get(attr(ready[i], "id"))) {
+        pending.set(to, pending.get(to) - 1);
+        if (!pending.get(to)) ready.push(index.actions.get(to));
+      }
+      if (ready.length !== declared.length) issue(`Graph '${attr(definition, "id")}' has cyclic Then constraints.`);
+      const sourceNodes = ready.length === declared.length ? ready : declared;
       const paths = sourceNodes.map(sourceNode => {
-        const attribute = children(child(sourceNode, "Annotation"), "Attribute")
-          .find(item => attr(item, "name") === "architecture.path");
+        const attribute = children(child(sourceNode, "Metadata"), "Entry")
+          .find(item => attr(item, "key") === "architecture.path");
         if (!attribute) return null;
         const path = attr(attribute, "value").split("/");
         if (path.length > 64 || path.some(part => !part.trim()))
@@ -715,32 +671,41 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;color:#bccce0}
     };
 
     const rootDefinition = sourceDefinitions.get(rootId);
-    for (const item of children(child(rootDefinition, "Nodes"), "Resource")
-      .filter(item => !attr(item, "instance"))) resources.append(resource(item));
-    converted.append(await region(rootDefinition, resources));
+    for (const item of children(child(rootDefinition, "Resources"), "Resource")) resources.append(resource(item));
+    if (rootDefinition) converted.append(await region(rootDefinition, resources));
+    const outputs = create("Outputs");
+    for (const item of children(child(rootDefinition, "Resources"), "Resource"))
+      if (["Out", "InOut"].includes(attr(item, "graphIO")))
+        outputs.append(create("ResourceRef", { id: attr(item, "id") }));
+    converted.append(outputs);
     for (const [id, definition] of sourceDefinitions) {
       if (id === rootId) continue;
-      const layer = create("LayerDefinition", { id });
+      const layer = create("LayerDefinition", { id: `@graph:${id}` });
       const ports = create("Ports"), locals = create("LocalResources");
-      for (const item of children(child(definition, "Nodes"), "Resource")
-        .filter(item => !attr(item, "instance"))) {
-        const kind = attr(item, "kind");
-        if (["Input", "Output", "InOut"].includes(kind)) {
-          ports.append(create("Port", {
-            id: attr(item, "id"),
-            access: kind === "Input" ? "Read" : kind === "Output" ? "Write" : "ReadWrite",
-            ...tensorAttributes(item),
-          }));
-        } else {
-          locals.append(resource(item));
-        }
+      for (const item of children(child(definition, "Resources"), "Resource")) {
+        const kind = attr(item, "graphIO");
+        const itemResource = resource(item);
+        if (["In", "Out", "InOut"].includes(kind)) {
+          itemResource.setAttribute("access", kind === "In" ? "Read" : kind === "Out" ? "Write" : "ReadWrite");
+          // Ports retain the full resource contract, independently of their direction.
+          const port = create("Port");
+          for (const attribute of itemResource.attributes) port.setAttribute(attribute.name, attribute.value);
+          originals.set(port, item);
+          ports.append(port);
+        } else locals.append(itemResource);
       }
       layer.append(ports, locals, await region(definition, locals));
       table.append(layer);
     }
     await checkpoint("convertLogical", totalNodes, totalNodes);
+    for (const call of converted.getElementsByTagName("Call")) {
+      const target = attr(call, "definition");
+      if (target === rootId && rootDefinition) call.setAttribute("definition", "root");
+      else call.setAttribute("definition", `@graph:${target}`);
+    }
     return { root: converted, definitions: namedMap(table, "LayerDefinition"),
-      resources: namedMap(resources, "Resource"), plan: null, nodeOrder };
+      resources: namedMap(resources, "Resource"), plan: null, nodeOrder,
+      package: { root: source, issues, originals, graphs: sourceDefinitions, main: rootId } };
   }
   function parseExecutionPlan(planRoot, checkpoint) {
     if (attr(planRoot, "schema") === "sharp-inference") return parseTargetExecutionPlan(planRoot);
@@ -772,8 +737,8 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;color:#bccce0}
       const kind = attr(planRoot, "kind");
       if (attr(planRoot, "version") !== "1" || !["il", "cpu", "gpu"].includes(kind)) fail("schema / version / kind");
       if (kind === "il") {
-        const graph = child(planRoot, "Graph");
-        if (!graph) fail("IL Graph");
+        const graph = child(planRoot, "GraphPackage");
+        if (!graph) fail("IL GraphPackage");
         const parsed = await parseXml(new XMLSerializer().serializeToString(graph), checkpoint);
         parsed.plan = { root: planRoot, kind, originals: new WeakMap(), owners: new Map(), unitPlans: new Map() };
         return parsed;
@@ -1093,7 +1058,7 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;color:#bccce0}
       const parsed = await parseXml(xml, checkpoint);
       if (loadId !== state.loadId) return;
       await checkpoint("registerViews", 0, 1);
-      Object.assign(state, { nodeOrder: null }, parsed);
+      Object.assign(state, { nodeOrder: null, package: null }, parsed);
       updateGraphType();
       state.rootResources = parsed.resources;
       state.filename = file.name;
@@ -1162,7 +1127,7 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;color:#bccce0}
         addElement(element);
         if (element.localName !== "Region") {
           const definition = attr(element, "definition");
-          if (element.localName === "Call" && !state.definitions.has(definition))
+          if (element.localName === "Call" && !state.definitions.has(definition) && !state.package)
             throw new ViewerError("missingDefinition", attr(element, "id"), definition);
           const item = { element, id: attr(element, "id"), definition, path: names.join(" / "), bindings: bindings(element) };
           for (const binding of item.bindings) {
@@ -1330,7 +1295,9 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;color:#bccce0}
   function bindings(element) {
     const container = child(element, "Bindings");
     return container ? children(container, "Binding").map(binding => ({
-      port: attr(binding, "port"), resource: attr(binding, "resource"), access: attr(binding, "access")
+      port: attr(binding, "port"), resource: attr(binding, "resource"), access: attr(binding, "access"),
+      targetKind: attr(binding, "targetKind"), target: attr(binding, "target"),
+      targetProperty: attr(binding, "targetProperty"),
     })) : [];
   }
   function buildGraph() {
@@ -1349,10 +1316,10 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;color:#bccce0}
       const node = { ...item, key: `node:${item.id}`, metadata: child(item.element, "Architecture"),
         label: unitKind ? t("unitLabel", unitKind, attr(item.element, "steps")) : barrier
           ? t("barrierLabel", attr(item.element, "resources").split(/\s+/).filter(Boolean).length)
-          : item.definition || attr(item.element, "operation"),
+          : attr(state.package?.originals.get(item.element), "target") || item.definition || attr(item.element, "operation"),
         displayName: unitKind ? `${item.id} · ${unitKind}` : target?.architecture ? `${attr(target.regions[0].region, "name")}${item.id.startsWith("layer.") ? ` ${item.id.slice(6)}` : ""}` : "",
         unitKind, kernel: unitKind === "Kernel", barrier,
-        drillTarget: target?.architectureKey || item.definition, external: false };
+        drillTarget: target?.architectureKey || (target ? item.definition : ""), external: false };
       if (target?.architectureKey) node.operatorTarget = item.definition;
       visible.push(node); owners.set(item, node);
     };
@@ -1388,7 +1355,7 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;color:#bccce0}
     function boundary(resource, direction, temporal = false) {
       const kind = kindOf(resource);
       if (!$("weights").checked && /^(Weight|Constant)$/i.test(kind)) return null;
-      if (architectureView && kind === "SessionState" && !temporal) return null;
+      if (!state.package && architectureView && kind === "SessionState" && !temporal) return null;
       const map = direction === "in" ? inputs : outputs;
       if (!map.has(resource)) {
         const node = { key: `${direction}:${resource}`, id: resource, element: resources.get(resource), kind,
@@ -1413,6 +1380,7 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;color:#bccce0}
         edge.bindings.push(binding);
     }
     function readsBeforeWrite(item, binding, depth = 0) {
+      if (state.package) return binding.access !== "Write";
       if (binding.access !== "ReadWrite" || !item.definition) return binding.access !== "Write";
       if (depth >= 64) throw new ViewerError("callDepth");
       const target = state.contexts.get(item.definition);
@@ -1427,7 +1395,9 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;color:#bccce0}
     for (const item of context.nodes) {
       for (const binding of item.bindings) {
         if (readsBeforeWrite(item, binding)) {
-          const writer = writers.get(backingOf(binding.resource));
+          const writer = writers.get(backingOf(binding.resource)) ||
+            (state.package && binding.targetKind === "Call"
+              ? context.nodeMetadata.get(context.elements.get(binding.target)) : null);
           if (!writer && !firstReaders.has(binding.resource)) firstReaders.set(binding.resource, item);
           if (selected.has(item)) connect(owners.get(writer) || boundary(binding.resource, "in"), owners.get(item),
             { ...binding, sourceNode: writer?.id || "", targetNode: item.id });
@@ -1444,13 +1414,14 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;color:#bccce0}
       const targetItems = toElement.localName === "Region" ? state.regionMetadata.get(toElement).nodes : [context.nodeMetadata.get(toElement)];
       const source = sourceItems[sourceItems.length - 1], target = targetItems[0];
       if (!source || !target || source === target) throw new ViewerError("invalidDependency", id);
-      if (executionPositions.get(source) >= executionPositions.get(target)) throw new ViewerError("backwardDependency", id);
+      if (!state.package && executionPositions.get(source) >= executionPositions.get(target)) throw new ViewerError("backwardDependency", id);
       if (!logicalPriority && selected.has(source) && selected.has(target))
         connect(owners.get(source), owners.get(target), { resource: id, port: t("orderDependency"), access: "Order" });
     }
     for (const element of context.elements.values()) {
       for (const ref of children(child(element, "DependsOn"), "ElementRef")) {
         const from = context.elements.get(attr(ref, "id"));
+        if (!from && state.package) continue;
         if (!from) throw new ViewerError("missingDependency", attr(ref, "id"));
         executionDependency(from, element, attr(ref, "id"));
       }
@@ -1470,11 +1441,39 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;color:#bccce0}
         { resource, port: "output", access: "Read", sourceNode: writer.id, targetNode: "" });
       else if (!view) connect(boundary(resource, "in"), boundary(resource, "out"), { resource, port: "output", access: "Read" });
     }
+    if (state.package) {
+      const graphId = context.id === "root" ? state.package.main : context.id.slice("@graph:".length);
+      const graph = state.package.graphs.get(graphId);
+      const endpoint = (id, action) => {
+        if (id === graphId) return owners.get(context.nodes.find(item => item.id === action));
+        const key = `graph:${id}/${action}`;
+        let node = visible.find(item => item.key === key);
+        if (!node) {
+          node = { key, id: `${id}/${action}`, displayName: `${id}/${action}`, label: "Then",
+            element: graph, bindings: [], external: true,
+            drillTarget: id === state.package.main ? "root" : `@graph:${id}` };
+          visible.push(node);
+        }
+        return node;
+      };
+      if (!logicalPriority) for (const flow of children(child(graph, "GraphFlow"), "Then")) {
+        const fromGraph = attr(flow, "fromGraph") || graphId, toGraph = attr(flow, "toGraph") || graphId;
+        if (fromGraph === graphId && toGraph === graphId) continue;
+        connect(endpoint(fromGraph, attr(flow, "from")), endpoint(toGraph, attr(flow, "to")),
+          { resource: `${fromGraph}/${attr(flow, "from")} → ${toGraph}/${attr(flow, "to")}`, port: "Then", access: "Order" });
+      }
+      const usedResources = new Set(context.nodes.flatMap(item => item.bindings.map(binding => binding.resource)));
+      for (const [id, resource] of resources)
+        if (!usedResources.has(id) &&
+            !inputs.has(id) && !outputs.has(id))
+          boundary(id, ["Out", "InOut"].includes(attr(resource, "graphIO")) ? "out" : "in");
+    }
     const temporalEnabled = architectureView && context.regions.some(entry => attr(entry.metadata, "step") === "token");
     if (temporalEnabled && $("states").checked) {
       for (const [resource, reader] of firstReaders) {
         const writer = lastWriters.get(resource);
-        if (kindOf(resource) !== "SessionState" || !writer || !selected.has(reader) && !selected.has(writer)) continue;
+        if (!(state.package ? attr(resources.get(resource), "isState") === "true" : kindOf(resource) === "SessionState") ||
+            !writer || !selected.has(reader) && !selected.has(writer)) continue;
         connect(owners.get(writer) || boundary(resource, "in", true), owners.get(reader) || boundary(resource, "out", true),
           { resource, port: `${writer.id} → ${reader.id}`,
           access: "State(t) → State(t+1)" }, true);
@@ -1510,7 +1509,7 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;color:#bccce0}
       }
     }
     if (queue.length !== all.length) {
-      if (!architectureView || !all.some(node => node.region && attr(node.element, "path")))
+      if (!state.package && (!architectureView || !all.some(node => node.region && attr(node.element, "path"))))
         throw new ViewerError("cycle");
       rankArchitectureGroups(all, outgoing);
     }
@@ -1905,6 +1904,8 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;color:#bccce0}
       updateSearch(false); readable(false); overview();
       const identity = child(state.root, "Identity");
       status(message("graphStatus", `${state.filename} · ${graphType()}`, identity ? attr(identity, "name") : "Graph", $("scope").selectedOptions[0].textContent, state.nodes.filter(n => !n.external).length, state.architectureView ? t("modules") : t("executionNodes"), state.nodes.filter(n => n.external).length, state.edges.length));
+      if (state.package?.issues.length)
+        status(message("packageIssue", state.package.issues.join("\n")), true);
       state.viewScope = $("scope").value;
       return true;
     } catch (error) { state.drawError = error; status(message("drawingFailed", errorMessage(error)), true); return false; }
@@ -1919,7 +1920,7 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;color:#bccce0}
   }
   function tensor(element) {
     const t = child(element, "Tensor");
-    return t ? `${attr(t, "elementType")} [${children(t, "Dimension").map(d => attr(d, "size") || attr(d, "symbol") || "?").join(" × ")}] ${attr(t, "layout")}`
+    return t ? `${attr(t, "elementType")} [${children(t, "Dimension").map(d => attr(d, "value") || attr(d, "size") || attr(d, "symbol") || "?").join(" × ")}] ${attr(t, "layout")}`
       : attr(element, "elementType") ? `${attr(element, "elementType")} [${attr(element, "shape").trim().split(/[,\s]+/).join(" × ")}] ${attr(element, "layout") || "dense"}` : "";
   }
   function currentResourcePlan() {
@@ -1995,6 +1996,21 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;color:#bccce0}
     text(panel, "h2", $("scope").selectedOptions[0].textContent);
     text(panel, "p", t("overviewClick"));
     planOverview(panel);
+    if (state.package) {
+      text(panel, "h3", "GraphPackage");
+      table(panel, Array.from(state.package.root.attributes).map(a => [a.name, a.value]));
+      const target = child(state.package.root, "Target");
+      if (target) table(panel, [["backend", attr(target, "backend")]]);
+      for (const issue of state.package.issues) text(panel, "p", t("packageIssue", issue), "hint");
+      const graphId = state.contextId === "root" ? state.package.main : state.contextId.slice("@graph:".length);
+      const graph = state.package.graphs.get(graphId);
+      for (const element of [state.package.root, graph]) {
+        table(panel, children(child(element, "Metadata"), "Entry").map(entry => [attr(entry, "key"), attr(entry, "value")]));
+      }
+      const raw = text(panel, "details", "");
+      text(raw, "summary", t("rawXml"));
+      text(raw, "pre", new XMLSerializer().serializeToString(graph || state.package.root));
+    }
     if (state.architectureView) {
       text(panel, "p", t("overviewRegions"));
       text(panel, "p", t("overviewMetadata"), "hint");
@@ -2054,15 +2070,36 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;color:#bccce0}
     if (node.path) properties.push(["region", node.path]);
     table(panel, properties);
     if (tensor(node.element)) text(panel, "p", tensor(node.element), "hint");
+    if (state.package) {
+      for (const name of ["Precision", "Implementation"]) {
+        const value = child(node.element, name);
+        if (value) {
+          text(panel, "h3", name);
+          table(panel, Array.from(value.attributes).map(attribute => [attribute.name, attribute.value]));
+        }
+      }
+      const sources = children(child(node.element, "Sources"), "Source");
+      if (sources.length) {
+        text(panel, "h3", "Sources");
+        table(panel, sources.map(source =>
+          [attr(source, "document"), `${attr(source, "graph")}/${attr(source, "node")}`]));
+      }
+    }
     if (node.bindings.length) {
       text(panel, "h3", t("bindings", node.bindings.length));
       for (const binding of node.bindings) {
         text(panel, "p", `${binding.port} · ${binding.access}`, "badge");
         text(panel, "code", binding.resource);
+        if (state.package) table(panel, [["targetKind", binding.targetKind],
+          ["target", binding.target || "(current Graph)"], ["targetProperty", binding.targetProperty]]);
         if (binding.sourceNode || binding.targetNode)
           text(panel, "p", `${binding.sourceNode || t("boundaryInput")} → ${binding.targetNode || t("boundaryOutput")}`, "hint");
         const resource = state.resources.get(binding.resource);
-        if (resource) text(panel, "p", `${attr(resource, "kind") || attr(resource, "resourceKind") || "Port"} · ${tensor(resource)}`, "hint");
+        if (resource) {
+          text(panel, "p", `${attr(resource, "kind") || attr(resource, "resourceKind") || "Port"} · ${tensor(resource)}`, "hint");
+          if (state.package) table(panel, ["graphIO", "scope", "isState", "permission", "usage", "bindingKey", "category"]
+            .map(name => [name, attr(resource, name) || "—"]));
+        }
         if (attr(resource, "viewOf"))
           text(panel, "p", `${t("staticViews")}: ${attr(resource, "viewOf")} · ${attr(resource, "binding")}`, "hint");
         const mapping = children(currentResourcePlan(), "Map").find(item => attr(item, "resource") === binding.resource);
@@ -2080,7 +2117,8 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;color:#bccce0}
     }
     const raw = document.createElement("details");
     text(raw, "summary", t("rawXml"));
-    text(raw, "pre", new XMLSerializer().serializeToString(state.plan?.originals.get(node.element) || node.element)); panel.append(raw);
+    text(raw, "pre", new XMLSerializer().serializeToString(state.package?.originals.get(node.element) ||
+      state.plan?.originals.get(node.element) || node.element)); panel.append(raw);
   }
   function selectEdge(edge) {
     state.selected = null;

@@ -12,6 +12,6 @@ public sealed record GraphDiagnostic(
     string Code,
     string Message,
     string? Node = null,
-    ResourceId? Resource = null,
+    string? Resource = null,
     string? Port = null,
     string? Graph = null);

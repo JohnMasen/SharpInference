@@ -1,7 +1,9 @@
 using System.Reflection;
 using System.Runtime.CompilerServices;
-using SharpInference.Graphs.Internal;
+using SharpInference.Graphs;
+using SharpInference.Graphs.Execution;
 using SharpInference.Graphs.Logical;
+using SharpInference.Vm.Optimization;
 using SharpInference.Vm.Optimization.GraphHelper;
 
 namespace SharpInference.Tests;
@@ -11,55 +13,48 @@ public sealed class GraphLayeringTests
     [Fact]
     public void GraphsDependsOnlyOnCoreAndInstructionsWithinTheRepository()
     {
-        var assembly = typeof(LogicalGraphDefinition).Assembly;
-        var references = assembly.GetReferencedAssemblies()
-            .Select(reference => reference.Name!)
-            .Where(name => name.StartsWith("SharpInference.", StringComparison.Ordinal))
-            .Order(StringComparer.Ordinal);
-
+        var assembly = typeof(LogicalGraph).Assembly;
+        var references = assembly.GetReferencedAssemblies().Select(reference => reference.Name!)
+            .Where(name => name.StartsWith("SharpInference.", StringComparison.Ordinal)).Order(StringComparer.Ordinal);
         Assert.Equal(["SharpInference.Graphs.Core", "SharpInference.Instructions"], references);
         Assert.DoesNotContain(assembly.GetCustomAttributes<InternalsVisibleToAttribute>(),
-            attribute => attribute.AssemblyName.StartsWith("SharpInference.Vm.Optimization",
-                StringComparison.Ordinal));
+            attribute => attribute.AssemblyName.StartsWith("SharpInference.Vm.Optimization", StringComparison.Ordinal));
     }
 
     [Fact]
-    public void ExecutionTypesAreOwnedByOptimizationGraphHelper()
+    public void EditableBusinessAndExecutionTypesBelongToGraphs()
     {
         Type[] types =
         [
-            typeof(DefaultExecutionGraphConverter), typeof(ExecutionDependencyEdge),
-            typeof(ExecutionGraph), typeof(ExecutionGraphBuilder), typeof(ExecutionGraphCallNode),
-            typeof(ExecutionGraphCallRelation), typeof(ExecutionGraphCompilationContext),
-            typeof(ExecutionGraphCompiler), typeof(ExecutionGraphEdge), typeof(ExecutionGraphId),
-            typeof(ExecutionGraphNode), typeof(ExecutionGraphPostprocessContext),
-            typeof(ExecutionGraphProgram), typeof(ExecutionGraphResource), typeof(ExecutionGraphRewriter),
-            typeof(ExecutionGraphSource), typeof(ExecutionGraphStructureNode), typeof(ExecutionGraphXml),
-            typeof(ExecutionNodeId), typeof(ExecutionOperationNode), typeof(ExecutionResourceNode),
-            typeof(ExecutionResourceReadEdge), typeof(ExecutionResourceWriteEdge),
-            typeof(ExecutionSourceMap), typeof(GraphArchitecture), typeof(IExecutionGraphConverter),
-            typeof(IExecutionGraphPostprocessor),
+            typeof(SharpInference.Graphs.Graph), typeof(GraphPackage<>), typeof(GraphAction), typeof(Resource),
+            typeof(Binding), typeof(GraphFlow), typeof(GraphPackageXml), typeof(LogicalGraph),
+            typeof(ExecutionGraph), typeof(ExecutionOperation), typeof(ExecutionCall),
+            typeof(ExecutionStorage), typeof(ExecutionImplementation), typeof(SourceOrigin),
         ];
-
-        Assert.Equal(27, types.Length);
-        Assert.All(types, type =>
-        {
-            Assert.Equal("SharpInference.Vm.Optimization", type.Assembly.GetName().Name);
-            Assert.Equal("SharpInference.Vm.Optimization.GraphHelper", type.Namespace);
-            Assert.Null(typeof(LogicalGraphDefinition).Assembly.GetType(
-                $"SharpInference.Graphs.Execution.{type.Name}"));
-        });
+        Assert.All(types, type => Assert.Same(typeof(LogicalGraph).Assembly, type.Assembly));
+        Assert.All(types.Where(type => type.Namespace == "SharpInference.Graphs.Execution"), type =>
+            Assert.Null(typeof(ExecutionGraphCompiler).Assembly.GetType(
+                $"SharpInference.Vm.Optimization.GraphHelper.{type.Name}")));
     }
 
     [Fact]
-    public void SharedHelpersArePublicWithoutExposingPrivateImplementation()
+    public void ProcessingAndDependencyInferenceRemainOutsideTheBusinessModel()
     {
-        Assert.True(typeof(ModelGraphConstruction).IsPublic);
-        Assert.True(typeof(ModelGraphXml).IsPublic);
-        Assert.True(typeof(GraphXmlSupport).IsPublic);
-        Assert.False(typeof(GraphXmlSupport).GetField("MaxCharacters",
-            BindingFlags.Static | BindingFlags.NonPublic)!.IsPublic);
-        Assert.False(typeof(ModelGraphXml).GetMethod("OperationName",
-            BindingFlags.Static | BindingFlags.NonPublic)!.IsPublic);
+        Type[] types =
+        [
+            typeof(DefaultExecutionGraphConverter), typeof(ExecutionGraphCompilationContext),
+            typeof(ExecutionGraphCompiler), typeof(ExecutionPassContext), typeof(ExecutionGraphRewriter),
+            typeof(IExecutionGraphConverter), typeof(IExecutionGraphPostprocessor),
+            typeof(GraphDependencyAnalyzer), typeof(ExecutionImplementationSelector), typeof(VmExecutionGraphEmitter),
+        ];
+        Assert.All(types, type => Assert.Equal("SharpInference.Vm.Optimization", type.Assembly.GetName().Name));
+        Assert.Null(typeof(LogicalGraph).Assembly.GetType("SharpInference.Graphs.GraphDependencyAnalyzer"));
+    }
+
+    [Fact]
+    public void XmlSafetyImplementationDoesNotExposeItsPrivateLimits()
+    {
+        var support = typeof(LogicalGraph).Assembly.GetType("SharpInference.Graphs.Internal.GraphXmlSupport", true)!;
+        Assert.False(support.GetField("MaxCharacters", BindingFlags.Static | BindingFlags.NonPublic)!.IsPublic);
     }
 }

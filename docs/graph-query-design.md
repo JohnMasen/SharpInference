@@ -3,7 +3,7 @@
 状态：基础工具包已实现并接入消费者。本文的 18 个例子已迁入正式测试；
 实现与迁移结果见第 7 节。最初的 .NET 10 单文件原型用于验证接口语义，
 当前另有直接引用生产项目的单文件性能比较。
-XML 序列化、SQL Server 集成、图修改不属于本次范围。
+原查询工具包不负责 XML、SQL Server 或图修改；推理图模型与持久化的后续边界见第 1.2 节。
 
 ## 1. 架构
 
@@ -82,7 +82,107 @@ ToGraph 有两个扩展重载：`view.ToGraph()` 将单个视图物化为独立�
   当前按用户要求暂不修改 Graph 构造函数；已有输入校验缺失不在本轮修复，
   不能将这里的有效图前提理解为构造函数已完整执行校验。
 
-#### 相邻边命名与底层索引
+### 1.2 推理图分类与具体模型边界
+
+Kind 与派生属性重构及执行图归属修复后的架构如下，Graphs.Core 保持不变：
+
+```text
+Graphs.Core
+  IGraphNode / IGraphEdge / IGraphView
+  Graph、Filter、Match、遍历、可达性、结构改写
+              ↑
+Graphs
+  IInferenceGraphNode : IGraphNode  → string NodeKind
+  IInferenceGraphEdge : IGraphEdge  → string EdgeKind
+  ModelGraphConstruction          → 身份与端点结构检查、绑定展开
+  ModelGraphXml / GraphXmlSupport  → 关系记录读取、受限 XML 工具
+              ↑
+  Logical                         Execution
+  LogicalGraphNode / Edge         ExecutionGraphStructureNode / Edge
+  具体操作、调用、资源、读写边       具体执行操作、调用、资源、读写边
+  LogicalGraphQueries             ExecutionGraphQueries
+  LogicalGraphValidation          ExecutionGraphValidation
+  LogicalGraphXml                 ExecutionGraphXml
+              ↑
+Vm.Optimization
+  转换、编译流程、优化分析与策略、改写、VM 发射
+  GraphHelper 保留处理流程，不再拥有执行图模型
+```
+
+- Logical 和 Execution 同属 Graphs 程序集。执行图模型、Builder、查询、
+  校验和 XML 不依赖优化器；优化器向下引用两种图。
+  Graphs 仅引用 Graphs.Core 与 Instructions，不引用 Vm 或优化器。
+- 23 个执行图组件已迁至 `SharpInference.Graphs.Execution`；
+  7 个转换、编译、后处理与改写支持类型暂留优化器 GraphHelper。
+  不新增项目或兼容转发，执行行为与 XML v4 不变。
+- 两种图共享的冲突/边界结果及逻辑图分析方法保留在图层，
+  不按唯一显式消费者判断其为优化器专用；后续职责拆分另行确认。
+- 基础接口只识别结构与类别，不包含张量、端口、绑定、资源角色、精度等业务属性。
+  原五个业务/标签接口已删除，没有替代业务接口、访问器或注册表。
+- `NodeKind` / `EdgeKind` 使用字符串；各模型自己的公开常量类提供默认值，
+  不定义全局合法值全集。具体记录通过可初始化属性保存类别，同一 CLR 类型
+  可以承载不同的自定义类别；基础层不要求类别与 CLR 类型一一对应。
+- 当前逻辑/执行模型接受已支持具体类型上的非空自定义类别；默认类别名属于
+  该模型的约定，不能把资源标为默认操作类别等。空类别、保留类别与类型不一致、
+  不支持的派生类型分别通过 `GR0009`（节点）/ `GR0010`（边）明确诊断。
+  不同派生类型具有同一类别，不会触发按字符串强制转换。
+- 业务查询通过具体类型、`is`、`OfType<T>()` 和属性模式取得数据。
+  逻辑图和执行图各自负责资源、读写绑定、依赖视图、冲突和区域边界查询；
+  邻接与顺序继续复用 Core。结构校验只检查身份和端点，具体模型继续验证
+  作用域、端口、配对访问、张量、调用接口及依赖关系。
+- 每个类别属性明确分类对象：`NodeKind`、`EdgeKind`、`ResourceKind`、
+  `ConflictKind`。资源角色枚举类型不改名；资源节点保留实际消费者使用的
+  `Tensor` / `ResourceKind` 便利属性。
+- Builder 为现有操作设置默认类别；逻辑操作/调用通过配置对象的 `NodeKind`
+  赋值，资源通过 `AddResource(..., nodeKind: ...)` 指定。
+  执行记录可通过初始化器或 `with` 设置类别；图快照与 Builder 仍分别保存状态。
+- 逻辑到执行转换、普通快照复制以及内联时的身份重映射保留类别。
+  创建新语义元素（融合操作、提取调用、调用替换操作及新增连接）使用目标类型
+  默认类别；模板共享按操作 `NodeKind` 区分分组，模板体保留原类别。
+
+#### XML v4
+
+用户明确不要求旧格式兼容。逻辑图、执行图及 GraphView 统一只接受 v4，
+不再读取 v3 或更早的图格式：
+
+| 元素 | 类别属性 |
+|---|---|
+| Resource / Operation / Call / GraphCall | 必填 `nodeKind` |
+| Dependency | 必填 `edgeKind` |
+| Binding 的读边 | 存在读边时必填 `readEdgeKind` |
+| Binding 的写边 | 存在写边时必填 `writeEdgeKind` |
+
+ReadWrite 绑定仍只写一个 Binding，但两条边分别保存类别、身份和顺序；
+只读/只写绑定不能带上不存在的另一条边的信息。
+资源角色仍映射到 XML `kind`，不与 `nodeKind` 合并。
+读取时根据元素名构造具体类型，恢复类别后运行对应图校验；不通过 CLR
+类型名反射，也不承诺自动持久化任意用户派生类。
+自定义类别不被默认值替换或丢弃，边与绑定身份、声明顺序、共享定义、
+实例作用域、来源映射和张量描述继续保留。
+DTD/外部实体禁用，16 MiB 字符、100000 元素与深度 64 限制不变。
+GraphView 保留类别到展示模型和详情，旧 ExecutionPlan 自身的 schema 版本
+不受影响，但其内嵌 Graph 必须为 v4。
+
+#### 公共辅助函数的后续提取
+
+本轮先实现具体查询，不新增 `GetResources` 或字段 selector/适配框架。
+实际重复集中在两套查询的绑定配对、资源冲突遍历、边界资源筛选，以及
+两套 XML 的关系写入；这些代码需要具体业务字段，不移回基础层。
+后续可讨论分别在 Logical / Execution 提供 `GetResources`，
+或整理各模型内部的绑定配对代码；是否公开、确切签名与归属另行确认。
+仅依赖结构的邻接/可达性已有 Core 实现，直接复用，不再包装一层。
+
+代码形成后的候选（本轮未新增这些 API）：
+
+| 候选签名 | 真实重复证据 | 建议归属 |
+|---|---|---|
+| `IEnumerable<LogicalResourceNode> GetResources(this IGraphView<LogicalGraphNode, LogicalGraphEdge> graph)` | [Resources 属性](../src/SharpInference.Graphs/Logical/LogicalGraphDefinition.cs)、[作用域和业务校验](../src/SharpInference.Graphs/Logical/LogicalGraphDefinitionValidator.cs)、[构图准备](../src/SharpInference.Graphs/Logical/GraphDefinitionBuilder.cs) 都按具体资源类型枚举 | `SharpInference.Graphs.Logical` |
+| `IEnumerable<ExecutionResourceNode> GetResources(this IGraphView<ExecutionGraphStructureNode, ExecutionGraphEdge> graph)` | [Resources 属性](../src/SharpInference.Graphs/Execution/ExecutionGraph.cs)、[程序接口校验](../src/SharpInference.Graphs/Execution/ExecutionGraphProgram.cs)、[内联重映射](../src/SharpInference.Vm.Optimization/GraphHelper/ExecutionGraphRewriter.cs) 都枚举具体资源节点 | `SharpInference.Graphs.Execution` |
+
+两者拟返回所有可见作用域中的资源，保持视图顺序；父作用域筛选留给调用点。
+由于当前 `OfType<T>()` / `NodesOfType<T>()` 已足够简洁，暂不提取。
+
+### 1.3 相邻边命名与底层索引
 
 新接口采用直接表达方向的名称：
 
@@ -134,7 +234,7 @@ Match 的不同结果之间不保证顺序，可能随搜索方向变化，不�
 模型邻接查询按局部边声明顺序整理，边界查询按原图边顺序整理，
 以保持优化器选择、绑定顺序和序列化行为。
 
-### 1.2 Filter 与 Match 的不同
+### 1.4 Filter 与 Match 的不同
 
 ```csharp
 IGraphView<TNode, TEdge> Filter(
@@ -151,11 +251,11 @@ IEnumerable<IGraphView<TNode, TEdge>> Match(MatchContext pattern);
 生产实现应按需产生结果，每次结果使用独立、稳定的集合，不能暴露回溯时会
 继续变化的工作数组。`Any()` 在候选分析完成后的首个匹配处短路。
 
-### 1.3 模式构造与节点身份
+### 1.5 模式构造与节点身份
 
 ```csharp
 var pattern = Pattern.Create(Node("A"))
-    - Edge().Where<DemoEdge>(e => e.Kind == "dep")
+    - Edge().Where<DemoEdge>(e => e.EdgeKind == "dep")
     - Node();
 ```
 
@@ -203,7 +303,7 @@ Shortest/Longest 的全局选择尚未实现；不能用一个直接 Edge 冒充
 将来的 MatchOne 可以作为结果序列的选择扩展，Any 等价 FirstOrDefault；
 可变长度匹配确定后再增加最短/最长策略，避免暗中改变已讨论的需求。
 
-### 1.4 ToGraph
+### 1.6 ToGraph
 
 ```csharp
 Graph<TNode, TEdge> one = singleView.ToGraph();
@@ -221,7 +321,7 @@ Graph<TNode, TEdge> combined = matches.ToGraph();
 合并会丢失“哪些节点原本属于哪次匹配”的分组信息，二次匹配可以横跨原来的
 不同匹配。需要保留分组时，分别在每项视图上查询。
 
-### 1.5 ReachabilityIndex
+### 1.7 ReachabilityIndex
 
 ```csharp
 ReachabilityIndex<TNode> CreateReachabilityIndex<TNode, TEdge>(
@@ -254,8 +354,8 @@ bool IsReachable(TNode source, TNode target);
 ## 2. 示例图：20 个节点、35 条边
 
 使用泛型 `Graph<DemoNode, DemoEdge>`。`DemoNode` 具有
-`Id`、`Name`、`Kind`、`Enabled`；`DemoEdge` 具有
-`Id`、`Source`、`Target`、`Kind`。
+`Id`、`Name`、`NodeKind`、`Enabled`；`DemoEdge` 具有
+`Id`、`Source`、`Target`、`EdgeKind`。
 
 - 操作节点 12 个：A、B、C、D、E、F、G、H、I、J、K、L。
 - 资源节点 8 个：R1、R2、R3、R4、R5、R6、R7、R8。
@@ -263,7 +363,7 @@ bool IsReachable(TNode source, TNode target);
 - 节点声明顺序：A 到 L，然后 R1 到 R8。
 - 边声明顺序：d1 到 d15，再按下面访问边表从上到下声明。
 
-### 2.1 依赖边（Kind = dep）
+### 2.1 依赖边（EdgeKind = dep）
 
 ```text
 A ─┐          ┌→ D ─┐          ┌→ G ─┐
@@ -316,8 +416,8 @@ write 的方向为操作到资源；read 的方向为资源到操作。
 `graph` 为完整图。使用以下公共准备代码：
 
 ```csharp
-var dep = graph.Filter(n => n.Kind == "op", e => e.Kind == "dep");
-EdgePattern Kind(string kind) => Edge().Where<DemoEdge>(e => e.Kind == kind);
+var dep = graph.Filter(n => n.NodeKind == "op", e => e.EdgeKind == "dep");
+EdgePattern Kind(string kind) => Edge().Where<DemoEdge>(e => e.EdgeKind == kind);
 NodePattern Id(string id) => Node(new GraphNodeId(id));
 ```
 
@@ -325,7 +425,7 @@ NodePattern Id(string id) => Node(new GraphNodeId(id));
 
 ```csharp
 var result = graph.Match(Pattern.Create(
-    Node().Where<DemoNode>(n => n.Kind == "op" && n.Enabled)))
+    Node().Where<DemoNode>(n => n.NodeKind == "op" && n.Enabled)))
     .Select(m => m.Nodes.Single());
 ```
 

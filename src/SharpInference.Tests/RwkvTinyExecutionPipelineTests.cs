@@ -26,22 +26,20 @@ public sealed class RwkvTinyExecutionPipelineTests
         var logical = architecture == "rwkv-6"
             ? new PortableRwkv6GraphProvider().Build(catalog)
             : new PortableRwkv7GraphProvider().Build(catalog);
-        var execution = new DefaultExecutionGraphConverter().Convert(
-            logical,
-            new(architecture, "cpu-vm"));
         IInstructionCollectionProvider[] providers =
         [
             new CpuFloat32InstructionCollection(),
             new CpuFloat16InstructionCollection(),
         ];
+        var execution = new DefaultExecutionGraphConverter(providers).Convert(logical, new(architecture, "cpu-vm"));
         var program = new VmExecutionGraphEmitter(VmTarget.Cpu, providers).Emit(execution);
-        var rootGraph = execution.Graphs.Single(graph => graph.Id == execution.RootGraph);
+        var rootGraph = execution.MainGraph!;
         var rootDefinition = program.Definitions.Single(definition =>
-            definition.Id == $"graph.{execution.RootGraph.Value}");
+            definition.Id == $"graph.{execution.MainGraphId}");
 
         Assert.Equal("forward", Assert.Single(program.Entries).Name);
         Assert.Equal(
-            rootGraph.Nodes.Select(node => node.Id.Value),
+            rootGraph.Actions.Select(node => node.Id),
             rootDefinition.Nodes.Select(node => node.Id));
         Assert.Contains(program.Slots, slot => slot.BindingKey is not null);
         Assert.Contains(program.Slots, slot => slot.Id == "token");
@@ -57,14 +55,12 @@ public sealed class RwkvTinyExecutionPipelineTests
         using var catalog = GgmlModelFile.Open(
             Path.Combine(directory, "tiny-rwkv-7v0-834K-FP32.bin"));
         var logical = new PortableRwkv7GraphProvider().Build(catalog);
-        var execution = new DefaultExecutionGraphConverter().Convert(
-            logical,
-            new("rwkv-7", "cpu-vm"));
         IInstructionCollectionProvider[] providers =
         [
             new CpuFloat32InstructionCollection(),
             new CpuFloat16InstructionCollection(),
         ];
+        var execution = new DefaultExecutionGraphConverter(providers).Convert(logical, new("rwkv-7", "cpu-vm"));
         var program = new VmExecutionGraphEmitter(VmTarget.Cpu, providers).Emit(execution);
         var artifact = new CpuVmCompiler(providers).Compile(program);
         using var executable = artifact.CreateExecutor();
@@ -115,14 +111,12 @@ public sealed class RwkvTinyExecutionPipelineTests
         using var catalog = GgmlModelFile.Open(
             Path.Combine(directory, "tiny-rwkv-7v0-834K-FP32.bin"));
         var logical = new PortableRwkv7GraphProvider().Build(catalog);
-        var execution = new DefaultExecutionGraphConverter().Convert(
-            logical,
-            new("rwkv-7", "d3d12-vm"));
         IInstructionCollectionProvider[] providers =
         [
             new GpuFloat32InstructionCollection(),
             new GpuFloat16InstructionCollection(),
         ];
+        var execution = new DefaultExecutionGraphConverter(providers).Convert(logical, new("rwkv-7", "d3d12-vm"));
         var program = new VmExecutionGraphEmitter(
             VmTarget.Direct3D12, providers).Emit(execution);
         var artifact = new D3D12VmCompiler(providers).Compile(program);

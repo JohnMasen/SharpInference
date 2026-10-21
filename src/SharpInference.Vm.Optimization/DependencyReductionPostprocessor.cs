@@ -1,5 +1,6 @@
 using SharpInference.Graphs;
 using SharpInference.Graphs.Core;
+using SharpInference.Graphs.Execution;
 using SharpInference.Vm.Optimization.GraphHelper;
 
 namespace SharpInference.Vm.Optimization;
@@ -9,35 +10,27 @@ public sealed class DependencyReductionPostprocessor : IExecutionGraphPostproces
 {
     public string Name => "reduce-execution-dependencies";
 
-    public ExecutionGraphProgram Process(
-        ExecutionGraphProgram program, ExecutionGraphPostprocessContext context)
+    public GraphPackage<ExecutionGraph> Process(GraphPackage<ExecutionGraph> package, ExecutionPassContext context)
     {
-        ArgumentNullException.ThrowIfNull(program);
+        ArgumentNullException.ThrowIfNull(package);
         ArgumentNullException.ThrowIfNull(context);
-        return new(program.Graphs.Select(Reduce));
-    }
-
-    private static ExecutionGraph Reduce(ExecutionGraph graph)
-    {
-        var analysis = new ExecutionDependencyAnalysis(graph);
-        var seen = new HashSet<(GraphNodeId, GraphNodeId)>();
-        var plan = new GraphRewritePlan<ExecutionGraphStructureNode, ExecutionGraphEdge>();
-        var changed = false;
-        var dependencies = graph.Structure.Filter(edge: edge => edge is ExecutionDependencyEdge);
-        foreach (var edge in dependencies.Edges.Cast<ExecutionDependencyEdge>())
+        GraphValidation.ThrowIfErrors(package.Validate());
+        var result = package.Snapshot();
+        foreach (var graph in result)
         {
-            var source = analysis.Position(edge.Source);
-            var target = analysis.Position(edge.Target);
-            if (!seen.Add((edge.Source, edge.Target)) ||
-                analysis.Successors[source].Any(successor =>
-                    successor != target && analysis.Before(successor, target)))
+            var structure = graph.DependencyGraph();
+            var reach = structure.CreateReachabilityIndex(structure.Nodes, structure.Nodes);
+            var unique = graph.GraphFlow.Distinct().ToArray();
+            graph.GraphFlow.Clear();
+            foreach (var edge in unique)
             {
-                plan.RemoveEdge(edge.Id);
-                changed = true;
+                var redundant = unique.Any(other => other.Source == edge.Source && other.Target != edge.Target &&
+                    reach.IsReachable(new GraphNodeId(other.Target.Action), new GraphNodeId(edge.Target.Action)));
+                if (!redundant)
+                    graph.GraphFlow.Add(edge);
             }
         }
-        return changed
-            ? ExecutionDependencyAnalysis.WithStructure(graph, plan.Apply(graph.Structure))
-            : graph;
+        return result;
     }
+
 }

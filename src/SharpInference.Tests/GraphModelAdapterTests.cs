@@ -26,41 +26,46 @@ public sealed class GraphModelAdapterTests
         Assert.Equal(2L, metadata.Dimensions["attentionHeads"]);
         Assert.Equal(1L, metadata.Dimensions["attentionHeadSize"]);
 
-        var graph = module.Build(catalog);
+        var package = module.Build(catalog);
+        var graph = Assert.IsType<LogicalGraph>(package.MainGraph);
 
-        Assert.Equal("rwkv7.forward-token.portable", graph.Id.Value);
+        Assert.Equal("rwkv7.forward-token.portable", package.MainGraphId);
+        Assert.Same(graph, Assert.Single(package));
         Assert.Equal(GraphCompileBoundary.Atomic, graph.CompileBoundary);
-        Assert.DoesNotContain(graph.Validate(), item => item.Severity == GraphDiagnosticSeverity.Error);
-        AssertResource(graph, "token", GraphDefinitionResourceKind.Input, ElementType.Int32, [1]);
-        AssertResource(graph, "logits", GraphDefinitionResourceKind.Output, ElementType.Float32, [3]);
+        Assert.DoesNotContain(package.Validate(), item => item.Severity == GraphDiagnosticSeverity.Error);
+        AssertResource(graph, "token", GraphIO.In, ElementType.Int32, [1]);
+        AssertResource(graph, "logits", GraphIO.Out, ElementType.Float32, [3]);
         foreach (var name in catalog.Names)
         {
-            var resource = Assert.Single(graph.Resources, resource => resource.Id.Value == $"weight.{name}");
-            Assert.Equal(GraphDefinitionResourceKind.Weight, resource.Kind);
+            var resource = Assert.Single(graph.Resources, resource => resource.Id == $"weight.{name}");
+            Assert.Equal(ResourceScope.Global, resource.Scope);
+            Assert.Equal(ResourceUsage.Weight, resource.Usage);
+            Assert.Equal(ResourcePermission.ReadOnly, resource.Permission);
             Assert.Equal(name, resource.BindingKey);
             Assert.Equal(dataType == TensorDataType.Float16 ? ElementType.Float16 : ElementType.Float32,
                 resource.Tensor.ElementType);
             Assert.Equal(catalog.GetRequired(name).Dimensions, resource.Tensor.Dimensions);
         }
 
-        var states = graph.Resources.Where(resource => resource.Kind == GraphDefinitionResourceKind.State).ToArray();
+        var states = graph.Resources.Where(resource => resource.IsState).ToArray();
         Assert.Equal(3, states.Length);
-        AssertResource(graph, "state.0.att-previous", GraphDefinitionResourceKind.State, ElementType.Float32, [2]);
-        AssertResource(graph, "state.0.ffn-previous", GraphDefinitionResourceKind.State, ElementType.Float32, [2]);
-        AssertResource(graph, "state.0.wkv", GraphDefinitionResourceKind.State, ElementType.Float32, [2, 1, 1]);
+        AssertResource(graph, "state.0.att-previous", GraphIO.InOut, ElementType.Float32, [2]);
+        AssertResource(graph, "state.0.ffn-previous", GraphIO.InOut, ElementType.Float32, [2]);
+        AssertResource(graph, "state.0.wkv", GraphIO.InOut, ElementType.Float32, [2, 1, 1]);
         foreach (var state in states)
         {
-            Assert.Equal(state.Id.Value, state.BindingKey);
-            var accesses = graph.Nodes.SelectMany(graph.Bindings)
-                .Where(binding => binding.Resource.Resource == state.Id).ToArray();
+            Assert.Equal(ResourceScope.Session, state.Scope);
+            Assert.Equal(state.Id, state.BindingKey);
+            var accesses = graph.Actions.SelectMany(action => action.Bindings)
+                .Where(binding => binding.Target.TargetProperty == state.Id).ToArray();
             Assert.Contains(accesses, binding => binding.Access == ResourceAccess.ReadWrite);
             Assert.Contains(accesses, binding => binding.Access == ResourceAccess.Write);
             Assert.DoesNotContain(accesses, binding => binding.Access == ResourceAccess.Read);
         }
 
         AssertSerialDependencies(graph);
-        Assert.Contains(graph.Nodes, node =>
-            node.Annotation?.Attributes?.ContainsKey("architecture.formula") == true);
+        Assert.Contains(graph.Actions, node => node.Metadata.ContainsKey("architecture.formula"));
+        AssertRoundTrip(package);
     }
 
     [Theory]
@@ -86,25 +91,31 @@ public sealed class GraphModelAdapterTests
         Assert.Equal(3L, metadata.Dimensions["hidden_width"]);
         Assert.Equal(4L, metadata.Dimensions["embedding_width"]);
 
-        var graph = module.Build(catalog);
+        var package = module.Build(catalog);
+        var graph = Assert.IsType<LogicalGraph>(package.MainGraph);
 
-        Assert.Equal(module.ArchitectureId, graph.Id.Value);
+        Assert.Equal(module.ArchitectureId, package.MainGraphId);
+        Assert.Same(graph, Assert.Single(package));
         Assert.Equal(GraphCompileBoundary.Atomic, graph.CompileBoundary);
-        Assert.DoesNotContain(graph.Validate(), item => item.Severity == GraphDiagnosticSeverity.Error);
-        AssertResource(graph, "audio_hidden", GraphDefinitionResourceKind.Input, ElementType.Float32, [2, 2]);
-        AssertResource(graph, "output", GraphDefinitionResourceKind.Output, ElementType.Float32, [2, 4]);
-        Assert.Equal(dataType == TensorDataType.Float16 ? 7 : 3, graph.Nodes.Count);
+        Assert.DoesNotContain(package.Validate(), item => item.Severity == GraphDiagnosticSeverity.Error);
+        AssertResource(graph, "audio_hidden", GraphIO.In, ElementType.Float32, [2, 2]);
+        AssertResource(graph, "output", GraphIO.Out, ElementType.Float32, [2, 4]);
+        Assert.Equal(dataType == TensorDataType.Float16 ? 7 : 3, graph.Actions.Count);
         foreach (var name in catalog.Names)
         {
-            var resource = Assert.Single(graph.Resources, resource => resource.Id.Value == $"weight.{name}");
-            Assert.Equal(GraphDefinitionResourceKind.Weight, resource.Kind);
+            var resource = Assert.Single(graph.Resources, resource => resource.Id == $"weight.{name}");
+            Assert.Equal(ResourceScope.Global, resource.Scope);
+            Assert.Equal(ResourceUsage.Weight, resource.Usage);
+            Assert.Equal(ResourcePermission.ReadOnly, resource.Permission);
             Assert.Equal(name, resource.BindingKey);
             Assert.Equal(dataType == TensorDataType.Float16 ? ElementType.Float16 : ElementType.Float32,
                 resource.Tensor.ElementType);
         }
 
-        var activation = Assert.IsType<GraphOperationNode>(
-            Assert.Single(graph.Nodes, node => node.Id.Value == "projector_gelu"));
+        var activation = Assert.IsType<OperationAction>(
+            Assert.Single(graph.Actions, node => node.Id == "projector_gelu"));
+        Assert.Equal("h = gelu(x W_up^T + b_up)", activation.Metadata["architecture.formula"]);
+        Assert.Equal("root/activation", activation.Metadata["architecture.path"]);
         Assert.Equal("gelu", activation.Attributes["activation"]);
         Assert.Equal("6", activation.Attributes["count"]);
         Assert.Equal("3", activation.Attributes["width"]);
@@ -116,35 +127,49 @@ public sealed class GraphModelAdapterTests
             Assert.Equal("dense", activation.Attributes[$"view.{port}.layout"]);
         }
 
-        var up = Assert.IsType<GraphOperationNode>(
-            Assert.Single(graph.Nodes, node => node.Id.Value == "projector_up"));
+        var up = Assert.IsType<OperationAction>(
+            Assert.Single(graph.Actions, node => node.Id == "projector_up"));
         Assert.Equal("True", up.Attributes["transpose_right"]);
-        Assert.Contains(graph.Bindings(up), binding =>
-            binding.Port == "left" && binding.Resource.Resource.Value == "audio_hidden" &&
+        Assert.Contains(up.Bindings, binding =>
+            binding.SourceProperty == "left" && binding.Target.TargetProperty == "audio_hidden" &&
             binding.Access == ResourceAccess.Read);
-        var down = Assert.Single(graph.Nodes, node => node.Id.Value == "projector_down");
-        Assert.Contains(graph.Bindings(down), binding =>
-            binding.Port == "output" && binding.Resource.Resource.Value == "output" &&
+        var down = Assert.Single(graph.Actions, node => node.Id == "projector_down");
+        Assert.Contains(down.Bindings, binding =>
+            binding.SourceProperty == "output" && binding.Target.TargetProperty == "output" &&
             binding.Access == ResourceAccess.Write);
         AssertSerialDependencies(graph);
+        AssertRoundTrip(package);
     }
 
-    private static void AssertResource(LogicalGraphDefinition graph, string id,
-        GraphDefinitionResourceKind kind, ElementType type, int[] dimensions)
+    private static void AssertResource(LogicalGraph graph, string id,
+        GraphIO graphIO, ElementType type, int[] dimensions)
     {
-        var resource = Assert.Single(graph.Resources, resource => resource.Id.Value == id);
-        Assert.Equal(kind, resource.Kind);
+        var resource = Assert.Single(graph.Resources, resource => resource.Id == id);
+        Assert.Equal(graphIO, resource.GraphIO);
         Assert.Equal(type, resource.Tensor.ElementType);
         Assert.Equal(dimensions, resource.Tensor.Dimensions);
     }
 
-    private static void AssertSerialDependencies(LogicalGraphDefinition graph)
+    private static void AssertSerialDependencies(LogicalGraph graph)
     {
-        Assert.NotEmpty(graph.Nodes);
-        for (var index = 1; index < graph.Nodes.Count; index++)
+        Assert.NotEmpty(graph.Actions);
+        Assert.Equal(graph.Actions.Count - 1, graph.GraphFlow.Count);
+        for (var index = 1; index < graph.Actions.Count; index++)
         {
-            Assert.Contains(graph.Nodes[index - 1].Id, graph.Dependencies(graph.Nodes[index]));
+            Assert.Contains(graph.GraphFlow, flow =>
+                flow.Source == new ActionRef(graph.Actions[index - 1]) &&
+                flow.Target == new ActionRef(graph.Actions[index]));
         }
+    }
+
+    private static void AssertRoundTrip(GraphPackage<LogicalGraph> package)
+    {
+        var xml = GraphPackageXml.Serialize(package);
+        var restored = GraphPackageXml.Deserialize<LogicalGraph>(xml);
+        Assert.Equal(package.MainGraphId, restored.MainGraphId);
+        Assert.Equal(xml, GraphPackageXml.Serialize(restored));
+        Assert.DoesNotContain(restored.Validate(), item => item.Severity == GraphDiagnosticSeverity.Error);
+        Assert.Equal(xml, GraphPackageXml.Serialize(package.Snapshot()));
     }
 
     private static SyntheticCatalog Rwkv7Catalog(TensorDataType dataType)

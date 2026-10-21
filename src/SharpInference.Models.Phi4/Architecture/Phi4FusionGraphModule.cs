@@ -71,23 +71,20 @@ public sealed class Phi4FusionGraphModule : IPhi4GraphModule
     }
 
     /// <inheritdoc/>
-    public LogicalGraphDefinition Build(IModelTensorCatalog tensors)
+    public GraphPackage<LogicalGraph> Build(IModelTensorCatalog tensors)
     {
         var dimensions = ReadMetadata(tensors).Dimensions.ToDictionary(pair => pair.Key, pair => checked((int)pair.Value));
         var width = dimensions["embedding_width"];
         var embedding = tensors.GetRequired("text.token_embd.weight");
-        var builder = new Phi4GraphDefinitionBuilder(new(ArchitectureId, 2, "forward"), new GraphModelSignature(ArchitectureId, "phi4.fusion.empty@1", dimensions))
+        var builder = new Phi4GraphComposer(new(ArchitectureId, 2, "forward"), new GraphModelSignature(ArchitectureId, "phi4.fusion.empty@1", dimensions))
             .Root("root", GraphSectionTypes.Graph, "Dense token-major embedding fusion", architecture: new(
                 Description: "Assembles text and media embeddings into explicit dense prompt row ranges.",
                 DefaultView: GraphArchitectureView.Architecture))
-            .AddResource("output", "Fused prompt", GraphResourceKind.Output, GraphResourceLifetime.External,
-                new TensorDescriptor(ElementType.Float32, [tokenCount, width]), graphOutput: true);
+            .Resource("output", new TensorDescriptor(ElementType.Float32, [tokenCount, width]), GraphIO.Out, name: "Fused prompt");
         if (segments.Any(segment => segment.EmbeddingPort is null))
         {
-            builder.AddResource("token_ids", "Expanded prompt token ids", GraphResourceKind.Input, GraphResourceLifetime.External,
-                new TensorDescriptor(ElementType.Int32, [tokenCount]), graphInput: true);
-            builder.AddResource("token_embedding", "Token embeddings", GraphResourceKind.Weight, GraphResourceLifetime.Model,
-                new TensorDescriptor(embedding.DataType == TensorDataType.Float16 ? ElementType.Float16 : ElementType.Float32, embedding.Dimensions), embedding.Name);
+            builder.Resource("token_ids", new TensorDescriptor(ElementType.Int32, [tokenCount]), GraphIO.In, name: "Expanded prompt token ids");
+            builder.Resource("token_embedding", new TensorDescriptor(embedding.DataType == TensorDataType.Float16 ? ElementType.Float16 : ElementType.Float32, embedding.Dimensions), scope: ResourceScope.Global, usage: ResourceUsage.Weight, permission: ResourcePermission.ReadOnly, bindingKey: embedding.Name, name: "Token embeddings");
         }
         var index = 0;
         builder.Section("fusion", GraphSectionTypes.Stage, "Fusion", fusion =>
@@ -100,9 +97,9 @@ public sealed class Phi4FusionGraphModule : IPhi4GraphModule
                     if (segment.EmbeddingPort is { } port)
                     {
                         var shape = new TensorDescriptor(ElementType.Float32, [segment.TokenCount, width]);
-                        builder.AddResource(port, port, GraphResourceKind.Input, GraphResourceLifetime.External, shape, graphInput: true);
+                        builder.Resource(port, shape, GraphIO.In);
                         Emit(scope, PrimitiveOperations.Copy,
-                            [GraphBindings.Read("input", port), new("output", new("output"), ResourceAccess.Write,
+                            [GraphBindings.Read("input", port), new("output", "output", ResourceAccess.Write,
                             View: new(checked((ulong)segment.Start * (ulong)width * sizeof(float)), shape))]);
                     }
                     else
@@ -112,7 +109,7 @@ public sealed class Phi4FusionGraphModule : IPhi4GraphModule
                             Emit(scope, PrimitiveOperations.GatherRow,
                                 [GraphBindings.Read("table", "token_embedding"), new("index", new("token_ids"), ResourceAccess.Read,
                                 View: new(checked((ulong)row * sizeof(int)), new TensorDescriptor(ElementType.Int32, [1]))),
-                             new("output", new("output"), ResourceAccess.Write,
+                             new("output", "output", ResourceAccess.Write,
                                 View: new(checked((ulong)row * (ulong)width * sizeof(float)), new TensorDescriptor(ElementType.Float32, [width])))]);
                         }
                     }
@@ -121,7 +118,7 @@ public sealed class Phi4FusionGraphModule : IPhi4GraphModule
         }, architecture: new(Description: "Writes each prompt segment to its disjoint tensor view."));
         return builder.Build();
 
-        void Emit(Phi4GraphDefinitionBuilder.Phi4DefinitionScope scope, OperationId operation, NodeResourceBinding[] bindings)
+        void Emit(Phi4GraphComposer.Scope scope, OperationId operation, NodeResourceBinding[] bindings)
         {
             var id = "fusion.node." + index++;
             scope.AddNode(id, operation, bindings, null);

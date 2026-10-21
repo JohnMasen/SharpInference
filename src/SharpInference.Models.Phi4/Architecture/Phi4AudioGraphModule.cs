@@ -6,7 +6,7 @@ using SharpInference.Graphs.Logical;
 
 namespace SharpInference.Architectures.Phi4;
 
-/// <summary>Builds and validates the Phi-4 audio encoder graph, including subsampling, conformer layers, and projection.</summary>
+/// <summary>Builds the Phi-4 audio graph package with subsampling, Conformer layers and projection; callers explicitly validate it.</summary>
 public sealed class Phi4AudioGraphModule : IPhi4GraphModule
 {
     private readonly int layers;
@@ -128,14 +128,14 @@ public sealed class Phi4AudioGraphModule : IPhi4GraphModule
     }
 
     /// <inheritdoc/>
-    public LogicalGraphDefinition Build(IModelTensorCatalog tensors)
+    public GraphPackage<LogicalGraph> Build(IModelTensorCatalog tensors)
     {
         var metadata = ReadMetadata(tensors);
         var dimensions = metadata.Dimensions.ToDictionary(value => value.Key, value => checked((int)value.Value), StringComparer.Ordinal);
         var tokens = dimensions["tokens"];
         var width = dimensions["channels"];
         var intermediate = dimensions["intermediate"];
-        var builder = new Phi4GraphDefinitionBuilder(new(ArchitectureId, 2, "forward"),
+        var builder = new Phi4GraphComposer(new(ArchitectureId, 2, "forward"),
                 new GraphModelSignature(ArchitectureId, ArchitectureId + ".empty@1", dimensions))
             .Root("root", GraphSectionTypes.Graph, "Audio encoder and projection", architecture: new(
                 Description: "Audio subsampling, Conformer Blocks and decoder-width projection.",
@@ -246,23 +246,23 @@ public sealed class Phi4AudioGraphModule : IPhi4GraphModule
         }, architecture: new(Description: "Projects Conformer features to decoder embeddings."));
         return builder.Build();
 
-        void Append(Phi4GraphDefinitionBuilder.Phi4DefinitionScope parentScope, LogicalGraphDefinition component, string tag, IReadOnlyDictionary<string, string> aliases) =>
+        void Append(Phi4GraphComposer.Scope parentScope, GraphPackage<LogicalGraph> component, string tag, IReadOnlyDictionary<string, string> aliases) =>
             parentScope.AppendDefinition(component, tag, aliases);
         string Temporary(params int[] shape)
         {
             var id = "conformer.node." + index++ + "_output";
             resources.Add(id, F(shape));
-            builder.AddResource(id, id, GraphResourceKind.Temporary, GraphResourceLifetime.Invocation, resources[id]);
+            builder.Resource(id, resources[id]);
             return id;
         }
-        void Emit(Phi4GraphDefinitionBuilder.Phi4DefinitionScope scope, OperationId operation, NodeResourceBinding[] bindings, IReadOnlyDictionary<string, string>? attributes = null)
+        void Emit(Phi4GraphComposer.Scope scope, OperationId operation, NodeResourceBinding[] bindings, IReadOnlyDictionary<string, string>? attributes = null)
         {
             var output = bindings.FirstOrDefault(binding => binding.Access == ResourceAccess.Write &&
-                binding.Resource.Value.EndsWith("_output", StringComparison.Ordinal));
-            var id = output is null ? "conformer.node." + index++ : output.Resource.Value[..^"_output".Length];
+                binding.Resource.EndsWith("_output", StringComparison.Ordinal));
+            var id = output is null ? "conformer.node." + index++ : output.Resource[..^"_output".Length];
             scope.AddNode(id, operation, bindings, null, attributes);
         }
-        string Weight(Phi4GraphDefinitionBuilder.Phi4DefinitionScope scope, string name)
+        string Weight(Phi4GraphComposer.Scope scope, string name)
         {
             if (weights.TryGetValue(name, out var found))
             {
@@ -273,7 +273,7 @@ public sealed class Phi4AudioGraphModule : IPhi4GraphModule
             var id = "weight." + name;
             var descriptor = new TensorDescriptor(tensor.DataType == TensorDataType.Float16 ? ElementType.Float16 : ElementType.Float32,
                 tensor.Dimensions);
-            builder.AddResource(id, name, GraphResourceKind.Weight, GraphResourceLifetime.Model, descriptor, name);
+            builder.Resource(id, descriptor, scope: ResourceScope.Global, usage: ResourceUsage.Weight, permission: ResourcePermission.ReadOnly, bindingKey: name, name: name);
             resources.Add(id, descriptor);
             if (tensor.DataType == TensorDataType.Float16)
             {
@@ -285,7 +285,7 @@ public sealed class Phi4AudioGraphModule : IPhi4GraphModule
             weights.Add(name, id);
             return id;
         }
-        string Zero(Phi4GraphDefinitionBuilder.Phi4DefinitionScope scope, int size)
+        string Zero(Phi4GraphComposer.Scope scope, int size)
         {
             if (zeros.TryGetValue(size, out var found))
             {
@@ -297,7 +297,7 @@ public sealed class Phi4AudioGraphModule : IPhi4GraphModule
             zeros.Add(size, id);
             return id;
         }
-        string Linear(Phi4GraphDefinitionBuilder.Phi4DefinitionScope scope, string source, string prefix, int outputWidth)
+        string Linear(Phi4GraphComposer.Scope scope, string source, string prefix, int outputWidth)
         {
             var output = Temporary(tokens, outputWidth);
             var weight = Weight(scope, prefix + ".weight");
@@ -305,7 +305,7 @@ public sealed class Phi4AudioGraphModule : IPhi4GraphModule
             scope.Affine(output[..^"_output".Length], source, weight, bias, output, transposeRight: true);
             return output;
         }
-        string Norm(Phi4GraphDefinitionBuilder.Phi4DefinitionScope scope, string source, string prefix)
+        string Norm(Phi4GraphComposer.Scope scope, string source, string prefix)
         {
             var output = Temporary(tokens, width);
             var weight = Weight(scope, prefix + ".weight");
@@ -315,7 +315,7 @@ public sealed class Phi4AudioGraphModule : IPhi4GraphModule
                  GraphBindings.Write("output", output)], Attr(("rows", tokens), ("width", width), ("epsilon", 1e-5f)));
             return output;
         }
-        string SwiGlu(Phi4GraphDefinitionBuilder.Phi4DefinitionScope scope, string source, int size, string first, string second)
+        string SwiGlu(Phi4GraphComposer.Scope scope, string source, int size, string first, string second)
         {
             var output = Temporary(tokens, size);
             Emit(scope, Phi4AudioGraphOperations.SwiGlu,
@@ -323,7 +323,7 @@ public sealed class Phi4AudioGraphModule : IPhi4GraphModule
                  GraphBindings.Write("output", output)], Attr(("rows", tokens), ("width", size)));
             return output;
         }
-        string FeedForward(Phi4GraphDefinitionBuilder.Phi4DefinitionScope parentScope, string source, string prefix, string region)
+        string FeedForward(Phi4GraphComposer.Scope parentScope, string source, string prefix, string region)
         {
             var normalized = parentScope.SectionValue(region + ".norm", GraphSectionTypes.Architecture, "LayerNorm",
                 scope => Norm(scope, source, prefix + ".ln"),
@@ -338,7 +338,7 @@ public sealed class Phi4AudioGraphModule : IPhi4GraphModule
                 scope => Linear(scope, gated, prefix + ".down", width),
                 architecture: new(Description: "Projects back to Conformer width."));
         }
-        string Residual(Phi4GraphDefinitionBuilder.Phi4DefinitionScope scope, string source, string update, float scale)
+        string Residual(Phi4GraphComposer.Scope scope, string source, string update, float scale)
         {
             var output = Temporary(tokens, width);
             var count = checked(tokens * width);
@@ -347,20 +347,20 @@ public sealed class Phi4AudioGraphModule : IPhi4GraphModule
                  Flat("output", output, ResourceAccess.Write, count)], Attr(("count", count), ("scale", scale)));
             return output;
         }
-        string Conv1D(Phi4GraphDefinitionBuilder.Phi4DefinitionScope scope, string source, string prefix, int kernel, int padding, int groups)
+        string Conv1D(Phi4GraphComposer.Scope scope, string source, string prefix, int kernel, int padding, int groups)
         {
             var outputLength = checked(tokens + 2 * padding - kernel + 1);
             var output = Temporary(outputLength, width);
             var weight = Weight(scope, prefix + ".weight");
             var bias = Weight(scope, prefix + ".bias");
             Emit(scope, Phi4AudioGraphOperations.Conv1D,
-                [new("input", new(source), ResourceAccess.Read, View: new(0, F(tokens, width))),
+                [new("input", source, ResourceAccess.Read, View: new(0, F(tokens, width))),
                  GraphBindings.Read("weight", weight), GraphBindings.Read("bias", bias), GraphBindings.Write("output", output)],
                 Attr(("input_length", tokens), ("input_channels", width), ("output_length", outputLength), ("output_channels", width),
                     ("kernel", kernel), ("padding", padding), ("stride", 1), ("groups", groups), ("activation", "none")));
             return output;
         }
-        string Activate(Phi4GraphDefinitionBuilder.Phi4DefinitionScope scope, string source, int size, string activation)
+        string Activate(Phi4GraphComposer.Scope scope, string source, int size, string activation)
         {
             var output = Temporary(tokens, size);
             var zero = Zero(scope, size);
@@ -375,7 +375,7 @@ public sealed class Phi4AudioGraphModule : IPhi4GraphModule
     /// <inheritdoc/>
 
     private static NodeResourceBinding Flat(string port, string id, ResourceAccess access, int count) =>
-        new(port, new(id), access, View: new(0, F(count)));
+        new(port, id, access, View: new(0, F(count)));
     private static TensorDescriptor F(params int[] dimensions) => new(ElementType.Float32, dimensions);
     private static IReadOnlyDictionary<string, string> Attr(params (string Name, object Value)[] values) =>
         values.ToDictionary(value => value.Name, value => Convert.ToString(value.Value, CultureInfo.InvariantCulture)!, StringComparer.Ordinal);

@@ -15,7 +15,7 @@ public enum Phi4AudioProjector
     Vision,
 }
 
-/// <summary>Builds and validates the speech or vision audio projection graph.</summary>
+/// <summary>Builds a speech or vision audio projection graph package for explicit caller validation.</summary>
 public sealed class Phi4AudioProjectionGraphModule : IPhi4GraphModule
 {
     private readonly int tokens;
@@ -85,7 +85,7 @@ public sealed class Phi4AudioProjectionGraphModule : IPhi4GraphModule
     }
 
     /// <inheritdoc/>
-    public LogicalGraphDefinition Build(IModelTensorCatalog tensors)
+    public GraphPackage<LogicalGraph> Build(IModelTensorCatalog tensors)
     {
         var metadata = ReadMetadata(tensors);
         var dimensions = metadata.Dimensions.ToDictionary(value => value.Key,
@@ -93,15 +93,13 @@ public sealed class Phi4AudioProjectionGraphModule : IPhi4GraphModule
         var inputWidth = dimensions["audio_width"];
         var hiddenWidth = dimensions["hidden_width"];
         var outputWidth = dimensions["embedding_width"];
-        var builder = new Phi4GraphDefinitionBuilder(new(ArchitectureId, 2, "forward"),
+        var builder = new Phi4GraphComposer(new(ArchitectureId, 2, "forward"),
                 new GraphModelSignature(ArchitectureId, ArchitectureId + ".empty@1", dimensions))
             .Root("root", GraphSectionTypes.Graph, "Audio projection", architecture: new(
                 Description: "Two-layer audio-to-decoder projector with biased GELU.",
                 DefaultView: GraphArchitectureView.Architecture))
-            .AddResource("audio_hidden", "Conformer output", GraphResourceKind.Input, GraphResourceLifetime.External,
-                F(tokens, inputWidth), graphInput: true)
-            .AddResource("output", "Projected audio embeddings", GraphResourceKind.Output, GraphResourceLifetime.External,
-                F(tokens, outputWidth), graphOutput: true);
+            .Resource("audio_hidden", F(tokens, inputWidth), GraphIO.In, name: "Conformer output")
+            .Resource("output", F(tokens, outputWidth), GraphIO.Out, name: "Projected audio embeddings");
         Temporary("projector_up_output", tokens, hiddenWidth);
         Temporary("projector_gelu_output", tokens, hiddenWidth);
         var (firstWeight, firstBias, secondWeight, secondBias) = builder.SectionValue(
@@ -119,9 +117,9 @@ public sealed class Phi4AudioProjectionGraphModule : IPhi4GraphModule
         builder.Section("activation", GraphSectionTypes.Architecture, "Bias / GELU", scope =>
         {
             Emit(scope, "projector_gelu", Phi4AudioGraphOperations.BiasActivation,
-                [new("input", new("projector_up_output"), ResourceAccess.Read, View: new(0, F(checked(tokens * hiddenWidth)))),
+                [new("input", "projector_up_output", ResourceAccess.Read, View: new(0, F(checked(tokens * hiddenWidth)))),
                  GraphBindings.Read("bias", firstBias),
-                 new("output", new("projector_gelu_output"), ResourceAccess.Write, View: new(0, F(checked(tokens * hiddenWidth))))],
+                 new("output", "projector_gelu_output", ResourceAccess.Write, View: new(0, F(checked(tokens * hiddenWidth))))],
                 new Dictionary<string, string>
                 {
                     ["count"] = checked(tokens * hiddenWidth).ToString(CultureInfo.InvariantCulture),
@@ -134,15 +132,13 @@ public sealed class Phi4AudioProjectionGraphModule : IPhi4GraphModule
             architecture: new(Description: "Projects activated features to decoder embeddings.", Formula: "output = h W_down^T + b_down"));
         return builder.Build();
 
-        void Temporary(string id, params int[] shape) => builder.AddResource(id, id,
-            GraphResourceKind.Temporary, GraphResourceLifetime.Invocation, F(shape));
-        string Weight(Phi4GraphDefinitionBuilder.Phi4DefinitionScope scope, string name)
+        void Temporary(string id, params int[] shape) => builder.Resource(id, F(shape));
+        string Weight(Phi4GraphComposer.Scope scope, string name)
         {
             var tensor = tensors.GetRequired(name);
             var id = "weight." + name;
-            builder.AddResource(id, name, GraphResourceKind.Weight, GraphResourceLifetime.Model,
-                new TensorDescriptor(tensor.DataType == TensorDataType.Float16 ? ElementType.Float16 : ElementType.Float32,
-                    tensor.Dimensions), name);
+            builder.Resource(id, new TensorDescriptor(tensor.DataType == TensorDataType.Float16 ? ElementType.Float16 : ElementType.Float32,
+                    tensor.Dimensions), scope: ResourceScope.Global, usage: ResourceUsage.Weight, permission: ResourcePermission.ReadOnly, bindingKey: name, name: name);
             if (tensor.DataType == TensorDataType.Float32)
             {
                 return id;
@@ -154,7 +150,7 @@ public sealed class Phi4AudioProjectionGraphModule : IPhi4GraphModule
                 [GraphBindings.Read("input", id), GraphBindings.Write("output", converted)], new Dictionary<string, string>());
             return converted;
         }
-        static void Emit(Phi4GraphDefinitionBuilder.Phi4DefinitionScope scope, string id, OperationId operation, NodeResourceBinding[] bindings, IReadOnlyDictionary<string, string> attributes)
+        static void Emit(Phi4GraphComposer.Scope scope, string id, OperationId operation, NodeResourceBinding[] bindings, IReadOnlyDictionary<string, string> attributes)
         {
             scope.AddNode(id, operation, bindings, null, attributes);
         }

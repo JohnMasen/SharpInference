@@ -1,134 +1,76 @@
-using SharpInference.Instructions;
 using SharpInference.Graphs;
 using SharpInference.Graphs.Core;
+using SharpInference.Graphs.Execution;
+using SharpInference.Instructions;
 using SharpInference.Vm.Optimization;
 using SharpInference.Vm.Optimization.GraphHelper;
-using SharpInference.Graphs.Logical;
 
 namespace SharpInference.Tests;
 
 public sealed class ExecutionGraphPostprocessorTests
 {
-    private static readonly TensorDescriptor F = new(ElementType.Float32, [4]);
-    private static readonly ExecutionGraphPostprocessContext Context = new(
-        LogicalGraphDefinition.Define("logical", _ => { }),
-        new("arbitrary-model", "arbitrary-backend"), 0, "test");
+    private static readonly TensorDescriptor Vector = new(ElementType.Float32, [4]);
+    private static readonly ExecutionPassContext Context = new(new("test", "cpu-vm"), 0, "test");
 
     [Fact]
-    public void DependencyReductionPreservesEveryReachabilityAndDataEdge()
+    public void DependencyReductionPreservesReachabilityBindingsAndOneParallelEdge()
     {
-        var builder = Builder();
-        Add(builder, "a", "a");
-        Add(builder, "b", "b", dependencies: ["a"]);
-        Add(builder, "c", "left-output", dependencies: ["a", "b"]);
-        Add(builder, "d", "right-output", dependencies: ["a", "b", "c"]);
-        var before = builder.Build();
-        var after = Process(new DependencyReductionPostprocessor(), before).Graphs[0];
-        Assert.Equal(3, after.Structure.Edges.OfType<ExecutionDependencyEdge>().Count());
-        foreach (var first in before.Nodes)
+        var random = new Random(417);
+        for (var iteration = 0; iteration < 20; iteration++)
         {
-            foreach (var second in before.Nodes)
+            var graph = Create();
+            for (var index = 0; index < 12; index++)
             {
-                Assert.Equal(
-                    before.Structure.DependencyView().IsReachable(first.GraphId, second.GraphId),
-                    after.Structure.DependencyView().IsReachable(first.GraphId, second.GraphId));
+                var action = Add(graph, $"n{index}", "output");
+                foreach (var predecessor in Enumerable.Range(0, index).Where(_ => random.Next(3) == 0))
+                    graph.Actions[predecessor].Then(action);
             }
+            graph.Actions[0].Then(graph.Actions[1]);
+            graph.Actions[0].Then(graph.Actions[1]);
+            var before = graph.DependencyGraph();
+            var after = Process(new DependencyReductionPostprocessor(), graph).MainGraph!;
+            var structure = after.DependencyGraph();
+            foreach (var first in before.Nodes)
+                foreach (var second in before.Nodes)
+                    Assert.Equal(before.IsReachable(first.Id, second.Id), structure.IsReachable(first.Id, second.Id));
+            Assert.Single(after.GraphFlow, flow => flow.Source.Action == "n0" && flow.Target.Action == "n1");
+            Assert.Equal(graph.Actions.SelectMany(action => action.Bindings), after.Actions.SelectMany(action => action.Bindings));
+            AssertIdempotent(new DependencyReductionPostprocessor(), new(graph));
         }
-
-        Assert.Equal(before.Structure.Edges.Where(edge => edge is not ExecutionDependencyEdge),
-            after.Structure.Edges.Where(edge => edge is not ExecutionDependencyEdge));
-        AssertIdempotent(new DependencyReductionPostprocessor(), new([before]));
     }
 
     [Fact]
-    public void DependencyReductionRetainsOneParallelEdge()
+    public void SerialTemporariesShareStorageWithoutChangingDeclarationsActionsOrFlow()
     {
-        var builder = Builder();
-        Add(builder, "a", "a");
-        Add(builder, "b", "b", dependencies: ["a"]);
-        var graph = builder.Build();
-        var dependency = graph.Structure.Edges.OfType<ExecutionDependencyEdge>().Single();
-        graph = WithEdges(graph, graph.Structure.Edges.Append(dependency with { Id = new("parallel") }));
-        var after = Process(new DependencyReductionPostprocessor(), graph).Graphs[0];
-        Assert.Single(after.Structure.Edges.OfType<ExecutionDependencyEdge>());
+        var graph = Create();
+        Add(graph, "write", "a");
+        Add(graph, "read", "output", "a", ["write"]);
+        Add(graph, "next", "b", dependencies: ["read"]);
+        var before = GraphPackageXml.Serialize(new GraphPackage<ExecutionGraph>(graph));
+        var after = Process(new TemporaryResourceReusePostprocessor(), graph).MainGraph!;
+        Assert.Equal("a", after.Storage["b"].Slot);
+        Assert.Equal(ResourceStorageKind.LocalBuffer, after.Storage["b"].Kind);
+        Assert.Equal(graph.Resources.Select(resource => resource.Id), after.Resources.Select(resource => resource.Id));
+        Assert.Equal(graph.GraphFlow, after.GraphFlow);
+        Assert.Equal(graph.Actions.SelectMany(action => action.Bindings), after.Actions.SelectMany(action => action.Bindings));
+        Assert.Equal(before, GraphPackageXml.Serialize(new GraphPackage<ExecutionGraph>(graph)));
+        AssertIdempotent(new TemporaryResourceReusePostprocessor(), new(graph));
     }
 
-    [Fact]
-    public void SerialResourcesReuseWithoutChangingOperationsOrDependencies()
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public void ReuseRequiresAllLastReadersToPrecedeTheNextWriter(bool diamond, bool joined)
     {
-        var builder = Builder();
-        Add(builder, "a", "a");
-        Add(builder, "read", "output", "a", ["a"]);
-        Add(builder, "b", "b", dependencies: ["read"]);
-        var before = builder.Build();
-        var after = Process(new TemporaryResourceReusePostprocessor(), before).Graphs[0];
-        Assert.DoesNotContain(after.Resources, resource => resource.Id.Value == "b");
-        Assert.Equal("a", after.Bindings(after.Nodes.Single(node => node.Id.Value == "b"))
-            .Single().Resource.Resource.Value);
-        Assert.Equal(before.Nodes, after.Nodes);
-        Assert.Equal(before.Structure.Edges.OfType<ExecutionDependencyEdge>(),
-            after.Structure.Edges.OfType<ExecutionDependencyEdge>());
-        AssertIdempotent(new TemporaryResourceReusePostprocessor(), new([before]));
-    }
-
-    [Fact]
-    public void IndependentBranchesCannotReuseEvenWhenTopologicalIntervalsDoNotOverlap()
-    {
-        var builder = Builder();
-        Add(builder, "a", "a");
-        Add(builder, "read-a", "output", "a", ["a"]);
-        Add(builder, "b", "b");
-        var before = builder.Build();
-        Assert.Equal(before.Resources.Count,
-            Process(new TemporaryResourceReusePostprocessor(), before).Graphs[0].Resources.Count);
-    }
-
-    [Fact]
-    public void DiamondMustWaitForEveryLastReader()
-    {
-        var builder = Builder();
-        Add(builder, "a", "a");
-        Add(builder, "left", "left-output", "a", ["a"]);
-        Add(builder, "right", "right-output", "a", ["a"]);
-        Add(builder, "b", "b", dependencies: ["left"]);
-        var before = builder.Build();
-        var after = Process(new TemporaryResourceReusePostprocessor(), before).Graphs[0];
-        Assert.Contains(after.Resources, resource => resource.Id.Value == "b");
-        Assert.Equal("b", after.Bindings(after.Nodes.Single(node => node.Id.Value == "b"))
-            .Single().Resource.Resource.Value);
-    }
-
-    [Fact]
-    public void DiamondJoinAllowsReuseAfterAllReaders()
-    {
-        var builder = Builder();
-        Add(builder, "a", "a");
-        Add(builder, "left", "left-output", "a", ["a"]);
-        Add(builder, "right", "right-output", "a", ["a"]);
-        Add(builder, "b", "b", dependencies: ["left", "right"]);
-        Assert.DoesNotContain(Process(new TemporaryResourceReusePostprocessor(), builder.Build()).Graphs[0].Resources,
-            resource => resource.Id.Value == "b");
-    }
-
-    [Fact]
-    public void ResourceSafetyDoesNotDependOnDeclarationOrderOrNames()
-    {
-        var builder = Builder();
-        Add(builder, "z-last-name", "a");
-        Add(builder, "a-first-name", "output", "a", ["z-last-name"]);
-        Add(builder, "middle-name", "b", dependencies: ["a-first-name"]);
-        var graph = builder.Build();
-        var reversed = new ExecutionGraph(graph.Id,
-            new Graph<ExecutionGraphStructureNode, ExecutionGraphEdge>(
-                graph.Structure.Nodes.Reverse(), graph.Structure.Edges.Reverse()));
-        var pass = new TemporaryResourceReusePostprocessor();
-        foreach (var candidate in new[] { graph, reversed })
-        {
-            var after = Process(pass, candidate).Graphs[0];
-            Assert.DoesNotContain(after.Resources, resource => resource.Id.Value == "b");
-            Assert.Equal("a", after.Bindings(after.Nodes.Single(node => node.Id.Value == "middle-name"))
-                .Single().Resource.Resource.Value);
-        }
+        var graph = Create();
+        Add(graph, "write", "a");
+        Add(graph, "left", "left-output", "a", ["write"]);
+        if (diamond)
+            Add(graph, "right", "right-output", "a", ["write"]);
+        Add(graph, "next", "b", dependencies: joined ? ["left", "right"] : diamond ? ["left"] : []);
+        var after = Process(new TemporaryResourceReusePostprocessor(), graph).MainGraph!;
+        Assert.Equal(joined ? "a" : null, after.Storage["b"].Slot);
     }
 
     [Theory]
@@ -136,121 +78,109 @@ public sealed class ExecutionGraphPostprocessorTests
     [InlineData("read-write")]
     [InlineData("unknown-write")]
     [InlineData("unknown-version")]
-    public void UnprovenInitializationCannotReuse(string scenario)
+    [InlineData("same-operation")]
+    [InlineData("multiple-writes")]
+    public void UnprovenOrOverlappingLifetimesNeverShareStorage(string scenario)
     {
-        var builder = Builder();
-        Add(builder, "a", "a");
+        var graph = Create();
+        Add(graph, "first", "a");
         if (scenario == "initial-read")
-        {
-            Add(builder, "b", "output", "b", ["a"]);
-        }
-        else if (scenario == "read-write")
-        {
-            builder.AddOperation(Operation("b", "core.copy"),
-                [Binding("output", "b", ResourceAccess.ReadWrite, "b")], [new("a")]);
-        }
+            Add(graph, "second", "output", "b", ["first"]);
         else
         {
-            builder.AddOperation(Operation("b", scenario == "unknown-write" ? "custom.partial" : "core.copy",
-                scenario == "unknown-version" ? 2 : 1),
-                [Binding("output", "b", ResourceAccess.Write, "b")], [new("a")]);
+            var operation = Add(graph, "second", "b", scenario == "same-operation" ? "a" : null, ["first"]);
+            if (scenario == "read-write")
+                operation.Bindings[0] = operation.Bindings[0] with { Access = ResourceAccess.ReadWrite };
+            if (scenario == "unknown-write")
+                operation.Operation = new("custom.partial");
+            if (scenario == "unknown-version")
+                operation.Operation = new(Operations.Copy, 2);
+            if (scenario == "multiple-writes")
+                Add(graph, "last", "a", dependencies: ["second"]);
         }
-
-        Assert.Contains(Process(new TemporaryResourceReusePostprocessor(), builder.Build()).Graphs[0].Resources,
-            resource => resource.Id.Value == "b");
+        Assert.Null(Process(new TemporaryResourceReusePostprocessor(), graph).MainGraph!.Storage["b"].Slot);
     }
 
     [Theory]
-    [InlineData(GraphDefinitionResourceKind.State)]
-    [InlineData(GraphDefinitionResourceKind.Output)]
-    [InlineData(GraphDefinitionResourceKind.InOut)]
-    [InlineData(GraphDefinitionResourceKind.Weight)]
-    [InlineData(GraphDefinitionResourceKind.Input)]
-    public void NonTemporaryResourcesAreProtected(GraphDefinitionResourceKind kind)
+    [InlineData("state")]
+    [InlineData("input")]
+    [InlineData("output")]
+    [InlineData("inout")]
+    [InlineData("weight")]
+    [InlineData("session")]
+    [InlineData("global")]
+    [InlineData("binding")]
+    [InlineData("shape")]
+    [InlineData("precision")]
+    [InlineData("layout")]
+    public void VisibleOrIncompatibleResourcesNeverShareStorage(string protection)
     {
-        var builder = Builder(secondKind: kind);
-        Add(builder, "a", "a");
-        if (kind == GraphDefinitionResourceKind.Weight)
+        var graph = Create();
+        var resource = graph.Resources.Single(resource => resource.Id == "b");
+        switch (protection)
         {
-            Add(builder, "b", "output", "b", ["a"]);
+            case "state": resource.IsState = true; break;
+            case "input": resource.GraphIO = GraphIO.In; break;
+            case "output": resource.GraphIO = GraphIO.Out; break;
+            case "inout": resource.GraphIO = GraphIO.InOut; break;
+            case "weight": resource.Usage = ResourceUsage.Weight; resource.Permission = ResourcePermission.ReadOnly; break;
+            case "session": resource.Scope = ResourceScope.Session; break;
+            case "global": resource.Scope = ResourceScope.Global; break;
+            case "binding": resource.BindingKey = "external"; break;
+            case "shape": resource.Tensor = new(ElementType.Float32, [2, 2]); break;
+            case "precision": resource.Tensor = new(ElementType.Float16, [4]); break;
+            case "layout": resource.Tensor = new(ElementType.Float32, [4], "other"); break;
         }
+        Add(graph, "first", "a");
+        if (protection is "weight" or "input")
+            Add(graph, "second", "output", "b", ["first"]);
         else
+            Add(graph, "second", "b", dependencies: ["first"]);
+        Assert.Null(Process(new TemporaryResourceReusePostprocessor(), graph).MainGraph!.Storage["b"].Slot);
+    }
+
+    [Fact]
+    public void DeclarationOrderDoesNotChangeReuseSafety()
+    {
+        var graph = Create();
+        Add(graph, "z-last-name", "a");
+        Add(graph, "a-first-name", "output", "a", ["z-last-name"]);
+        Add(graph, "middle", "b", dependencies: ["a-first-name"]);
+        graph.Actions.Reverse();
+        graph.Resources.Reverse();
+        graph.GraphFlow.Reverse();
+        Assert.Equal("a", Process(new TemporaryResourceReusePostprocessor(), graph).MainGraph!.Storage["b"].Slot);
+    }
+
+    [Fact]
+    public void TemplateSharingPreservesCallsBindingsSourcesAndReadWriteAccess()
+    {
+        foreach (var readWrite in new[] { false, true })
         {
-            Add(builder, "b", "b", dependencies: ["a"]);
+            var graph = Create();
+            foreach (var id in new[] { "a", "b" })
+            {
+                var operation = readWrite ? graph.Operation(id, "custom.update") : Add(graph, id, id, "input");
+                if (readWrite)
+                    operation.Bind("state", id, ResourceAccess.ReadWrite);
+                operation.Source("test", graph.Id, id);
+            }
+            graph.Actions[0].Then(graph.Actions[1]);
+            var result = Process(new OperationTemplateSharingPostprocessor(), graph);
+            Assert.Equal(2, result.Count);
+            var calls = result.MainGraph!.Actions.Cast<ExecutionCall>().ToArray();
+            Assert.Equal(calls[0].Target, calls[1].Target);
+            Assert.Equal(graph.GraphFlow, result.MainGraph.GraphFlow);
+            Assert.Equal(new SourceOrigin("test", "main", "a"), Assert.Single(calls[0].Sources));
+            var template = result.Single(item => item != result.MainGraph);
+            Assert.All(template.Resources, resource => Assert.Null(resource.BindingKey));
+            if (readWrite)
+            {
+                Assert.Equal(GraphIO.InOut, Assert.Single(template.Resources).GraphIO);
+                Assert.Equal(ResourceAccess.ReadWrite, Assert.Single(template.Actions[0].Bindings).Access);
+            }
+            AssertIdempotent(new OperationTemplateSharingPostprocessor(), new(graph));
         }
-        Assert.Contains(Process(new TemporaryResourceReusePostprocessor(), builder.Build()).Graphs[0].Resources,
-            resource => resource.Id.Value == "b");
-    }
-
-    [Fact]
-    public void ExecutionGraphRejectsWeightWrites()
-    {
-        var builder = Builder(secondKind: GraphDefinitionResourceKind.Weight);
-        Add(builder, "write-weight", "b");
-
-        var exception = Assert.Throws<InvalidDataException>(() => builder.Build());
-
-        Assert.Contains("EG0004", exception.Message, StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public void BindingKeysAndIncompatibleDescriptorsAreProtected()
-    {
-        foreach (var tensor in new[]
-        {
-            new TensorDescriptor(ElementType.Float32, [2, 2]),
-            new TensorDescriptor(ElementType.Float16, [4]),
-            new TensorDescriptor(ElementType.Float32, [4], "other-layout"),
-        })
-        {
-            var builder = Builder(secondTensor: tensor);
-            Add(builder, "a", "a");
-            Add(builder, "b", "b", dependencies: ["a"]);
-            Assert.Equal(6, Process(new TemporaryResourceReusePostprocessor(), builder.Build()).Graphs[0].Resources.Count);
-        }
-        var bound = Builder(bindingKey: "externally-visible");
-        Add(bound, "a", "a");
-        Add(bound, "b", "b", dependencies: ["a"]);
-        Assert.Equal(6, Process(new TemporaryResourceReusePostprocessor(), bound.Build()).Graphs[0].Resources.Count);
-    }
-
-    [Fact]
-    public void SameOperationInputsAndOutputsNeverCoalesce()
-    {
-        var builder = Builder();
-        Add(builder, "a", "a");
-        Add(builder, "b", "b", "a", ["a"]);
-        Assert.Equal(6, Process(new TemporaryResourceReusePostprocessor(), builder.Build()).Graphs[0].Resources.Count);
-    }
-
-    [Fact]
-    public void MultipleWritesRemainInOneLifetime()
-    {
-        var builder = Builder();
-        Add(builder, "first", "a");
-        Add(builder, "b", "b", dependencies: ["first"]);
-        Add(builder, "later", "a", dependencies: ["b"]);
-        var result = Process(new TemporaryResourceReusePostprocessor(), builder.Build()).Graphs[0];
-        Assert.Contains(result.Resources, resource => resource.Id.Value == "b");
-    }
-
-    [Fact]
-    public void TemplateSharingPreservesCallsPortsAndSourceMaps()
-    {
-        var builder = Builder();
-        Add(builder, "a", "a", "input");
-        Add(builder, "b", "b", "input", ["a"]);
-        var before = builder.Build();
-        var after = Process(new OperationTemplateSharingPostprocessor(), before);
-        Assert.Equal(2, after.Graphs.Count);
-        var calls = after.Graphs[0].Nodes.OfType<ExecutionGraphCallNode>().ToArray();
-        Assert.Equal(2, calls.Length);
-        Assert.Equal(calls[0].Target, calls[1].Target);
-        Assert.Equal(before.Structure.Edges, after.Graphs[0].Structure.Edges);
-        Assert.Equal(before.Nodes[0].Source.LogicalNodes, calls[0].Source.LogicalNodes);
-        Assert.Single(after.Graphs[1].Nodes);
-        Assert.All(after.Graphs[1].Resources, resource => Assert.Null(resource.BindingKey));
-        AssertIdempotent(new OperationTemplateSharingPostprocessor(), new([before]));
     }
 
     [Theory]
@@ -259,168 +189,66 @@ public sealed class ExecutionGraphPostprocessorTests
     [InlineData("version")]
     [InlineData("shape")]
     [InlineData("alias")]
-    public void DifferentOrAliasedContractsAreNotShared(string difference)
+    [InlineData("category")]
+    public void DifferentOrAliasedOperationContractsAreNotShared(string difference)
     {
-        var builder = Builder(secondTensor: difference == "shape"
-            ? new(ElementType.Float32, [2]) : null);
-        Add(builder, "a", "a", "input");
-        var op = Operation("b", "core.copy", difference == "version" ? 2 : 1) with
+        var graph = Create();
+        Add(graph, "first", "a", "input");
+        var second = Add(graph, "second", "b", difference == "alias" ? "b" : "input");
+        switch (difference)
         {
-            Attributes = difference == "attributes"
-                ? new Dictionary<string, string> { ["mode"] = "other" } : new Dictionary<string, string>(),
-            Requirements = difference == "precision"
-                ? new(ElementType.Float16, ElementType.Float16)
-                : new(ElementType.Float32, ElementType.Float32),
-        };
-        builder.AddOperation(op,
-            [Binding("input", difference == "alias" ? "b" : "input", ResourceAccess.Read, "b"),
-             Binding("output", "b", ResourceAccess.Write, "b")], [new("a")]);
-        Assert.Single(Process(new OperationTemplateSharingPostprocessor(), builder.Build()).Graphs);
-    }
-
-    [Fact]
-    public void CallerBoundTemporaryAndCallAccessesAreProtected()
-    {
-        var child = new ExecutionGraphBuilder(new("child"));
-        child.AddResource(new(new("a"), "a", GraphDefinitionResourceKind.Output, F));
-        child.AddResource(new(new("b"), "b", GraphDefinitionResourceKind.Output, F));
-        Add(child, "a", "a");
-        Add(child, "b", "b", dependencies: ["a"]);
-        var root = Builder();
-        root.AddCall(new(new("call"), new("child"), GraphCompileBoundary.Atomic, new([])),
-            [Binding("a", "a", ResourceAccess.Write, "call"),
-             Binding("b", "b", ResourceAccess.Write, "call")]);
-        var before = new ExecutionGraphProgram([root.Build(), child.Build()]);
-        var after = new TemporaryResourceReusePostprocessor().Process(before, Context);
-        Assert.Equal(6, after.Graphs.Single(graph => graph.Id.Value == "root").Resources.Count);
-        Assert.Equal(2, after.Graphs.Single(graph => graph.Id.Value == "child").Resources.Count);
-        var rootAfter = after.Graphs.Single(graph => graph.Id.Value == "root");
-        Assert.Equal(["a", "b"],
-            rootAfter.Bindings(Assert.Single(rootAfter.Nodes)).Select(binding => binding.Resource.Resource.Value));
-    }
-
-    [Fact]
-    public void ReadWriteTemplatePortsPreserveAccess()
-    {
-        var builder = Builder();
-        foreach (var name in new[] { "a", "b" })
-        {
-            builder.AddOperation(Operation(name, "custom.update"),
-                [Binding("state", name, ResourceAccess.ReadWrite, name)]);
+            case "attributes": second.Attributes["mode"] = "other"; break;
+            case "precision": second.RequirePrecision(ElementType.Float16, ElementType.Float16); break;
+            case "version": second.Operation = new(Operations.Copy, 2); break;
+            case "shape": graph.Resources.Single(resource => resource.Id == "b").Tensor = new(ElementType.Float32, [2]); break;
+            case "category": second.Category = "custom.operation"; break;
         }
-
-        var after = Process(new OperationTemplateSharingPostprocessor(), builder.Build());
-        Assert.Equal(GraphDefinitionResourceKind.InOut, Assert.Single(after.Graphs[1].Resources).Kind);
-        Assert.Equal(ResourceAccess.ReadWrite,
-            Assert.Single(after.Graphs[1].Bindings(Assert.Single(after.Graphs[1].Nodes))).Access);
-        Assert.All(after.Graphs[0].Nodes, node =>
-            Assert.Equal(ResourceAccess.ReadWrite, Assert.Single(after.Graphs[0].Bindings(node)).Access));
+        Assert.Single(Process(new OperationTemplateSharingPostprocessor(), graph));
     }
 
     [Fact]
-    public void ImplicitCallInstanceResourcesProtectTheTargetTemporary()
+    public void CallInstanceResourceReferencesProtectCalleeStorage()
     {
-        var child = Builder("child");
-        Add(child, "a", "a");
-        Add(child, "b", "b", dependencies: ["a"]);
-        var root = Builder();
-        root.AddResource(new(new("a"), "a", GraphDefinitionResourceKind.Temporary, F),
-            GraphBindingOwner.Instance(new("call")));
-        root.AddCall(new(new("call"), new("child"), GraphCompileBoundary.Atomic, new([])),
-            [Binding("input", "input", ResourceAccess.Read, "call"),
-             Binding("output", "output", ResourceAccess.Write, "call"),
-             Binding("left-output", "left-output", ResourceAccess.Write, "call"),
-             Binding("right-output", "right-output", ResourceAccess.Write, "call")]);
-        root.AddOperation(Operation("consume", "core.copy"),
-            [new("input", new(GraphBindingOwner.Instance(new("call")), new("a")),
-                ResourceAccess.Read, "consume:input"),
-             Binding("output", "output", ResourceAccess.Write, "consume")], [new("call")]);
-        var result = new TemporaryResourceReusePostprocessor().Process(
-            new([root.Build(), child.Build()]), Context);
-        Assert.Equal(6, result.Graphs.Single(graph => graph.Id.Value == "child").Resources.Count);
+        var child = Create("child");
+        Add(child, "first", "a");
+        Add(child, "second", "b", dependencies: ["first"]);
+        var root = Create();
+        var call = root.Call("invoke", child);
+        foreach (var resource in child.GraphIOs)
+            call.Bind(resource.Id, resource.Id, resource.GraphIO == GraphIO.In ? ResourceAccess.Read : ResourceAccess.Write);
+        var consume = Add(root, "consume", "output", dependencies: ["invoke"]);
+        consume.Bind("input", ResourceRef.InCall("invoke", "a"), ResourceAccess.Read);
+        var result = new TemporaryResourceReusePostprocessor().Process(new(root, child), Context);
+        Assert.Null(result.Single(graph => graph.Id == "child").Storage["b"].Slot);
     }
 
-    [Fact]
-    public void ReductionPreservesReachabilityOnVariedDags()
+    private static ExecutionGraph Create(string id = "main")
     {
-        var random = new Random(417);
-        for (var iteration = 0; iteration < 20; iteration++)
-        {
-            var builder = new ExecutionGraphBuilder(new("random"));
-            for (var index = 0; index < 12; index++)
-            {
-                builder.AddOperation(Operation($"n{index}", "custom.operation"), [],
-                    Enumerable.Range(0, index).Where(_ => random.Next(3) == 0)
-                        .Select(predecessor => new ExecutionNodeId($"n{predecessor}")));
-            }
-
-            var before = builder.Build();
-            var after = Process(new DependencyReductionPostprocessor(), before).Graphs[0];
-            foreach (var first in before.Nodes)
-            {
-                foreach (var second in before.Nodes)
-                {
-                    Assert.Equal(
-                        before.Structure.DependencyView().IsReachable(first.GraphId, second.GraphId),
-                        after.Structure.DependencyView().IsReachable(first.GraphId, second.GraphId));
-                }
-            }
-        }
-    }
-
-    private static ExecutionGraphBuilder Builder(
-        string id = "root",
-        GraphDefinitionResourceKind secondKind = GraphDefinitionResourceKind.Temporary,
-        TensorDescriptor? secondTensor = null,
-        string? bindingKey = null)
-    {
-        var builder = new ExecutionGraphBuilder(new(id));
+        var graph = new ExecutionGraph { Id = id };
         foreach (var name in new[] { "input", "output", "left-output", "right-output", "a", "b" })
-        {
-            builder.AddResource(new(new(name), name,
-                name == "input" ? GraphDefinitionResourceKind.Input :
-                name is "output" or "left-output" or "right-output" ? GraphDefinitionResourceKind.Output :
-                name == "b" ? secondKind : GraphDefinitionResourceKind.Temporary,
-                name == "b" ? secondTensor ?? F : F, name == "b" ? bindingKey : null));
-        }
-
-        return builder;
+            graph.Resource(name, Vector, new ExecutionStorage(ResourceStorageKind.LocalBuffer),
+                name == "input" ? GraphIO.In : name.Contains("output", StringComparison.Ordinal) ? GraphIO.Out : GraphIO.Internal);
+        return graph;
     }
 
-    private static void Add(
-        ExecutionGraphBuilder builder, string id, string output, string? input = null,
-        string[]? dependencies = null)
+    private static ExecutionOperation Add(ExecutionGraph graph, string id, string output,
+        string? input = null, string[]? dependencies = null)
     {
-        var bindings = new List<ModelResourceBinding>();
+        var action = graph.Operation(id, Operations.Copy);
         if (input is not null)
-        {
-            bindings.Add(Binding("input", input, ResourceAccess.Read, id));
-        }
-
-        bindings.Add(Binding("output", output, ResourceAccess.Write, id));
-        builder.AddOperation(Operation(id, input is null ? "core.tensor.fill" : "core.copy"),
-            bindings, (dependencies ?? []).Select(value => new ExecutionNodeId(value)));
+            action.Bind("input", input, ResourceAccess.Read);
+        action.Bind("output", output, ResourceAccess.Write);
+        foreach (var dependency in dependencies ?? [])
+            graph.Actions.Single(operation => operation.Id == dependency).Then(action);
+        return action;
     }
 
-    private static ExecutionOperationNode Operation(string id, string name, int version = 1) =>
-        new(new(id), new(name, version),
-            name == "core.tensor.fill" ? new Dictionary<string, string> { ["value"] = "1" } : new Dictionary<string, string>(),
-            new(ElementType.Float32, ElementType.Float32), new([new(id)]));
+    private static GraphPackage<ExecutionGraph> Process(IExecutionGraphPostprocessor processor, ExecutionGraph graph) =>
+        processor.Process(new(graph), Context);
 
-    private static ModelResourceBinding Binding(
-        string port, string resource, ResourceAccess access, string id) =>
-        new(port, new(GraphBindingOwner.Parent, new(resource)), access, $"{id}:{port}");
-
-    private static ExecutionGraphProgram Process(IExecutionGraphPostprocessor pass, ExecutionGraph graph) =>
-        pass.Process(new([graph]), Context);
-
-    private static ExecutionGraph WithEdges(ExecutionGraph graph, IEnumerable<ExecutionGraphEdge> edges) =>
-        new(graph.Id, new Graph<ExecutionGraphStructureNode, ExecutionGraphEdge>(
-            graph.Structure.Nodes, edges), graph.DefaultCompileBoundary, graph.Architecture, graph.Source);
-
-    private static void AssertIdempotent(IExecutionGraphPostprocessor pass, ExecutionGraphProgram original)
+    private static void AssertIdempotent(IExecutionGraphPostprocessor processor, GraphPackage<ExecutionGraph> package)
     {
-        var once = pass.Process(original, Context);
-        Assert.Equal(ExecutionGraphXml.Serialize(once), ExecutionGraphXml.Serialize(pass.Process(once, Context)));
+        var once = processor.Process(package, Context);
+        Assert.Equal(GraphPackageXml.Serialize(once), GraphPackageXml.Serialize(processor.Process(once, Context)));
     }
 }

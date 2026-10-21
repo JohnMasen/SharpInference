@@ -7,7 +7,7 @@ using System.Xml.Linq;
 namespace SharpInference.Graphs.Internal;
 
 /// <summary>Shares XML primitives, validation, and limits between logical and execution serializers.</summary>
-public static class GraphXmlSupport
+internal static class GraphXmlSupport
 {
     /// <summary>The maximum serialized string length and XML reader document character count.</summary>
     private const int MaxCharacters = 16 * 1024 * 1024;
@@ -34,12 +34,15 @@ public static class GraphXmlSupport
     /// <exception cref="ArgumentException">An attribute name occurs more than once.</exception>
     public static IReadOnlyDictionary<string, string> ReadAttributes(XElement element)
     {
+        Check(element, "Attributes");
         var attributes = new Dictionary<string, string>(StringComparer.Ordinal);
         foreach (var attribute in Children(element, "Attribute"))
         {
             Check(attribute, "Attribute", "name", "value");
+            DefinitionChildren(attribute);
             var name = Required(attribute, "name");
-            if (!attributes.TryAdd(name, Required(attribute, "value")))
+            if (!attributes.TryAdd(name, (string?)attribute.Attribute("value")
+                ?? throw new InvalidDataException($"Attribute '{name}' requires a value.")))
                 throw new InvalidDataException($"Duplicate attribute '{name}'.");
         }
         return new ReadOnlyDictionary<string, string>(attributes);
@@ -62,6 +65,7 @@ public static class GraphXmlSupport
     public static PrecisionRequirement ReadPrecision(XElement element)
     {
         Check(element, "Precision", "arithmetic", "accumulator");
+        DefinitionChildren(element);
         return new(
             DefinitionEnumValue<ElementType>(element, "arithmetic"),
             DefinitionEnumValue<ElementType>(element, "accumulator"));
@@ -91,6 +95,7 @@ public static class GraphXmlSupport
             Children(element, "Dimension").Select(dimension =>
             {
                 Check(dimension, "Dimension", "value");
+                DefinitionChildren(dimension);
                 return Number(dimension, "value");
             }),
             Required(element, "layout"));
@@ -167,15 +172,8 @@ public static class GraphXmlSupport
         return xml;
     }
 
-    /// <summary>Parses bounded graph XML with DTDs prohibited and validates its root kind and version.</summary>
-    /// <param name="xml">The complete XML document text.</param>
-    /// <param name="kind">The exact, case-sensitive graph kind required on the root.</param>
-    /// <param name="version">The required root format version.</param>
-    /// <returns>The Graph root after size, depth, root-name, and root-attribute validation.</returns>
-    /// <remarks>Child schema is left to the logical or execution decoder. External XML resolution is disabled.</remarks>
-    /// <exception cref="ArgumentNullException">The document text is null.</exception>
-    /// <exception cref="InvalidDataException">The XML is malformed, exceeds a limit, or has an invalid root, kind, or version.</exception>
-    public static XElement Read(string xml, string kind, int version)
+    /// <summary>Reads a bounded XML document with external resolution and DTDs disabled.</summary>
+    public static XElement ReadDocument(string xml)
     {
         ArgumentNullException.ThrowIfNull(xml);
         if (xml.Length > MaxCharacters)
@@ -202,18 +200,6 @@ public static class GraphXmlSupport
             {
                 throw new InvalidDataException(
                     "Graph XML exceeds the structural limit.");
-            }
-
-            Check(root, "Graph", "kind", "version");
-            if (Required(root, "kind") != kind)
-            {
-                throw new InvalidDataException($"Graph XML kind must be '{kind}'.");
-            }
-
-            if (Number(root, "version") != version)
-            {
-                throw new InvalidDataException(
-                    $"Unsupported graph XML version '{Required(root, "version")}'.");
             }
 
             return root;
@@ -244,6 +230,8 @@ public static class GraphXmlSupport
         {
             throw new InvalidDataException($"Expected <{name}>.");
         }
+        if (element.Nodes().OfType<XText>().Any(text => !string.IsNullOrWhiteSpace(text.Value)))
+            throw new InvalidDataException($"Unexpected text in <{name}>.");
 
         if (element.Attributes().Any(attribute =>
             attribute.IsNamespaceDeclaration ||

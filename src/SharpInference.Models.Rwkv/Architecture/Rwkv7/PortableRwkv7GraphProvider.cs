@@ -14,7 +14,7 @@ public sealed class PortableRwkv7GraphProvider
     public string ArchitectureId => "rwkv-7";
 
     /// <inheritdoc/>
-    public LogicalGraphDefinition Build(IModelTensorCatalog tensors)
+    public GraphPackage<LogicalGraph> Build(IModelTensorCatalog tensors)
     {
         ArgumentNullException.ThrowIfNull(tensors);
         var modelDimensions = RwkvTensorCatalogDimensions.Read(tensors);
@@ -38,7 +38,7 @@ public sealed class PortableRwkv7GraphProvider
             throw new InvalidDataException("RWKV-7 receptance-key dimensions do not match the head shape.");
         }
 
-        return PortableRwkvGraphDefinitionComposer.Define(
+        return PortableRwkvGraphComposer.Define(
             "rwkv7.forward-token.portable",
             modelDimensions.VocabularySize,
             builder =>
@@ -388,9 +388,8 @@ public sealed class PortableRwkv7GraphProvider
                 Node(PrimitiveOperations.Copy, [("input", logits)], [modelDimensions.VocabularySize], "logits");
             }), architecture: new(Description: "Final affine LayerNorm and vocabulary projection."));
 
-        }, new GraphAnnotation(
-            Name: "RWKV-7 forward token",
-            Role: "forward-token",
-            Description: "RWKV-7 single-token portable logical graph."));
+        },
+            name: "RWKV-7 forward token",
+            description: "RWKV-7 single-token portable logical graph.");
     }
 }

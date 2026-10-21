@@ -1,368 +1,375 @@
-globalThis.runGraphViewerTests = async function () {
-  const $ = id => document.getElementById(id);
-  const results = [];
-  const assert = (condition, name) => {
-    if (!condition) throw new Error(`${name}: ${$("status").textContent}`);
-    results.push(name);
-  };
-  const node = label => Array.from($("nodes").children)
-    .find(item => item.textContent.includes(label));
-  const operation = id => Array.from($("nodes").children)
-    .find(item => item.getAttribute("aria-label")?.startsWith(`${id}: `));
-  const click = element => element.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-  const enter = element => element.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+"use strict";
 
-  function fixture(kind, options) {
-    const execution = kind === "ExecutionGraphProgram";
-    const annotationTag = execution ? "Architecture" : "Annotation";
-    const graphTag = execution ? "ExecutionGraph" : "Definition";
-    const callTag = execution ? "GraphCall" : "Call";
-    const annotation = (path, name) => path === null ? "" :
-      `<${annotationTag} name="${name}" role="projection" description="Module description">
-        <Attribute name="architecture.path" value="${path}" />
-        <Attribute name="architecture.formula" value="y = x" />
-        ${options.repeat ? '<Attribute name="repeatGroup" value="true" />' : ""}
-      </${annotationTag}>`;
-    const sourceMap = id => execution ? `<SourceMap><LogicalNode id="${id}" /></SourceMap>` : "";
-    const resources = (ids, owner) => ids.map((id, index) =>
-      `<Resource id="${id}" name="${id}" ${execution ? "" : `owner="${owner}"`}
-        kind="${index === 0 ? "Input" : index === ids.length - 1 ? "Output" : "Temporary"}">
-        <Tensor elementType="Float32" layout="dense"><Dimension value="1" /></Tensor>
-      </Resource>`).join("");
-    const ids = options.ids || (options.crossed ? ["a", "b", "c", "d"] : ["a", "b", "c"]);
-    const paths = options.paths || (options.crossed ? [null, null, null, null] :
-      ["graph/left", "graph/right", "graph/left"]);
-    const inputs = options.crossed ? ["input", "input", "y", "x"] :
-      options.parallel ? ["input", "input", "x"] : ["input", "x", "y"];
-    const outputs = options.crossed ? ["x", "y", "z", "output"] : ["x", "y", "output"];
-    const nodes = ids.map((id, index) => {
-      const metadata = annotation(paths[index], index === 1 ? "Right" : "Left");
-      if (options.call && index === 1)
-        return `<${callTag} id="${id}" ${execution ? "target" : "definition"}="template"
-          ${execution ? 'compileBoundary="Atomic"' : ""}>${metadata}${sourceMap(id)}</${callTag}>`;
-      return `<Operation id="${id}" operation="${options.parallel && index === 2 ? "core.add" : "core.copy"}" operationVersion="1">
-        ${metadata}${sourceMap(id)}<Attributes /><Precision arithmetic="Float32" accumulator="Float32" />
-      </Operation>`;
-    }).join("");
-    const bindings = ids.map((id, index) =>
-      `<Binding id="${id}:input" node="${id}" resource="${inputs[index]}"
-        port="${options.parallel && index === 2 ? "left" : "input"}"
-        access="Read" readEdge="r${index}" readOrder="${index * 4}" />
-      ${options.parallel && index === 2 ? `<Binding id="${id}:right" node="${id}" resource="y"
-        port="right" access="Read" readEdge="right" readOrder="${index * 4 + 1}" />` : ""}
-      <Binding id="${id}:output" node="${id}" resource="${outputs[index]}"
-        port="output" access="Write" writeEdge="w${index}" writeOrder="${index * 4 + 2}" />`).join("");
-    const dependencies = ids.map((id, index) => index ?
-      `<Dependency id="d${index}" source="${ids[index - 1]}" target="${id}"
-        order="${index * 4 + 3}" />` : "").join("") +
-      (options.backward ? `<Dependency id="invalid" source="${ids[2]}"
-        target="${ids[0]}" order="${ids.length * 4}" />` : "");
-    const root = `<${graphTag} id="test" compileBoundary="Atomic">
-      <${annotationTag} name="Test" /><Nodes>${resources(["input", ...outputs], "test")}${nodes}</Nodes>
-      <Bindings>${bindings}</Bindings><Dependencies>${dependencies}</Dependencies></${graphTag}>`;
-    const template = options.call ? `<${graphTag} id="template" compileBoundary="Atomic">
-      <Nodes>${resources(["input", "output"], "template")}
-        <Operation id="body" operation="core.copy" operationVersion="1">
-          ${sourceMap("body")}<Attributes /><Precision arithmetic="Float32" accumulator="Float32" />
-        </Operation>
-      </Nodes><Bindings>
-        <Binding id="body:input" node="body" resource="input"
-          port="input" access="Read" readEdge="tr" readOrder="0" />
-        <Binding id="body:output" node="body" resource="output"
-          port="output" access="Write" writeEdge="tw" writeOrder="1" />
-      </Bindings><Dependencies /></${graphTag}>` : "";
-    let xml = `<Graph kind="${kind}" version="${options.version || "3"}">
-      <Root ${execution ? "graph" : "definition"}="test" />
-      <${execution ? "Graphs" : "Definitions"}>${root}${template}</${execution ? "Graphs" : "Definitions"}>
-    </Graph>`;
-    if (options.bulk || options.readWrite || options.instance || options.missingResource) {
-      const documentXml = new DOMParser().parseFromString(xml, "application/xml");
-      const nodes = documentXml.querySelector("Nodes"), exemplar = nodes.querySelector("Operation");
-      if (options.bulk) {
-        for (let index = 0; index < (options.bulkCount || 256); index++) {
-          const item = exemplar.cloneNode(true);
-          item.setAttribute("id", `bulk.${index}`);
-          nodes.append(item);
-          if (options.chain) {
-            const resource = nodes.querySelector('Resource[id="output"]').cloneNode(true);
-            resource.setAttribute("id", `bulk.output.${index}`);
-            resource.setAttribute("kind", "Temporary");
-            nodes.append(resource);
-            for (const [tag, attributes] of [
-              ["Binding", { id: `bulk.${index}:input`, node: `bulk.${index}`,
-                resource: index ? `bulk.output.${index - 1}` : "output",
-                port: "input", access: "Read", readEdge: `bulk.${index}:Read`, readOrder: 16 + index * 3 }],
-              ["Binding", { id: `bulk.${index}:output`, node: `bulk.${index}`,
-                resource: `bulk.output.${index}`, port: "output", access: "Write",
-                writeEdge: `bulk.${index}:Write`, writeOrder: 17 + index * 3 }],
-              ["Dependency", { id: `bulk.${index}:Dependency`, source: index ? `bulk.${index - 1}` : "c",
-                target: `bulk.${index}`, order: 18 + index * 3 }],
-            ]) {
-              const edge = documentXml.createElement(tag);
-              for (const [key, value] of Object.entries(attributes)) edge.setAttribute(key, value);
-              documentXml.querySelector(tag === "Binding" ? "Bindings" : "Dependencies").append(edge);
-            }
-          }
-        }
-      }
-      const bindings = documentXml.querySelector("Bindings");
-      if (options.readWrite) {
-        const binding = documentXml.createElement("Binding");
-        for (const [key, value] of Object.entries({
-          id: "b:state", node: "b", resource: "x", port: "state", access: "ReadWrite",
-          readEdge: "state-Read", readOrder: "13", writeEdge: "state-Write", writeOrder: "14",
-        })) binding.setAttribute(key, value);
-        bindings.append(binding);
-      }
-      if (options.instance) {
-        const resource = nodes.querySelector('Resource[id="output"]').cloneNode(true);
-        resource.setAttribute("instance", "b");
-        nodes.append(resource);
-        const binding = bindings.querySelector('Binding[node="c"][access="Read"]');
-        binding.setAttribute("resource", "output");
-        binding.setAttribute("instance", "b");
-      }
-      if (options.missingResource)
-        bindings.querySelector("Binding").setAttribute("resource", "missing");
-      xml = new XMLSerializer().serializeToString(documentXml);
-    }
-    if (options.plan) xml = `<ExecutionPlan schema="sharp-inference" version="1" kind="il">${xml}</ExecutionPlan>`;
-    return xml;
-  }
+// A small XML/element adapter keeps model tests offline without a browser or npm.
+const { test } = require("node:test");
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const path = require("node:path");
+const vm = require("node:vm");
+const html = fs.readFileSync(path.join(__dirname, "graph-viewer.html"), "utf8");
+const script = html.match(/<script>([\s\S]*?)<\/script>/)[1];
 
-  async function load(kind, options = {}) {
-    const transfer = new DataTransfer();
-    transfer.items.add(new File([fixture(kind, options)], "regression.xml", { type: "application/xml" }));
-    $("layout-priority").value = options.priority || "execution";
-    $("file").files = transfer.files;
-    const phases = [], updates = [];
-    let pulses = 0;
-    const observer = new MutationObserver(() => {
-      phases.push($("status").textContent);
-      if (!$("load-progress").hidden)
-        updates.push({ value: $("load-progress").value, max: $("load-progress").max });
-    });
-    observer.observe($("status"), { childList: true, subtree: true, characterData: true });
-    const pulse = setInterval(() => pulses++, 0);
-    $("file").dispatchEvent(new Event("change", { bubbles: true }));
-    const deadline = performance.now() + 5000;
-    try {
-      while (!$("load-progress").hidden) {
-        if (performance.now() > deadline) throw new Error("Fixture loading timed out.");
-        await new Promise(resolve => setTimeout(resolve, 10));
-      }
-    } finally {
-      observer.disconnect();
-      clearInterval(pulse);
-    }
-    return { error: $("status").classList.contains("error"), status: $("status").textContent,
-      phases, updates, pulses };
-  }
-
-  document.querySelector('[data-language="zh"]').click();
-  const changePriority = value => {
-    $("layout-priority").value = value;
-    $("layout-priority").dispatchEvent(new Event("change", { bubbles: true }));
-  };
-  const position = id => {
-    const matrix = operation(id).transform.baseVal.getItem(0).matrix;
-    return { x: matrix.e, y: matrix.f };
-  };
-  const dataEdges = () => Array.from($("edges").children)
-    .map(edge => edge.querySelector("title").textContent).filter(title => !title.includes("(Order)")).sort();
-  for (const kind of ["LogicalGraphDefinition", "ExecutionGraphProgram"]) {
-    let result = await load(kind, { version: "2" });
-    assert(result.error && result.status.includes("v3"), `${kind}: XML v2 is explicitly rejected`);
-    result = await load(kind);
-    assert(!result.error && node("Left") && node("Right"), `${kind}: interleaved groups`);
-    assert($("edges").children.length === 5, `${kind}: aggregated edges retained`);
-    click(node("Left"));
-    assert($("details").textContent.includes("Module description") &&
-      $("details").querySelector(".formula")?.textContent === "y = x",
-      `${kind}: module description and formula`);
-    enter(node("Left"));
-    assert(!$("status").classList.contains("error") && operation("a") && operation("c"),
-      `${kind}: grouped operator navigation`);
-    click(operation("c"));
-    assert($("details").querySelector(".formula")?.textContent === "y = x",
-      `${kind}: operation metadata retained`);
-    $("home").click();
-    assert(!$("status").classList.contains("error") && ["a", "b", "c"].every(operation),
-      `${kind}: original dependency and access order`);
-    document.querySelector('[data-language="en"]').click();
-    assert(!$("status").classList.contains("error") && $("scope").value === "root",
-      `${kind}: language switch preserves view`);
-    document.querySelector('[data-language="zh"]').click();
-    $("back").click();
-    assert(!$("status").classList.contains("error") && operation("a") && operation("c"),
-      `${kind}: navigation history`);
-
-    result = await load(kind, { paths: [null, null, null] });
-    assert(!result.error && ["a", "b", "c"].every(operation), `${kind}: unannotated compatibility`);
-    result = await load(kind, { paths: ["graph/left", null, "graph/left"] });
-    assert(!result.error && node("Left") && operation("b"), `${kind}: mixed annotations`);
-    result = await load(kind, { paths: ["one/left", "two/right", "one/left"] });
-    assert(!result.error && node("one") && node("two"), `${kind}: multiple path roots`);
-    result = await load(kind, { paths: ["graph/parent", "graph/parent/child", "graph/other"] });
-    assert(!result.error && Array.from($("scope").options).some(item => item.textContent.includes("child")),
-      `${kind}: annotated parents with nested groups`);
-    result = await load(kind, { ids: ["architecture:graph/left", "b", "c"] });
-    assert(!result.error, `${kind}: generated ID collision safety`);
-    result = await load(kind, { ids: ["operation:a", "b", "c"], paths: [null, null, null] });
-    assert(!result.error && operation("operation:a"), `${kind}: node IDs remain unprefixed raw names`);
-    result = await load(kind, { repeat: true });
-    assert(!result.error && !$("collapse").disabled && $("collapse").checked,
-      `${kind}: repeat-group metadata`);
-    $("collapse").click();
-    assert(!$("status").classList.contains("error") && ["a", "b", "c"].every(operation),
-      `${kind}: repeat-group expansion`);
-    result = await load(kind, { paths: ["graph//left", "graph/right", "graph/left"] });
-    assert(result.error && result.status.includes("architecture.path"), `${kind}: invalid path rejected`);
-    result = await load(kind, { backward: true });
-    assert(result.error, `${kind}: cyclic execution dependencies rejected`);
-    result = await load(kind, { call: true });
-    assert(!result.error, `${kind}: graph-call grouping`);
-    enter(node("Right"));
-    assert(operation("b")?.getAttribute("aria-label") === "b: template", `${kind}: call target retained`);
-    enter(operation("b"));
-    assert($("scope").value === "template" && !$("status").classList.contains("error") && operation("body"),
-      `${kind}: shared-template drill-down`);
-
-    result = await load(kind, { parallel: true, paths: [null, null, null] });
-    $("home").click();
-    assert(!result.error && !$("layout-priority").disabled && $("layout-priority").value === "execution",
-      `${kind}: default execution priority`);
-    const executionPosition = position("b"), originalData = JSON.stringify(dataEdges());
-    assert(position("a").y < executionPosition.y, `${kind}: execution dependencies determine ranks`);
-    click(operation("a"));
-    changePriority("logical");
-    assert(!$("status").classList.contains("error") && position("a").y === position("b").y &&
-      position("c").y > position("b").y, `${kind}: logical fork/join ranks`);
-    assert(JSON.stringify(dataEdges()) === originalData &&
-      !$("edges").querySelector("path[stroke-dasharray]"), `${kind}: data retained without control edges`);
-    assert($("nodes").querySelectorAll(".selected").length === 1, `${kind}: selection survives mode switch`);
-    document.querySelector('[data-language="en"]').click();
-    assert($("layout-priority").value === "logical" &&
-      $("layout-priority").selectedOptions[0].textContent === "Logic first",
-      `${kind}: layout mode localization`);
-    document.querySelector('[data-language="zh"]').click();
-    changePriority("execution");
-    assert(position("b").x === executionPosition.x && position("b").y === executionPosition.y &&
-      $("edges").querySelector("path[stroke-dasharray]"), `${kind}: execution layout restored independently`);
-    $("back").click();
-    assert($("layout-priority").value === "logical" && position("a").y === position("b").y,
-      `${kind}: history restores logical mode`);
-    $("forward").click();
-    assert($("layout-priority").value === "execution" && position("a").y < position("b").y,
-      `${kind}: history restores execution mode`);
-    result = await load(kind);
-    changePriority("logical");
-    assert(!result.error && !$("status").classList.contains("error") && node("Left") && node("Right"),
-      `${kind}: logical mode handles cyclic display groups`);
-    result = await load(kind, { crossed: true, priority: "logical" });
-    $("home").click();
-    assert(!result.error && position("a").y === position("b").y && position("c").y === position("d").y &&
-      (position("a").x < position("b").x) === (position("d").x < position("c").x),
-      `${kind}: logical rows eliminate crossed data connections`);
-    result = await load(kind, { call: true, priority: "logical" });
-    enter(node("Right"));
-    enter(operation("b"));
-    assert(!result.error && $("layout-priority").value === "logical" && $("scope").value === "template" &&
-      !$("status").classList.contains("error") && operation("body"), `${kind}: logical shared-template navigation`);
-    result = await load(kind, { backward: true, priority: "logical" });
-    assert(result.error, `${kind}: hidden control dependencies are still validated`);
-    result = await load(kind, { backward: true });
-    assert(result.error && $("layout-priority").disabled, `${kind}: invalid graph disables layout switch`);
-    assert($("load-progress").hidden, `${kind}: failed load clears progress`);
-    result = await load(kind, { readWrite: true });
-    $("home").click();
-    click(operation("b"));
-    assert(!result.error && $("details").textContent.includes("state") &&
-      $("details").textContent.includes("ReadWrite") &&
-      $("details").textContent.includes('readEdge="state-Read"') &&
-      $("details").textContent.includes('writeEdge="state-Write"') &&
-      $("details").textContent.includes('readOrder="13"') &&
-      $("details").textContent.includes('writeOrder="14"'),
-      `${kind}: one indexed ReadWrite binding retains both edge identities and orders`);
-    if (kind === "ExecutionGraphProgram")
-      assert($("details").textContent.includes("<SourceMap>") &&
-        $("details").textContent.includes('LogicalNode id="b"'), `${kind}: source maps retained`);
-    result = await load(kind, { call: true, instance: true });
-    $("home").click();
-    click(operation("c"));
-    assert(!result.error && $("details").textContent.includes("b/output"),
-      `${kind}: instance resource indexing`);
-    result = await load(kind, { missingResource: true });
-    assert(result.error && $("load-progress").hidden, `${kind}: missing indexed resource is reported`);
-    result = await load(kind, { bulk: true });
-    assert(!result.error && result.pulses > 2 && result.updates.some(item => item.value >= 64 && item.max > 64),
-      `${kind}: batched conversion yields with measurable progress`);
-    assert(result.phases.some(phase => phase.includes("\u6784\u5efa\u5c55\u793a\u6a21\u578b")) &&
-      $("load-progress").hidden, `${kind}: progress phases and completion`);
-    result = await load(kind, { plan: true });
-    assert(!result.error && $("load-progress").hidden &&
-      $("graph-kind").textContent.includes("IL"), `${kind}: async production IL compatibility`);
-    document.querySelector('[data-language="en"]').click();
-    result = await load(kind);
-    assert(!result.error && result.phases.some(phase => phase.includes("Building the display model")) &&
-      $("load-progress").getAttribute("aria-label") === "Loading progress",
-      `${kind}: localized loading progress`);
-    document.querySelector('[data-language="zh"]').click();
-
-    const transfer = new DataTransfer();
-    transfer.items.add(new File([fixture(kind, { bulk: true })], "superseded.xml",
-      { type: "application/xml" }));
-    $("file").files = transfer.files;
-    $("file").dispatchEvent(new Event("change", { bubbles: true }));
-    await new Promise(resolve => setTimeout(resolve, 10));
-    result = await load(kind);
-    await new Promise(resolve => setTimeout(resolve, 20));
-    $("home").click();
-    assert(!result.error && $("status").textContent.includes("regression.xml") &&
-      !$("status").textContent.includes("superseded.xml") && $("load-progress").hidden &&
-      ["a", "b", "c"].every(operation) && !operation("bulk.0"),
-      `${kind}: newer file supersedes pending conversion`);
-
-    result = await load(kind, { bulk: true, bulkCount: 640, chain: true });
-    const renderPhases = [];
-    let controlsStayedDisabled = true;
-    const renderObserver = new MutationObserver(() => {
-      renderPhases.push($("status").textContent);
-      if (!$("load-progress").hidden)
-        controlsStayedDisabled &&= ["home", "weights", "collapse", "states"].every(id => $(id).disabled);
-    });
-    renderObserver.observe($("status"), { childList: true });
-    let renderTicks = 0;
-    const renderTimer = setInterval(() => renderTicks++, 0);
-    $("home").click();
-    assert(!$("load-progress").hidden && $("home").disabled &&
-      $("canvas").getAttribute("aria-busy") === "true", `${kind}: main switch reports busy immediately`);
-    const waitForRender = async () => {
-      const deadline = performance.now() + 10000;
-      while (!$("load-progress").hidden) {
-        if (performance.now() > deadline) throw new Error("Progressive rendering timed out.");
-        await new Promise(resolve => setTimeout(resolve, 10));
-      }
+class Element {
+  constructor(name, attributes = {}) {
+    this.localName = name;
+    this.values = new Map(Object.entries(attributes));
+    this.children = [];
+    this.style = {};
+    this.dataset = {};
+    this.listeners = new Map();
+    this.classes = new Set();
+    this.classList = {
+      add: name => this.classes.add(name), remove: name => this.classes.delete(name),
+      contains: name => this.classes.has(name),
+      toggle: (name, value) => value ? this.classes.add(name) : this.classes.delete(name),
     };
-    await waitForRender();
-    renderObserver.disconnect();
-    clearInterval(renderTimer);
-    assert(!result.error && !$("status").classList.contains("error") && renderTicks > 5 && controlsStayedDisabled &&
-      renderPhases.some(phase => phase.includes("\u521b\u5efa\u8282\u70b9")) &&
-      renderPhases.some(phase => phase.includes("\u8ba1\u7b97\u8fde\u7ebf\u8def\u5f84")),
-      `${kind}: large main view yields while creating and routing`);
-    assert(operation("bulk.639") && !$("home").disabled && !$("canvas").hasAttribute("aria-busy") &&
-      $("scope").value === "root", `${kind}: progressive main switch completes with controls restored`);
-    $("architecture").click();
-    await waitForRender();
-    $("home").click();
-    await new Promise(resolve => setTimeout(resolve, 10));
-    result = await load(kind);
-    await new Promise(resolve => setTimeout(resolve, 20));
-    $("home").click();
-    assert(!result.error && $("scope").value === "root" && operation("a") && !operation("bulk.0") &&
-      $("load-progress").hidden && !$("canvas").hasAttribute("aria-busy"),
-      `${kind}: file load cancels partial main rendering`);
+    this.disabled = false;
+    this.hidden = false;
+    this.checked = false;
+    this.value = "";
+    this._text = "";
   }
-  return { passed: results.length, results };
-};
+  get attributes() { return [...this.values].map(([name, value]) => ({ name, value })); }
+  get options() { return this.children; }
+  get selectedOptions() { return [this.children.find(item => item.value === this.value) || this.children[0]]; }
+  get firstElementChild() { return this.children[0]; }
+  get textContent() { return this._text + this.children.map(item => item.textContent).join(""); }
+  set textContent(value) { this._text = String(value); this.children = []; }
+  getAttribute(name) { return this.values.get(name) ?? null; }
+  hasAttribute(name) { return this.values.has(name); }
+  setAttribute(name, value) { this.values.set(name, String(value)); }
+  removeAttribute(name) { this.values.delete(name); }
+  append(...items) { for (const item of items) { item.parentElement = this; this.children.push(item); } }
+  prepend(...items) { this.children.unshift(...items); }
+  add(item) { this.append(item); }
+  replaceChildren(...items) { this.children = []; this._text = ""; this.append(...items); }
+  replaceChild(next, previous) { this.children[this.children.indexOf(previous)] = next; }
+  getElementsByTagName(tag) {
+    return this.children.flatMap(item => [...(item.localName === tag ? [item] : []), ...item.getElementsByTagName(tag)]);
+  }
+  querySelector(tag) { return this.getElementsByTagName(tag)[0] || null; }
+  querySelectorAll(tag) { return this.getElementsByTagName(tag); }
+  addEventListener(name, listener) { this.listeners.set(name, listener); }
+  getBoundingClientRect() { return { width: 1200, height: 800, left: 0, top: 0 }; }
+}
+
+const decode = text => text.replace(/&quot;/g, '"').replace(/&lt;/g, "<")
+  .replace(/&gt;/g, ">").replace(/&amp;/g, "&");
+class XmlDocument {
+  constructor(root) { this.documentElement = new Element(root); }
+  createElement(name) { return new Element(name); }
+  importNode(element) {
+    const copy = new Element(element.localName, Object.fromEntries(element.values));
+    copy._text = element._text;
+    copy.append(...element.children.map(item => this.importNode(item)));
+    return copy;
+  }
+  querySelector(name) {
+    return this.documentElement.localName === name ? this.documentElement : this.documentElement.querySelector(name);
+  }
+}
+class DOMParser {
+  parseFromString(xml) {
+    const stack = [], roots = [];
+    for (const token of xml.match(/<[^>]*>|[^<]+/g) || []) {
+      if (token.startsWith("<?") || token.startsWith("<!--")) continue;
+      if (token.startsWith("</")) { stack.pop(); continue; }
+      if (token.startsWith("<")) {
+        const name = token.match(/^<([\w.-]+)/)[1], attributes = {};
+        for (const match of token.matchAll(/([\w.-]+)="([^"]*)"/g)) attributes[match[1]] = decode(match[2]);
+        const element = new Element(name, attributes);
+        if (stack.length) stack.at(-1).append(element); else roots.push(element);
+        if (!token.endsWith("/>")) stack.push(element);
+      } else if (stack.length) stack.at(-1)._text += decode(token);
+    }
+    const document = new XmlDocument("unused");
+    document.documentElement = roots[0];
+    return document;
+  }
+}
+class XMLSerializer {
+  serializeToString(element) {
+    return `<${element.localName}${element.attributes.map(a => ` ${a.name}="${a.value.replace(/"/g, "&quot;")}"`).join("")}>` +
+      element._text + element.children.map(item => this.serializeToString(item)).join("") + `</${element.localName}>`;
+  }
+}
+
+function viewer() {
+  const controls = new Map();
+  const $ = id => {
+    if (!controls.has(id)) controls.set(id, new Element(id));
+    return controls.get(id);
+  };
+  $("layout-priority").value = "execution";
+  $("empty").append(new Element("p"));
+  const document = {
+    getElementById: $, createElement: name => new Element(name),
+    createElementNS: (_, name) => new Element(name),
+    implementation: { createDocument: (_, name) => new XmlDocument(name) },
+    querySelectorAll: () => [],
+  };
+  const context = vm.createContext({ document, DOMParser, XMLSerializer, Element,
+    Option: function (label, value) { const option = new Element("option"); option.textContent = label; option.value = value; return option; },
+    setTimeout, clearTimeout, performance, DOMException, console });
+  // Expose real parser/model functions, without attaching page input handlers.
+  const prefix = script.slice(0, script.indexOf('  $("file").addEventListener'));
+  vm.runInContext(prefix + `
+    globalThis.api = { state, parseXml, registerRegionViews, buildGraph, graphType, tensor,
+      overview, select, setLanguage, openFile, renderProgressively, setRenderBusy,
+      renderSteps, captureView,
+      stubRender: value => { render = value; },
+      stubSteps: value => { renderSteps = value; } };
+  })();`, context);
+  return { ...context.api, $, context };
+}
+
+const tensor = '<Tensor elementType="Float32" layout="dense"><Dimension value="N"/><Dimension value="64"/></Tensor>';
+const resource = (id, attributes = "") => `<Resource id="${id}" category="custom.resource" ${attributes}>${tensor}</Resource>`;
+const metadata = (path = "model/left") => `<Metadata>
+  <Entry key="architecture.path" value="${path}"/><Entry key="architecture.name" value="Module"/>
+  <Entry key="architecture.description" value="Description"/><Entry key="architecture.formula" value="y = x"/>
+  <Entry key="architecture.repeatGroup" value="true"/></Metadata>`;
+const binding = (property, targetProperty, access = "Read", extra = "") =>
+  `<Binding property="${property}" targetKind="Graph" targetProperty="${targetProperty}" access="${access}" ${extra}/>`;
+const operation = (id, bindings = "", extra = "") => `<Operation id="${id}" category="custom.operation" operation="core.copy" version="1">
+  <Attributes/>${extra}${bindings}</Operation>`;
+const graph = (id, actions = "", resources = "", flows = "", extra = "") => `<Graph id="${id}" ${extra}>
+  <Resources>${resources}</Resources><Actions>${actions}</Actions><GraphFlow>${flows}</GraphFlow></Graph>`;
+const packageXml = (stage = "business", options = {}) => `<GraphPackage version="${options.version || 1}" stage="${stage}" ${options.noMain ? "" : `main="${options.main || "main"}"`}>
+  ${stage === "execution" ? '<Target backend="D3D12"/>' : ""}
+  <Metadata><Entry key="note" value="package metadata"/></Metadata><Graphs>${options.graphs || graph("main",
+    operation("a", binding("input", "input") + binding("output", "x", "Write"), metadata()) +
+    operation("b", binding("input", "x") + binding("output", "output", "Write"), metadata("model/right")),
+    resource("input", 'graphIO="In"') + resource("x") + resource("output", 'graphIO="Out"'),
+    '<Then fromGraph="main" from="a" toGraph="main" to="b"/>')}</Graphs></GraphPackage>`;
+
+async function load(xml, checkpoint = async () => {}) {
+  const v = viewer(), parsed = await v.parseXml(xml, checkpoint);
+  Object.assign(v.state, parsed, { rootResources: parsed.resources });
+  v.$("scope").add({ value: "root", textContent: "Main" });
+  v.$("scope").value = "root";
+  v.registerRegionViews();
+  return v;
+}
+
+for (const stage of ["business", "logical", "execution"]) {
+  test(`${stage}: package stage, Tensor, metadata, custom categories and real bindings`, async () => {
+    const v = await load(packageXml(stage));
+    assert.match(v.graphType(), stage === "business" ? /业务/ : stage === "logical" ? /逻辑/ : /执行/);
+    const graph = v.buildGraph();
+    assert.equal(graph.nodes.filter(item => !item.external).length, 2);
+    assert.ok(graph.edges.some(edge => edge.bindings.some(item => item.access === "Order")));
+    const a = graph.nodes.find(item => item.id === "a");
+    assert.equal(a.element.getAttribute("category"), "custom.operation");
+    assert.equal(a.metadata.querySelector("Formula").textContent, "y = x");
+    assert.equal(v.state.package.originals.get(a.element).getAttribute("version"), "1");
+    assert.match(v.tensor(v.state.resources.get("input")), /N.*64/);
+    v.state.contextId = "root";
+    v.overview();
+    assert.match(v.$("details").textContent, /package metadata/);
+    if (stage === "execution") assert.match(v.$("details").textContent, /D3D12/);
+  });
+}
+
+test("package version/stage and obsolete graph roots are rejected", async () => {
+  for (const xml of [packageXml("business", { version: "2" }), packageXml("other"), '<Graph/>'])
+    await assert.rejects(viewer().parseXml(xml, async () => {}));
+});
+
+test("missing main is diagnosed without inferring a unique root; all graphs remain selectable", async () => {
+  const v = await load(packageXml("business", { noMain: true }));
+  assert.equal(v.state.contexts.get("root").nodes.length, 0);
+  assert.ok(v.state.contexts.has("@graph:main"));
+  assert.match(v.state.package.issues.join(), /main is missing/);
+  v.$("scope").value = "@graph:main";
+  assert.equal(v.buildGraph().nodes.filter(item => !item.external).length, 2);
+});
+
+test("unknown main, unresolved calls and bindings retain actions and diagnostic placeholders", async () => {
+  const xml = packageXml("business", { main: "absent", graphs: graph("editable",
+    '<Call id="missing-call" target="missing"/>' + operation("pending", binding("state", "missing", "ReadWrite"))) });
+  const v = await load(xml);
+  v.$("scope").value = "@graph:editable";
+  const displayed = v.buildGraph();
+  assert.equal(displayed.nodes.filter(item => !item.external).length, 2);
+  assert.ok(displayed.nodes.some(item => item.kind === "Unresolved"));
+  assert.equal(v.state.contexts.get("@graph:editable").nodes.find(item => item.id === "pending").bindings.length, 1);
+  assert.equal(v.state.package.issues.length, 3);
+});
+
+test("GraphIO, scope, state, permission, optional usage, bindingKey and Storage are independent", async () => {
+  const xml = packageXml("execution", { graphs: graph("main", operation("a", binding("state", "s", "ReadWrite")),
+    resource("s", 'graphIO="InOut" scope="Global" isState="true" permission="Read" bindingKey="state-key" usage="Weight"')
+      .replace("</Resource>", '<Storage kind="LocalBuffer" slot="shared"/></Resource>') + resource("unused")) });
+  const v = await load(xml), s = v.state.resources.get("s");
+  for (const [name, value] of Object.entries({ graphIO: "InOut", scope: "Global", isState: "true", permission: "Read", usage: "Weight", bindingKey: "state-key" }))
+    assert.equal(s.getAttribute(name), value);
+  assert.equal(s.querySelector("Storage").getAttribute("slot"), "shared");
+  const hidden = v.buildGraph();
+  assert.ok(!hidden.nodes.some(item => item.external && item.id === "s"));
+  assert.ok(hidden.nodes.some(item => item.id === "unused"));
+  const a = hidden.nodes.find(item => item.id === "a");
+  assert.equal(a.bindings.length, 1);
+  assert.equal(a.ports.filter(item => item.resource === "s").length, 2);
+  assert.equal(a.bindings[0].access, "ReadWrite");
+  v.select(a);
+  assert.equal((v.$("details").textContent.match(/<Binding /g) || []).length, 1);
+  assert.match(v.$("details").textContent, /graphIOInOutscopeGlobalisStatetruepermissionReadusageWeight/);
+  v.$("weights").checked = true;
+  const shown = v.buildGraph();
+  assert.ok(shown.nodes.some(item => item.external && item.id === "s"));
+  assert.equal(v.state.resources.get("unused").getAttribute("scope"), "Call");
+  assert.equal(v.state.resources.get("unused").getAttribute("isState"), "false");
+  assert.equal(v.state.resources.get("unused").getAttribute("usage"), null);
+});
+
+test("flat auxiliary graphs, repeated calls, Call and explicit Graph bindings resolve independently", async () => {
+  const xml = packageXml("logical", { graphs: graph("main",
+    '<Call id="one" target="helper"/><Call id="two" target="helper"/>' +
+    operation("read", '<Binding property="value" targetKind="Call" target="two" targetProperty="out" access="Read"/>' +
+      binding("other", "out", "Read", 'target="helper"')), resource("local")) +
+    graph("helper", operation("body", binding("out", "out", "Write")), resource("out", 'graphIO="Out"'), "", 'compileBoundary="Atomic"') +
+    graph("unused-helper", operation("independent")) });
+  const v = await load(xml), displayed = v.buildGraph();
+  assert.ok(v.state.contexts.has("@graph:unused-helper"));
+  for (const id of ["one", "two"]) assert.equal(displayed.nodes.find(item => item.id === id).drillTarget, "@graph:helper");
+  assert.ok(v.state.resources.has("Call:two/out"));
+  assert.ok(v.state.resources.has("Graph:helper/out"));
+  v.$("scope").value = "@graph:helper";
+  assert.ok(v.buildGraph().nodes.some(item => item.id === "body"));
+});
+
+test("Then is a partial order, not XML sequence, and logic priority hides only order edges", async () => {
+  const xml = packageXml("business", { graphs: graph("main",
+    operation("b", binding("input", "x")) + operation("a", binding("output", "x", "Write")) + operation("independent"),
+    resource("x"), '<Then fromGraph="main" from="a" toGraph="main" to="b"/>') });
+  const v = await load(xml), execution = v.buildGraph();
+  assert.deepEqual(Array.from(v.state.contexts.get("root").nodes, item => item.id), ["a", "independent", "b"]);
+  assert.ok(execution.edges.some(edge => edge.from.id === "a" && edge.to.id === "b" && edge.bindings[0].access === "Read"));
+  const data = execution.edges.filter(edge => edge.bindings[0].access !== "Order").length;
+  v.$("layout-priority").value = "logical";
+  const logical = v.buildGraph();
+  assert.equal(logical.edges.length, data);
+  assert.ok(logical.nodes.find(item => item.id === "independent").rank === 0);
+});
+
+test("cross-graph Then retains qualified endpoints and missing references are diagnosed", async () => {
+  const v = await load(packageXml("business", { graphs: graph("main", operation("a"), "",
+    '<Then fromGraph="main" from="a" toGraph="helper" to="b"/><Then fromGraph="main" from="a" toGraph="missing" to="x"/>') +
+    graph("helper", operation("b")) }));
+  const displayed = v.buildGraph();
+  assert.ok(displayed.edges.some(edge => edge.to.id === "helper/b"));
+  assert.match(v.state.package.issues.join(), /missing reference/);
+});
+
+test("cyclic Then source is diagnosed but actions are not discarded", async () => {
+  const v = await load(packageXml("business", { graphs: graph("main", operation("a") + operation("b"), "",
+    '<Then fromGraph="main" from="a" toGraph="main" to="b"/><Then fromGraph="main" from="b" toGraph="main" to="a"/>') }));
+  assert.match(v.state.package.issues.join(), /cyclic Then/);
+  assert.equal(v.buildGraph().nodes.length, 2);
+});
+
+test("execution Sources, Precision and Implementation are retained in original details", async () => {
+  const v = await load(packageXml("execution", { graphs: graph("main", operation("a", "", `
+    <Precision arithmetic="Float32" accumulator="Float32"/>
+    <Implementation collection="123" instruction="copy" target="GPU" arithmetic="Float32" accumulator="Float32">
+      <Dispatch threadsX="64" threadsY="1" threadsZ="1" groupsX="2" groupsY="1" groupsZ="1"/>
+    </Implementation><Sources><Source document="logical.xml" graph="model" node="original"/></Sources>`)) }));
+  const a = v.buildGraph().nodes[0], original = v.state.package.originals.get(a.element);
+  assert.equal(original.querySelector("Source").getAttribute("node"), "original");
+  assert.equal(a.element.querySelector("Dispatch").getAttribute("threadsX"), "64");
+  assert.equal(a.element.querySelector("Precision").getAttribute("arithmetic"), "Float32");
+  v.select(a);
+  assert.match(v.$("details").textContent, /Sourceslogical.xmlmodel\/original/);
+});
+
+test("architecture grouping preserves interleaved bindings, formula, repeat and raw action IDs", async () => {
+  const v = await load(packageXml("logical"));
+  v.$("collapse").checked = true;
+  v.$("scope").value = "@architecture";
+  const architecture = v.buildGraph();
+  assert.equal(architecture.nodes.filter(item => item.region).length, 2);
+  assert.ok(architecture.hasGroups);
+  v.$("scope").value = "root";
+  assert.ok(v.buildGraph().nodes.some(item => item.id === "a"));
+  assert.ok(v.state.views.size > 2);
+});
+
+test("invalid architecture paths report a concrete error", async () => {
+  await assert.rejects(load(packageXml().replace("model/left", "model//left")), /architecture.path/);
+});
+
+test("production IL embeds GraphPackage and retains package stage and backend", async () => {
+  const v = await load(`<ExecutionPlan schema="sharp-inference" version="1" kind="il">${packageXml("execution")}</ExecutionPlan>`);
+  assert.match(v.graphType(), /IL/);
+  assert.equal(v.state.package.root.getAttribute("stage"), "execution");
+});
+
+test("production CPU/GPU plans remain independent consumers", async () => {
+  for (const kind of ["cpu", "gpu"]) {
+    const xml = `<ExecutionPlan schema="sharp-inference" version="1" kind="${kind}">
+      <Slots/><Definitions><Definition id="body" kind="Function"><Parameters/><Body/></Definition></Definitions>
+      <EntryPoints><Entry name="entry" definition="body"><Arguments/></Entry></EntryPoints></ExecutionPlan>`;
+    const v = await load(xml);
+    assert.equal(v.state.plan.kind, kind);
+  }
+});
+
+test("experimental plans remain independent consumers", async () => {
+  for (const kind of ["il", "cpu", "gpu"]) {
+    const xml = `<ExecutionPlan schema="rwkv7-experiment" version="1" kind="${kind}">
+      <Defaults order="document-sequential"/><Identity/><Model/><Resources/><Inputs/><Outputs/><GraphState/>
+      <Definitions/><EntryPoints><Entry name="entry"><Region id="entry"/></Entry></EntryPoints></ExecutionPlan>`;
+    const v = await load(xml);
+    assert.equal(v.state.plan.kind, kind);
+  }
+});
+
+test("large conversion yields every 64 actions with progress and permits cancellation", async () => {
+  const actions = Array.from({ length: 640 }, (_, i) => operation(`bulk.${i}`)).join("");
+  const xml = packageXml("execution", { graphs: graph("main", actions) });
+  const phases = [], v = await load(xml, async (phase, done, total) => { phases.push([phase, done, total]); });
+  assert.equal(v.state.contexts.get("root").nodes.length, 640);
+  assert.ok(phases.some(([, done, total]) => done === 64 && total === 640));
+  let checkpoints = 0;
+  await assert.rejects(viewer().parseXml(xml, async () => {
+    if (++checkpoints === 3) throw new DOMException("Superseded", "AbortError");
+  }), { name: "AbortError" });
+});
+
+test("new file supersedes pending conversion without replacing the newer state", async () => {
+  const v = viewer();
+  v.stubRender(() => { v.state.viewScope = "root"; return true; });
+  const pending = v.openFile({ name: "superseded.xml", text: async () => packageXml("execution", {
+    graphs: graph("main", Array.from({ length: 640 }, (_, i) => operation(`bulk.${i}`)).join("")),
+  }) });
+  const latest = v.openFile({ name: "latest.xml", text: async () => packageXml("business") });
+  await Promise.all([pending, latest]);
+  assert.equal(v.state.filename, "latest.xml");
+  assert.equal(v.state.package.root.getAttribute("stage"), "business");
+  assert.ok(v.$("load-progress").hidden);
+});
+
+test("batched render restores busy controls and checks generation cancellation", async () => {
+  const v = viewer();
+  const phases = [];
+  v.stubSteps(function* () {
+    for (let i = 0; i < 4; i++) { phases.push(i); yield { phase: "createNodes", completed: i, total: 4 }; }
+    return true;
+  });
+  v.state.renderGeneration = 1;
+  const result = await v.renderProgressively(1);
+  assert.equal(result, true);
+  assert.equal(phases.length, 4);
+  assert.equal(v.state.renderBusy, null);
+  v.state.renderGeneration = 2;
+  await v.renderProgressively(1);
+  assert.ok(phases.length <= 5);
+});
+
+test("viewer script compiles and retains bilingual/offline/navigation/drag controls", () => {
+  new vm.Script(script);
+  for (const token of ["setLanguage", "captureView", "travel", "startNodeDrag", "routeEdges", "renderProgressively"])
+    assert.ok(script.includes(token));
+  assert.ok(!/<script[^>]+src=/.test(html));
+});

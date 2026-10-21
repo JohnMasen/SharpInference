@@ -1,304 +1,147 @@
-using SharpInference.Instructions;
 using SharpInference.Graphs;
-using SharpInference.Graphs.Core;
+using SharpInference.Graphs.Execution;
+using SharpInference.Graphs.Logical;
+using SharpInference.Instructions;
+using SharpInference.Instructions.Cpu;
 using SharpInference.Vm.Optimization;
 using SharpInference.Vm.Optimization.GraphHelper;
-using SharpInference.Graphs.Logical;
 
 namespace SharpInference.Tests;
 
 public sealed class ExecutionGraphConverterTests
 {
-    private static readonly TensorDescriptor F = new(ElementType.Float32, [4]);
+    private static readonly TensorDescriptor Vector = new(ElementType.Float32, [4]);
 
     [Fact]
-    public void ConverterPreservesDefinitionsCallsAndConcreteOperations()
-    {
-        var child = CopyGraph("attention", "attention.copy");
-        var root = LogicalGraphDefinition.Define("model", builder =>
-        {
-            var input = builder.AddInput("input", F);
-            var output = builder.AddOutput("output", F);
-            var childOutput = builder.AddResource("attention-output", "Attention output", F);
-            builder.AddCall("attention-0", child, bindings =>
-            {
-                bindings.AddInput("input", input);
-                bindings.AddOutput("output", childOutput);
-            }, new GraphAnnotation("Attention 0", "attention-instance"));
-            builder.AddNode("finish", PrimitiveOperations.Copy, node =>
-            {
-                node.AddInput("input", childOutput);
-                node.AddOutput("output", output);
-            });
-        }, annotation: new GraphAnnotation("Model", "model"));
-
-        var program = new DefaultExecutionGraphConverter().Convert(root, Context());
-
-        Assert.Equal(new ExecutionGraphId("model"), program.RootGraph);
-        Assert.Equal(["model", "attention"], program.Graphs.Select(graph => graph.Id.Value));
-        var model = program.Graphs.Single(graph => graph.Id.Value == "model");
-        var call = Assert.IsType<ExecutionGraphCallNode>(model.Nodes[0]);
-        Assert.Equal(new ExecutionGraphId("attention"), call.Target);
-        Assert.Equal("attention-instance", call.Architecture!.Role);
-        Assert.Equal(["attention-0"], call.Source.LogicalNodes.Select(node => node.Value));
-        Assert.Equal(new GraphDefinitionId("model"), model.Source!.Definition);
-        var operation = Assert.IsType<ExecutionOperationNode>(model.Nodes[1]);
-        Assert.Equal(PrimitiveOperations.Copy, operation.Operation);
-        Assert.Equal(["finish"], operation.Source.LogicalNodes.Select(node => node.Value));
-        var attention = program.Graphs.Single(graph => graph.Id.Value == "attention");
-        Assert.Equal("attention", attention.Architecture!.Role);
-        Assert.Equal("attention.copy",
-            Assert.IsType<ExecutionOperationNode>(Assert.Single(attention.Nodes)).Operation.Name);
-    }
-
-    [Fact]
-    public void ReusedDefinitionProducesOneExecutionGraph()
+    public void ConversionPreservesSharedDefinitionsMetadataAndSourcesWithoutMutatingSource()
     {
         var child = CopyGraph("child");
-        var root = LogicalGraphDefinition.Define("root", builder =>
-        {
-            var input = builder.AddInput("input", F);
-            var output = builder.AddOutput("output", F);
-            var firstOutput = builder.AddResource("first-output", "First output", F);
-            var secondOutput = builder.AddResource("second-output", "Second output", F);
-            builder.AddCall("first", child, bindings =>
-            {
-                bindings.AddInput("input", input);
-                bindings.AddOutput("output", firstOutput);
-            });
-            builder.AddCall("second", child, bindings =>
-            {
-                bindings.AddInput("input", input);
-                bindings.AddOutput("output", secondOutput);
-            });
-            builder.AddNode("finish", PrimitiveOperations.Copy, node =>
-            {
-                node.AddInput("input", secondOutput);
-                node.AddOutput("output", output);
-            });
-        });
+        child.Name = "Shared body";
+        child.CompileBoundary = GraphCompileBoundary.Atomic;
+        child.Metadata["role"] = "attention";
+        var root = new LogicalGraph { Id = "main" };
+        var input = root.Resource("input", Vector, GraphIO.In);
+        var middle = root.Resource("middle", Vector);
+        var output = root.Resource("output", Vector, GraphIO.Out);
+        var first = root.Call("first", child);
+        first.Metadata["role"] = "first-instance";
+        first.Bind("input", input, ResourceAccess.Read).Bind("output", middle, ResourceAccess.Write);
+        var second = root.Call("second", child);
+        second.Bind("input", middle, ResourceAccess.Read).Bind("output", output, ResourceAccess.Write);
+        var source = new GraphPackage<LogicalGraph>(root, child);
+        var before = GraphPackageXml.Serialize(source);
 
-        var program = new DefaultExecutionGraphConverter().Convert(root, Context());
+        var result = Converter().Convert(source, new("test", "cpu-vm"));
 
-        Assert.Equal(2, program.Graphs.Count);
-        var calls = program.Graphs.Single(graph => graph.Id.Value == "root")
-            .Nodes.OfType<ExecutionGraphCallNode>().ToArray();
-        Assert.Equal(2, calls.Length);
-        Assert.All(calls, call => Assert.Equal(new ExecutionGraphId("child"), call.Target));
-        Assert.Equal(2, program.Callers(new("child")).Count);
-        Assert.Equal(2, program.Callees(new("root")).Count);
-        Assert.False(program.IsExclusiveCall(new("root"), new("first")));
+        Assert.Equal("main", result.MainGraphId);
+        Assert.Equal(["main", "child"], result.Select(graph => graph.Id));
+        Assert.All(result.MainGraph!.Actions, action => Assert.Equal("child", Assert.IsType<ExecutionCall>(action).Target));
+        Assert.Equal("first-instance", result.MainGraph.Actions[0].Metadata["role"]);
+        Assert.Equal("attention", result[1].Metadata["role"]);
+        Assert.Equal("Shared body", result[1].Name);
+        var operation = Assert.IsType<ExecutionOperation>(Assert.Single(result[1].Actions));
+        Assert.Equal(Operations.Copy, operation.Operation.Name);
+        Assert.Equal("copy", Assert.Single(operation.Sources).Node);
+        Assert.NotNull(operation.SelectedImplementation);
+        Assert.Equal(before, GraphPackageXml.Serialize(source));
+        Assert.Single(result.MainGraph.GraphFlow);
     }
 
     [Fact]
-    public void ProgramRejectsGraphCallCycles()
+    public void CompilerRunsProcessorsInOrderWithOriginalSourceAndContext()
     {
-        var graphA = Graph(
-            "a",
-            Call("call-b", "b"));
-        var graphB = Graph(
-            "b",
-            Call("call-a", "a"));
-
-        Assert.Throws<InvalidDataException>(() =>
-            new ExecutionGraphProgram([graphA, graphB]));
+        var source = new GraphPackage<LogicalGraph>(CopyGraph("main"));
+        var records = new List<string>();
+        var context = new ExecutionGraphCompilationContext("test", "cpu-vm");
+        var compiler = new ExecutionGraphCompiler([new CpuFloat32InstructionCollection()],
+            [new RecordingProcessor("first", records), new RecordingProcessor("second", records)],
+            converter: Converter());
+        var result = compiler.Compile(source, context);
+        Assert.Equal(["first:0:test:cpu-vm", "second:1:test:cpu-vm"], records);
+        Assert.Equal("yes", result.MainGraph!.Metadata["first"]);
+        Assert.Equal("yes", result.MainGraph.Metadata["second"]);
+        Assert.Empty(source.MainGraph!.Metadata);
     }
 
     [Fact]
-    public void ProgramRejectsMultipleRoots()
+    public void RewriterExtractsAndInlinesAnOperationChain()
     {
-        Assert.Throws<InvalidDataException>(() =>
-            new ExecutionGraphProgram([Graph("left"), Graph("right")]));
-    }
-
-    [Theory]
-    [InlineData("missing-input")]
-    [InlineData("missing-output")]
-    [InlineData("unknown-port")]
-    [InlineData("wrong-input-access")]
-    [InlineData("wrong-output-access")]
-    [InlineData("incompatible-tensor")]
-    public void ProgramRejectsIncompatibleCallInterfaces(string scenario)
-    {
-        var child = Graph("child",
-            [Resource("input", GraphDefinitionResourceKind.Input),
-             Resource("output", GraphDefinitionResourceKind.Output)],
-            Operation("copy", PrimitiveOperations.Copy,
-                [Binding("input", "input", ResourceAccess.Read),
-                 Binding("output", "output", ResourceAccess.Write)]));
-        var bindings = new List<ModelResourceBinding>();
-        if (scenario != "missing-input")
-        {
-            bindings.Add(Binding("input", "input", scenario == "wrong-input-access"
-                ? ResourceAccess.Write : ResourceAccess.Read));
-        }
-
-        if (scenario != "missing-output")
-        {
-            bindings.Add(Binding("output", "output", scenario == "wrong-output-access"
-                ? ResourceAccess.Read : ResourceAccess.Write));
-        }
-
-        if (scenario == "unknown-port")
-        {
-            bindings.Add(Binding("unknown", "input", ResourceAccess.Read));
-        }
-
-        var input = scenario == "incompatible-tensor"
-            ? new ExecutionGraphResource(new("input"), "input", GraphDefinitionResourceKind.Input,
-                new(ElementType.Float32, [8]))
-            : Resource("input", GraphDefinitionResourceKind.Input);
-        var root = Graph("root",
-            [input, Resource("output", GraphDefinitionResourceKind.Output)],
-            Call("child-call", "child", bindings));
-
-        Assert.Throws<InvalidDataException>(() => new ExecutionGraphProgram([root, child]));
+        var package = Chain();
+        var before = GraphPackageXml.Serialize(package);
+        var extracted = ExecutionGraphRewriter.ExtractNodesToGraph(package, "main", ["copy", "relu"], "kernel", "invoke");
+        Assert.Equal(2, extracted.Count);
+        Assert.IsType<ExecutionCall>(Assert.Single(extracted.MainGraph!.Actions));
+        Assert.Equal(2, extracted.Single(graph => graph.Id == "kernel").Actions.Count);
+        var inlined = ExecutionGraphRewriter.InlineGraphCall(extracted, "main", "invoke");
+        Assert.Equal(["main", "kernel"], inlined.Select(graph => graph.Id));
+        Assert.Equal(GraphPackageXml.Serialize(new GraphPackage<ExecutionGraph>(extracted.Single(graph => graph.Id == "kernel"))),
+            GraphPackageXml.Serialize(new GraphPackage<ExecutionGraph>(inlined.Single(graph => graph.Id == "kernel"))));
+        Assert.Equal(["invoke/copy", "invoke/relu"], inlined.MainGraph!.Actions.Select(action => action.Id));
+        var diagnostics = inlined.Validate();
+        Assert.DoesNotContain(diagnostics, diagnostic => diagnostic.Severity == GraphDiagnosticSeverity.Error);
+        var unused = Assert.Single(diagnostics);
+        Assert.Equal("P0002", unused.Code);
+        Assert.Equal(GraphDiagnosticSeverity.Warning, unused.Severity);
+        Assert.Equal("kernel", unused.Graph);
+        Assert.Equal(before, GraphPackageXml.Serialize(package));
     }
 
     [Fact]
-    public void PostprocessorsReceiveProgramAndContextInOrder()
+    public void RewriterFusesNodesAndReplacesCallsWhilePreservingBindings()
     {
-        var logical = CopyGraph("root");
-        var calls = new List<string>();
-        var context = new ExecutionGraphCompilationContext(
-            "phi4", "d3d12",
-            new Dictionary<string, string> { ["layers"] = "32" },
-            new Dictionary<string, string> { ["shaderModel"] = "6.8" });
-        var program = new ExecutionGraphCompiler(
-            [new RecordingProcessor("first", calls), new RecordingProcessor("second", calls)])
-            .Compile(logical, context);
-
-        Assert.Equal(["first:0:phi4:d3d12", "second:1:phi4:d3d12"], calls);
-        var operation = Assert.IsType<ExecutionOperationNode>(
-            Assert.Single(program.Graphs.Single().Nodes));
-        Assert.Equal("true", operation.Attributes["processed:first"]);
-        Assert.Equal("true", operation.Attributes["processed:second"]);
+        var package = Chain();
+        var fused = ExecutionGraphRewriter.FuseNodesToOperation(package, "main", ["copy", "relu"],
+            "fused", new("test.fused"),
+            [new("input", ResourceRef.Local("input"), ResourceAccess.Read),
+             new("output", ResourceRef.Local("output"), ResourceAccess.Write)]);
+        Assert.Equal("test.fused", Assert.IsType<ExecutionOperation>(Assert.Single(fused.MainGraph!.Actions)).Operation.Name);
+        var extracted = ExecutionGraphRewriter.ExtractNodesToGraph(package, "main", ["copy", "relu"], "kernel", "invoke");
+        var replaced = ExecutionGraphRewriter.ReplaceGraphCallWithOperation(extracted, "main", "invoke", new("test.specialized"));
+        var operation = Assert.IsType<ExecutionOperation>(Assert.Single(replaced.MainGraph!.Actions));
+        Assert.Equal(2, operation.Bindings.Count);
+        Assert.Equal("test.specialized", operation.Operation.Name);
+        Assert.DoesNotContain(replaced.Validate(), diagnostic => diagnostic.Severity == GraphDiagnosticSeverity.Error);
     }
 
     [Fact]
-    public void RewriterExtractsAndInlinesOperationGraph()
+    public void FusionRejectsMissingBoundaryBindingsAndInterveningActions()
     {
-        var resources = new[]
-        {
-            Resource("input", GraphDefinitionResourceKind.Input),
-            Resource("temporary", GraphDefinitionResourceKind.Temporary),
-            Resource("output", GraphDefinitionResourceKind.Output),
-        };
-        var copy = Operation("copy", PrimitiveOperations.Copy,
-            [Binding("input", "input", ResourceAccess.Read),
-             Binding("output", "temporary", ResourceAccess.Write)]);
-        var relu = Operation("relu", PrimitiveOperations.Relu,
-            [Binding("input", "temporary", ResourceAccess.Read),
-             Binding("output", "output", ResourceAccess.Write)],
-            [new ExecutionNodeId("copy")]);
-        var program = new ExecutionGraphProgram(
-            [Graph("root", resources, copy, relu)]);
-
-        var extracted = ExecutionGraphRewriter.ExtractNodesToGraph(
-            program,
-            new("root"),
-            [new ExecutionNodeId("copy"), new ExecutionNodeId("relu")],
-            new("kernel"),
-            new("kernel-call"),
-            GraphCompileBoundary.Atomic,
-            new GraphArchitecture("Kernel", "backend-kernel"));
-
-        Assert.Equal(2, extracted.Graphs.Count);
-        Assert.IsType<ExecutionGraphCallNode>(
-            Assert.Single(extracted.Graphs.Single(graph => graph.Id.Value == "root").Nodes));
-        Assert.Equal(2,
-            extracted.Graphs.Single(graph => graph.Id.Value == "kernel").Nodes.Count);
-
-        var inlined = ExecutionGraphRewriter.InlineGraphCall(
-            extracted,
-            new("root"),
-            new("kernel-call"));
-
-        Assert.Single(inlined.Graphs);
-        Assert.Equal(
-            ["kernel-call/copy", "kernel-call/relu"],
-            inlined.Graphs.Single().Nodes.Select(node => node.Id.Value));
+        var package = Chain();
+        Assert.Throws<InvalidDataException>(() => ExecutionGraphRewriter.FuseNodesToOperation(
+            package, "main", ["copy", "relu"], "fused", new("test.fused"), []));
+        var graph = package.MainGraph!;
+        var between = graph.Operation("between", Operations.Copy);
+        graph.GraphFlow.Clear();
+        graph.Actions[0].Then(between);
+        between.Then(graph.Actions[1]);
+        Assert.Throws<InvalidDataException>(() => ExecutionGraphRewriter.FuseNodesToOperation(
+            package, "main", ["copy", "relu"], "fused", new("test.fused"),
+            [new("input", ResourceRef.Local("input"), ResourceAccess.Read),
+             new("output", ResourceRef.Local("output"), ResourceAccess.Write)]));
     }
 
     [Fact]
-    public void RewriterFusesNodesAndReplacesGraphCall()
+    public void XmlProcessorReplacesMatchingPackageAndRejectsMismatchedTargetOrMain()
     {
-        var child = Graph(
-            "child",
-            [Resource("input", GraphDefinitionResourceKind.Input),
-             Resource("output", GraphDefinitionResourceKind.Output)],
-            Operation("copy", PrimitiveOperations.Copy,
-                [Binding("input", "input", ResourceAccess.Read),
-                 Binding("output", "output", ResourceAccess.Write)]));
-        var root = Graph(
-            "root",
-            [Resource("input", GraphDefinitionResourceKind.Input),
-             Resource("temporary", GraphDefinitionResourceKind.Temporary),
-             Resource("output", GraphDefinitionResourceKind.Output)],
-            Operation("first", PrimitiveOperations.Copy,
-                [Binding("input", "input", ResourceAccess.Read),
-                 Binding("output", "temporary", ResourceAccess.Write)]),
-            Operation("second", PrimitiveOperations.Relu,
-                [Binding("input", "temporary", ResourceAccess.Read),
-                 Binding("output", "output", ResourceAccess.Write)],
-                [new ExecutionNodeId("first")]),
-            Call(
-                "child-call",
-                "child",
-                [Binding("input", "input", ResourceAccess.Read),
-                 Binding("output", "output", ResourceAccess.Write)]));
-        var program = new ExecutionGraphProgram([root, child]);
-
-        var fused = ExecutionGraphRewriter.FuseNodesToOperation(
-            program,
-            new("root"),
-            [new ExecutionNodeId("first"), new ExecutionNodeId("second")],
-            new("fused"),
-            new("test.fused"),
-            [Binding("input", "input", ResourceAccess.Read),
-             Binding("output", "output", ResourceAccess.Write)]);
-        Assert.Contains(fused.Graphs.Single(graph => graph.Id.Value == "root").Nodes,
-            node => node is ExecutionOperationNode operation &&
-                operation.Operation.Name == "test.fused");
-
-        var replaced = ExecutionGraphRewriter.ReplaceGraphCallWithOperation(
-            fused,
-            new("root"),
-            new("child-call"),
-            new("test.specialized-child"));
-        Assert.DoesNotContain(
-            replaced.Graphs.Single(graph => graph.Id.Value == "root").Nodes,
-            node => node is ExecutionGraphCallNode);
-    }
-
-    [Fact]
-    public void XmlPostprocessorReplacesProgramForMatchingCompilation()
-    {
-        var source = CopyGraph("source");
-        var replacement = new ExecutionGraphProgram(
-            [Graph(
-                "source",
-                [Resource("input", GraphDefinitionResourceKind.Input)],
-                Operation(
-                    "replacement",
-                    PrimitiveOperations.Copy,
-                    [Binding("input", "input", ResourceAccess.Read)]),
-                source: new(source.Id))]);
-        var path = Path.Combine(
-            Directory.GetCurrentDirectory(),
-            $"sharp-inference-execution-{Guid.NewGuid():N}.xml");
+        var source = new GraphPackage<LogicalGraph>(CopyGraph("main"));
+        var package = Converter().Convert(source, new("test", "cpu-vm"));
+        var path = Path.Combine(Directory.GetCurrentDirectory(), $"execution-package-{Guid.NewGuid():N}.xml");
         try
         {
-            File.WriteAllText(path, ExecutionGraphXml.Serialize(replacement));
-            var processor = new XmlExecutionGraphProgramPostprocessor(
-                path, "test-model", "test-backend");
-            var result = processor.Process(
-                new([Graph("original")]),
-                new(source, Context(), 0, processor.Name));
-
-            Assert.Equal(
-                "replacement",
-                Assert.Single(Assert.Single(result.Graphs).Nodes).Id.Value);
+            var replacement = package.Snapshot();
+            replacement.MainGraph!.Metadata["loaded"] = "yes";
+            File.WriteAllText(path, GraphPackageXml.Serialize(replacement));
+            var processor = new XmlExecutionPackagePostprocessor(path, "test", "cpu-vm");
+            var context = new ExecutionPassContext(source, new("test", "cpu-vm"), 0, processor.Name);
+            Assert.Equal("yes", processor.Process(package, context).MainGraph!.Metadata["loaded"]);
+            Assert.Throws<InvalidOperationException>(() => processor.Process(package,
+                context with { Compilation = new("other-model", "cpu-vm") }));
+            replacement.SetTarget("d3d12-vm");
+            File.WriteAllText(path, GraphPackageXml.Serialize(replacement));
+            Assert.Throws<InvalidDataException>(() => processor.Process(package, context));
+            replacement = Converter().Convert(new(CopyGraph("other-main")), new("test", "cpu-vm"));
+            File.WriteAllText(path, GraphPackageXml.Serialize(replacement));
+            Assert.Throws<InvalidDataException>(() => processor.Process(package, context));
         }
         finally
         {
@@ -306,249 +149,40 @@ public sealed class ExecutionGraphConverterTests
         }
     }
 
-    [Fact]
-    public void XmlPostprocessorRejectsMismatchedCompilation()
+    private static GraphPackage<ExecutionGraph> Chain()
     {
-        var processor = new XmlExecutionGraphProgramPostprocessor(
-            "unused.xml", "rwkv-7", "cpu-vm");
-
-        var exception = Assert.Throws<InvalidOperationException>(() =>
-            processor.Process(
-                new([Graph("original")]),
-                new(
-                    CopyGraph("source"),
-                    new("rwkv-6", "cpu-vm"),
-                    0,
-                    processor.Name)));
-
-        Assert.Contains("rwkv-7", exception.Message);
-        Assert.Contains("rwkv-6", exception.Message);
+        var graph = CopyGraph("main");
+        graph.Resources.Single(resource => resource.Id == "output").GraphIO = GraphIO.Internal;
+        graph.Resources.Single(resource => resource.Id == "output").Id = "middle";
+        graph.Actions[0].Bindings[1] = new("output", ResourceRef.Local("middle"), ResourceAccess.Write);
+        var output = graph.Resource("output", Vector, GraphIO.Out);
+        var relu = graph.Operation("relu", "core.relu");
+        relu.Bind("input", "middle", ResourceAccess.Read).Bind("output", output, ResourceAccess.Write);
+        return Converter().Convert(new(graph), new("test", "cpu-vm"));
     }
 
-    [Fact]
-    public void ExecutionProgramXmlRoundTripsGraphsAndArchitecture()
+    private static LogicalGraph CopyGraph(string id)
     {
-        var child = Graph(
-            "child",
-            [Resource("input", GraphDefinitionResourceKind.Input),
-             Resource("output", GraphDefinitionResourceKind.Output)],
-            Operation("copy", PrimitiveOperations.Copy,
-                [Binding("input", "input", ResourceAccess.Read),
-                 Binding("output", "output", ResourceAccess.Write)]),
-            GraphCompileBoundary.Atomic,
-            new("Attention", "attention", "Reusable attention body",
-                new Dictionary<string, string> { ["layer"] = "1" }),
-            new(new("logical-child")));
-        var root = Graph(
-            "root",
-            [Resource("input", GraphDefinitionResourceKind.Input),
-             Resource("output", GraphDefinitionResourceKind.Output)],
-            Call(
-                "attention-1",
-                "child",
-                [Binding("input", "input", ResourceAccess.Read),
-                 Binding("output", "output", ResourceAccess.Write)],
-                GraphCompileBoundary.Atomic,
-                new([new("logical-call")], "preserve-call"),
-                new("Layer 1", "decoder-layer")),
-            source: new(new("logical-root")));
-        var original = new ExecutionGraphProgram([root, child]);
-
-        var xml = ExecutionGraphXml.Serialize(original);
-        var restored = ExecutionGraphXml.DeserializeProgram(xml);
-
-        Assert.Contains("version=\"3\"", xml, StringComparison.Ordinal);
-        Assert.Contains("<Bindings", xml, StringComparison.Ordinal);
-        Assert.Contains("<Dependencies", xml, StringComparison.Ordinal);
-        Assert.Equal(new ExecutionGraphId("root"), restored.RootGraph);
-        Assert.Equal(2, restored.Graphs.Count);
-        var restoredChild = restored.Graphs.Single(graph => graph.Id.Value == "child");
-        Assert.Equal("attention", restoredChild.Architecture!.Role);
-        Assert.Equal("1", restoredChild.Architecture.Attributes!["layer"]);
-        var restoredCall = Assert.IsType<ExecutionGraphCallNode>(
-            Assert.Single(restored.Graphs.Single(graph => graph.Id.Value == "root").Nodes));
-        Assert.Equal("preserve-call", restoredCall.Source.Transformation);
-        Assert.Equal("decoder-layer", restoredCall.Architecture!.Role);
-        Assert.Equal(GraphCompileBoundary.Atomic, restoredCall.CompileBoundary);
-        Assert.Equal(GraphCompileBoundary.Atomic, restoredChild.DefaultCompileBoundary);
-        Assert.Equal(new GraphDefinitionId("logical-root"),
-            restored.Graphs.Single(graph => graph.Id.Value == "root").Source!.Definition);
-        Assert.Equal(new GraphDefinitionId("logical-child"), restoredChild.Source!.Definition);
-        Assert.Equal(["logical-call"], restoredCall.Source.LogicalNodes.Select(node => node.Value));
-        Assert.Equal(xml, ExecutionGraphXml.Serialize(restored));
+        var graph = new LogicalGraph { Id = id };
+        var input = graph.Resource("input", Vector, GraphIO.In);
+        var output = graph.Resource("output", Vector, GraphIO.Out);
+        graph.Operation("copy", Operations.Copy)
+            .Bind("input", input, ResourceAccess.Read).Bind("output", output, ResourceAccess.Write);
+        return graph;
     }
 
-    [Theory]
-    [InlineData("1")]
-    [InlineData("2")]
-    public void ExecutionProgramXmlRejectsLegacyVersions(string version)
-    {
-        var xml = ExecutionGraphXml.Serialize(new ExecutionGraphProgram([Graph("root")]))
-            .Replace("version=\"3\"", $"version=\"{version}\"", StringComparison.Ordinal);
+    private static DefaultExecutionGraphConverter Converter() => new([new CpuFloat32InstructionCollection()]);
 
-        Assert.Throws<InvalidDataException>(() => ExecutionGraphXml.DeserializeProgram(xml));
-    }
-
-    private static ExecutionGraph Graph(string id, params NodeSpec[] nodes) =>
-        Graph(id, [], nodes);
-
-    private static ExecutionGraph Graph(
-        string id,
-        IEnumerable<ExecutionGraphResource> resources,
-        params NodeSpec[] nodes) =>
-        Graph(id, resources, nodes, GraphCompileBoundary.Auto, null, null);
-
-    private static ExecutionGraph Graph(
-        string id,
-        IEnumerable<ExecutionGraphResource> resources,
-        NodeSpec node,
-        GraphCompileBoundary boundary = GraphCompileBoundary.Auto,
-        GraphArchitecture? architecture = null,
-        ExecutionGraphSource? source = null) =>
-        Graph(id, resources, [node], boundary, architecture, source);
-
-    private static ExecutionGraph Graph(
-        string id,
-        IEnumerable<ExecutionGraphResource> resources,
-        IEnumerable<NodeSpec> nodes,
-        GraphCompileBoundary boundary = GraphCompileBoundary.Auto,
-        GraphArchitecture? architecture = null,
-        ExecutionGraphSource? source = null)
-    {
-        var builder = new ExecutionGraphBuilder(
-            new(id), boundary, architecture, source);
-        foreach (var resource in resources)
-        {
-            builder.AddResource(resource);
-        }
-
-        foreach (var node in nodes)
-        {
-            if (node.Node is ExecutionOperationNode operation)
-            {
-                builder.AddOperation(operation, node.Bindings, node.Dependencies);
-            }
-            else
-            {
-                builder.AddCall(
-                    (ExecutionGraphCallNode)node.Node,
-                    node.Bindings,
-                    node.Dependencies);
-            }
-        }
-
-        return builder.Build();
-    }
-
-    private static ExecutionGraphResource Resource(
-        string id,
-        GraphDefinitionResourceKind kind) =>
-        new(new ResourceId(id), id, kind, F);
-
-    private static ModelResourceBinding Binding(
-        string port,
-        string resource,
-        ResourceAccess access,
-        string? node = null) =>
-        new(
-            port,
-            new(GraphBindingOwner.Parent, new(resource)),
-            access,
-            $"{node ?? "binding"}:{port}:{resource}");
-
-    private static NodeSpec Operation(
-        string id,
-        OperationId operation,
-        IReadOnlyList<ModelResourceBinding> bindings,
-        IReadOnlyList<ExecutionNodeId>? dependencies = null) =>
-        new(
-            new ExecutionOperationNode(
-                new(id),
-                operation,
-                new Dictionary<string, string>(),
-                new PrecisionRequirement(
-                    ElementType.Float32, ElementType.Float32),
-                new ExecutionSourceMap([])),
-            bindings.Select(binding => binding with
-            {
-                BindingId = $"{id}:{binding.Port}",
-            }).ToArray(),
-            dependencies ?? []);
-
-    private static NodeSpec Call(
-        string id,
-        string target,
-        IReadOnlyList<ModelResourceBinding>? bindings = null,
-        GraphCompileBoundary boundary = GraphCompileBoundary.Auto,
-        ExecutionSourceMap? source = null,
-        GraphArchitecture? architecture = null) =>
-        new(
-            new ExecutionGraphCallNode(
-                new(id),
-                new(target),
-                boundary,
-                source ?? new ExecutionSourceMap([]),
-                architecture),
-            (bindings ?? []).Select(binding => binding with
-            {
-                BindingId = $"{id}:{binding.Port}",
-            }).ToArray(),
-            []);
-
-    private sealed record NodeSpec(
-        ExecutionGraphNode Node,
-        IReadOnlyList<ModelResourceBinding> Bindings,
-        IReadOnlyList<ExecutionNodeId> Dependencies);
-
-    private static LogicalGraphDefinition CopyGraph(
-        string id,
-        string operation = "core.copy") =>
-        LogicalGraphDefinition.Define(
-            id,
-            builder =>
-            {
-                var input = builder.AddInput("input", F);
-                var output = builder.AddOutput("output", F);
-                builder.AddNode("copy", new OperationId(operation), node =>
-                {
-                    node.AddInput("input", input);
-                    node.AddOutput("output", output);
-                });
-            },
-            annotation: new GraphAnnotation(id, id == "attention" ? "attention" : null));
-
-    private static ExecutionGraphCompilationContext Context() =>
-        new("test-model", "test-backend");
-
-    private sealed class RecordingProcessor(
-        string name,
-        ICollection<string> calls) : IExecutionGraphPostprocessor
+    private sealed class RecordingProcessor(string name, List<string> records) : IExecutionGraphPostprocessor
     {
         public string Name => name;
-
-        public ExecutionGraphProgram Process(
-            ExecutionGraphProgram program,
-            ExecutionGraphPostprocessContext context)
+        public GraphPackage<ExecutionGraph> Process(GraphPackage<ExecutionGraph> package, ExecutionPassContext context)
         {
-            calls.Add($"{Name}:{context.ProcessorIndex}:{context.Compilation.ModelType}:{context.Compilation.Backend}");
-            return new ExecutionGraphProgram(program.Graphs.Select(graph =>
-                new ExecutionGraph(
-                    graph.Id,
-                    new Graph<ExecutionGraphStructureNode, ExecutionGraphEdge>(
-                        graph.Structure.Nodes.Select(node =>
-                            node is ExecutionOperationNode operation
-                        ? operation with
-                        {
-                            Attributes = new Dictionary<string, string>(operation.Attributes)
-                            {
-                                [$"processed:{Name}"] = "true",
-                            },
-                        }
-                        : node),
-                        graph.Structure.Edges),
-                    graph.DefaultCompileBoundary,
-                    graph.Architecture,
-                    graph.Source)));
+            Assert.Equal("main", Assert.IsType<GraphPackage<LogicalGraph>>(context.Source).MainGraphId);
+            records.Add($"{Name}:{context.ProcessorIndex}:{context.Compilation.ModelType}:{context.Compilation.Backend}");
+            var result = package.Snapshot();
+            result.MainGraph!.Metadata[Name] = "yes";
+            return result;
         }
     }
 }

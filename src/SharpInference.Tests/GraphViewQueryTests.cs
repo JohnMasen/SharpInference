@@ -2,7 +2,7 @@ using SharpInference.Instructions;
 using SharpInference.Graphs.Core;
 using SharpInference.Graphs;
 using static SharpInference.Graphs.Core.PatternElements;
-using SharpInference.Vm.Optimization.GraphHelper;
+using SharpInference.Graphs.Execution;
 
 namespace SharpInference.Tests;
 
@@ -11,9 +11,9 @@ public sealed class GraphViewQueryTests
 {
     /// <summary>A named test node with queryable classification and enabled state.</summary>
     /// <param name="Name">The shared test name and structural identifier.</param>
-    /// <param name="Kind">The classification used to distinguish operations from resources.</param>
+    /// <param name="NodeKind">The classification used to distinguish operations from resources.</param>
     /// <param name="Enabled">Whether enabled-node queries should retain the node.</param>
-    private sealed record TestNode(string Name, string Kind = "op", bool Enabled = true) : IGraphNode
+    private sealed record TestNode(string Name, string NodeKind = "op", bool Enabled = true) : IGraphNode
     {
         /// <inheritdoc/>
         public GraphNodeId Id => new(Name);
@@ -23,8 +23,8 @@ public sealed class GraphViewQueryTests
     /// <param name="Name">The unique edge identifier.</param>
     /// <param name="From">The structural identifier of the source node.</param>
     /// <param name="To">The structural identifier of the target node.</param>
-    /// <param name="Kind">The dependency, read, or write classification.</param>
-    private sealed record TestEdge(string Name, string From, string To, string Kind = "dep") : IGraphEdge
+    /// <param name="EdgeKind">The dependency, read, or write classification.</param>
+    private sealed record TestEdge(string Name, string From, string To, string EdgeKind = "dep") : IGraphEdge
     {
         /// <inheritdoc/>
         public GraphEdgeId Id => new(Name);
@@ -37,7 +37,7 @@ public sealed class GraphViewQueryTests
     /// <summary>Creates an edge constraint for one test relationship classification.</summary>
     /// <param name="kind">The classification to retain.</param>
     /// <returns>A typed edge constraint matching that classification.</returns>
-    private static EdgePattern Kind(string kind) => Edge().Where<TestEdge>(edge => edge.Kind == kind);
+    private static EdgePattern Kind(string kind) => Edge().Where<TestEdge>(edge => edge.EdgeKind == kind);
     /// <summary>Formats node names without changing their enumeration order.</summary>
     /// <param name="nodes">The nodes to format.</param>
     /// <returns>Comma-separated node names.</returns>
@@ -194,7 +194,7 @@ public sealed class GraphViewQueryTests
             Assert.DoesNotContain(contract.GetMethods(), method => method.Name == name);
 
         IGraphView<TestNode, TestEdge> graph = Example();
-        IGraphView<TestNode, TestEdge> filtered = graph.Filter(node => node.Kind == "op", edge => edge.Kind == "dep");
+        IGraphView<TestNode, TestEdge> filtered = graph.Filter(node => node.NodeKind == "op", edge => edge.EdgeKind == "dep");
         var matches = filtered.Match(
             Pattern.Create(Node(new GraphNodeId("A"))) - Edge() - Node("F"));
         var match = Assert.Single(matches);
@@ -222,67 +222,37 @@ public sealed class GraphViewQueryTests
         Assert.Equal(3, graph.EdgesFromNode("A").Count());
         Assert.Equal(5, graph.EdgesToNode("F").Count());
         Assert.Single(graph.Match(Pattern.Create(Node(id))));
-        var view = graph.Filter(edge: edge => edge.Kind == "dep");
+        var view = graph.Filter(edge: edge => edge.EdgeKind == "dep");
         var index = view.CreateReachabilityIndex([graph.GetNode("A")], [graph.GetNode("F")]);
         Assert.True(index.IsReachable("A", "F"));
         Assert.Throws<KeyNotFoundException>(() => graph.GetNode("missing"));
     }
 
-    /// <summary>Checks production model queries against adjacency order, duplicates, hidden nodes, and self-loops.</summary>
     [Fact]
-    public void ProductionModelQueriesPreserveAdjacencySemantics()
+    public void ProductionModelQueriesProjectBindingsAndExplicitFlow()
     {
-        var first = new ExecutionOperationNode(new("first"), new("core.copy", 1),
-            new Dictionary<string, string>(), new(ElementType.Float32, ElementType.Float32), new([]));
-        var second = first with { Id = new("second") };
-        var resource = new ExecutionResourceNode(new(GraphBindingOwner.Parent, new("state")),
-            new(new("state"), "display-state", GraphDefinitionResourceKind.InOut,
-                new(ElementType.Float32, [4])));
-        var graph = new Graph<ExecutionGraphStructureNode, ExecutionGraphEdge>(
-            [first, second, resource],
-            [
-                new ExecutionResourceReadEdge(new("r2"), resource.GraphId, second.GraphId, "input", "r2"),
-                new ExecutionResourceReadEdge(new("r1"), resource.GraphId, first.GraphId, "input", "r1"),
-                new ExecutionResourceReadEdge(new("r3"), resource.GraphId, second.GraphId, "other", "r3"),
-                new ExecutionDependencyEdge(new("d2"), first.GraphId, second.GraphId),
-                new ExecutionDependencyEdge(new("d1"), first.GraphId, second.GraphId),
-                new ExecutionResourceWriteEdge(new("w1"), first.GraphId, resource.GraphId, "output", "w1"),
-            ]);
-        Assert.Equal([second.GraphId, first.GraphId], graph.Readers(resource).Select(node => node.GraphId));
-        Assert.Equal([second.GraphId, second.GraphId], graph.Successors(first).Select(node => node.GraphId));
-        Assert.Equal([first.GraphId], graph.Writers(resource).Select(node => node.GraphId));
-        Assert.Equal(["r1", "w1"], graph.Bindings(first).Select(binding => binding.BindingId));
-        var filtered = graph.Filter(node => node.GraphId != second.GraphId);
-        Assert.Equal([first.GraphId], filtered.Readers(resource).Select(node => node.GraphId));
-        Assert.Empty(filtered.Successors(first));
-        var empty = graph.Filter(edge: _ => false);
-        Assert.Empty(empty.Readers(resource));
-        Assert.Empty(empty.Writers(resource));
-        Assert.Empty(empty.Successors(first));
-        Assert.Empty(empty.Predecessors(first));
-        Assert.Empty(empty.Bindings(first));
-        Assert.Throws<KeyNotFoundException>(() =>
-            graph.Filter(node => node.GraphId != resource.GraphId).Readers(resource));
-        Assert.Single(graph.Match(Pattern.Create(Node("resource:parent:state"))));
-        Assert.Empty(graph.Match(Pattern.Create(Node("display-state"))));
-        var cyclic = new Graph<ExecutionGraphStructureNode, ExecutionGraphEdge>(graph.Nodes,
-            graph.Edges.Append(new ExecutionDependencyEdge(new("self"), first.GraphId, first.GraphId)));
-        Assert.Equal([second.GraphId, second.GraphId, first.GraphId],
-            cyclic.Successors(first).Select(node => node.GraphId));
-        var otherResource = new ExecutionResourceNode(new(GraphBindingOwner.Parent, new("other")),
-            resource.Resource with { Id = new("other") });
-        var boundaryGraph = new Graph<ExecutionGraphStructureNode, ExecutionGraphEdge>(
-            graph.Nodes.Append(otherResource),
-            new ExecutionGraphEdge[]
-            {
-                new ExecutionResourceReadEdge(new("other-read"), otherResource.GraphId, first.GraphId,
-                    "other-input", "other-read"),
-                new ExecutionResourceWriteEdge(new("other-write"), first.GraphId, otherResource.GraphId,
-                    "other-output", "other-write"),
-            }.Concat(graph.Edges));
-        var boundary = boundaryGraph.BoundaryResources([first.GraphId, second.GraphId]);
-        Assert.Equal([otherResource.GraphId, resource.GraphId], boundary.Inputs.Select(node => node.GraphId));
-        Assert.Equal([otherResource.GraphId, resource.GraphId], boundary.Outputs.Select(node => node.GraphId));
+        var graph = new ExecutionGraph { Id = "main" };
+        var state = graph.Resource("state", new(ElementType.Float32, [4]), GraphIO.InOut);
+        var first = graph.Operation("first", Operations.Copy);
+        var second = graph.Operation("second", Operations.Copy);
+        first.Bind("input", state, ResourceAccess.Read);
+        first.Bind("output", state, ResourceAccess.Write);
+        second.Bind("input", "state", ResourceAccess.Read);
+        second.Bind("other", state, ResourceAccess.Read);
+        first.Then(second);
+        first.Then(second);
+        Assert.Equal(["first", "second"], graph.Readers(state).Select(action => action.Id));
+        Assert.Equal(["first"], graph.Writers(state).Select(action => action.Id));
+        Assert.Equal(2, second.Bindings.Count);
+        Assert.Equal(2, graph.Dependencies(second).Count());
+        var structure = graph.DependencyGraph();
+        Assert.Equal(2, structure.Nodes.Count);
+        Assert.Equal(2, structure.Edges.Count);
+        Assert.Single(structure.Match(Pattern.Create(Node("first"))));
+        var filtered = structure.Filter(node => node.Action.Id != "second");
+        Assert.Single(filtered.Nodes);
+        Assert.Empty(filtered.Edges);
+        Assert.Equal(["first", "second"], structure.TopologicalOrder().Select(node => node.Action.Id));
     }
 
     /// <summary>Validates the eighteen progressively more complex queries from the design examples.</summary>
@@ -311,7 +281,7 @@ public sealed class GraphViewQueryTests
         var graph = Example();
         Assert.Equal(20, graph.Nodes.Count);
         Assert.Equal(35, graph.Edges.Count);
-        var dep = graph.Filter(node => node.Kind == "op", edge => edge.Kind == "dep");
+        var dep = graph.Filter(node => node.NodeKind == "op", edge => edge.EdgeKind == "dep");
         IEnumerable<TestNode> Readers(string name) => graph.Match(
             Pattern.Create(Node(name)) - Kind("read") - Node())
             .Select(match => match.Nodes.Last()).DistinctBy(node => node.Id);
@@ -330,7 +300,7 @@ public sealed class GraphViewQueryTests
         {
             case 1:
                 Assert.Equal("A,B,C,D,E,F,G,I,J,K,L", Names(graph.Match(
-                    Pattern.Create(Node().Where<TestNode>(node => node.Kind == "op" && node.Enabled)))
+                    Pattern.Create(Node().Where<TestNode>(node => node.NodeKind == "op" && node.Enabled)))
                     .Select(match => match.Nodes.Single())));
                 break;
             case 2:
@@ -480,7 +450,7 @@ public sealed class GraphViewQueryTests
         var sourceCalls = 0;
         var targetCalls = 0;
         var pattern = Pattern.Create(Node().Where<TestNode>(node =>
-            { sourceCalls++; return node.Kind == "op"; }))
+            { sourceCalls++; return node.NodeKind == "op"; }))
             - Edge() - Node("F").Where<TestNode>(_ => { targetCalls++; return true; });
         Assert.Equal(3, view.Match(pattern).Count());
         Assert.Equal(20, sourceCalls);
@@ -496,7 +466,7 @@ public sealed class GraphViewQueryTests
         var original = Example();
         var graph = new Graph<TestNode, TestEdge>(original.Nodes,
             original.Edges.Append(new("cycle", "F", "C")));
-        var view = graph.Filter(edge: edge => edge.Kind == "dep");
+        var view = graph.Filter(edge: edge => edge.EdgeKind == "dep");
         var expected = view.Nodes.SelectMany(node => view.Match(
                 Pattern.Create(Node(node.Id)) - Edge() - Node() - Edge() - Node("F")))
             .Select(match => string.Join(",", match.Edges.Select(edge => edge.Id.Value))).Order().ToArray();
@@ -708,7 +678,7 @@ public sealed class GraphViewQueryTests
     public void FiltersComposeAndPreserveIsolatedNodesAndParallelEdges()
     {
         var graph = Example();
-        var dep = graph.Filter(edge: edge => edge.Kind == "dep");
+        var dep = graph.Filter(edge: edge => edge.EdgeKind == "dep");
         Assert.Equal(20, dep.Nodes.Count());
         Assert.Empty(dep.EnumerateEdgesFromNode(new("R1")));
         Assert.Throws<KeyNotFoundException>(() => dep.EdgesFromNode(new("R1")));
@@ -844,7 +814,7 @@ public sealed class GraphViewQueryTests
             yield return to;
             yield return to;
         }
-        var index = graph.Filter(edge: edge => edge.Kind == "dep").CreateReachabilityIndex(Sources(), Targets());
+        var index = graph.Filter(edge: edge => edge.EdgeKind == "dep").CreateReachabilityIndex(Sources(), Targets());
         Assert.Equal(1, index.SourceCount);
         Assert.Equal(1, index.TargetCount);
         Assert.True(index.IsReachable(from, to));
@@ -862,7 +832,7 @@ public sealed class GraphViewQueryTests
     {
         var graph = Example();
         var hidden = "";
-        var view = graph.Filter(node => node.Name != hidden, edge => edge.Kind == "dep");
+        var view = graph.Filter(node => node.Name != hidden, edge => edge.EdgeKind == "dep");
         var a = graph.GetNode(new("A"));
         var l = graph.GetNode(new("L"));
         var index = view.CreateReachabilityIndex([a], [l]);
@@ -901,7 +871,7 @@ public sealed class GraphViewQueryTests
             graph.EdgesFromNode(new("C")).Select(edge => edge.Id.Value));
         Assert.Throws<KeyNotFoundException>(() => graph.EdgesToNode(new("missing")));
         Assert.Throws<KeyNotFoundException>(() => graph.EdgesFromNode(new("missing")));
-        var view = graph.Filter(node => node.Kind == "op");
+        var view = graph.Filter(node => node.NodeKind == "op");
         Assert.Equal(["d5", "d6", "d14"],
             view.EdgesToNode(new("F")).Select(edge => edge.Id.Value));
         Assert.Equal(["d3", "d4", "d15"],
