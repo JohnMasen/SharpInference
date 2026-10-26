@@ -42,17 +42,17 @@ public sealed class Graph<TNode, TEdge> : IGraphView<TNode, TEdge>
                               group edge by edge.Target into g
                               select new { Target = g.Key, Value = g };
         incoming = edgesWithTarget.ToImmutableDictionary(x => x.Target, x => x.Value.ToList() as IReadOnlyList<TEdge>);
-        nodesById=new ReadOnlyDictionary<GraphNodeId, TNode>(nodes.ToDictionary(n=>n.Id));
+        nodesById = new ReadOnlyDictionary<GraphNodeId, TNode>(nodes.ToDictionary(n => n.Id));
         edgesById = new ReadOnlyDictionary<GraphEdgeId, TEdge>(edges.ToDictionary(e => e.Id));
 
         //validate edges
         foreach (var edge in edges)
         {
-            if (!nodes.Any(x=>x.Id==edge.Source))
+            if (!nodes.Any(x => x.Id == edge.Source))
             {
                 throw new InvalidDataException($"Graph edge '{edge.Id}' references unknown source node '{edge.Source}'.");
             }
-            if (!nodes.Any(x=>x.Id==edge.Target))
+            if (!nodes.Any(x => x.Id == edge.Target))
             {
                 throw new InvalidDataException($"Graph edge '{edge.Id}' references unknown target node '{edge.Source}'.");
             }
@@ -161,7 +161,7 @@ public sealed class Graph<TNode, TEdge> : IGraphView<TNode, TEdge>
     {
         return this.Filter(edge: edge => edge is TRequested).Edges.Cast<TRequested>();
     }
-        
 
-    
+
+
 }

@@ -365,5 +365,8 @@ public static class VmProgramValidator
     }
 
     [DoesNotReturn]
-    private static void Fail(string message) => throw new InvalidDataException(message);
+    private static void Fail(string message)
+    {
+        throw new InvalidDataException(message);
+    }
 }

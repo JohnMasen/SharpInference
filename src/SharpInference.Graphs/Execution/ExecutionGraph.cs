@@ -39,7 +39,10 @@ public sealed class ExecutionGraph : Graph
     {
         var copy = new ExecutionGraph();
         foreach (var pair in Storage)
+        {
             copy.Storage.Add(pair.Key, pair.Value);
+        }
+
         return copy;
     }
 }
@@ -88,13 +91,19 @@ public sealed class ExecutionOperation(Graph graph, string id, OperationId opera
     protected override GraphAction CopyAction(Graph target)
     {
         if (target is not ExecutionGraph execution)
+        {
             throw new InvalidOperationException("Execution actions require an execution graph.");
+        }
+
         var copy = execution.Operation(Id, Operation);
         copy.Precision = Precision;
         copy.SelectedImplementation = SelectedImplementation;
         copy.Sources.AddRange(Sources);
         foreach (var pair in Attributes)
+        {
             copy.Attributes.Add(pair.Key, pair.Value);
+        }
+
         return copy;
     }
 }
@@ -112,7 +121,10 @@ public sealed class ExecutionCall(Graph graph, string id, string target) : CallA
     protected override GraphAction CopyAction(Graph target)
     {
         if (target is not ExecutionGraph execution)
+        {
             throw new InvalidOperationException("Execution actions require an execution graph.");
+        }
+
         var copy = execution.Call(Id, Target);
         copy.Sources.AddRange(Sources);
         return copy;

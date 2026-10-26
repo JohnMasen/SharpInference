@@ -30,7 +30,10 @@ public static class GraphPackageXml
         var root = ReadDocument(xml);
         Check(root, "GraphPackage", "version", "stage", "main");
         if (Number(root, "version") != 1 || Required(root, "stage") != Stage(new TGraph()))
+        {
             throw new InvalidDataException("Unsupported GraphPackage version or stage.");
+        }
+
         DefinitionChildren(root, "Target", "Metadata", "Graphs");
         var package = new GraphPackage<TGraph> { MainGraphId = (string?)root.Attribute("main") };
         ReadMetadata(root, package.Metadata);
@@ -39,15 +42,24 @@ public static class GraphPackageXml
             Check(target, "Target", "backend");
             DefinitionChildren(target);
             if (package is not GraphPackage<ExecutionGraph> execution)
+            {
                 throw new InvalidDataException("A target belongs to an execution package.");
+            }
+
             if (package.Metadata.ContainsKey(ExecutionPackage.BackendMetadataKey))
+            {
                 throw new InvalidDataException("Duplicate execution target.");
+            }
+
             execution.SetTarget(Required(target, "backend"));
         }
         var graphs = RequiredChild(root, "Graphs");
         Check(graphs, "Graphs");
         foreach (var element in Children(graphs, "Graph"))
+        {
             package.Add(ReadGraph<TGraph>(element));
+        }
+
         return package;
     }
 
@@ -101,6 +113,7 @@ public static class GraphPackageXml
                     new XAttribute("targetProperty", binding.Target.TargetProperty),
                     new XAttribute("access", binding.Access))));
         if (action is ExecutionOperation { SelectedImplementation: { } implementation })
+        {
             element.Add(new XElement("Implementation",
                 new XAttribute("collection", implementation.CollectionId),
                 new XAttribute("instruction", implementation.InstructionName),
@@ -112,6 +125,8 @@ public static class GraphPackageXml
                         new XAttribute("threadsY", dispatch.ThreadsY), new XAttribute("threadsZ", dispatch.ThreadsZ),
                         new XAttribute("groupsX", dispatch.GroupsX), new XAttribute("groupsY", dispatch.GroupsY),
                         new XAttribute("groupsZ", dispatch.GroupsZ)) : null));
+        }
+
         var sources = action switch
         {
             ExecutionOperation operation => operation.Sources,
@@ -119,9 +134,12 @@ public static class GraphPackageXml
             _ => null,
         };
         if (sources is { Count: > 0 })
+        {
             element.Add(new XElement("Sources", sources.Select(source => new XElement("Source",
                 new XAttribute("document", source.Document), new XAttribute("graph", source.Graph),
                 new XAttribute("node", source.Node)))));
+        }
+
         return element;
     }
 
@@ -131,13 +149,19 @@ public static class GraphPackageXml
         DefinitionChildren(element, "Metadata", "Resources", "Actions", "GraphFlow");
         var graph = new TGraph
         {
-            Id = Required(element, "id"), Name = (string?)element.Attribute("name"),
+            Id = Required(element, "id"),
+            Name = (string?)element.Attribute("name"),
             Description = (string?)element.Attribute("description"),
         };
         if (graph is LogicalGraph logical)
+        {
             logical.CompileBoundary = EnumOr(element, "compileBoundary", GraphCompileBoundary.Auto);
+        }
         else if (element.Attribute("compileBoundary") is not null)
+        {
             throw new InvalidDataException("Compilation intent belongs to logical graphs.");
+        }
+
         ReadMetadata(element, graph.Metadata);
         var resources = RequiredChild(element, "Resources");
         Check(resources, "Resources");
@@ -156,10 +180,15 @@ public static class GraphPackageXml
                 Check(storage, "Storage", "kind", "slot");
                 DefinitionChildren(storage);
                 if (graph is not ExecutionGraph execution)
+                {
                     throw new InvalidDataException("Storage belongs to an execution graph.");
+                }
+
                 if (!execution.Storage.TryAdd(resource.Id, new(
                     DefinitionEnumValue<ResourceStorageKind>(storage, "kind"), (string?)storage.Attribute("slot"))))
+                {
                     throw new InvalidDataException($"Duplicate storage for '{resource.Id}'.");
+                }
             }
         }
         var actions = RequiredChild(element, "Actions");
@@ -174,7 +203,10 @@ public static class GraphPackageXml
                 var operation = graph.Operation(Required(value, "id"),
                     new OperationId(Required(value, "operation"), Number(value, "version")));
                 foreach (var pair in ReadAttributes(RequiredChild(value, "Attributes")))
+                {
                     operation.Attributes.Add(pair.Key, pair.Value);
+                }
+
                 var precision = OptionalChild(value, "Precision");
                 operation.Precision = precision is null ? null : ReadPrecision(precision);
                 action = operation;
@@ -190,11 +222,17 @@ public static class GraphPackageXml
             if (OptionalChild(value, "Implementation") is { } implementation)
             {
                 if (action is not ExecutionOperation operation)
+                {
                     throw new InvalidDataException("An implementation belongs to an execution operation.");
+                }
+
                 Check(implementation, "Implementation", "collection", "instruction", "target", "arithmetic", "accumulator");
                 DefinitionChildren(implementation, "Dispatch");
                 if (!Guid.TryParse(Required(implementation, "collection"), out var collection))
+                {
                     throw new InvalidDataException("Invalid instruction collection identifier.");
+                }
+
                 operation.SelectedImplementation = new(collection, Required(implementation, "instruction"),
                     new InstructionTarget(Required(implementation, "target")),
                     new KernelPrecisionProfile(DefinitionEnumValue<ElementType>(implementation, "arithmetic"),
@@ -248,14 +286,19 @@ public static class GraphPackageXml
     {
         var container = OptionalChild(parent, "Metadata");
         if (container is null)
+        {
             return;
+        }
+
         Check(container, "Metadata");
         foreach (var entry in Children(container, "Entry"))
         {
             Check(entry, "Entry", "key", "value");
             if (!metadata.TryAdd(Required(entry, "key"), (string?)entry.Attribute("value")
                 ?? throw new InvalidDataException("Metadata requires a value.")))
+            {
                 throw new InvalidDataException("Duplicate metadata key.");
+            }
         }
     }
 
@@ -263,14 +306,20 @@ public static class GraphPackageXml
     {
         var children = parent.Elements(name).ToArray();
         if (children.Length > 1)
+        {
             throw new InvalidDataException($"Duplicate <{name}>.");
+        }
+
         return children.SingleOrDefault();
     }
 
     private static GraphInstructionDispatch? ReadDispatch(XElement? element)
     {
         if (element is null)
+        {
             return null;
+        }
+
         Check(element, "Dispatch", "threadsX", "threadsY", "threadsZ", "groupsX", "groupsY", "groupsZ");
         DefinitionChildren(element);
         return new((uint)Number(element, "threadsX"), (uint)Number(element, "threadsY"),
@@ -285,7 +334,10 @@ public static class GraphPackageXml
     {
         var attribute = element.Attribute(name);
         if (attribute is null)
+        {
             return false;
+        }
+
         return attribute.Value switch
         {
             "true" => true,

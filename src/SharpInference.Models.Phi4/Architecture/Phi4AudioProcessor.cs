@@ -188,11 +188,11 @@ public sealed class Phi4AudioProcessor
         for (var bin = 0; bin <= FftSize / 2; bin++)
         {
             for (var sample = 0; sample < WindowLength; sample++)
-        {
-            var angle = -2 * Math.PI * bin * sample / FftSize;
-            real[bin * WindowLength + sample] = Math.Cos(angle);
-            imaginary[bin * WindowLength + sample] = Math.Sin(angle);
-        }
+            {
+                var angle = -2 * Math.PI * bin * sample / FftSize;
+                real[bin * WindowLength + sample] = Math.Cos(angle);
+                imaginary[bin * WindowLength + sample] = Math.Sin(angle);
+            }
         }
 
         return (real, imaginary);

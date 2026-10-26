@@ -230,8 +230,10 @@ public sealed class ComputationGraphTests
     [InlineData("<Graph kind='logical' version='4'/>")]
     [InlineData("<GraphPackage version='2' stage='business'><Graphs/></GraphPackage>")]
     [InlineData("<GraphPackage version='1' stage='business'><Unknown/></GraphPackage>")]
-    public void XmlRejectsUnsafeOrUnsupportedDocuments(string xml) =>
+    public void XmlRejectsUnsafeOrUnsupportedDocuments(string xml)
+    {
         Assert.Throws<InvalidDataException>(() => GraphPackageXml.Deserialize<Graph>(xml));
+    }
 
     private static LogicalGraph Pass()
     {

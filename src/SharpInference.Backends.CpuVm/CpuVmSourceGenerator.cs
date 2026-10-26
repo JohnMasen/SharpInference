@@ -96,14 +96,14 @@ internal sealed class CpuVmSourceGenerator
 
     private void Emit(VmDefinition definition, VmNode node, VmOperator operation)
     {
-        var instruction=registry.Resolve(operation.InstructionCollectionId,operation.InstructionName,InstructionTarget.Cpu);
+        var instruction = registry.Resolve(operation.InstructionCollectionId, operation.InstructionName, InstructionTarget.Cpu);
         var contract = (VmOperator)contracts.Definitions.Single(value => value.Id == definition.Id)
             .Nodes.Single(value => value.Id == node.Id).Instruction;
-        var parameters=VmInstructionParameters.Create(operation,definition.Parameters,p =>
+        var parameters = VmInstructionParameters.Create(operation, definition.Parameters, p =>
         {
-            var index=definition.Parameters.ToList().FindIndex(value=>value.Name==p.Name);
-            var method=p.Access==VmAccess.ReadOnly?"Read":"Write";
-            return ($"frame.{method}(context, {index}, 0, {p.Tensor.ByteLength})","0");
+            var index = definition.Parameters.ToList().FindIndex(value => value.Name == p.Name);
+            var method = p.Access == VmAccess.ReadOnly ? "Read" : "Write";
+            return ($"frame.{method}(context, {index}, 0, {p.Tensor.ByteLength})", "0");
         });
         parameters = parameters.Select(parameter => parameter is InstructionTensorParameter tensor
             ? tensor with
@@ -112,7 +112,7 @@ internal sealed class CpuVmSourceGenerator
                     contract.ParameterAccesses[tensor.Name] != ResourceAccess.Read),
             } : parameter).ToArray();
         var start = recorder.Recordings.Count;
-        instruction.Invoke(recorder,parameters,operation.Precision,operation.ExecutionConfiguration);
+        instruction.Invoke(recorder, parameters, operation.Precision, operation.ExecutionConfiguration);
         foreach (var recording in recorder.Recordings.Skip(start))
         {
             code.AppendLine(recording.Source);

@@ -27,7 +27,9 @@ public sealed class DependencyReductionPostprocessor : IExecutionGraphPostproces
                 var redundant = unique.Any(other => other.Source == edge.Source && other.Target != edge.Target &&
                     reach.IsReachable(new GraphNodeId(other.Target.Action), new GraphNodeId(edge.Target.Action)));
                 if (!redundant)
+                {
                     graph.GraphFlow.Add(edge);
+                }
             }
         }
         return result;

@@ -39,10 +39,15 @@ public sealed class TemporaryResourceReusePostprocessor : IExecutionGraphPostpro
                 {
                     var reference = binding.Target;
                     if (caller.Id != graph.Id && reference.TargetKind == ResourceTarget.Graph && reference.Target == graph.Id)
+                    {
                         protectedIds.Add(reference.TargetProperty);
+                    }
+
                     if (reference.TargetKind == ResourceTarget.Call &&
                         caller.Actions.OfType<CallAction>().Any(call => call.Id == reference.Target && call.Target == graph.Id))
+                    {
                         protectedIds.Add(reference.TargetProperty);
+                    }
                 }
             }
             var structure = graph.DependencyGraph();
@@ -62,7 +67,10 @@ public sealed class TemporaryResourceReusePostprocessor : IExecutionGraphPostpro
             {
                 var accesses = graph.Readers(resource).Concat(graph.Writers(resource)).Distinct().ToArray();
                 if (accesses.Length == 0 || accesses.Any(action => action is not ExecutionOperation))
+                {
                     continue;
+                }
+
                 var first = accesses.MinBy(action => positions[action.Id])!;
                 var initialBindings = first.Bindings.Where(binding =>
                     binding.Target.TargetKind == ResourceTarget.Graph &&
@@ -72,7 +80,10 @@ public sealed class TemporaryResourceReusePostprocessor : IExecutionGraphPostpro
                     initialBindings[0].Access != ResourceAccess.Write || initialBindings[0].SourceProperty != "output" ||
                     operation.Operation.Version != 1 || !CompleteOutputOperations.Contains(operation.Operation.Name) ||
                     accesses.Any(action => action != first && !Before(first, action)))
+                {
                     continue;
+                }
+
                 lifetimes.Add((resource, first, accesses.Where(action =>
                     !accesses.Any(other => Before(action, other))).ToArray()));
             }

@@ -152,14 +152,14 @@ public sealed class Phi4NativeEmbeddingProvider : IPhi4EmbeddingProvider
                 for (var x = 0; x < compressedGrid; x++)
                 {
                     for (var channel = 0; channel < visionWidth; channel++)
-            {
-                var topLeft = ((y * 2) * patchGrid + x * 2) * visionWidth + channel;
-                pooled[(y * compressedGrid + x) * visionWidth + channel] =
-                    (hidden[topLeft] +
-                     hidden[topLeft + visionWidth] +
-                     hidden[topLeft + patchGrid * visionWidth] +
-                     hidden[topLeft + (patchGrid + 1) * visionWidth]) * 0.25f;
-            }
+                    {
+                        var topLeft = ((y * 2) * patchGrid + x * 2) * visionWidth + channel;
+                        pooled[(y * compressedGrid + x) * visionWidth + channel] =
+                            (hidden[topLeft] +
+                             hidden[topLeft + visionWidth] +
+                             hidden[topLeft + patchGrid * visionWidth] +
+                             hidden[topLeft + (patchGrid + 1) * visionWidth]) * 0.25f;
+                    }
                 }
             }
 
@@ -178,9 +178,9 @@ public sealed class Phi4NativeEmbeddingProvider : IPhi4EmbeddingProvider
         for (var tileY = 0; tileY < verticalTiles; tileY++)
         {
             for (var y = 0; y < compressedGrid; y++)
-        {
-            var crop = 1 + tileY * horizontalTiles;
-            if (image.AttentionMask[crop * patchGrid * patchGrid + (y * 2) * patchGrid] != 0)
+            {
+                var crop = 1 + tileY * horizontalTiles;
+                if (image.AttentionMask[crop * patchGrid * patchGrid + (y * 2) * patchGrid] != 0)
                 {
                     usefulHeight = tileY * compressedGrid + y + 1;
                 }
@@ -191,10 +191,10 @@ public sealed class Phi4NativeEmbeddingProvider : IPhi4EmbeddingProvider
         for (var tileX = 0; tileX < horizontalTiles; tileX++)
         {
             for (var x = 0; x < compressedGrid; x++)
-        {
-            var crop = 1 + tileX;
-            var offset = crop * patchGrid * patchGrid + x * 2;
-            if (image.AttentionMask[offset] != 0)
+            {
+                var crop = 1 + tileX;
+                var offset = crop * patchGrid * patchGrid + x * 2;
+                if (image.AttentionMask[offset] != 0)
                 {
                     usefulWidth = tileX * compressedGrid + x + 1;
                 }
@@ -266,13 +266,13 @@ public sealed class Phi4NativeEmbeddingProvider : IPhi4EmbeddingProvider
                     for (var y = 0; y < patchSize; y++)
                     {
                         for (var x = 0; x < patchSize; x++)
-                {
-                    var pixel = inputChannel * cropSize * cropSize +
-                        (patchY * patchSize + y) * cropSize + patchX * patchSize + x;
-                    var coefficient = weightBase + inputChannel * patchSize * patchSize +
-                        y * patchSize + x;
-                    sum += pixelValues[pixel] * TensorMath.Value(weight, coefficient);
-                }
+                        {
+                            var pixel = inputChannel * cropSize * cropSize +
+                                (patchY * patchSize + y) * cropSize + patchX * patchSize + x;
+                            var coefficient = weightBase + inputChannel * patchSize * patchSize +
+                                y * patchSize + x;
+                            sum += pixelValues[pixel] * TensorMath.Value(weight, coefficient);
+                        }
                     }
                 }
 
@@ -295,10 +295,10 @@ public sealed class Phi4NativeEmbeddingProvider : IPhi4EmbeddingProvider
         for (var y = 0; y < validRows; y++)
         {
             for (var x = 0; x < validColumns; x++)
-        {
-            var positionId = (y * grid / validRows) * grid + x * grid / validColumns;
-            var token = y * grid + x;
-            for (var channel = 0; channel < width; channel++)
+            {
+                var positionId = (y * grid / validRows) * grid + x * grid / validColumns;
+                var token = y * grid + x;
+                for (var channel = 0; channel < width; channel++)
                 {
                     output[token * width + channel] +=
                     TensorMath.Value(position, positionId * width + channel);
@@ -464,11 +464,11 @@ public sealed class Phi4NativeEmbeddingProvider : IPhi4EmbeddingProvider
         for (var frame = 0; frame < audio.FrameCount; frame++)
         {
             for (var feature = 0; feature < featureCount; feature++)
-        {
-            var index = frame * featureCount + feature;
-            normalized[index] = (audio.Values[index] - TensorMath.Value(mean, feature)) *
-                TensorMath.Value(inverseStandardDeviation, feature);
-        }
+            {
+                var index = frame * featureCount + feature;
+                normalized[index] = (audio.Values[index] - TensorMath.Value(mean, feature)) *
+                    TensorMath.Value(inverseStandardDeviation, feature);
+            }
         }
 
         var hidden = AudioSubsample(normalized, audio.FrameCount, cancellationToken);
@@ -617,11 +617,11 @@ public sealed class Phi4NativeEmbeddingProvider : IPhi4EmbeddingProvider
         for (var token = 0; token < tokens; token++)
         {
             for (var channel = 0; channel < intermediate; channel++)
-        {
-            var offset = token * intermediate * 2 + channel;
-            gated[token * intermediate + channel] =
-                up[offset] * TensorMath.Swish(up[offset + intermediate]);
-        }
+            {
+                var offset = token * intermediate * 2 + channel;
+                gated[token * intermediate + channel] =
+                    up[offset] * TensorMath.Swish(up[offset + intermediate]);
+            }
         }
 
         return TensorMath.Linear(gated, tokens,
@@ -646,12 +646,12 @@ public sealed class Phi4NativeEmbeddingProvider : IPhi4EmbeddingProvider
         for (var token = 0; token < tokens; token++)
         {
             for (var channel = 0; channel < width; channel++)
-        {
-            var offset = token * width * 2 + channel;
-            gated[token * width + channel] =
-                (pointwise[offset] + TensorMath.Value(b1, channel)) *
-                TensorMath.Swish(pointwise[offset + width] + TensorMath.Value(b2, channel));
-        }
+            {
+                var offset = token * width * 2 + channel;
+                gated[token * width + channel] =
+                    (pointwise[offset] + TensorMath.Value(b1, channel)) *
+                    TensorMath.Swish(pointwise[offset + width] + TensorMath.Value(b2, channel));
+            }
         }
 
         var depthwise = TensorMath.Conv1D(
@@ -948,9 +948,9 @@ internal static unsafe class TensorMath
                 for (var inputChannel = 0; inputChannel < inputChannelsPerGroup; inputChannel++)
                 {
                     for (var k = 0; k < kernel; k++)
-                {
-                    var sourcePosition = position + k - padding;
-                    if ((uint)sourcePosition >= (uint)length)
+                    {
+                        var sourcePosition = position + k - padding;
+                        if ((uint)sourcePosition >= (uint)length)
                         {
                             continue;
                         }
@@ -958,7 +958,7 @@ internal static unsafe class TensorMath
                         sum += input[sourcePosition * inputChannels +
                             group * inputChannelsPerGroup + inputChannel] *
                         Value(weight, weightBase + inputChannel * kernel + k);
-                }
+                    }
                 }
 
                 output[position * outputChannels + outputChannel] = sum;
@@ -1008,21 +1008,21 @@ internal static unsafe class TensorMath
                     for (var kernelY = 0; kernelY < kernelHeight; kernelY++)
                     {
                         for (var kernelX = 0; kernelX < kernelWidth; kernelX++)
-                {
-                    var sourceY = outputY * stride + kernelY - padding;
-                    var sourceX = outputX * stride + kernelX - padding;
-                    if ((uint)sourceY >= (uint)inputHeight ||
-                        (uint)sourceX >= (uint)inputWidth)
+                        {
+                            var sourceY = outputY * stride + kernelY - padding;
+                            var sourceX = outputX * stride + kernelX - padding;
+                            if ((uint)sourceY >= (uint)inputHeight ||
+                                (uint)sourceX >= (uint)inputWidth)
                             {
                                 continue;
                             }
 
                             var source = (sourceY * inputWidth + sourceX) * inputChannels +
                         group * inputChannelsPerGroup + inputChannel;
-                    var coefficient = weightBase +
-                        (inputChannel * kernelHeight + kernelY) * kernelWidth + kernelX;
-                    sum += input[source] * Value(weight, coefficient);
-                }
+                            var coefficient = weightBase +
+                                (inputChannel * kernelHeight + kernelY) * kernelWidth + kernelX;
+                            sum += input[source] * Value(weight, coefficient);
+                        }
                     }
                 }
 

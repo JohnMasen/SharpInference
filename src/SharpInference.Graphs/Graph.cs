@@ -25,8 +25,12 @@ public class Graph
     {
         var resource = new Resource(this, id, tensor)
         {
-            GraphIO = graphIO, Scope = scope, Usage = usage, IsState = isState,
-            Permission = permission, BindingKey = bindingKey,
+            GraphIO = graphIO,
+            Scope = scope,
+            Usage = usage,
+            IsState = isState,
+            Permission = permission,
+            BindingKey = bindingKey,
         };
         Resources.Add(resource);
         return resource;
@@ -63,12 +67,21 @@ public class Graph
         copy.Name = Name;
         copy.Description = Description;
         foreach (var pair in Metadata)
+        {
             copy.Metadata.Add(pair.Key, pair.Value);
+        }
+
         foreach (var resource in Resources)
+        {
             copy.Resource(resource.Id, resource.Tensor, resource.GraphIO, resource.Scope, resource.Usage,
                 resource.IsState, resource.Permission, resource.BindingKey).Category = resource.Category;
+        }
+
         foreach (var action in Actions)
+        {
             action.CopyTo(copy);
+        }
+
         copy.GraphFlow.AddRange(GraphFlow);
         return copy;
     }

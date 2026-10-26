@@ -27,14 +27,20 @@ public sealed class DefaultExecutionGraphConverter : IExecutionGraphConverter
         var result = new GraphPackage<ExecutionGraph> { MainGraphId = source.MainGraphId };
         var analyses = new Dictionary<string, GraphAnalysis>(StringComparer.Ordinal);
         foreach (var pair in source.Metadata)
+        {
             result.Metadata.Add(pair.Key, pair.Value);
+        }
+
         foreach (var definition in source)
         {
             var analysis = GraphDependencyAnalyzer.AnalyzeValidated(source, definition, diagnostics, analyses);
             GraphValidation.ThrowIfErrors(analysis.Diagnostics);
             var graph = new ExecutionGraph { Id = definition.Id, Name = definition.Name, Description = definition.Description };
             foreach (var pair in definition.Metadata)
+            {
                 graph.Metadata.Add(pair.Key, pair.Value);
+            }
+
             foreach (var resource in definition.Resources)
             {
                 graph.Resource(resource.Id, resource.Tensor, resource.GraphIO, resource.Scope, resource.Usage,
@@ -50,7 +56,10 @@ public sealed class DefaultExecutionGraphConverter : IExecutionGraphConverter
                         var execution = graph.Operation(action.Id, operation.Operation);
                         execution.Precision = operation.Precision;
                         foreach (var pair in operation.Attributes)
+                        {
                             execution.Attributes.Add(pair.Key, pair.Value);
+                        }
+
                         execution.Source(source.Metadata.GetValueOrDefault("document") ?? context.ModelType, definition.Id, action.Id);
                         converted = execution;
                         break;
@@ -64,7 +73,9 @@ public sealed class DefaultExecutionGraphConverter : IExecutionGraphConverter
                 converted.Category = action.Category;
                 converted.Bindings.AddRange(action.Bindings);
                 foreach (var pair in action.Metadata)
+                {
                     converted.Metadata.Add(pair.Key, pair.Value);
+                }
             }
             graph.GraphFlow.AddRange(analysis.Dependencies);
             result.Add(graph);

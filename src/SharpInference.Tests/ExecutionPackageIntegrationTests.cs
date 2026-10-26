@@ -36,7 +36,10 @@ public sealed class ExecutionPackageIntegrationTests
         Assert.All(graph.Actions.OfType<ExecutionOperation>(), operation => Assert.Null(operation.SelectedImplementation));
         var unplanned = package.Snapshot();
         foreach (var resource in unplanned.MainGraph!.Resources)
+        {
             unplanned.MainGraph.Storage.Add(resource.Id, new(ResourceStorageKind.LocalBuffer));
+        }
+
         new ExecutionImplementationSelector(Cpu).Select(unplanned, "cpu-vm");
         Assert.Throws<InvalidDataException>(() => new VmExecutionGraphEmitter(VmTarget.Cpu, Cpu).Emit(unplanned));
     }
@@ -57,15 +60,21 @@ public sealed class ExecutionPackageIntegrationTests
         var source = new GraphPackage<ExecutionGraph>(graph);
         GraphPackage<ExecutionGraph> result;
         if (rewrite == "fuse")
+        {
             result = ExecutionGraphRewriter.FuseNodesToOperation(source, "main", ["first", "second"], "fused",
                 new(Operations.Copy), [new("input", new(input), ResourceAccess.Read), new("output", new(output), ResourceAccess.Write)]);
+        }
         else
         {
             result = ExecutionGraphRewriter.ExtractNodesToGraph(source, "main", ["first", "second"], "extracted", "group");
             if (rewrite == "inline")
+            {
                 result = ExecutionGraphRewriter.InlineGraphCall(result, "main", "group");
+            }
             else if (rewrite == "replace")
+            {
                 result = ExecutionGraphRewriter.ReplaceGraphCallWithOperation(result, "main", "group", new(Operations.Copy));
+            }
         }
         Assert.Equal(Values(), Execute(result.Compile(VmTarget.Cpu, Cpu)));
         Assert.Equal(2, graph.Actions.Count);
@@ -114,13 +123,20 @@ public sealed class ExecutionPackageIntegrationTests
         var output = main.Resource("output", Vector, GraphIO.Out);
         main.Call("outer", middle).Bind("input", input, ResourceAccess.Read);
         if (repeated)
+        {
             main.Call("other", middle).Bind("input", input, ResourceAccess.Read);
+        }
+
         Copy(main, "consume", new(scratch), new(output));
         var package = new GraphPackage<ExecutionGraph>(main, middle, leaf);
         if (repeated)
+        {
             Assert.Contains("A0006", Assert.Throws<InvalidDataException>(() => package.Compile(VmTarget.Cpu, Cpu)).Message);
+        }
         else
+        {
             Assert.Equal(Values(), Execute(package.Compile(VmTarget.Cpu, Cpu)));
+        }
     }
 
     [Theory]
@@ -174,14 +190,21 @@ public sealed class ExecutionPackageIntegrationTests
         if (alreadySelected)
         {
             foreach (var resource in graph.Resources)
+            {
                 graph.Storage.Add(resource.Id, new(ResourceStorageKind.ExternalArgument));
+            }
+
             new ExecutionImplementationSelector(Cpu).Select(package, "cpu-vm");
         }
         graph.Actions[0].Bindings[0] = graph.Actions[0].Bindings[0] with { Access = ResourceAccess.Write };
         if (alreadySelected)
+        {
             Assert.Throws<InvalidDataException>(() => new VmExecutionGraphEmitter(VmTarget.Cpu, Cpu).Emit(package));
+        }
         else
+        {
             Assert.Throws<NotSupportedException>(() => package.Compile(VmTarget.Cpu, Cpu));
+        }
     }
 
     [Fact]
@@ -265,9 +288,13 @@ public sealed class ExecutionPackageIntegrationTests
     public void DescriptiveMetadataAndEmptyAttributesRoundTripWithoutReservedKeyLoss(bool logical)
     {
         if (logical)
+        {
             CheckMetadata(new LogicalGraph { Id = "main" });
+        }
         else
+        {
             CheckMetadata(new Graph { Id = "main" });
+        }
     }
 
     private static void CheckMetadata<TGraph>(TGraph graph) where TGraph : Graph, new()

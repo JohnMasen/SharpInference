@@ -43,7 +43,9 @@ internal static class GraphXmlSupport
             var name = Required(attribute, "name");
             if (!attributes.TryAdd(name, (string?)attribute.Attribute("value")
                 ?? throw new InvalidDataException($"Attribute '{name}' requires a value.")))
+            {
                 throw new InvalidDataException($"Duplicate attribute '{name}'.");
+            }
         }
         return new ReadOnlyDictionary<string, string>(attributes);
     }
@@ -231,7 +233,9 @@ internal static class GraphXmlSupport
             throw new InvalidDataException($"Expected <{name}>.");
         }
         if (element.Nodes().OfType<XText>().Any(text => !string.IsNullOrWhiteSpace(text.Value)))
+        {
             throw new InvalidDataException($"Unexpected text in <{name}>.");
+        }
 
         if (element.Attributes().Any(attribute =>
             attribute.IsNamespaceDeclaration ||

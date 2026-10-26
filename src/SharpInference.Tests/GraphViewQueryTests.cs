@@ -191,7 +191,9 @@ public sealed class GraphViewQueryTests
     {
         var contract = typeof(IGraphView<TestNode, TestEdge>);
         foreach (var name in new[] { "Filter", "Match", "ToGraph", "TopologicalOrder", "CreateReachabilityIndex" })
+        {
             Assert.DoesNotContain(contract.GetMethods(), method => method.Name == name);
+        }
 
         IGraphView<TestNode, TestEdge> graph = Example();
         IGraphView<TestNode, TestEdge> filtered = graph.Filter(node => node.NodeKind == "op", edge => edge.EdgeKind == "dep");
@@ -361,9 +363,14 @@ public sealed class GraphViewQueryTests
                 Assert.Equal(6, scoped.SourceCount);
                 Assert.Equal(3, scoped.TargetCount);
                 foreach (var source in new[] { "A", "B", "D", "E", "G", "H" })
+                {
                     foreach (var target in new[] { "F", "I", "L" })
+                    {
                         Assert.Equal(target != "F" || source is not ("G" or "H"),
                             scoped.IsReachable(new GraphNodeId(source), new GraphNodeId(target)));
+                    }
+                }
+
                 break;
             case 15:
                 Assert.Equal("D", Names(Terminal("R1")));
@@ -781,14 +788,22 @@ public sealed class GraphViewQueryTests
             .Concat(Enumerable.Range(0, 125).Select(i => new TestEdge($"skip{i}", $"N{i}", $"N{i + 5}")))
             .ToList();
         if (cyclic)
+        {
             edges.Add(new("back", "N129", "N0"));
+        }
+
         var graph = new Graph<TestNode, TestEdge>(nodes, edges);
         var sources = sparse ? nodes.Where((_, i) => i % 50 == 0).ToArray() : nodes;
         var targets = nodes.Reverse().ToArray();
         var index = graph.CreateReachabilityIndex(sources, targets);
         foreach (var source in sources)
+        {
             foreach (var target in targets)
+            {
                 Assert.Equal(graph.IsReachable(source.Id, target.Id), index.IsReachable(source, target));
+            }
+        }
+
         Assert.True(index.IsReachable(nodes[0], nodes[64]));
         Assert.True(index.IsReachable(nodes[0], nodes[129]));
     }
@@ -804,13 +819,21 @@ public sealed class GraphViewQueryTests
         var targetEnumerations = 0;
         IEnumerable<TestNode> Sources()
         {
-            if (++sourceEnumerations > 1) throw new InvalidOperationException("Re-enumeration");
+            if (++sourceEnumerations > 1)
+            {
+                throw new InvalidOperationException("Re-enumeration");
+            }
+
             yield return from;
             yield return from;
         }
         IEnumerable<TestNode> Targets()
         {
-            if (++targetEnumerations > 1) throw new InvalidOperationException("Re-enumeration");
+            if (++targetEnumerations > 1)
+            {
+                throw new InvalidOperationException("Re-enumeration");
+            }
+
             yield return to;
             yield return to;
         }
@@ -886,7 +909,10 @@ public sealed class GraphViewQueryTests
     {
         var graphType = typeof(Graph<TestNode, TestEdge>);
         foreach (var type in new[] { graphType, typeof(GraphView<TestNode, TestEdge>) })
+        {
             Assert.DoesNotContain(type.GetMethods(), method => method.Name is "View" or "InEdges" or "OutEdges");
+        }
+
         Assert.Null(graphType.Assembly.GetType("SharpInference.Graphs.Core.GraphPattern`2"));
         Assert.Null(graphType.Assembly.GetType("SharpInference.Graphs.Core.GraphMatch`2"));
     }

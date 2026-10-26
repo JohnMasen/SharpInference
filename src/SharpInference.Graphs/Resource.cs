@@ -31,7 +31,8 @@ public sealed record ResourceRef(
     ResourceTarget TargetKind, string? Target, string TargetProperty)
 {
     public ResourceRef(Resource resource) : this(
-        ResourceTarget.Graph, resource.Graph.Id, resource.Id) { }
+        ResourceTarget.Graph, resource.Graph.Id, resource.Id)
+    { }
 
     public static ResourceRef Local(string id) => new(ResourceTarget.Graph, null, id);
     public static ResourceRef Local(Resource resource) => new(resource);

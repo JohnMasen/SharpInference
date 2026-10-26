@@ -34,27 +34,40 @@ public static class GraphDependencyAnalyzer
     {
         cache ??= new(StringComparer.Ordinal);
         if (cache.TryGetValue(graph.Id, out var cached))
+        {
             return cached;
+        }
+
         var diagnostics = packageDiagnostics.ToList();
         if (diagnostics.Any(item => item.Severity == GraphDiagnosticSeverity.Error))
+        {
             return new([], [], diagnostics);
+        }
+
         var definitions = package.ToDictionary(item => item.Id, item => (ComputationGraph)item, StringComparer.Ordinal);
         var accesses = new Dictionary<ResourceInstance, List<Access>>();
         var resources = new Dictionary<ResourceInstance, Resource>();
         var flow = graph.GraphFlow.Distinct().ToList();
-        void Error(string code, string message, GraphAction? action = null, Resource? resource = null) =>
+        void Error(string code, string message, GraphAction? action = null, Resource? resource = null)
+        {
             diagnostics.Add(new(GraphDiagnosticSeverity.Error, code, message, action?.Id,
                 resource?.Id, Graph: graph.Id));
+        }
 
         foreach (var action in graph.Actions)
         {
             foreach (var binding in action.Bindings)
             {
                 if (Resolve(graph, binding.Target, [], out var identity, out var resource))
+                {
                     Register(identity, resource, action, binding.Access);
+                }
             }
             if (action is not CallAction call)
+            {
                 continue;
+            }
+
             var target = definitions[call.Target];
             var nested = AnalyzeValidated(package, package.Single(item => item.Id == target.Id), packageDiagnostics, cache);
             diagnostics.AddRange(nested.Diagnostics);
@@ -66,14 +79,19 @@ public static class GraphDependencyAnalyzer
                 if (binding is not null)
                 {
                     if (Resolve(graph, binding.Target, [], out var actual, out var declaration))
+                    {
                         Register(actual, declaration, call, effect.Access);
+                    }
                 }
                 else
                 {
                     var identity = effect.Identity;
                     if (resource.Scope == ResourceScope.Call &&
                         (identity.Graph == target.Id || identity.Call is not null))
+                    {
                         identity = identity with { Call = InstancePath(call.Id, identity.Call) };
+                    }
+
                     Register(identity, resource, call, effect.Access);
                 }
             }
@@ -92,7 +110,9 @@ public static class GraphDependencyAnalyzer
         {
             var edge = new GraphFlow(new(before), new(after));
             if (!flow.Contains(edge))
+            {
                 flow.Add(edge);
+            }
         }
 
         bool changed;
@@ -112,17 +132,25 @@ public static class GraphDependencyAnalyzer
             {
                 var resource = resources[identity];
                 if (EntryValue(identity, resource))
+                {
                     continue;
+                }
+
                 foreach (var read in uses.Where(use => use.Kind != ResourceAccess.Write))
                 {
                     var writers = uses.Where(use => use.Action != read.Action && use.Kind != ResourceAccess.Read).ToArray();
                     if (writers.Any(writer => Before(writer.Action, read.Action)))
+                    {
                         continue;
+                    }
+
                     var producers = writers.Where(writer => !Before(read.Action, writer.Action)).ToArray();
                     var last = producers.Where(writer =>
                         !producers.Any(other => Before(writer.Action, other.Action))).ToArray();
                     if (last.Length == 1)
+                    {
                         Add(last[0].Action, read.Action);
+                    }
                 }
             }
             changed = count != flow.Count;
@@ -136,21 +164,30 @@ public static class GraphDependencyAnalyzer
                 var left = uses[first];
                 if (left.Kind != ResourceAccess.Write && !EntryValue(identity, resource) &&
                     !uses.Any(other => other.Kind != ResourceAccess.Read && Before(other.Action, left.Action)))
+                {
                     Error("A0002", $"Resource '{resource.Id}' is read without an available value.", left.Action, resource);
+                }
+
                 for (var second = first + 1; second < uses.Count; second++)
                 {
                     var right = uses[second];
                     if ((left.Kind != ResourceAccess.Read || right.Kind != ResourceAccess.Read) &&
                         !Before(left.Action, right.Action) && !Before(right.Action, left.Action))
+                    {
                         Error("A0003", $"Unordered accesses to '{resource.Id}' by '{left.Action.Id}' and '{right.Action.Id}'.",
                             left.Action, resource);
+                    }
                 }
             }
         }
         foreach (var output in graph.Outputs)
+        {
             if (!HasEntryValue(output) && !accesses.Any(pair => ReferenceEquals(resources[pair.Key], output) &&
                 pair.Value.Any(use => use.Kind != ResourceAccess.Read)))
+            {
                 Error("A0004", $"Output '{output.Id}' has no available value.", resource: output);
+            }
+        }
 
         var result = new GraphAnalysis(Structure().TopologicalOrder().Select(node => node.Action).ToArray(), flow,
             diagnostics.Distinct().ToArray())
@@ -179,12 +216,19 @@ public static class GraphDependencyAnalyzer
         {
             resources.TryAdd(identity, resource);
             if (!accesses.TryGetValue(identity, out var uses))
+            {
                 accesses.Add(identity, uses = []);
+            }
+
             var index = uses.FindIndex(use => ReferenceEquals(use.Action, action));
             if (index < 0)
+            {
                 uses.Add(new(action, kind));
+            }
             else if (uses[index].Kind != kind)
+            {
                 uses[index] = new(action, ResourceAccess.ReadWrite);
+            }
         }
 
         IEnumerable<(ResourceInstance Identity, Resource Resource)> Instances(
@@ -198,6 +242,7 @@ public static class GraphDependencyAnalyzer
                 yield break;
             }
             foreach (var call in context.Actions.OfType<CallAction>())
+            {
                 foreach (var found in Instances(definitions[call.Target], target, property, visited))
                 {
                     var binding = found.Identity.Call is null && found.Resource.Graph.Id == call.Target
@@ -205,17 +250,23 @@ public static class GraphDependencyAnalyzer
                     if (binding is not null)
                     {
                         if (Resolve(context, binding.Target, new(visited), out var actual, out var declared))
+                        {
                             yield return (actual, declared);
+                        }
                     }
                     else
                     {
                         var identity = found.Identity;
                         if (found.Resource.Scope == ResourceScope.Call &&
                             (identity.Graph == call.Target || identity.Call is not null))
+                        {
                             identity = identity with { Call = InstancePath(call.Id, identity.Call) };
+                        }
+
                         yield return (identity, found.Resource);
                     }
                 }
+            }
         }
 
         bool Resolve(ComputationGraph context, ResourceRef reference,
@@ -240,7 +291,10 @@ public static class GraphDependencyAnalyzer
                 var owner = context.Actions.OfType<CallAction>().Single(call => call.Id == reference.Target);
                 var actual = owner.Bindings.SingleOrDefault(binding => binding.SourceProperty == declared.Id);
                 if (actual is not null)
+                {
                     return Resolve(context, actual.Target, visited, out identity, out resource);
+                }
+
                 identity = new(resource.Graph.Id, resource.Scope == ResourceScope.Call ? InstancePath(owner.Id, null) : null, resource.Id);
                 identity = SharedIdentity(identity, resource);
                 return true;

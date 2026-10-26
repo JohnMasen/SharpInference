@@ -10,9 +10,15 @@ public sealed class ExecutionImplementationSelector(IEnumerable<IInstructionColl
 {
     private readonly InstructionRegistry registry = new(providers);
 
-    public void Select(GraphPackage<ExecutionGraph> package, string backend) => Resolve(package, backend, select: true);
+    public void Select(GraphPackage<ExecutionGraph> package, string backend)
+    {
+        Resolve(package, backend, select: true);
+    }
 
-    public void Validate(GraphPackage<ExecutionGraph> package, string backend) => Resolve(package, backend, select: false);
+    public void Validate(GraphPackage<ExecutionGraph> package, string backend)
+    {
+        Resolve(package, backend, select: false);
+    }
 
     private void Resolve(GraphPackage<ExecutionGraph> package, string backend, bool select)
     {
@@ -45,21 +51,36 @@ public sealed class ExecutionImplementationSelector(IEnumerable<IInstructionColl
                 if (operation.SelectedImplementation is { } selected)
                 {
                     if (selected.Target != target)
+                    {
                         throw new InvalidDataException($"Implementation '{graph.Id}/{operation.Id}' targets '{selected.Target}', not '{target}'.");
+                    }
+
                     var instruction = registry.Resolve(selected.CollectionId, selected.InstructionName, target);
                     var signature = instruction.Adapt(parameters, operation.Precision ??
                         new(selected.Precision.ArithmeticType, selected.Precision.AccumulatorType));
                     if (signature.Precision != selected.Precision)
+                    {
                         throw new InvalidDataException($"Implementation precision conflicts with '{graph.Id}/{operation.Id}'.");
+                    }
+
                     if (!Matches(signature))
+                    {
                         throw new InvalidDataException($"Implementation access or parameter contracts conflict with '{graph.Id}/{operation.Id}'.");
+                    }
+
                     if (target == InstructionTarget.Direct3D12 && selected.Dispatch is null)
+                    {
                         throw new InvalidDataException($"GPU operation '{graph.Id}/{operation.Id}' requires a dispatch configuration.");
+                    }
+
                     ValidateDispatch(selected.Dispatch, operation.Id);
                     continue;
                 }
                 if (!select)
+                {
                     throw new InvalidDataException($"Action '{graph.Id}/{operation.Id}' has no selected implementation.");
+                }
+
                 mappings.TryGetValue(operation.Operation, out var mapping);
                 var candidates = mapping is not null
                     ? [registry.Resolve(mapping.CollectionId, mapping.InstructionName, target)]
@@ -74,7 +95,10 @@ public sealed class ExecutionImplementationSelector(IEnumerable<IInstructionColl
                 {
                     var matching = instruction.Signatures.Where(Matches).ToArray();
                     if (matching.Length == 0)
+                    {
                         continue;
+                    }
+
                     try
                     {
                         var requirement = operation.Precision ?? new PrecisionRequirement(
@@ -94,13 +118,17 @@ public sealed class ExecutionImplementationSelector(IEnumerable<IInstructionColl
                     }
                 }
                 if (operation.SelectedImplementation is null)
+                {
                     throw new NotSupportedException(
                         $"Backend '{target}' cannot implement '{operation.Operation}' at '{graph.Id}/{operation.Id}'. " +
                         string.Join(Environment.NewLine, errors));
+                }
             }
         }
         if (select)
+        {
             package.SetTarget(backend);
+        }
     }
 
     internal static InstructionTarget Target(string backend) => backend switch
@@ -116,7 +144,10 @@ public sealed class ExecutionImplementationSelector(IEnumerable<IInstructionColl
         var outputs = operation.Bindings.Where(binding => binding.Access != ResourceAccess.Read)
             .Select(binding => tensors[binding.SourceProperty]).ToArray();
         if (outputs.Length == 0)
+        {
             throw new InvalidDataException($"GPU operation '{operation.Id}' requires an explicit dispatch for a read-only operation.");
+        }
+
         var count = outputs.Max(tensor => tensor.Dimensions.Aggregate(1UL, (size, dimension) => checked(size * (ulong)dimension)));
         return new(64, 1, 1, checked((uint)((count + 63) / 64)), 1, 1);
     }
@@ -124,10 +155,15 @@ public sealed class ExecutionImplementationSelector(IEnumerable<IInstructionColl
     private static void ValidateDispatch(GraphInstructionDispatch? dispatch, string operation)
     {
         if (dispatch is null)
+        {
             return;
+        }
+
         if (dispatch.ThreadsX is 0 or > 1024 || dispatch.ThreadsY is 0 or > 1024 ||
             dispatch.ThreadsZ is 0 or > 64 || (ulong)dispatch.ThreadsX * dispatch.ThreadsY * dispatch.ThreadsZ > 1024 ||
             dispatch.GroupsX is 0 or > 65535 || dispatch.GroupsY is 0 or > 65535 || dispatch.GroupsZ is 0 or > 65535)
+        {
             throw new InvalidDataException($"Invalid GPU dispatch for '{operation}'.");
+        }
     }
 }

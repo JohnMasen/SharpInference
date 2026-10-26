@@ -101,9 +101,13 @@ public sealed class GraphSerializationTests
         void Read(string xml)
         {
             if (execution)
+            {
                 GraphPackageXml.Deserialize<ExecutionGraph>(xml);
+            }
             else
+            {
                 GraphPackageXml.Deserialize<LogicalGraph>(xml);
+            }
         }
         var xml = execution ? GraphPackageXml.Serialize(Convert(Residual())) : Fixture;
         Assert.Throws<InvalidDataException>(() => Read("<!DOCTYPE GraphPackage [<!ENTITY x 'copy'>]>" + xml));

@@ -256,8 +256,16 @@ public sealed class VmStateTests
         }
         using var stream = Export(bindings);
         var bytes = stream.ToArray();
-        if (failure == "integrity") bytes[^1] ^= 1;
-        if (failure == "truncated") bytes = bytes[..^1];
+        if (failure == "integrity")
+        {
+            bytes[^1] ^= 1;
+        }
+
+        if (failure == "truncated")
+        {
+            bytes = bytes[..^1];
+        }
+
         using var source = new MemoryStream(bytes);
         using (var access = bindings.BeginStateAccess())
         {
@@ -330,10 +338,17 @@ public sealed class VmStateTests
         public bool Disposed { get; private set; }
         public bool FailWrites { get; set; }
         public ulong ByteLength => storage.ByteLength;
-        public void Read(ulong offset, Span<byte> destination) => storage.Read(offset, destination);
+        public void Read(ulong offset, Span<byte> destination)
+        {
+            storage.Read(offset, destination);
+        }
         public void Write(ulong offset, ReadOnlySpan<byte> source)
         {
-            if (FailWrites) throw new IOException("Injected write failure.");
+            if (FailWrites)
+            {
+                throw new IOException("Injected write failure.");
+            }
+
             storage.Write(offset, source);
         }
         public void Dispose()

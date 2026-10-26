@@ -31,7 +31,8 @@ public static class Phi4TextInputCodec
         ValidatePosition(position, maximumContext, nameof(control));
         return new Dictionary<string, ReadOnlyMemory<byte>>
         {
-            ["token"] = Int32(token), ["position"] = Int32(position),
+            ["token"] = Int32(token),
+            ["position"] = Int32(position),
         };
     }
 
@@ -58,7 +59,8 @@ public static class Phi4TextInputCodec
 
         return new Dictionary<string, ReadOnlyMemory<byte>>
         {
-            ["position"] = Int32(position), ["embedding"] = control[sizeof(int)..].ToArray(),
+            ["position"] = Int32(position),
+            ["embedding"] = control[sizeof(int)..].ToArray(),
         };
     }
 

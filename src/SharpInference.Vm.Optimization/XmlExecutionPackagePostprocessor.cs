@@ -31,12 +31,18 @@ public sealed class XmlExecutionPackagePostprocessor :
         ArgumentNullException.ThrowIfNull(package);
         ArgumentNullException.ThrowIfNull(context);
         if (context.Compilation.ModelType != expectedModelType || context.Compilation.Backend != expectedBackend)
+        {
             throw new InvalidOperationException($"Execution XML '{path}' targets '{expectedModelType}/{expectedBackend}', " +
                 $"not '{context.Compilation.ModelType}/{context.Compilation.Backend}'.");
+        }
+
         var loaded = GraphPackageXml.Deserialize<ExecutionGraph>(File.ReadAllText(path));
         GraphValidation.ThrowIfErrors(loaded.Validate());
         if (loaded.MainGraphId != package.MainGraphId || loaded.GetTarget() != context.Compilation.Backend)
+        {
             throw new InvalidDataException("Execution XML main graph or target does not match this compilation.");
+        }
+
         return loaded;
     }
 

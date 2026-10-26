@@ -14,7 +14,10 @@ public static class PatternElements
     public static NodePattern Node(GraphNodeId id)
     {
         if (string.IsNullOrWhiteSpace(id.Value))
+        {
             throw new ArgumentException("A node identifier is required.", nameof(id));
+        }
+
         return new(id, node => node.Id == id);
     }
 

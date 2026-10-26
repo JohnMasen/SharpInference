@@ -346,70 +346,70 @@ public sealed class D3D12VmExecutor : IVmTaskExecutable
             byte[] uploadBytes,
             string readbackSlot,
             byte[] readbackBytes)
+    {
+        ArgumentNullException.ThrowIfNull(uploadBytes);
+        ArgumentNullException.ThrowIfNull(readbackBytes);
+        lock (gate)
         {
-            ArgumentNullException.ThrowIfNull(uploadBytes);
-            ArgumentNullException.ThrowIfNull(readbackBytes);
-            lock (gate)
-            {
-                ThrowIfDisposed();
-                using var use = BeginPoolUse();
-                if (!schedules.TryGetValue(entry, out var schedule))
+            ThrowIfDisposed();
+            using var use = BeginPoolUse();
+            if (!schedules.TryGetValue(entry, out var schedule))
             {
                 throw new ArgumentException($"Unknown VM entry '{entry}'.", nameof(entry));
             }
 
             PrepareGpuEntry(entry);
-                var uploadIndex = SlotIndex(uploadSlot);
-                var readbackIndex = SlotIndex(readbackSlot);
-                ValidateBuffer(uploadIndex, uploadBytes);
-                ValidateBuffer(readbackIndex, readbackBytes);
-                var key = $"{entry}\0{uploadIndex}\0{readbackIndex}";
-                if (!combinedTransferEntries.TryGetValue(key, out var combined))
+            var uploadIndex = SlotIndex(uploadSlot);
+            var readbackIndex = SlotIndex(readbackSlot);
+            ValidateBuffer(uploadIndex, uploadBytes);
+            ValidateBuffer(readbackIndex, readbackBytes);
+            var key = $"{entry}\0{uploadIndex}\0{readbackIndex}";
+            if (!combinedTransferEntries.TryGetValue(key, out var combined))
+            {
+                var upload = device.CreateCommittedResource(
+                    HeapProperties.UploadHeapProperties,
+                    HeapFlags.None,
+                    ResourceDescription.Buffer(Align((ulong)uploadBytes.Length)),
+                    ResourceStates.GenericRead);
+                var readback = device.CreateCommittedResource(
+                    HeapProperties.ReadbackHeapProperties,
+                    HeapFlags.None,
+                    ResourceDescription.Buffer(Align((ulong)readbackBytes.Length)),
+                    ResourceStates.CopyDest);
+                var allocator = device.CreateCommandAllocator(CommandListType.Compute);
+                var commands = device.CreateCommandList<ID3D12GraphicsCommandList>(
+                    0, CommandListType.Compute, allocator);
+                try
                 {
-                    var upload = device.CreateCommittedResource(
-                        HeapProperties.UploadHeapProperties,
-                        HeapFlags.None,
-                        ResourceDescription.Buffer(Align((ulong)uploadBytes.Length)),
-                        ResourceStates.GenericRead);
-                    var readback = device.CreateCommittedResource(
-                        HeapProperties.ReadbackHeapProperties,
-                        HeapFlags.None,
-                        ResourceDescription.Buffer(Align((ulong)readbackBytes.Length)),
-                        ResourceStates.CopyDest);
-                    var allocator = device.CreateCommandAllocator(CommandListType.Compute);
-                    var commands = device.CreateCommandList<ID3D12GraphicsCommandList>(
-                        0, CommandListType.Compute, allocator);
-                    try
-                    {
-                        commands.ResourceBarrierTransition(
-                            buffers[uploadIndex], ResourceStates.UnorderedAccess, ResourceStates.CopyDest);
-                        commands.CopyBufferRegion(
-                            buffers[uploadIndex], 0, upload, 0, (ulong)uploadBytes.Length);
-                        commands.ResourceBarrierTransition(
-                            buffers[uploadIndex], ResourceStates.CopyDest, ResourceStates.UnorderedAccess);
-                        RecordCommands(commands, schedule);
-                        commands.ResourceBarrierTransition(
-                            buffers[readbackIndex], ResourceStates.UnorderedAccess, ResourceStates.CopySource);
-                        commands.CopyBufferRegion(
-                            readback, 0, buffers[readbackIndex], 0, (ulong)readbackBytes.Length);
-                        commands.ResourceBarrierTransition(
-                            buffers[readbackIndex], ResourceStates.CopySource, ResourceStates.UnorderedAccess);
-                        commands.Close();
-                        combined = new(upload, readback, allocator, commands);
-                        combinedTransferEntries.Add(key, combined);
-                    }
-                    catch
-                    {
-                        commands.Dispose();
-                        allocator.Dispose();
-                        readback.Dispose();
-                        upload.Dispose();
-                        throw;
-                    }
+                    commands.ResourceBarrierTransition(
+                        buffers[uploadIndex], ResourceStates.UnorderedAccess, ResourceStates.CopyDest);
+                    commands.CopyBufferRegion(
+                        buffers[uploadIndex], 0, upload, 0, (ulong)uploadBytes.Length);
+                    commands.ResourceBarrierTransition(
+                        buffers[uploadIndex], ResourceStates.CopyDest, ResourceStates.UnorderedAccess);
+                    RecordCommands(commands, schedule);
+                    commands.ResourceBarrierTransition(
+                        buffers[readbackIndex], ResourceStates.UnorderedAccess, ResourceStates.CopySource);
+                    commands.CopyBufferRegion(
+                        readback, 0, buffers[readbackIndex], 0, (ulong)readbackBytes.Length);
+                    commands.ResourceBarrierTransition(
+                        buffers[readbackIndex], ResourceStates.CopySource, ResourceStates.UnorderedAccess);
+                    commands.Close();
+                    combined = new(upload, readback, allocator, commands);
+                    combinedTransferEntries.Add(key, combined);
                 }
-                combined.Upload.SetData<byte>(uploadBytes);
-                Submit(combined.Commands);
-                combined.Readback.GetData<byte>(readbackBytes);
+                catch
+                {
+                    commands.Dispose();
+                    allocator.Dispose();
+                    readback.Dispose();
+                    upload.Dispose();
+                    throw;
+                }
+            }
+            combined.Upload.SetData<byte>(uploadBytes);
+            Submit(combined.Commands);
+            combined.Readback.GetData<byte>(readbackBytes);
         }
     }
 
@@ -724,11 +724,17 @@ public sealed class D3D12VmExecutor : IVmTaskExecutable
     }
 
     /// <summary>Uploads an exact slot-sized CPU payload. CPU gather indices are range-checked before transfer.</summary>
-    public void Upload(string slot, byte[] bytes) => Upload(SlotIndex(slot), bytes);
+    public void Upload(string slot, byte[] bytes)
+    {
+        Upload(SlotIndex(slot), bytes);
+    }
     /// <summary>Copies an exact slot-sized payload to the GPU and waits for transfer completion.</summary>
     /// <param name="slot">The slot index in program order or the slot identifier.</param>
     /// <param name="bytes">The exact slot-sized CPU payload to upload.</param>
-    public void Upload(string slot, ReadOnlySpan<byte> bytes) => Upload(SlotIndex(slot), bytes);
+    public void Upload(string slot, ReadOnlySpan<byte> bytes)
+    {
+        Upload(SlotIndex(slot), bytes);
+    }
     /// <summary>Copies an exact slot-sized payload to the GPU and waits for transfer completion.</summary>
     /// <param name="slot">The slot index in program order or the slot identifier.</param>
     /// <param name="bytes">The exact slot-sized CPU payload to upload.</param>
@@ -853,7 +859,10 @@ public sealed class D3D12VmExecutor : IVmTaskExecutable
     /// <summary>Copies a GPU slot to a newly allocated array or an exact-size destination and waits for completion.</summary>
     /// <param name="slot">The slot index in program order or the slot identifier.</param>
     /// <param name="destination">The exact slot-sized CPU destination array.</param>
-    public void Readback(string slot, byte[] destination) => Readback(SlotIndex(slot), destination);
+    public void Readback(string slot, byte[] destination)
+    {
+        Readback(SlotIndex(slot), destination);
+    }
     /// <summary>Copies a GPU slot to a newly allocated array or an exact-size destination and waits for completion.</summary>
     /// <param name="slot">The slot index in program order or the slot identifier.</param>
     /// <param name="destination">The exact slot-sized CPU destination array.</param>
@@ -1102,7 +1111,10 @@ public sealed class D3D12VmExecutor : IVmTaskExecutable
 
         throw new ArgumentException($"Unknown VM slot '{slot}'.", nameof(slot));
     }
-    private static ulong Align(ulong bytes) => checked((bytes + 3UL) & ~3UL);
+    private static ulong Align(ulong bytes)
+    {
+        return checked((bytes + 3UL) & ~3UL);
+    }
     private void BeginTransfer()
     {
         transferAllocator.Reset();
@@ -1128,7 +1140,10 @@ public sealed class D3D12VmExecutor : IVmTaskExecutable
         }
         device.DeviceRemovedReason.CheckError();
     }
-    private void ThrowIfDisposed() => ObjectDisposedException.ThrowIf(disposed, this);
+    private void ThrowIfDisposed()
+    {
+        ObjectDisposedException.ThrowIf(disposed, this);
+    }
     /// <inheritdoc/>
     public void Dispose()
     {

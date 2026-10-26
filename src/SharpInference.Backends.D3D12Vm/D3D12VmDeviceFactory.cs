@@ -36,8 +36,8 @@ public static class D3D12VmDeviceFactory
         for (uint i = 0; factory.EnumAdapterByGpuPreference(i, GpuPreference.HighPerformance,
                  out IDXGIAdapter1? adapter).Success; i++)
         {
-        {
-            using (adapter)
+            {
+                using (adapter)
                 {
                     if ((adapter!.Description1.Flags & AdapterFlags.Software) == 0 &&
                     IsSupported(adapter, FeatureLevel.Level_11_0) && supported++ == adapterIndex)

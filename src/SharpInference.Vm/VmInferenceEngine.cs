@@ -177,7 +177,9 @@ public sealed class VmInferenceEngine : IAsyncDisposable
         }
     }
 
-    internal void Remove(VmInferenceSession session) { lock (gate)
+    internal void Remove(VmInferenceSession session)
+    {
+        lock (gate)
         {
             sessions.Remove(session);
         }
@@ -437,7 +439,10 @@ public sealed class VmInferenceSession : IAsyncDisposable
     internal ValueTask<float[]> ForwardScopedAsync(int token, CancellationTokenSource cancellation) =>
         engine.ForwardAsync(state, token, cancellation);
 
-    internal void ValidateToken(int token) => engine.ValidateToken(token);
+    internal void ValidateToken(int token)
+    {
+        engine.ValidateToken(token);
+    }
 
     internal void EndGeneration(VmGenerationLease scope)
     {

@@ -25,39 +25,49 @@ public static class CpuTierOneNumerics
     /// <param name="b">The second operand span, with the same positive length as the output.</param>
     /// <param name="c">The third operand span, with the same positive length as the output.</param>
     /// <param name="output">The destination span with the length required by the operation.</param>
-    public static void DifferenceMix(ReadOnlySpan<float> a, ReadOnlySpan<float> b, ReadOnlySpan<float> c, Span<float> output) =>
+    public static void DifferenceMix(ReadOnlySpan<float> a, ReadOnlySpan<float> b, ReadOnlySpan<float> c, Span<float> output)
+    {
         Ternary<DifferenceMixOperator>(a, b, c, output);
+    }
     /// <summary>Computes (a * b + c) - b elementwise.</summary>
     /// <param name="a">The first operand span, with the same positive length as the output.</param>
     /// <param name="b">The second operand span, with the same positive length as the output.</param>
     /// <param name="c">The third operand span, with the same positive length as the output.</param>
     /// <param name="output">The destination span with the length required by the operation.</param>
-    public static void MultiplyAddSubtract(ReadOnlySpan<float> a, ReadOnlySpan<float> b, ReadOnlySpan<float> c, Span<float> output) =>
+    public static void MultiplyAddSubtract(ReadOnlySpan<float> a, ReadOnlySpan<float> b, ReadOnlySpan<float> c, Span<float> output)
+    {
         Ternary<MultiplyAddSubtractOperator>(a, b, c, output);
+    }
     /// <summary>Computes (a + b) * c + d elementwise.</summary>
     /// <param name="a">The first operand span, with the same positive length as the output.</param>
     /// <param name="b">The second operand span, with the same positive length as the output.</param>
     /// <param name="c">The third operand span, with the same positive length as the output.</param>
     /// <param name="d">The fourth operand span, with the same positive length as the output.</param>
     /// <param name="output">The destination span with the length required by the operation.</param>
-    public static void AddMultiplyAdd(ReadOnlySpan<float> a, ReadOnlySpan<float> b, ReadOnlySpan<float> c, ReadOnlySpan<float> d, Span<float> output) =>
+    public static void AddMultiplyAdd(ReadOnlySpan<float> a, ReadOnlySpan<float> b, ReadOnlySpan<float> c, ReadOnlySpan<float> d, Span<float> output)
+    {
         Quaternary<AddMultiplyAddOperator>(a, b, c, d, output);
+    }
     /// <summary>Computes (a * b) * c + d elementwise.</summary>
     /// <param name="a">The first operand span, with the same positive length as the output.</param>
     /// <param name="b">The second operand span, with the same positive length as the output.</param>
     /// <param name="c">The third operand span, with the same positive length as the output.</param>
     /// <param name="d">The fourth operand span, with the same positive length as the output.</param>
     /// <param name="output">The destination span with the length required by the operation.</param>
-    public static void MultiplyMultiplyAdd(ReadOnlySpan<float> a, ReadOnlySpan<float> b, ReadOnlySpan<float> c, ReadOnlySpan<float> d, Span<float> output) =>
+    public static void MultiplyMultiplyAdd(ReadOnlySpan<float> a, ReadOnlySpan<float> b, ReadOnlySpan<float> c, ReadOnlySpan<float> d, Span<float> output)
+    {
         Quaternary<MultiplyMultiplyAddOperator>(a, b, c, d, output);
+    }
     /// <summary>Computes (a * b + c) * d elementwise.</summary>
     /// <param name="a">The first operand span, with the same positive length as the output.</param>
     /// <param name="b">The second operand span, with the same positive length as the output.</param>
     /// <param name="c">The third operand span, with the same positive length as the output.</param>
     /// <param name="d">The fourth operand span, with the same positive length as the output.</param>
     /// <param name="output">The destination span with the length required by the operation.</param>
-    public static void MultiplyAddMultiply(ReadOnlySpan<float> a, ReadOnlySpan<float> b, ReadOnlySpan<float> c, ReadOnlySpan<float> d, Span<float> output) =>
+    public static void MultiplyAddMultiply(ReadOnlySpan<float> a, ReadOnlySpan<float> b, ReadOnlySpan<float> c, ReadOnlySpan<float> d, Span<float> output)
+    {
         Quaternary<MultiplyAddMultiplyOperator>(a, b, c, d, output);
+    }
 
     /// <summary>Computes the square of max(a, 0) elementwise, preserving NaN values.</summary>
     /// <param name="a">The first operand span, with the same positive length as the output.</param>

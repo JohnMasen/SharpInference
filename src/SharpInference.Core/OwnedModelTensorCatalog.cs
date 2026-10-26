@@ -155,6 +155,9 @@ internal sealed class OwnedModelTensorCatalog : IModelTensorCatalog
         }
 
         /// <summary>Stops retaining the source tensor so copied storage, if present, is used instead.</summary>
-        public void ReleaseSource() => source = null;
+        public void ReleaseSource()
+        {
+            source = null;
+        }
     }
 }

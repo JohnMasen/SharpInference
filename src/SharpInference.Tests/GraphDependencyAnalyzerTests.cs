@@ -42,9 +42,13 @@ public sealed class GraphDependencyAnalyzerTests
         var update = graph.Operation("update", Operations.Copy);
         update.Bind("output", state, ResourceAccess.Write);
         if (oldValue)
+        {
             read.Then(update);
+        }
         else
+        {
             update.Then(read);
+        }
 
         var result = Analyze(graph);
         Assert.Empty(result.Diagnostics);
@@ -75,7 +79,10 @@ public sealed class GraphDependencyAnalyzerTests
         var second = graph.Operation("second", Operations.Copy);
         second.Bind("output", output, ResourceAccess.Write);
         if (ordered)
+        {
             first.Then(second);
+        }
+
         Assert.Equal(!ordered, Analyze(graph).Diagnostics.Any(item => item.Code == "A0003"));
     }
 

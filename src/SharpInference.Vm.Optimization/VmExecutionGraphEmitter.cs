@@ -39,7 +39,10 @@ public sealed partial class VmExecutionGraphEmitter
     private static VmTensor Tensor(TensorDescriptor tensor)
     {
         if (tensor.Layout != "dense")
+        {
             throw new NotSupportedException($"VM emission does not support tensor layout '{tensor.Layout}'.");
+        }
+
         return new(tensor.ElementType switch
         {
             ElementType.Byte => VmElementType.Byte,

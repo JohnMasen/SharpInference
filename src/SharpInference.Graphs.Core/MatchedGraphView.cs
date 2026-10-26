@@ -44,11 +44,14 @@ internal sealed class MatchedGraphView<TNode, TEdge> : IGraphView<TNode, TEdge>
     public bool TryGetNode(GraphNodeId id, [MaybeNullWhen(false)] out TNode node)
     {
         foreach (var candidate in nodes)
+        {
             if (candidate.Id == id)
             {
                 node = candidate;
                 return true;
             }
+        }
+
         node = default;
         return false;
     }
@@ -62,11 +65,14 @@ internal sealed class MatchedGraphView<TNode, TEdge> : IGraphView<TNode, TEdge>
     public bool TryGetEdge(GraphEdgeId id, [MaybeNullWhen(false)] out TEdge edge)
     {
         foreach (var candidate in edges)
+        {
             if (candidate.Id == id)
             {
                 edge = candidate;
                 return true;
             }
+        }
+
         edge = default;
         return false;
     }

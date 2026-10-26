@@ -4,7 +4,8 @@ using System.Text;
 using SharpInference.Graphs;
 using SharpInference.Vm;
 namespace SharpInference.Instructions.D3D12;
-internal sealed class GpuTierZeroInstruction(Guid id,string name) : TierZeroInstruction(id,name,InstructionTarget.Direct3D12)
+
+internal sealed class GpuTierZeroInstruction(Guid id, string name) : TierZeroInstruction(id, name, InstructionTarget.Direct3D12)
 {
     protected override void ValidateExecutionConfiguration(InstructionExecutionConfiguration? configuration)
     {
@@ -322,17 +323,17 @@ internal sealed class GpuTierZeroInstruction(Guid id,string name) : TierZeroInst
 
     protected override InstructionRecording Generate(InstructionParameter[] values)
     {
-        var tensors=values.OfType<InstructionTensorParameter>().ToArray();
-        var parameters=tensors.ToDictionary(p=>p.Name,p=>(p:new VmParameter(p.Name,p.Name=="output"?VmAccess.ReadWrite:VmAccess.ReadOnly,new VmTensor(p.Tensor.ElementType switch
+        var tensors = values.OfType<InstructionTensorParameter>().ToArray();
+        var parameters = tensors.ToDictionary(p => p.Name, p => (p: new VmParameter(p.Name, p.Name == "output" ? VmAccess.ReadWrite : VmAccess.ReadOnly, new VmTensor(p.Tensor.ElementType switch
         {
             ElementType.Float32 => VmElementType.Float32,
             ElementType.Float16 => VmElementType.Float16,
             ElementType.Int32 => VmElementType.Int32,
             _ => throw new InstructionAdaptationException(CollectionId, Name, "Unsupported tensor element type."),
-        },p.Tensor.Dimensions)),Name:p.Expression));
-        var offsets=tensors.ToDictionary(p=>p.Name,p=>p.OffsetExpression);
-        var op=new VmOperator(new(ElementType.Float32, ElementType.Float32),CollectionId,Name,tensors.Select(p=>new VmArgument(p.Name,p.Name)),values.OfType<InstructionAttributeParameter>().ToDictionary(p=>p.Name,p=>p.Value));
-        return new InstructionRecording(Operator(op,parameters,offsets),[
+        }, p.Tensor.Dimensions)), Name: p.Expression));
+        var offsets = tensors.ToDictionary(p => p.Name, p => p.OffsetExpression);
+        var op = new VmOperator(new(ElementType.Float32, ElementType.Float32), CollectionId, Name, tensors.Select(p => new VmArgument(p.Name, p.Name)), values.OfType<InstructionAttributeParameter>().ToDictionary(p => p.Name, p => p.Value));
+        return new InstructionRecording(Operator(op, parameters, offsets), [
             GpuInstructionHelpers.Load32,
             new InstructionHelper("t0.helper.1", "float load16(RWByteAddressBuffer b, uint o, uint i) { uint a=o+i*2; return f16tof32((b.Load(a & ~3u) >> ((a & 2u)*8u)) & 65535u); }"),
             GpuInstructionHelpers.Maximum32,
@@ -340,7 +341,7 @@ internal sealed class GpuTierZeroInstruction(Guid id,string name) : TierZeroInst
             new InstructionHelper("t0.store16", "void store16(RWByteAddressBuffer b,uint o,uint i,float value) { uint a=o+i*2u; uint shift=(a&2u)*8u; uint mask=65535u<<shift; uint bits=(f32tof16(value)&65535u)<<shift; uint old=b.Load(a&~3u); uint observed; do { uint next=(old&~mask)|bits; b.InterlockedCompareExchange(a&~3u,old,next,observed); if(observed==old) break; old=observed; } while(true); }")]);
     }
     private static string Operator(VmOperator op,
-        IReadOnlyDictionary<string, (VmParameter p, string Name)> parameters, IReadOnlyDictionary<string,string> offsets)
+        IReadOnlyDictionary<string, (VmParameter p, string Name)> parameters, IReadOnlyDictionary<string, string> offsets)
     {
         InvalidDataException Error(string reason) => new($"D3D12 VM operator '{op.Operation}@{op.Version}': {reason}");
 
@@ -379,22 +380,28 @@ internal sealed class GpuTierZeroInstruction(Guid id,string name) : TierZeroInst
         }
 
         var n = output.Tensor.ElementCount;
-        string Store(string expression) => output.Tensor.ElementType==VmElementType.Float16
+        string Store(string expression) => output.Tensor.ElementType == VmElementType.Float16
             ? $"if(i<{n}u) store16({output.Buffer},{output.Offset},i,{expression});"
             : $"if (i < {n}u) {output.Buffer}.Store({output.Offset}+i*4u, asuint({expression}));";
         string[] ports;
         string body;
         var binary = new Dictionary<string, string>(StringComparer.Ordinal)
         {
-            ["core.add"] = "{0}+{1}", ["core.subtract"] = "{0}-{1}",
-            ["core.multiply"] = "{0}*{1}", ["core.divide"] = "{0}/{1}",
+            ["core.add"] = "{0}+{1}",
+            ["core.subtract"] = "{0}-{1}",
+            ["core.multiply"] = "{0}*{1}",
+            ["core.divide"] = "{0}/{1}",
             ["core.maximum"] = "maximum32({0},{1})",
         };
         var unary = new Dictionary<string, string>(StringComparer.Ordinal)
         {
-            ["core.copy"] = "{0}", ["core.exp"] = "exp({0})", ["core.tanh"] = "({0}==0.0f ? {0} : tanh({0}))",
-            ["core.sigmoid"] = "(1.0f/(1.0f+exp(-({0}))))", ["core.rsqrt"] = "rsqrt({0})",
-            ["core.square"] = "({0}*{0})", ["core.relu"] = "maximum32({0},0.0f)",
+            ["core.copy"] = "{0}",
+            ["core.exp"] = "exp({0})",
+            ["core.tanh"] = "({0}==0.0f ? {0} : tanh({0}))",
+            ["core.sigmoid"] = "(1.0f/(1.0f+exp(-({0}))))",
+            ["core.rsqrt"] = "rsqrt({0})",
+            ["core.square"] = "({0}*{0})",
+            ["core.relu"] = "maximum32({0},0.0f)",
         };
         if (binary.TryGetValue(op.Operation, out var expression))
         {

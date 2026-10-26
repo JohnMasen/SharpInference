@@ -18,7 +18,9 @@ internal sealed class CpuTierZeroInstruction(Guid id, string name) : TierZeroIns
             var tensor = tensors[port];
             var type = tensor.Tensor.ElementType switch
             {
-                ElementType.Float16 => "System.Half", ElementType.Float32 => "float", ElementType.Int32 => "int",
+                ElementType.Float16 => "System.Half",
+                ElementType.Float32 => "float",
+                ElementType.Int32 => "int",
                 _ => throw new InstructionAdaptationException(CollectionId, Name, "Unsupported type."),
             };
             var variable = port == "output" ? "o" : $"s{Array.IndexOf(inputs, port)}";
@@ -33,13 +35,25 @@ internal sealed class CpuTierZeroInstruction(Guid id, string name) : TierZeroIns
         {
             var method = Name switch
             {
-                "core.copy" => "Copy", "core.add" => "Add", "core.subtract" => "Subtract", "core.multiply" => "Multiply",
-                "core.divide" => "Divide", "core.maximum" => "Maximum", "core.exp" => "Exp", "core.tanh" => "Tanh",
-                "core.sigmoid" => "Sigmoid", "core.rsqrt" => "ReciprocalSquareRoot", "core.square" => "Square",
-                "core.relu" => "Relu", "core.reduce-sum" => "ReduceSum", "core.reduce-mean" => "ReduceMean",
-                "core.mat-vec" => "MatVec", "core.matrix-multiply" => "MatrixMultiply",
+                "core.copy" => "Copy",
+                "core.add" => "Add",
+                "core.subtract" => "Subtract",
+                "core.multiply" => "Multiply",
+                "core.divide" => "Divide",
+                "core.maximum" => "Maximum",
+                "core.exp" => "Exp",
+                "core.tanh" => "Tanh",
+                "core.sigmoid" => "Sigmoid",
+                "core.rsqrt" => "ReciprocalSquareRoot",
+                "core.square" => "Square",
+                "core.relu" => "Relu",
+                "core.reduce-sum" => "ReduceSum",
+                "core.reduce-mean" => "ReduceMean",
+                "core.mat-vec" => "MatVec",
+                "core.matrix-multiply" => "MatrixMultiply",
                 "core.affine" => "Affine",
-                "core.bias-add" => "BiasAdd", "core.gather-row" => "GatherRow",
+                "core.bias-add" => "BiasAdd",
+                "core.gather-row" => "GatherRow",
                 _ => throw new NotSupportedException(Name),
             };
             var invocation = primitive + method;
@@ -92,40 +106,40 @@ internal sealed class CpuTierZeroInstruction(Guid id, string name) : TierZeroIns
         else
         {
             switch (Name)
-        {
-            case "core.tensor.fill":
-                code.AppendLine($"o.Fill({Result(float.Parse(attributes["value"], CultureInfo.InvariantCulture).ToString("R", CultureInfo.InvariantCulture) + "f")});");
-                break;
-            case "core.tensor.cast-f16-f32":
-                code.AppendLine("for(int i=0;i<o.Length;i++) o[i]=(float)s0[i];"); break;
-            case "core.tensor.reshape": code.AppendLine("s0.CopyTo(o);"); break;
-            case "core.tensor.slice":
-                var shape = tensors["input"].Tensor.Dimensions;
-                var axis = int.Parse(attributes["axis"], CultureInfo.InvariantCulture);
-                var start = int.Parse(attributes["start"], CultureInfo.InvariantCulture);
-                var length = int.Parse(attributes["length"], CultureInfo.InvariantCulture);
-                var inner = Product(shape.Skip(axis + 1));
-                code.AppendLine($"for(int i=0;i<{Product(shape.Take(axis))};i++) s0.Slice(i*{shape[axis] * inner}+{start * inner},{length * inner}).CopyTo(o.Slice(i*{length * inner},{length * inner}));");
-                break;
-            case "core.tensor.broadcast":
-                var source = tensors["input"].Tensor.Dimensions;
-                var expression = string.Join("+", source.Select((dim, i) => dim == 1 ? "0" :
-                    $"((i/{Product(output.Skip(output.Count - source.Count + i + 1))})%{dim})*{Product(source.Skip(i + 1))}"));
-                code.AppendLine($"for(int i=0;i<o.Length;i++) o[i]=s0[{expression}];"); break;
-            case "core.tensor.batched-mat-vec":
-                var matrix = tensors["matrix"].Tensor.Dimensions;
-                var matvec = !half && tensors["matrix"].Tensor.ElementType == ElementType.Float16
-                    ? "SharpInference.Instructions.Cpu.CpuInstructionNumerics.MatVec" : primitive + "MatVec";
-                code.AppendLine($"for(int b=0;b<{matrix[0]};b++) {matvec}(s0.Slice(b*{matrix[1] * matrix[2]},{matrix[1] * matrix[2]}),s1.Slice(b*{matrix[2]},{matrix[2]}),o.Slice(b*{matrix[1]},{matrix[1]}),{matrix[1]},{matrix[2]});");
-                break;
-            case "core.tensor.reduce-last-sum":
-            case "core.tensor.reduce-last-mean":
-                var width = tensors["input"].Tensor.Dimensions[^1];
-                code.AppendLine($"for(int i=0;i<o.Length;i++) o[i]={primitive}{(Name.EndsWith("mean", StringComparison.Ordinal) ? "ReduceMean" : "ReduceSum")}(s0.Slice(i*{width},{width}));"); break;
-            case "core.tensor.head-outer":
-                code.AppendLine($"for(int h=0;h<{output[0]};h++) for(int i=0;i<{output[1]};i++) for(int j=0;j<{output[2]};j++) o[(h*{output[1]}+i)*{output[2]}+j]={Result($"(float)s0[h*{output[1]}+i]*(float)s1[h*{output[2]}+j]")};"); break;
-            default: throw new NotSupportedException(Name);
-        }
+            {
+                case "core.tensor.fill":
+                    code.AppendLine($"o.Fill({Result(float.Parse(attributes["value"], CultureInfo.InvariantCulture).ToString("R", CultureInfo.InvariantCulture) + "f")});");
+                    break;
+                case "core.tensor.cast-f16-f32":
+                    code.AppendLine("for(int i=0;i<o.Length;i++) o[i]=(float)s0[i];"); break;
+                case "core.tensor.reshape": code.AppendLine("s0.CopyTo(o);"); break;
+                case "core.tensor.slice":
+                    var shape = tensors["input"].Tensor.Dimensions;
+                    var axis = int.Parse(attributes["axis"], CultureInfo.InvariantCulture);
+                    var start = int.Parse(attributes["start"], CultureInfo.InvariantCulture);
+                    var length = int.Parse(attributes["length"], CultureInfo.InvariantCulture);
+                    var inner = Product(shape.Skip(axis + 1));
+                    code.AppendLine($"for(int i=0;i<{Product(shape.Take(axis))};i++) s0.Slice(i*{shape[axis] * inner}+{start * inner},{length * inner}).CopyTo(o.Slice(i*{length * inner},{length * inner}));");
+                    break;
+                case "core.tensor.broadcast":
+                    var source = tensors["input"].Tensor.Dimensions;
+                    var expression = string.Join("+", source.Select((dim, i) => dim == 1 ? "0" :
+                        $"((i/{Product(output.Skip(output.Count - source.Count + i + 1))})%{dim})*{Product(source.Skip(i + 1))}"));
+                    code.AppendLine($"for(int i=0;i<o.Length;i++) o[i]=s0[{expression}];"); break;
+                case "core.tensor.batched-mat-vec":
+                    var matrix = tensors["matrix"].Tensor.Dimensions;
+                    var matvec = !half && tensors["matrix"].Tensor.ElementType == ElementType.Float16
+                        ? "SharpInference.Instructions.Cpu.CpuInstructionNumerics.MatVec" : primitive + "MatVec";
+                    code.AppendLine($"for(int b=0;b<{matrix[0]};b++) {matvec}(s0.Slice(b*{matrix[1] * matrix[2]},{matrix[1] * matrix[2]}),s1.Slice(b*{matrix[2]},{matrix[2]}),o.Slice(b*{matrix[1]},{matrix[1]}),{matrix[1]},{matrix[2]});");
+                    break;
+                case "core.tensor.reduce-last-sum":
+                case "core.tensor.reduce-last-mean":
+                    var width = tensors["input"].Tensor.Dimensions[^1];
+                    code.AppendLine($"for(int i=0;i<o.Length;i++) o[i]={primitive}{(Name.EndsWith("mean", StringComparison.Ordinal) ? "ReduceMean" : "ReduceSum")}(s0.Slice(i*{width},{width}));"); break;
+                case "core.tensor.head-outer":
+                    code.AppendLine($"for(int h=0;h<{output[0]};h++) for(int i=0;i<{output[1]};i++) for(int j=0;j<{output[2]};j++) o[(h*{output[1]}+i)*{output[2]}+j]={Result($"(float)s0[h*{output[1]}+i]*(float)s1[h*{output[2]}+j]")};"); break;
+                default: throw new NotSupportedException(Name);
+            }
         }
 
         code.AppendLine("}");

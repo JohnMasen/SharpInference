@@ -251,114 +251,114 @@ public static class TextGenerator
     }
 
     private sealed class Utf8StopMatcher
+    {
+        private readonly byte[][] patterns;
+        private readonly List<byte> pending = [];
+
+        public Utf8StopMatcher(IReadOnlyList<string> stopStrings)
         {
-            private readonly byte[][] patterns;
-            private readonly List<byte> pending = [];
+            patterns = stopStrings.Select(Encoding.UTF8.GetBytes).ToArray();
+        }
 
-            public Utf8StopMatcher(IReadOnlyList<string> stopStrings)
+        public bool Append(ReadOnlySpan<byte> bytes, out ReadOnlyMemory<byte> safeBytes)
+        {
+            List<byte>? safe = null;
+            foreach (var value in bytes)
             {
-                patterns = stopStrings.Select(Encoding.UTF8.GetBytes).ToArray();
-            }
-
-            public bool Append(ReadOnlySpan<byte> bytes, out ReadOnlyMemory<byte> safeBytes)
-            {
-                List<byte>? safe = null;
-                foreach (var value in bytes)
+                pending.Add(value);
+                if (TryGetMatchingPatternLength(out var matchingLength))
                 {
-                    pending.Add(value);
-                    if (TryGetMatchingPatternLength(out var matchingLength))
-                    {
-                        var stopStart = pending.Count - matchingLength;
-                        if (stopStart > 0)
-                        {
-                            safe ??= [];
-                            safe.AddRange(pending.GetRange(0, stopStart));
-                        }
-
-                        pending.Clear();
-                        safeBytes = safe?.ToArray() ?? Array.Empty<byte>();
-                        return true;
-                    }
-
-                    var retainedPrefixLength = GetLongestRetainedPrefixLength();
-                    var safeCount = pending.Count - retainedPrefixLength;
-                    if (safeCount > 0)
+                    var stopStart = pending.Count - matchingLength;
+                    if (stopStart > 0)
                     {
                         safe ??= [];
-                        safe.AddRange(pending.GetRange(0, safeCount));
-                        pending.RemoveRange(0, safeCount);
+                        safe.AddRange(pending.GetRange(0, stopStart));
                     }
+
+                    pending.Clear();
+                    safeBytes = safe?.ToArray() ?? Array.Empty<byte>();
+                    return true;
                 }
 
-                safeBytes = safe?.ToArray() ?? Array.Empty<byte>();
-                return false;
+                var retainedPrefixLength = GetLongestRetainedPrefixLength();
+                var safeCount = pending.Count - retainedPrefixLength;
+                if (safeCount > 0)
+                {
+                    safe ??= [];
+                    safe.AddRange(pending.GetRange(0, safeCount));
+                    pending.RemoveRange(0, safeCount);
+                }
             }
 
-            public ReadOnlyMemory<byte> Flush()
+            safeBytes = safe?.ToArray() ?? Array.Empty<byte>();
+            return false;
+        }
+
+        public ReadOnlyMemory<byte> Flush()
+        {
+            var remaining = pending.ToArray();
+            pending.Clear();
+            return remaining;
+        }
+
+        private bool TryGetMatchingPatternLength(out int matchingLength)
+        {
+            matchingLength = 0;
+            foreach (var pattern in patterns)
             {
-                var remaining = pending.ToArray();
-                pending.Clear();
-                return remaining;
+                if (pattern.Length > matchingLength &&
+                    pattern.Length <= pending.Count &&
+                    EndsWith(pattern))
+                {
+                    matchingLength = pattern.Length;
+                }
             }
 
-            private bool TryGetMatchingPatternLength(out int matchingLength)
+            return matchingLength > 0;
+        }
+
+        private int GetLongestRetainedPrefixLength()
+        {
+            for (var length = pending.Count; length > 0; length--)
             {
-                matchingLength = 0;
                 foreach (var pattern in patterns)
                 {
-                    if (pattern.Length > matchingLength &&
-                        pattern.Length <= pending.Count &&
-                        EndsWith(pattern))
+                    if (length < pattern.Length && StartsWith(pattern, length))
                     {
-                        matchingLength = pattern.Length;
+                        return length;
                     }
                 }
-
-                return matchingLength > 0;
             }
 
-            private int GetLongestRetainedPrefixLength()
+            return 0;
+        }
+
+        private bool EndsWith(ReadOnlySpan<byte> pattern)
+        {
+            var start = pending.Count - pattern.Length;
+            for (var index = 0; index < pattern.Length; index++)
             {
-                for (var length = pending.Count; length > 0; length--)
+                if (pending[start + index] != pattern[index])
                 {
-                    foreach (var pattern in patterns)
-                    {
-                        if (length < pattern.Length && StartsWith(pattern, length))
-                        {
-                            return length;
-                        }
-                    }
+                    return false;
                 }
-
-                return 0;
             }
 
-            private bool EndsWith(ReadOnlySpan<byte> pattern)
+            return true;
+        }
+
+        private bool StartsWith(ReadOnlySpan<byte> pattern, int length)
+        {
+            for (var index = 0; index < length; index++)
             {
-                var start = pending.Count - pattern.Length;
-                for (var index = 0; index < pattern.Length; index++)
+                if (pending[pending.Count - length + index] != pattern[index])
                 {
-                    if (pending[start + index] != pattern[index])
-                    {
-                        return false;
-                    }
+                    return false;
                 }
-
-                return true;
             }
 
-            private bool StartsWith(ReadOnlySpan<byte> pattern, int length)
-            {
-                for (var index = 0; index < length; index++)
-                {
-                    if (pending[pending.Count - length + index] != pattern[index])
-                    {
-                        return false;
-                    }
-                }
-
-                return true;
-            }
+            return true;
+        }
     }
 
     private sealed class TokenSampler

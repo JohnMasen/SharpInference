@@ -42,12 +42,16 @@ public sealed class VmMemoryStorage : IVmManagedStorage
     public byte[] Buffer => data ?? throw new ObjectDisposedException(nameof(VmMemoryStorage));
 
     /// <summary>Reads bytes from storage into the destination span.</summary>
-    public void Read(ulong offset, Span<byte> destination) =>
+    public void Read(ulong offset, Span<byte> destination)
+    {
         Data(offset, destination.Length).CopyTo(destination);
+    }
 
     /// <summary>Writes source bytes into storage.</summary>
-    public void Write(ulong offset, ReadOnlySpan<byte> source) =>
+    public void Write(ulong offset, ReadOnlySpan<byte> source)
+    {
         source.CopyTo(Data(offset, source.Length));
+    }
 
     private Span<byte> Data(ulong offset, int length)
     {
@@ -61,7 +65,10 @@ public sealed class VmMemoryStorage : IVmManagedStorage
     }
 
     /// <summary>Releases the managed byte array.</summary>
-    public void Dispose() => data = null;
+    public void Dispose()
+    {
+        data = null;
+    }
 }
 
 /// <summary>Owns storage and coordinates VM resource references and access leases.</summary>
@@ -114,7 +121,9 @@ public sealed class VmResource : IDisposable
     /// <summary>Gets the permitted resource access.</summary>
     public VmAccess Access { get; }
     internal bool Valid { get { lock (gate) { return valid; } } }
-    internal void SetValidity(bool value) { lock (gate)
+    internal void SetValidity(bool value)
+    {
+        lock (gate)
         {
             valid = value;
         }
@@ -209,9 +218,19 @@ public sealed class VmResource : IDisposable
         Release();
     }
 
-    internal void Read(ulong offset, Span<byte> destination) => storage.Read(offset, destination);
-    internal byte[] GetManagedBuffer() => storage is IVmManagedStorage memory ? memory.Buffer :
+    internal void Read(ulong offset, Span<byte> destination)
+    {
+        storage.Read(offset, destination);
+    }
+    internal byte[] GetManagedBuffer()
+    {
+        if (storage is IVmManagedStorage memory)
+        {
+            return memory.Buffer;
+        }
+
         throw new NotSupportedException("This resource does not expose managed backing storage.");
+    }
     internal IVmStorage Storage => storage;
 
     internal void Write(ulong offset, ReadOnlySpan<byte> source)
@@ -290,23 +309,31 @@ public sealed class VmResourceLease : IDisposable
     /// <summary>Gets the access mode of the leased resource.</summary>
     public VmAccess Access { get { lock (gate) { return Resource.Access; } } }
     internal bool Valid { get { lock (gate) { return Resource.Valid; } } }
-    internal void SetValidity(bool value) { lock (gate)
+    internal void SetValidity(bool value)
+    {
+        lock (gate)
         {
             Resource.SetValidity(value);
         }
     }
-    internal VmResourceLease AcquireBinding(VmAccess access) { lock (gate)
+    internal VmResourceLease AcquireBinding(VmAccess access)
+    {
+        lock (gate)
         {
             return Resource.AcquireBinding(access);
         }
     }
     internal VmResource Identity { get { lock (gate) { return Resource; } } }
-    internal VmResourceUse AcquireUse(VmAccess access) { lock (gate)
+    internal VmResourceUse AcquireUse(VmAccess access)
+    {
+        lock (gate)
         {
             return Resource.AcquireUse(access);
         }
     }
-    internal byte[] GetManagedBuffer() { lock (gate)
+    internal byte[] GetManagedBuffer()
+    {
+        lock (gate)
         {
             return Resource.GetManagedBuffer();
         }
@@ -380,7 +407,10 @@ public sealed class VmResourceLease : IDisposable
 internal sealed class VmResourceUse(VmResource resource, VmAccess access) : IDisposable
 {
     private VmResource? resource = resource;
-    public void Dispose() => Interlocked.Exchange(ref resource, null)?.ReleaseUse(access);
+    public void Dispose()
+    {
+        Interlocked.Exchange(ref resource, null)?.ReleaseUse(access);
+    }
 }
 
 /// <summary>Owns resource bindings for a program and guards exclusive execution or state access.</summary>
@@ -650,7 +680,9 @@ public sealed class VmExecutionLease : IDisposable
     /// <summary>Gets the program protected by the active resource-use leases.</summary>
     public VmProgram Program { get { lock (gate) { return Bindings.Program; } } }
     internal bool StateValid { get { lock (gate) { return Bindings.StateValid; } } }
-    internal bool CanRestoreState(string slotId) { lock (gate)
+    internal bool CanRestoreState(string slotId)
+    {
+        lock (gate)
         {
             return Bindings.CanRestoreState(slotId);
         }

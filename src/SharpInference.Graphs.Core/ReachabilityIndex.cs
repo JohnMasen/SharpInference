@@ -31,9 +31,15 @@ public sealed class ReachabilityIndex<TNode> where TNode : IGraphNode
     public bool IsReachable(GraphNodeId source, GraphNodeId target)
     {
         if (!rows.TryGetValue(source, out var row))
+        {
             throw new KeyNotFoundException($"Source '{source}' is outside the reachability index.");
+        }
+
         if (!columns.TryGetValue(target, out var column))
+        {
             throw new KeyNotFoundException($"Target '{target}' is outside the reachability index.");
+        }
+
         return (row[column / 64] & (1UL << (column % 64))) != 0;
     }
 

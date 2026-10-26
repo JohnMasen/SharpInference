@@ -352,11 +352,16 @@ public sealed class CpuVmExecutable : IVmTaskExecutable
     /// <summary>Creates an execution context over caller-owned slot buffers without allocating tensor storage.</summary>
     /// <param name="buffers">Caller-owned byte arrays in program slot order, each matching its slot&apos;s exact capacity.</param>
     /// <param name="initializedLocalSlots">Names of local slots supplied with initialized contents; omitted local slots must be written before reading.</param>
-    public CpuVmContext Prepare(byte[][] buffers, IEnumerable<string>? initializedLocalSlots = null) =>
-        new(Program, buffers, initializedLocalSlots);
+    public CpuVmContext Prepare(byte[][] buffers, IEnumerable<string>? initializedLocalSlots = null)
+    {
+        return new(Program, buffers, initializedLocalSlots);
+    }
 
     /// <summary>Read-only local slots are supplied inputs; writable local scratch must initialize in the entry.</summary>
-    public void Execute(string entryName, byte[][] slots) => Invoke(entryName, Prepare(slots, LocalInputs()));
+    public void Execute(string entryName, byte[][] slots)
+    {
+        Invoke(entryName, Prepare(slots, LocalInputs()));
+    }
 
     /// <inheritdoc/>
     public void Execute(string entryName, VmExecutionLease execution)

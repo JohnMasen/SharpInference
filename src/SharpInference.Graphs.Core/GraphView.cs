@@ -54,7 +54,10 @@ public sealed class GraphView<TNode, TEdge> : IGraphView<TNode, TEdge>
     public bool TryGetNode(GraphNodeId id, [MaybeNullWhen(false)] out TNode node)
     {
         if (graph.TryGetNode(id, out node) && nodePredicate(node))
+        {
             return true;
+        }
+
         node = default;
         return false;
     }
@@ -68,7 +71,10 @@ public sealed class GraphView<TNode, TEdge> : IGraphView<TNode, TEdge>
     public bool TryGetEdge(GraphEdgeId id, [MaybeNullWhen(false)] out TEdge edge)
     {
         if (graph.TryGetEdge(id, out edge) && IsVisible(edge))
+        {
             return true;
+        }
+
         edge = default;
         return false;
     }

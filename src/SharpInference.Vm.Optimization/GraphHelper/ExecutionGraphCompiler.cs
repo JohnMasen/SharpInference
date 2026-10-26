@@ -23,7 +23,9 @@ public sealed class ExecutionGraphCompiler
         selector = new([registry]);
         this.postprocessors = postprocessors?.ToArray() ?? [];
         if (this.postprocessors.Any(processor => processor is null || string.IsNullOrWhiteSpace(processor.Name)))
+        {
             throw new ArgumentException("Every postprocessor requires an instance and name.", nameof(postprocessors));
+        }
     }
 
     public GraphPackage<ExecutionGraph> Compile(
@@ -36,7 +38,10 @@ public sealed class ExecutionGraphCompiler
         GraphValidation.ThrowIfErrors(diagnostics);
         var analyses = new Dictionary<string, GraphAnalysis>(StringComparer.Ordinal);
         foreach (var graph in source)
+        {
             GraphValidation.ThrowIfErrors(GraphDependencyAnalyzer.AnalyzeValidated(source, graph, diagnostics, analyses).Diagnostics);
+        }
+
         var result = (converter.Convert(source, context)
             ?? throw new InvalidOperationException("The converter returned null.")).Snapshot();
         ExecutionPackageCompilation.Prepare(result, context.Backend, selector);

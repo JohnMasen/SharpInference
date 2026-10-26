@@ -14,7 +14,10 @@ public sealed class CpuPrimitiveOperatorBackend
     }
 
     /// <inheritdoc/>
-    public void Copy(ReadOnlySpan<float> input, Span<float> output) => CopyCore(input, output);
+    public void Copy(ReadOnlySpan<float> input, Span<float> output)
+    {
+        CopyCore(input, output);
+    }
     /// <inheritdoc/>
     public void Add(ReadOnlySpan<float> left, ReadOnlySpan<float> right, Span<float> output)
     {
@@ -100,12 +103,21 @@ public sealed class CpuPrimitiveOperatorBackend
     /// <inheritdoc/>
     public float ReduceMean(ReadOnlySpan<float> input) => input.IsEmpty ? throw new ArgumentException("The input cannot be empty.", nameof(input)) : TensorPrimitives.Sum(input) / input.Length;
     /// <inheritdoc/>
-    public void MatVec(ReadOnlySpan<float> matrix, ReadOnlySpan<float> input, Span<float> output, int rows, int columns) => MatVecFloat(matrix, input, output, rows, columns);
+    public void MatVec(ReadOnlySpan<float> matrix, ReadOnlySpan<float> input, Span<float> output, int rows, int columns)
+    {
+        MatVecFloat(matrix, input, output, rows, columns);
+    }
     /// <inheritdoc/>
-    public void GatherRow(ReadOnlySpan<float> table, int rowIndex, int rowLength, Span<float> output) => GatherRowCore(table, rowIndex, rowLength, output);
+    public void GatherRow(ReadOnlySpan<float> table, int rowIndex, int rowLength, Span<float> output)
+    {
+        GatherRowCore(table, rowIndex, rowLength, output);
+    }
 
     /// <inheritdoc/>
-    public void Copy(ReadOnlySpan<Half> input, Span<Half> output) => CopyCore(input, output);
+    public void Copy(ReadOnlySpan<Half> input, Span<Half> output)
+    {
+        CopyCore(input, output);
+    }
     /// <inheritdoc/>
     public void Add(ReadOnlySpan<Half> left, ReadOnlySpan<Half> right, Span<Half> output)
     {
@@ -201,9 +213,15 @@ public sealed class CpuPrimitiveOperatorBackend
     /// <inheritdoc/>
     public Half ReduceMean(ReadOnlySpan<Half> input) => input.IsEmpty ? throw new ArgumentException("The input cannot be empty.", nameof(input)) : (Half)(ReduceSumHalf(input) / input.Length);
     /// <inheritdoc/>
-    public void MatVec(ReadOnlySpan<Half> matrix, ReadOnlySpan<Half> input, Span<Half> output, int rows, int columns) => MatVecHalf(matrix, input, output, rows, columns);
+    public void MatVec(ReadOnlySpan<Half> matrix, ReadOnlySpan<Half> input, Span<Half> output, int rows, int columns)
+    {
+        MatVecHalf(matrix, input, output, rows, columns);
+    }
     /// <inheritdoc/>
-    public void GatherRow(ReadOnlySpan<Half> table, int rowIndex, int rowLength, Span<Half> output) => GatherRowCore(table, rowIndex, rowLength, output);
+    public void GatherRow(ReadOnlySpan<Half> table, int rowIndex, int rowLength, Span<Half> output)
+    {
+        GatherRowCore(table, rowIndex, rowLength, output);
+    }
 
     private static void CopyCore<T>(ReadOnlySpan<T> input, Span<T> output)
     {

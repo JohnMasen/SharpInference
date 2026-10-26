@@ -23,7 +23,7 @@ public sealed class D3D12VmCompiler
     private readonly InstructionRegistry registry;
     /// <summary>Creates a compiler with explicitly supplied Direct3D12 instruction collection providers.</summary>
     /// <param name="providers">The instruction collection providers used to resolve program operators.</param>
-    public D3D12VmCompiler(IEnumerable<IInstructionCollectionProvider> providers) => registry=new(providers);
+    public D3D12VmCompiler(IEnumerable<IInstructionCollectionProvider> providers) => registry = new(providers);
     /// <summary>Gets the registry of instruction collections supplied to this compiler.</summary>
     public IInstructionCollectionProvider InstructionCollections => registry;
 
@@ -138,8 +138,8 @@ public sealed class D3D12VmCompiler
             }
             ValidateDeviceHazards(kernel, definitions);
             Emit(kernel);
-            source.Insert(0,"struct GpuExecutionContext { uint3 groupId; uint3 groupCount; uint groupIndex; };\n" +
-                string.Join(Environment.NewLine,helpers.Values.Select(helper=>helper.Source))+Environment.NewLine);
+            source.Insert(0, "struct GpuExecutionContext { uint3 groupId; uint3 groupCount; uint groupIndex; };\n" +
+                string.Join(Environment.NewLine, helpers.Values.Select(helper => helper.Source)) + Environment.NewLine);
             for (var i = 0; i < kernel.Parameters.Count; i++)
             {
                 source.AppendLine($"RWByteAddressBuffer b{i} : register(u{i});");
@@ -172,21 +172,21 @@ public sealed class D3D12VmCompiler
         }
     }
 
-    private string Operator(VmOperator op, IReadOnlyDictionary<string,(VmParameter p,string Name)> parameters,
+    private string Operator(VmOperator op, IReadOnlyDictionary<string, (VmParameter p, string Name)> parameters,
         Dictionary<string, InstructionHelper> helpers)
     {
-        var instruction=registry.Resolve(op.InstructionCollectionId,op.InstructionName,InstructionTarget.Direct3D12);
-        var args=VmInstructionParameters.Create(op,parameters.Values.Select(value=>value.p).ToArray(),p=>(parameters[p.Name].Name,parameters[p.Name].Name+"o"));
-        var recorder=new SourceInstructionRecorder(InstructionTarget.Direct3D12);
-        instruction.Invoke(recorder,args,op.Precision,op.ExecutionConfiguration);
-        foreach(var helper in recorder.Helpers)
+        var instruction = registry.Resolve(op.InstructionCollectionId, op.InstructionName, InstructionTarget.Direct3D12);
+        var args = VmInstructionParameters.Create(op, parameters.Values.Select(value => value.p).ToArray(), p => (parameters[p.Name].Name, parameters[p.Name].Name + "o"));
+        var recorder = new SourceInstructionRecorder(InstructionTarget.Direct3D12);
+        instruction.Invoke(recorder, args, op.Precision, op.ExecutionConfiguration);
+        foreach (var helper in recorder.Helpers)
         {
-            if(helpers.TryGetValue(helper.Name,out var existing) && existing.Source!=helper.Source)
+            if (helpers.TryGetValue(helper.Name, out var existing) && existing.Source != helper.Source)
             {
                 throw new InvalidDataException($"Conflicting helper '{helper.Name}'.");
             }
 
-            helpers.TryAdd(helper.Name,helper);
+            helpers.TryAdd(helper.Name, helper);
         }
         return recorder.GetSource();
     }
@@ -206,7 +206,7 @@ public sealed class D3D12VmCompiler
                 }
                 else if (node.Instruction is VmOperator op)
                 {
-                    var instruction = registry.Resolve(op.InstructionCollectionId,op.InstructionName,InstructionTarget.Direct3D12);
+                    var instruction = registry.Resolve(op.InstructionCollectionId, op.InstructionName, InstructionTarget.Direct3D12);
                     var nonPointwise = instruction.RequiresDispatchIsolation;
                     var signature = instruction.Adapt(VmInstructionParameters.Create(op, d.Parameters, parameter => (parameter.Name, "0")),
                         op.Precision, op.ExecutionConfiguration);
@@ -215,19 +215,19 @@ public sealed class D3D12VmCompiler
                     var priorWriteCount = written.Count;
                     foreach (var writePort in signature.Ports.Where(port => port.Access != ResourceAccess.Read))
                     {
-                    var output = op.Arguments.Single(a => a.Parameter == writePort.Name);
-                    var destination = bindings[output.Source];
-                    var outputTensor = parameters[output.Source].Tensor;
-                    bool Overlap((string Resource, ulong Offset) source, VmTensor tensor,
-                        (string Resource, ulong Offset) other, VmTensor otherTensor) =>
-                        source.Resource == other.Resource && source.Offset < other.Offset + otherTensor.ByteLength &&
-                        other.Offset < source.Offset + tensor.ByteLength;
-                    foreach (var a in op.Arguments.Where(a => signature.Ports.Any(port =>
-                        port.Name == a.Parameter && port.Access != ResourceAccess.Write)))
-                    {
-                        var source = bindings[a.Source];
-                        var tensor = parameters[a.Source].Tensor;
-                        if (a.Parameter != writePort.Name && Overlap(source, tensor, destination, outputTensor))
+                        var output = op.Arguments.Single(a => a.Parameter == writePort.Name);
+                        var destination = bindings[output.Source];
+                        var outputTensor = parameters[output.Source].Tensor;
+                        bool Overlap((string Resource, ulong Offset) source, VmTensor tensor,
+                            (string Resource, ulong Offset) other, VmTensor otherTensor) =>
+                            source.Resource == other.Resource && source.Offset < other.Offset + otherTensor.ByteLength &&
+                            other.Offset < source.Offset + tensor.ByteLength;
+                        foreach (var a in op.Arguments.Where(a => signature.Ports.Any(port =>
+                            port.Name == a.Parameter && port.Access != ResourceAccess.Write)))
+                        {
+                            var source = bindings[a.Source];
+                            var tensor = parameters[a.Source].Tensor;
+                            if (a.Parameter != writePort.Name && Overlap(source, tensor, destination, outputTensor))
                             {
                                 throw new NotSupportedException($"Kernel '{kernel.Id}' aliases operator inputs and output through helper bindings.");
                             }
@@ -242,8 +242,8 @@ public sealed class D3D12VmCompiler
                             }
 
                             reads.Add((source.Resource, source.Offset, tensor, nonPointwise));
-                    }
-                    foreach (var previous in written.Where(w => Overlap(destination, outputTensor, (w.Resource, w.Offset), w.Tensor)))
+                        }
+                        foreach (var previous in written.Where(w => Overlap(destination, outputTensor, (w.Resource, w.Offset), w.Tensor)))
                         {
                             if (destination.Offset != previous.Offset)
                             {

@@ -129,22 +129,22 @@ public sealed class Phi4ImageProcessor(int maximumTiles = 36)
             for (var candidateWidth = 1; candidateWidth <= count; candidateWidth++)
             {
                 for (var candidateHeight = 1; candidateHeight <= count; candidateHeight++)
-        {
-            var tiles = candidateWidth * candidateHeight;
-            if (tiles > MaximumTiles || tiles < 1)
+                {
+                    var tiles = candidateWidth * candidateHeight;
+                    if (tiles > MaximumTiles || tiles < 1)
                     {
                         continue;
                     }
 
                     var difference = Math.Abs(aspect - candidateWidth / (double)candidateHeight);
-            if (difference < bestDifference ||
-                difference == bestDifference &&
-                area > (long)CropSize * CropSize * candidateWidth * candidateHeight / 2)
-            {
-                bestDifference = difference;
-                best = (candidateWidth, candidateHeight);
-            }
-        }
+                    if (difference < bestDifference ||
+                        difference == bestDifference &&
+                        area > (long)CropSize * CropSize * candidateWidth * candidateHeight / 2)
+                    {
+                        bestDifference = difference;
+                        best = (candidateWidth, candidateHeight);
+                    }
+                }
             }
         }
 
@@ -223,30 +223,30 @@ public sealed class Phi4ImageProcessor(int maximumTiles = 36)
         for (var channel = 0; channel < 3; channel++)
         {
             for (var y = 0; y < CropSize; y++)
-        {
-            var sourceY = (y + 0.5) * sourceHeight / CropSize - 0.5;
-            var yBase = (int)Math.Floor(sourceY);
-            for (var x = 0; x < CropSize; x++)
             {
-                var sourceX = (x + 0.5) * sourceWidth / CropSize - 0.5;
-                var xBase = (int)Math.Floor(sourceX);
-                var value = 0f;
-                var weightSum = 0f;
-                for (var dy = -1; dy <= 2; dy++)
+                var sourceY = (y + 0.5) * sourceHeight / CropSize - 0.5;
+                var yBase = (int)Math.Floor(sourceY);
+                for (var x = 0; x < CropSize; x++)
                 {
-                    var sy = Math.Clamp(yBase + dy, 0, sourceHeight - 1);
-                    var wy = Cubic((float)(sourceY - (yBase + dy)));
-                    for (var dx = -1; dx <= 2; dx++)
+                    var sourceX = (x + 0.5) * sourceWidth / CropSize - 0.5;
+                    var xBase = (int)Math.Floor(sourceX);
+                    var value = 0f;
+                    var weightSum = 0f;
+                    for (var dy = -1; dy <= 2; dy++)
                     {
-                        var sx = Math.Clamp(xBase + dx, 0, sourceWidth - 1);
-                        var weight = wy * Cubic((float)(sourceX - (xBase + dx)));
-                        value += source[channel * sourcePlane + sy * sourceWidth + sx] * weight;
-                        weightSum += weight;
+                        var sy = Math.Clamp(yBase + dy, 0, sourceHeight - 1);
+                        var wy = Cubic((float)(sourceY - (yBase + dy)));
+                        for (var dx = -1; dx <= 2; dx++)
+                        {
+                            var sx = Math.Clamp(xBase + dx, 0, sourceWidth - 1);
+                            var weight = wy * Cubic((float)(sourceX - (xBase + dx)));
+                            value += source[channel * sourcePlane + sy * sourceWidth + sx] * weight;
+                            weightSum += weight;
+                        }
                     }
+                    target[channel * targetPlane + y * CropSize + x] = value / weightSum;
                 }
-                target[channel * targetPlane + y * CropSize + x] = value / weightSum;
             }
-        }
         }
 
         static float Cubic(float value)
@@ -283,12 +283,12 @@ public sealed class Phi4ImageProcessor(int maximumTiles = 36)
                 for (var channel = 0; channel < 3; channel++)
                 {
                     for (var y = 0; y < CropSize; y++)
-        {
-            var sourceOffset = channel * sourcePlane +
-                (tileY * CropSize + y) * sourceWidth + tileX * CropSize;
-            var targetOffset = crop * cropStride + channel * cropPlane + y * CropSize;
-            source.Slice(sourceOffset, CropSize).CopyTo(target[targetOffset..]);
-        }
+                    {
+                        var sourceOffset = channel * sourcePlane +
+                            (tileY * CropSize + y) * sourceWidth + tileX * CropSize;
+                        var targetOffset = crop * cropStride + channel * cropPlane + y * CropSize;
+                        source.Slice(sourceOffset, CropSize).CopyTo(target[targetOffset..]);
+                    }
                 }
             }
         }
@@ -337,9 +337,9 @@ public sealed class Phi4ImageProcessor(int maximumTiles = 36)
                 for (var tileX = 0; tileX < horizontalTiles; tileX++)
                 {
                     for (var localX = 0; localX < MaskSize; localX += 2)
-        {
-            var value = mask[(tileY * MaskSize + localY) * maskWidth + tileX * MaskSize + localX] != 0;
-            if (value)
+                    {
+                        var value = mask[(tileY * MaskSize + localY) * maskWidth + tileX * MaskSize + localX] != 0;
+                        if (value)
                         {
                             sum++;
                         }
@@ -370,11 +370,11 @@ public sealed class Phi4ImageProcessor(int maximumTiles = 36)
             for (var tileX = 0; tileX < horizontalTiles; tileX++, crop++)
             {
                 for (var y = 0; y < MaskSize; y++)
-        {
-            var sourceOffset = (tileY * MaskSize + y) * sourceWidth + tileX * MaskSize;
-            source.Slice(sourceOffset, MaskSize)
-                .CopyTo(target[(crop * cropStride + y * MaskSize)..]);
-        }
+                {
+                    var sourceOffset = (tileY * MaskSize + y) * sourceWidth + tileX * MaskSize;
+                    source.Slice(sourceOffset, MaskSize)
+                        .CopyTo(target[(crop * cropStride + y * MaskSize)..]);
+                }
             }
         }
     }

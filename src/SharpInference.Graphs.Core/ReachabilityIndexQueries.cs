@@ -32,7 +32,10 @@ public static class ReachabilityIndexQueries
         // Filter predicates may depend on mutable external state: freeze the visible graph once.
         var snapshot = view is Graph<TNode, TEdge> graph ? graph : view.ToGraph();
         foreach (var id in from.Concat(to))
+        {
             _ = snapshot.GetNode(id);
+        }
+
         var columns = to.Select((id, index) => (id, index))
             .ToDictionary(item => item.id, item => item.index);
         var words = (to.Length + 63) / 64;
@@ -40,7 +43,10 @@ public static class ReachabilityIndexQueries
         if (from.Length == 0 || to.Length == 0)
         {
             foreach (var id in from)
+            {
                 rows.Add(id, new ulong[words]);
+            }
+
             return new(rows, columns);
         }
 
@@ -55,17 +61,24 @@ public static class ReachabilityIndexQueries
                 var node = order[index];
                 var row = new ulong[words];
                 if (columns.TryGetValue(node.Id, out var column))
+                {
                     row[column / 64] |= 1UL << (column % 64);
+                }
+
                 foreach (var edge in snapshot.EnumerateEdgesFromNode(node.Id))
                 {
                     var successor = reachable[edge.Target];
                     for (var word = 0; word < words; word++)
+                    {
                         row[word] |= successor[word];
+                    }
                 }
                 reachable.Add(node.Id, row);
             }
             foreach (var id in from)
+            {
                 rows.Add(id, reachable[id]);
+            }
         }
         else
         {
@@ -82,11 +95,17 @@ public static class ReachabilityIndexQueries
                     {
                         row[column / 64] |= 1UL << (column % 64);
                         if (--remaining == 0)
+                        {
                             break;
+                        }
                     }
                     foreach (var edge in snapshot.EnumerateEdgesFromNode(current))
+                    {
                         if (visited.Add(edge.Target))
+                        {
                             pending.Enqueue(edge.Target);
+                        }
+                    }
                 }
                 rows.Add(source, row);
             }

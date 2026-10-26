@@ -40,11 +40,16 @@ public sealed class ExecutionPackageTests
     {
         var source = Pass(ElementType.Float16);
         if (requireFloat32)
+        {
             Assert.IsType<OperationAction>(source.MainGraph!.Actions[0])
                 .RequirePrecision(ElementType.Float32, ElementType.Float32);
+        }
+
         var converter = new DefaultExecutionGraphConverter([new HalfArithmeticInstruction()]);
         if (requireFloat32)
+        {
             Assert.Throws<NotSupportedException>(() => converter.Convert(source, new("test", "cpu-vm")));
+        }
         else
         {
             var execution = converter.Convert(source, new("test", "cpu-vm"));
@@ -140,7 +145,10 @@ public sealed class ExecutionPackageTests
             operation.Source("doc", "left", "a").Source("doc", "right", "b");
         });
         foreach (var resource in graph.Resources)
+        {
             graph.Storage.Add(resource.Id, new(ResourceStorageKind.ExternalArgument));
+        }
+
         var package = new GraphPackage<ExecutionGraph>(graph);
         new ExecutionImplementationSelector([new CpuFloat32InstructionCollection()]).Select(package, "cpu-vm");
         var loaded = GraphPackageXml.Deserialize<ExecutionGraph>(GraphPackageXml.Serialize(package));

@@ -33,12 +33,18 @@ public sealed class OperationTemplateSharingPostprocessor : IExecutionGraphPostp
                     operation.Bindings.Count).ToArray();
             string Key(ExecutionOperation operation) => JsonSerializer.Serialize(new
             {
-                operation.Category, operation.Operation, operation.Precision, operation.SelectedImplementation,
+                operation.Category,
+                operation.Operation,
+                operation.Precision,
+                operation.SelectedImplementation,
                 Attributes = operation.Attributes.OrderBy(pair => pair.Key, StringComparer.Ordinal),
                 Ports = operation.Bindings.OrderBy(binding => binding.SourceProperty, StringComparer.Ordinal).Select(binding =>
                 {
                     if (!GraphValidation.TryResolve(graph, binding.Target, definitions, out var resource))
+                    {
                         throw new InvalidDataException($"Cannot resolve template port '{binding.SourceProperty}'.");
+                    }
+
                     return new { binding.SourceProperty, binding.Access, resource.Tensor };
                 }),
             });
@@ -48,7 +54,10 @@ public sealed class OperationTemplateSharingPostprocessor : IExecutionGraphPostp
                     SHA256.HashData(Encoding.UTF8.GetBytes(graph.Id + "\n" + group.Key)));
                 var id = name;
                 for (var suffix = 1; !ids.Add(id); suffix++)
+                {
                     id = name + "." + suffix;
+                }
+
                 var template = new ExecutionGraph { Id = id };
                 var exemplar = group.First();
                 var body = template.Operation("body", exemplar.Operation);
@@ -56,7 +65,10 @@ public sealed class OperationTemplateSharingPostprocessor : IExecutionGraphPostp
                 body.Precision = exemplar.Precision;
                 body.SelectedImplementation = exemplar.SelectedImplementation;
                 foreach (var pair in exemplar.Attributes)
+                {
                     body.Attributes.Add(pair.Key, pair.Value);
+                }
+
                 body.Sources.AddRange(group.SelectMany(operation => operation.Sources).Distinct());
                 foreach (var binding in exemplar.Bindings)
                 {
@@ -80,14 +92,20 @@ public sealed class OperationTemplateSharingPostprocessor : IExecutionGraphPostp
                     call.Bindings.AddRange(operation.Bindings);
                     call.Sources.AddRange(operation.Sources);
                     foreach (var pair in operation.Metadata)
+                    {
                         call.Metadata.TryAdd(pair.Key, pair.Value);
+                    }
+
                     graph.Actions[index] = call;
                 }
                 templates.Add(template);
             }
         }
         foreach (var template in templates)
+        {
             result.Add(template);
+        }
+
         return result;
     }
 

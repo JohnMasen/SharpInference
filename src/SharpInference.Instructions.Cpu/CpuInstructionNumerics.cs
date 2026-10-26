@@ -150,20 +150,20 @@ public static class CpuInstructionNumerics
         for (var row = 0; row < rows; row++)
         {
             for (var column = 0; column < columns; column++)
-        {
-            var sum = 0f;
-            for (var index = 0; index < inner; index++)
             {
-                var leftValue = transposeLeft
-                    ? left[index * leftColumns + row]
-                    : left[row * leftColumns + index];
-                var rightValue = transposeRight
-                    ? (float)right[column * rightColumns + index]
-                    : (float)right[index * rightColumns + column];
-                sum += leftValue * rightValue;
+                var sum = 0f;
+                for (var index = 0; index < inner; index++)
+                {
+                    var leftValue = transposeLeft
+                        ? left[index * leftColumns + row]
+                        : left[row * leftColumns + index];
+                    var rightValue = transposeRight
+                        ? (float)right[column * rightColumns + index]
+                        : (float)right[index * rightColumns + column];
+                    sum += leftValue * rightValue;
+                }
+                output[row * columns + column] = sum;
             }
-            output[row * columns + column] = sum;
-        }
         }
     }
 
@@ -230,20 +230,20 @@ public static class CpuInstructionNumerics
         for (var row = 0; row < rows; row++)
         {
             for (var column = 0; column < columns; column++)
-        {
-            var sum = 0f;
-            for (var index = 0; index < inner; index++)
             {
-                var leftValue = transposeLeft
-                    ? left[index * leftColumns + row]
-                    : left[row * leftColumns + index];
-                var rightValue = transposeRight
-                    ? right[column * rightColumns + index]
-                    : right[index * rightColumns + column];
-                sum += leftValue * rightValue;
+                var sum = 0f;
+                for (var index = 0; index < inner; index++)
+                {
+                    var leftValue = transposeLeft
+                        ? left[index * leftColumns + row]
+                        : left[row * leftColumns + index];
+                    var rightValue = transposeRight
+                        ? right[column * rightColumns + index]
+                        : right[index * rightColumns + column];
+                    sum += leftValue * rightValue;
+                }
+                output[row * columns + column] = sum;
             }
-            output[row * columns + column] = sum;
-        }
         }
     }
 }

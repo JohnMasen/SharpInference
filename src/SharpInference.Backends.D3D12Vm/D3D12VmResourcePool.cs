@@ -72,7 +72,10 @@ public sealed class D3D12VmResourcePool : IDisposable
         }
     }
 
-    internal void RecordedTaskEntry() => computeRecordings = checked(computeRecordings + 1);
+    internal void RecordedTaskEntry()
+    {
+        computeRecordings = checked(computeRecordings + 1);
+    }
 
     internal void CompletedTask(ulong inputBytes, ulong initialStateBytes, ulong localBytes, ulong loadBytes, ulong commitBytes,
         double preparation, double compute, double commit)
@@ -326,8 +329,14 @@ public sealed class D3D12VmResourcePool : IDisposable
             throw new ArgumentException("Buffer is not a live allocation of this GPU pool.", nameof(buffer));
     }
 
-    private static ulong Align(ulong bytes) => checked((bytes + 3UL) & ~3UL);
-    private void ThrowIfDisposed() => ObjectDisposedException.ThrowIf(disposed, this);
+    private static ulong Align(ulong bytes)
+    {
+        return checked((bytes + 3UL) & ~3UL);
+    }
+    private void ThrowIfDisposed()
+    {
+        ObjectDisposedException.ThrowIf(disposed, this);
+    }
 
     /// <inheritdoc/>
     public void Dispose()
@@ -454,5 +463,8 @@ internal sealed class D3D12VmPooledStorage(
         data = null;
         GlobalUploaded = false;
     }
-    public void Dispose() => pool.Release(this);
+    public void Dispose()
+    {
+        pool.Release(this);
+    }
 }

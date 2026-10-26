@@ -176,66 +176,66 @@ public sealed class Phi4AudioGraphModule : IPhi4GraphModule
                     var attentionRegion = layerRegion + ".attention";
                     layerScope.Section(attentionRegion, GraphSectionTypes.Stage, "Attention", attentionScope =>
                     {
-            var normalized = attentionScope.SectionValue(attentionRegion + ".norm", GraphSectionTypes.Architecture, "LayerNorm",
-                scope => Norm(scope, hidden, prefix + "ln_att"),
-                architecture: new(null, "Normalizes the attention input.", null));
-            var projections = attentionRegion + ".qkv";
-            string query = null!;
-            string key = null!;
-            string value = null!;
-            attentionScope.Section(projections, GraphSectionTypes.Architecture, "QKV Projections", projectionsScope =>
-            {
-                query = projectionsScope.SectionValue(projections + ".q", GraphSectionTypes.Architecture, "Query", scope => Linear(scope, normalized, prefix + "attn_q", width), architecture: new(null, "Projects query features.", null));
-                key = projectionsScope.SectionValue(projections + ".k", GraphSectionTypes.Architecture, "Key", scope => Linear(scope, normalized, prefix + "attn_k", width), architecture: new(null, "Projects key features.", null));
-                value = projectionsScope.SectionValue(projections + ".v", GraphSectionTypes.Architecture, "Value", scope => Linear(scope, normalized, prefix + "attn_v", width), architecture: new(null, "Projects value features.", null));
-            }, architecture: new(null, "Projects separate query, key and value branches.", null));
-            var attention = attentionScope.SectionValue(attentionRegion + ".attention", GraphSectionTypes.Architecture, "Relative Attention", scope =>
-            {
-                var attention = Temporary(tokens, width);
-                Emit(scope, Phi4AudioGraphOperations.RelativeAttention, [GraphBindings.Read("query", query), GraphBindings.Read("key", key), GraphBindings.Read("value", value), GraphBindings.Read("relative_bias", relative), GraphBindings.Read("frame_count", "frame_count"), GraphBindings.Write("output", attention)], Attr(("tokens", tokens), ("width", width), ("heads", dimensions["heads"]), ("subsampling", 8)));
-                return attention;
-            }, architecture: new(null, "Uses relative-position bias and valid frame counts to attend over frames.", null));
-            var attentionOutput = attentionScope.SectionValue(attentionRegion + ".output", GraphSectionTypes.Architecture, "Output Projection", scope => Linear(scope, attention, prefix + "attn_out", width), architecture: new(null, "Projects attended features to Conformer width.", null));
-            attentionScope.Section(attentionRegion + ".residual", GraphSectionTypes.Architecture, "Attention Residual", scope =>
-            {
-                hidden = Residual(scope, hidden, attentionOutput, 1f);
-            }, architecture: new("residual-add", "Adds the attention output.", "x <- x + attention_output"));
+                        var normalized = attentionScope.SectionValue(attentionRegion + ".norm", GraphSectionTypes.Architecture, "LayerNorm",
+                            scope => Norm(scope, hidden, prefix + "ln_att"),
+                            architecture: new(null, "Normalizes the attention input.", null));
+                        var projections = attentionRegion + ".qkv";
+                        string query = null!;
+                        string key = null!;
+                        string value = null!;
+                        attentionScope.Section(projections, GraphSectionTypes.Architecture, "QKV Projections", projectionsScope =>
+                        {
+                            query = projectionsScope.SectionValue(projections + ".q", GraphSectionTypes.Architecture, "Query", scope => Linear(scope, normalized, prefix + "attn_q", width), architecture: new(null, "Projects query features.", null));
+                            key = projectionsScope.SectionValue(projections + ".k", GraphSectionTypes.Architecture, "Key", scope => Linear(scope, normalized, prefix + "attn_k", width), architecture: new(null, "Projects key features.", null));
+                            value = projectionsScope.SectionValue(projections + ".v", GraphSectionTypes.Architecture, "Value", scope => Linear(scope, normalized, prefix + "attn_v", width), architecture: new(null, "Projects value features.", null));
+                        }, architecture: new(null, "Projects separate query, key and value branches.", null));
+                        var attention = attentionScope.SectionValue(attentionRegion + ".attention", GraphSectionTypes.Architecture, "Relative Attention", scope =>
+                        {
+                            var attention = Temporary(tokens, width);
+                            Emit(scope, Phi4AudioGraphOperations.RelativeAttention, [GraphBindings.Read("query", query), GraphBindings.Read("key", key), GraphBindings.Read("value", value), GraphBindings.Read("relative_bias", relative), GraphBindings.Read("frame_count", "frame_count"), GraphBindings.Write("output", attention)], Attr(("tokens", tokens), ("width", width), ("heads", dimensions["heads"]), ("subsampling", 8)));
+                            return attention;
+                        }, architecture: new(null, "Uses relative-position bias and valid frame counts to attend over frames.", null));
+                        var attentionOutput = attentionScope.SectionValue(attentionRegion + ".output", GraphSectionTypes.Architecture, "Output Projection", scope => Linear(scope, attention, prefix + "attn_out", width), architecture: new(null, "Projects attended features to Conformer width.", null));
+                        attentionScope.Section(attentionRegion + ".residual", GraphSectionTypes.Architecture, "Attention Residual", scope =>
+                        {
+                            hidden = Residual(scope, hidden, attentionOutput, 1f);
+                        }, architecture: new("residual-add", "Adds the attention output.", "x <- x + attention_output"));
                     }, architecture: new(Description: "Masked relative-position self-attention over subsampled frames."));
                     var convolution = layerRegion + ".convolution";
                     string convolutionInput = null!;
                     layerScope.Section(convolution, GraphSectionTypes.Stage, "Convolution", convolutionScope =>
                     {
-            convolutionScope.Section(convolution + ".norm", GraphSectionTypes.Architecture, "LayerNorm", scope =>
-            {
-                convolutionInput = Norm(scope, hidden, prefix + "conv.ln");
-            }, architecture: new(null, "Normalizes the convolution input.", null));
-            var wide = convolutionScope.SectionValue(convolution + ".expand", GraphSectionTypes.Architecture, "Pointwise Expansion", scope => Linear(scope, convolutionInput, prefix + "conv.glu.pw", checked(width * 2)), architecture: new(null, "Projects paired gating and value channels.", null));
-            var gated = convolutionScope.SectionValue(convolution + ".gate", GraphSectionTypes.Architecture, "Gated Activation", scope => SwiGlu(scope, wide, width, Weight(scope, prefix + "conv.glu.b1"), Weight(scope, prefix + "conv.glu.b2")), architecture: new(null, "Applies the model's biased SwiGLU gate.", null));
-            var depthwise = convolutionScope.SectionValue(convolution + ".depthwise", GraphSectionTypes.Architecture, "Depthwise Convolution", scope => Conv1D(scope, gated, prefix + "conv.dw", 3, 2, width), architecture: new(null, "Filters each feature channel along the frame axis.", null));
-            var middle = convolutionScope.SectionValue(convolution + ".middle", GraphSectionTypes.Architecture, "Pointwise / Swish", scope =>
-            {
-                var middle = Conv1D(scope, depthwise, prefix + "conv.pw_mid", 1, 0, 1);
-                middle = Activate(scope, middle, width, "swish");
-                return middle;
-            }, architecture: new(null, "Mixes feature channels and applies Swish.", null));
-            var convolutionOutput = convolutionScope.SectionValue(convolution + ".output", GraphSectionTypes.Architecture, "Pointwise Output", scope => Conv1D(scope, middle, prefix + "conv.pw_ext", 1, 0, 1), architecture: new(null, "Projects the convolution output.", null));
-            convolutionScope.Section(convolution + ".residual", GraphSectionTypes.Architecture, "Convolution Residual", scope =>
-            {
-                hidden = Residual(scope, hidden, convolutionOutput, 1f);
-            }, architecture: new("residual-add", "Adds the convolution output.", "x <- x + convolution_output"));
+                        convolutionScope.Section(convolution + ".norm", GraphSectionTypes.Architecture, "LayerNorm", scope =>
+                        {
+                            convolutionInput = Norm(scope, hidden, prefix + "conv.ln");
+                        }, architecture: new(null, "Normalizes the convolution input.", null));
+                        var wide = convolutionScope.SectionValue(convolution + ".expand", GraphSectionTypes.Architecture, "Pointwise Expansion", scope => Linear(scope, convolutionInput, prefix + "conv.glu.pw", checked(width * 2)), architecture: new(null, "Projects paired gating and value channels.", null));
+                        var gated = convolutionScope.SectionValue(convolution + ".gate", GraphSectionTypes.Architecture, "Gated Activation", scope => SwiGlu(scope, wide, width, Weight(scope, prefix + "conv.glu.b1"), Weight(scope, prefix + "conv.glu.b2")), architecture: new(null, "Applies the model's biased SwiGLU gate.", null));
+                        var depthwise = convolutionScope.SectionValue(convolution + ".depthwise", GraphSectionTypes.Architecture, "Depthwise Convolution", scope => Conv1D(scope, gated, prefix + "conv.dw", 3, 2, width), architecture: new(null, "Filters each feature channel along the frame axis.", null));
+                        var middle = convolutionScope.SectionValue(convolution + ".middle", GraphSectionTypes.Architecture, "Pointwise / Swish", scope =>
+                        {
+                            var middle = Conv1D(scope, depthwise, prefix + "conv.pw_mid", 1, 0, 1);
+                            middle = Activate(scope, middle, width, "swish");
+                            return middle;
+                        }, architecture: new(null, "Mixes feature channels and applies Swish.", null));
+                        var convolutionOutput = convolutionScope.SectionValue(convolution + ".output", GraphSectionTypes.Architecture, "Pointwise Output", scope => Conv1D(scope, middle, prefix + "conv.pw_ext", 1, 0, 1), architecture: new(null, "Projects the convolution output.", null));
+                        convolutionScope.Section(convolution + ".residual", GraphSectionTypes.Architecture, "Convolution Residual", scope =>
+                        {
+                            hidden = Residual(scope, hidden, convolutionOutput, 1f);
+                        }, architecture: new("residual-add", "Adds the convolution output.", "x <- x + convolution_output"));
                     }, architecture: new(Description: "Pre-normalized pointwise expansion, gated depthwise convolution and pointwise output."));
                     var outputFfn = layerRegion + ".ffn-out";
                     layerScope.Section(outputFfn, GraphSectionTypes.Stage, "Output Feed Forward", outputFfnScope =>
                     {
-            var outputUpdate = FeedForward(outputFfnScope, hidden, prefix + "ffn_out", outputFfn);
-            outputFfnScope.Section(outputFfn + ".residual", GraphSectionTypes.Architecture, "Half-Step Residual", scope =>
-            {
-                hidden = Residual(scope, hidden, outputUpdate, 0.5f);
-            }, architecture: new("residual-add", "Adds half of the FFN output.", "x <- x + 0.5 * ffn_output"));
-            outputFfnScope.Section(outputFfn + ".final-norm", GraphSectionTypes.Architecture, "Final LayerNorm", scope =>
-            {
-                hidden = Norm(scope, hidden, prefix + "ln");
-            }, architecture: new(null, "Normalizes the completed Conformer Block.", null));
+                        var outputUpdate = FeedForward(outputFfnScope, hidden, prefix + "ffn_out", outputFfn);
+                        outputFfnScope.Section(outputFfn + ".residual", GraphSectionTypes.Architecture, "Half-Step Residual", scope =>
+                        {
+                            hidden = Residual(scope, hidden, outputUpdate, 0.5f);
+                        }, architecture: new("residual-add", "Adds half of the FFN output.", "x <- x + 0.5 * ffn_output"));
+                        outputFfnScope.Section(outputFfn + ".final-norm", GraphSectionTypes.Architecture, "Final LayerNorm", scope =>
+                        {
+                            hidden = Norm(scope, hidden, prefix + "ln");
+                        }, architecture: new(null, "Normalizes the completed Conformer Block.", null));
                     }, architecture: new(Description: "Half-scaled output FFN and final Block normalization."));
                 }, architecture: new(Description: "Half-step input FFN, relative attention, convolution, half-step output FFN and final normalization."));
             }

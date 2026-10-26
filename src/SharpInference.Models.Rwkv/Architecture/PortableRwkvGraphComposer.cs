@@ -135,8 +135,10 @@ internal sealed class PortableRwkvGraphComposer
         states.Add(id);
     }
 
-    internal void AddTemporary(string id, TensorDescriptor tensor) =>
+    internal void AddTemporary(string id, TensorDescriptor tensor)
+    {
         graph.Resource(id, tensor);
+    }
 
     internal void AddNode(
         string id,
@@ -202,9 +204,15 @@ internal sealed class PortableRwkvGraphComposer
         node.Metadata["architecture.path"] = string.Join("/", architecture.Select(frame => frame.Id));
         node.Metadata["architecture.name"] = leaf.Name;
         if (leaf.Annotation?.Role is { } role)
+        {
             node.Metadata["role"] = role;
+        }
+
         if (leaf.Annotation?.Description is { } description)
+        {
             node.Metadata["description"] = description;
+        }
+
         if (leaf.Annotation?.Formula is { Length: > 0 } formula)
         {
             node.Metadata["architecture.formula"] = formula;

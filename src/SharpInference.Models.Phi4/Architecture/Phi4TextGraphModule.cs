@@ -177,36 +177,36 @@ public sealed class Phi4TextGraphModule : IPhi4GraphModule
                     var prefix = $"text.blk.{layer}.";
                     layerScope.Section(attentionRegion, GraphSectionTypes.Stage, "Attention", attentionScope =>
                     {
-            var attentionInput = attentionScope.SectionValue(attentionRegion + ".norm", GraphSectionTypes.Architecture, "RMSNorm", scope => Norm(scope, hidden, prefix + "attn_norm.weight"), architecture: new(null, "Normalizes the attention input.", "x_norm = x / sqrt(mean(x^2) + epsilon) .* weight"));
-            var qkv = attentionScope.SectionValue(attentionRegion + ".qkv", GraphSectionTypes.Architecture, "QKV Projection", scope => Linear(scope, attentionInput, prefix + "attn_qkv.weight", width + 2 * kv), architecture: new(null, "Projects query, key and value; includes the selected LoRA adapter when enabled.", null));
-            var (query, keys, values) = attentionScope.SectionValue(attentionRegion + ".rope-cache", GraphSectionTypes.Architecture, "RoPE / KV Cache Write", scope =>
-            {
-                var query = Temporary(width);
-                var keys = Cache($"key_cache.{layer}");
-                var values = Cache($"value_cache.{layer}");
-                var frequencies = Weight(scope, "text.rope_frequencies", fp32: true);
-                Emit(scope, Phi4TextGraphOperations.RopeKeyValueWrite, [GraphBindings.Read("qkv", qkv), GraphBindings.Read("position", "position"), GraphBindings.Read("frequencies", frequencies), GraphBindings.Write("query", query), new("key_cache", new(keys), ResourceAccess.ReadWrite), new("value_cache", new(values), ResourceAccess.ReadWrite)], Attr(("head_size", head), ("rotary_size", p.RotarySize), ("rope_scale", p.RopeScale)));
-                return (query, keys, values);
-            }, architecture: new(null, "Rotates query/key and writes the current key/value cache row.", null));
-            var scores = attentionScope.SectionValue(attentionRegion + ".scores", GraphSectionTypes.Architecture, "Grouped-Query Scores", scope =>
-            {
-                var scores = Temporary(p.QueryHeads, context);
-                Emit(scope, Phi4TextGraphOperations.GroupedQueryScores, [GraphBindings.Read("query", query), GraphBindings.Read("key_cache", keys), GraphBindings.Read("position", "position"), GraphBindings.Write("scores", scores)]);
-                return scores;
-            }, architecture: new(null, "Computes scores against the cached keys.", "scores = Q K_cache^T / sqrt(head_size)"));
-            var probabilities = attentionScope.SectionValue(attentionRegion + ".softmax", GraphSectionTypes.Architecture, "Causal Softmax", scope =>
-            {
-                var probabilities = Temporary(p.QueryHeads, context);
-                Emit(scope, Phi4TextGraphOperations.CausalSoftmax, [GraphBindings.Read("scores", scores), GraphBindings.Read("position", "position"), GraphBindings.Write("probabilities", probabilities)]);
-                return probabilities;
-            }, architecture: new(null, "Masks future positions and normalizes attention scores.", "P = softmax(causal_mask(scores))"));
-            var attention = attentionScope.SectionValue(attentionRegion + ".values", GraphSectionTypes.Architecture, "Grouped-Query Values", scope =>
-            {
-                var attention = Temporary(width);
-                Emit(scope, Phi4TextGraphOperations.GroupedQueryValues, [GraphBindings.Read("probabilities", probabilities), GraphBindings.Read("value_cache", values), GraphBindings.Read("position", "position"), GraphBindings.Write("output", attention)]);
-                return attention;
-            }, architecture: new(null, "Reads cached values with attention probabilities.", "attention = P V_cache"));
-            var attentionOutput = attentionScope.SectionValue(attentionRegion + ".output", GraphSectionTypes.Architecture, "Output Projection", scope => Linear(scope, attention, prefix + "attn_output.weight", width), architecture: new(null, "Projects attention back to decoder width, including the selected adapter.", null));
+                        var attentionInput = attentionScope.SectionValue(attentionRegion + ".norm", GraphSectionTypes.Architecture, "RMSNorm", scope => Norm(scope, hidden, prefix + "attn_norm.weight"), architecture: new(null, "Normalizes the attention input.", "x_norm = x / sqrt(mean(x^2) + epsilon) .* weight"));
+                        var qkv = attentionScope.SectionValue(attentionRegion + ".qkv", GraphSectionTypes.Architecture, "QKV Projection", scope => Linear(scope, attentionInput, prefix + "attn_qkv.weight", width + 2 * kv), architecture: new(null, "Projects query, key and value; includes the selected LoRA adapter when enabled.", null));
+                        var (query, keys, values) = attentionScope.SectionValue(attentionRegion + ".rope-cache", GraphSectionTypes.Architecture, "RoPE / KV Cache Write", scope =>
+                        {
+                            var query = Temporary(width);
+                            var keys = Cache($"key_cache.{layer}");
+                            var values = Cache($"value_cache.{layer}");
+                            var frequencies = Weight(scope, "text.rope_frequencies", fp32: true);
+                            Emit(scope, Phi4TextGraphOperations.RopeKeyValueWrite, [GraphBindings.Read("qkv", qkv), GraphBindings.Read("position", "position"), GraphBindings.Read("frequencies", frequencies), GraphBindings.Write("query", query), new("key_cache", new(keys), ResourceAccess.ReadWrite), new("value_cache", new(values), ResourceAccess.ReadWrite)], Attr(("head_size", head), ("rotary_size", p.RotarySize), ("rope_scale", p.RopeScale)));
+                            return (query, keys, values);
+                        }, architecture: new(null, "Rotates query/key and writes the current key/value cache row.", null));
+                        var scores = attentionScope.SectionValue(attentionRegion + ".scores", GraphSectionTypes.Architecture, "Grouped-Query Scores", scope =>
+                        {
+                            var scores = Temporary(p.QueryHeads, context);
+                            Emit(scope, Phi4TextGraphOperations.GroupedQueryScores, [GraphBindings.Read("query", query), GraphBindings.Read("key_cache", keys), GraphBindings.Read("position", "position"), GraphBindings.Write("scores", scores)]);
+                            return scores;
+                        }, architecture: new(null, "Computes scores against the cached keys.", "scores = Q K_cache^T / sqrt(head_size)"));
+                        var probabilities = attentionScope.SectionValue(attentionRegion + ".softmax", GraphSectionTypes.Architecture, "Causal Softmax", scope =>
+                        {
+                            var probabilities = Temporary(p.QueryHeads, context);
+                            Emit(scope, Phi4TextGraphOperations.CausalSoftmax, [GraphBindings.Read("scores", scores), GraphBindings.Read("position", "position"), GraphBindings.Write("probabilities", probabilities)]);
+                            return probabilities;
+                        }, architecture: new(null, "Masks future positions and normalizes attention scores.", "P = softmax(causal_mask(scores))"));
+                        var attention = attentionScope.SectionValue(attentionRegion + ".values", GraphSectionTypes.Architecture, "Grouped-Query Values", scope =>
+                        {
+                            var attention = Temporary(width);
+                            Emit(scope, Phi4TextGraphOperations.GroupedQueryValues, [GraphBindings.Read("probabilities", probabilities), GraphBindings.Read("value_cache", values), GraphBindings.Read("position", "position"), GraphBindings.Write("output", attention)]);
+                            return attention;
+                        }, architecture: new(null, "Reads cached values with attention probabilities.", "attention = P V_cache"));
+                        var attentionOutput = attentionScope.SectionValue(attentionRegion + ".output", GraphSectionTypes.Architecture, "Output Projection", scope => Linear(scope, attention, prefix + "attn_output.weight", width), architecture: new(null, "Projects attention back to decoder width, including the selected adapter.", null));
                         attentionScope.Section(attentionRegion + ".residual", GraphSectionTypes.Architecture, "Attention Residual", scope =>
                         {
                             hidden = Add(scope, hidden, attentionOutput);
@@ -215,15 +215,15 @@ public sealed class Phi4TextGraphModule : IPhi4GraphModule
                     var ffnRegion = layerRegion + ".ffn";
                     layerScope.Section(ffnRegion, GraphSectionTypes.Stage, "Feed forward", ffnScope =>
                     {
-            var ffnInput = ffnScope.SectionValue(ffnRegion + ".norm", GraphSectionTypes.Architecture, "RMSNorm", scope => Norm(scope, hidden, prefix + "ffn_norm.weight"), architecture: new(null, "Normalizes the feed-forward input.", null));
-            var gate = ffnScope.SectionValue(ffnRegion + ".up", GraphSectionTypes.Architecture, "Gate / Up Projection", scope => Linear(scope, ffnInput, prefix + "ffn_up.weight", 2 * intermediate), architecture: new(null, "Projects paired gate and value channels, including the selected adapter.", null));
-            var activated = ffnScope.SectionValue(ffnRegion + ".activation", GraphSectionTypes.Architecture, "SwiGLU", scope =>
-            {
-                var activated = Temporary(intermediate);
-                Emit(scope, Phi4TextGraphOperations.SwiGlu, [GraphBindings.Read("gate_up", gate), GraphBindings.Write("output", activated)]);
-                return activated;
-            }, architecture: new(null, "Gates the value half with SiLU of the gate half.", "h = silu(gate) .* up"));
-            var ffnOutput = ffnScope.SectionValue(ffnRegion + ".down", GraphSectionTypes.Architecture, "Down Projection", scope => Linear(scope, activated, prefix + "ffn_down.weight", width), architecture: new(null, "Projects back to decoder width, including the selected adapter.", null));
+                        var ffnInput = ffnScope.SectionValue(ffnRegion + ".norm", GraphSectionTypes.Architecture, "RMSNorm", scope => Norm(scope, hidden, prefix + "ffn_norm.weight"), architecture: new(null, "Normalizes the feed-forward input.", null));
+                        var gate = ffnScope.SectionValue(ffnRegion + ".up", GraphSectionTypes.Architecture, "Gate / Up Projection", scope => Linear(scope, ffnInput, prefix + "ffn_up.weight", 2 * intermediate), architecture: new(null, "Projects paired gate and value channels, including the selected adapter.", null));
+                        var activated = ffnScope.SectionValue(ffnRegion + ".activation", GraphSectionTypes.Architecture, "SwiGLU", scope =>
+                        {
+                            var activated = Temporary(intermediate);
+                            Emit(scope, Phi4TextGraphOperations.SwiGlu, [GraphBindings.Read("gate_up", gate), GraphBindings.Write("output", activated)]);
+                            return activated;
+                        }, architecture: new(null, "Gates the value half with SiLU of the gate half.", "h = silu(gate) .* up"));
+                        var ffnOutput = ffnScope.SectionValue(ffnRegion + ".down", GraphSectionTypes.Architecture, "Down Projection", scope => Linear(scope, activated, prefix + "ffn_down.weight", width), architecture: new(null, "Projects back to decoder width, including the selected adapter.", null));
                         ffnScope.Section(ffnRegion + ".residual", GraphSectionTypes.Architecture, "FFN Residual", scope =>
                         {
                             hidden = Add(scope, hidden, ffnOutput);

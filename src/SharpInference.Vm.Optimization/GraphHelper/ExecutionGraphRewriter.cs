@@ -24,15 +24,21 @@ public static class ExecutionGraphRewriter
         CopyMetadata(call, replacement);
         graph.Actions[index] = replacement;
         foreach (var action in graph.Actions)
+        {
             for (var bindingIndex = 0; bindingIndex < action.Bindings.Count; bindingIndex++)
             {
                 var binding = action.Bindings[bindingIndex];
                 if (binding.Target.TargetKind != ResourceTarget.Call || binding.Target.Target != callId)
+                {
                     continue;
+                }
+
                 var actual = call.Bindings.SingleOrDefault(item => item.SourceProperty == binding.Target.TargetProperty)
                     ?? throw new InvalidDataException($"Replacing '{callId}' requires an explicit mapping for its private resource '{binding.Target.TargetProperty}'.");
                 action.Bindings[bindingIndex] = binding with { Target = actual.Target };
             }
+        }
+
         GraphValidation.ThrowIfErrors(result.Validate());
         return result;
     }
@@ -55,14 +61,24 @@ public static class ExecutionGraphRewriter
             .Select(binding => Canonical(graph, binding.Target))
             .Concat(graph.GraphIOs.Select(resource => Canonical(graph, new ResourceRef(resource)))).ToHashSet();
         foreach (var reference in selected.SelectMany(action => action.Bindings).Select(binding => Canonical(graph, binding.Target)))
+        {
             if (boundary.Contains(reference) && !references.Contains(reference))
+            {
                 throw new InvalidDataException($"Fusion must preserve boundary resource '{reference}'.");
+            }
+        }
+
         var structure = graph.DependencyGraph();
         var reach = structure.CreateReachabilityIndex(structure.Nodes, structure.Nodes);
         foreach (var outside in graph.Actions.Except(selected))
+        {
             if (selected.Any(action => reach.IsReachable(new GraphNodeId(action.Id), new GraphNodeId(outside.Id))) &&
                 selected.Any(action => reach.IsReachable(new GraphNodeId(outside.Id), new GraphNodeId(action.Id))))
+            {
                 throw new InvalidDataException($"Fusion would cross intervening action '{outside.Id}'.");
+            }
+        }
+
         var position = graph.Actions.IndexOf(selected[0]);
         var fused = graph.Operation(fusedId, operation);
         graph.Actions.RemoveAt(graph.Actions.Count - 1);
@@ -83,7 +99,10 @@ public static class ExecutionGraphRewriter
     {
         var result = CopyPackage(package);
         if (result.Any(graph => graph.Id == extractedId))
+        {
             throw new InvalidDataException($"Graph '{extractedId}' is already declared.");
+        }
+
         var graph = result.Single(graph => graph.Id == graphId);
         var selected = SelectActions(graph, nodeIds);
         var ids = selected.Select(action => action.Id).ToHashSet(StringComparer.Ordinal);
@@ -99,7 +118,10 @@ public static class ExecutionGraphRewriter
         foreach (var reference in refs)
         {
             if (!GraphValidation.TryResolve(graph, reference, definitions, out var resource))
+            {
                 throw new InvalidDataException($"Cannot resolve extraction resource '{reference}'.");
+            }
+
             var uses = selected.SelectMany(action => action.Bindings.Where(binding =>
                 Canonical(graph, binding.Target) == reference).Select(binding => (Action: action, binding.Access))).ToArray();
             var privateLocal = resource.Graph == graph && resource.Scope == ResourceScope.Call &&
@@ -109,7 +131,10 @@ public static class ExecutionGraphRewriter
                         .Select(binding => Canonical(caller, binding.Target)))).Contains(reference);
             var name = resource.Id;
             for (var suffix = 1; child.Resources.Any(item => item.Id == name); suffix++)
+            {
                 name = resource.Id + "." + suffix;
+            }
+
             var writes = uses.Any(use => use.Access != ResourceAccess.Read);
             var readsEntry = uses.Any(use => use.Access != ResourceAccess.Write &&
                 !uses.Any(writer => writer.Action != use.Action && writer.Access != ResourceAccess.Read &&
@@ -121,17 +146,24 @@ public static class ExecutionGraphRewriter
             child.Storage.Add(name, new(privateLocal ? ResourceStorageKind.LocalBuffer : ResourceStorageKind.ExternalArgument));
             map.Add(reference, new ResourceRef(declared));
             if (privateLocal)
+            {
                 moved.Add(resource.Id);
+            }
             else
+            {
                 callBindings.Add(new(name, reference, io switch
                 {
                     GraphIO.In => ResourceAccess.Read,
                     GraphIO.Out => ResourceAccess.Write,
                     _ => ResourceAccess.ReadWrite,
                 }));
+            }
         }
         foreach (var action in selected)
+        {
             CloneAction(action, child, binding => map[Canonical(graph, binding.Target)]);
+        }
+
         child.GraphFlow.AddRange(graph.GraphFlow.Where(flow =>
             ids.Contains(flow.Source.Action) && ids.Contains(flow.Target.Action)).Select(flow =>
                 new GraphFlow(new(child.Id, flow.Source.Action), new(child.Id, flow.Target.Action))));
@@ -145,7 +177,10 @@ public static class ExecutionGraphRewriter
         graph.Actions.Insert(Math.Min(position, graph.Actions.Count), call);
         graph.Resources.RemoveAll(resource => moved.Contains(resource.Id));
         foreach (var id in moved)
+        {
             graph.Storage.Remove(id);
+        }
+
         ReplaceFlow(graph, ids, callId);
         result.Add(child);
         GraphValidation.ThrowIfErrors(result.Validate());
@@ -164,14 +199,21 @@ public static class ExecutionGraphRewriter
         {
             var binding = call.Bindings.SingleOrDefault(binding => binding.SourceProperty == resource.Id);
             if (binding is not null)
+            {
                 resources.Add(resource.Id, binding.Target);
+            }
             else if (resource.Scope != ResourceScope.Call)
+            {
                 resources.Add(resource.Id, new ResourceRef(resource));
+            }
             else
             {
                 var name = call.Id + "/" + resource.Id;
                 for (var suffix = 1; graph.Resources.Any(resource => resource.Id == name); suffix++)
+                {
                     name = call.Id + "/" + resource.Id + "." + suffix;
+                }
+
                 var declared = graph.Resource(name, resource.Tensor, GraphIO.Internal, resource.Scope,
                     resource.Usage, resource.IsState, resource.Permission, resource.BindingKey);
                 declared.Category = resource.Category;
@@ -181,31 +223,49 @@ public static class ExecutionGraphRewriter
         }
         foreach (var resource in target.Resources.Where(resource => resource.Scope == ResourceScope.Call &&
             !call.Bindings.Any(binding => binding.SourceProperty == resource.Id)))
+        {
             if (target.Storage.TryGetValue(resource.Id, out var storage) && storage.Slot is { } slot)
+            {
                 graph.Storage[resources[resource.Id].TargetProperty] = storage with { Slot = resources[slot].TargetProperty };
+            }
+        }
+
         var actionIds = graph.Actions.Select(action => action.Id).ToHashSet(StringComparer.Ordinal);
         var names = new Dictionary<string, string>(StringComparer.Ordinal);
         foreach (var action in target.Actions)
         {
             var name = call.Id + "/" + action.Id;
             for (var suffix = 1; !actionIds.Add(name); suffix++)
+            {
                 name = call.Id + "/" + action.Id + "." + suffix;
+            }
+
             names.Add(action.Id, name);
         }
         ResourceRef Rebind(Binding binding)
         {
             var reference = binding.Target;
             if (reference.TargetKind == ResourceTarget.Graph && (reference.Target is null || reference.Target == target.Id))
+            {
                 return resources[reference.TargetProperty];
+            }
+
             if (reference.TargetKind == ResourceTarget.Call && reference.Target is { } owner)
+            {
                 return ResourceRef.InCall(names[owner], reference.TargetProperty);
+            }
+
             return reference;
         }
         var originalActions = graph.Actions.Count;
         foreach (var action in target.Actions)
+        {
             CloneAction(action, graph, Rebind, names[action.Id]);
+        }
+
         var inlined = graph.Actions.Skip(originalActions).ToArray();
         foreach (var action in inlined)
+        {
             if (action is ExecutionOperation operation)
             {
                 var origins = operation.Sources.Concat(call.Sources).Distinct().ToArray();
@@ -218,17 +278,24 @@ public static class ExecutionGraphRewriter
                 nested.Sources.Clear();
                 nested.Sources.AddRange(origins);
             }
+        }
+
         graph.Actions.RemoveRange(originalActions, inlined.Length);
         var position = graph.Actions.IndexOf(call);
         graph.Actions.RemoveAt(position);
         graph.Actions.InsertRange(position, inlined);
         foreach (var action in graph.Actions)
+        {
             for (var index = 0; index < action.Bindings.Count; index++)
             {
                 var binding = action.Bindings[index];
                 if (binding.Target.TargetKind == ResourceTarget.Call && binding.Target.Target == callId)
+                {
                     action.Bindings[index] = binding with { Target = resources[binding.Target.TargetProperty] };
+                }
             }
+        }
+
         var internalFlow = target.GraphFlow.Select(flow => new GraphFlow(
             new(graph.Id, names[flow.Source.Action]), new(graph.Id, names[flow.Target.Action]))).ToArray();
         var entries = inlined.Where(action => !internalFlow.Any(flow => flow.Target.Action == action.Id)).ToArray();
@@ -238,7 +305,9 @@ public static class ExecutionGraphRewriter
         graph.GraphFlow.RemoveAll(flow => flow.Source.Action == callId || flow.Target.Action == callId);
         graph.GraphFlow.AddRange(internalFlow);
         if (inlined.Length == 0)
+        {
             graph.GraphFlow.AddRange(incoming.SelectMany(before => outgoing.Select(after => new GraphFlow(before.Source, after.Target))));
+        }
         else
         {
             graph.GraphFlow.AddRange(incoming.SelectMany(before => entries.Select(entry => new GraphFlow(before.Source, new(entry)))));
@@ -261,14 +330,19 @@ public static class ExecutionGraphRewriter
         var requested = ids.ToHashSet(StringComparer.Ordinal);
         var selected = graph.Actions.Where(action => requested.Contains(action.Id)).ToArray();
         if (selected.Length == 0 || selected.Length != requested.Count)
+        {
             throw new InvalidDataException("The rewrite selection must contain existing actions.");
+        }
+
         return selected;
     }
 
     private static void RequireAvailableId(ExecutionGraph graph, string id, HashSet<string> replaced)
     {
         if (string.IsNullOrWhiteSpace(id) || graph.Actions.Any(action => action.Id == id && !replaced.Contains(id)))
+        {
             throw new InvalidDataException($"Action identifier '{id}' is unavailable.");
+        }
     }
 
     private static ResourceRef Canonical(SharpInference.Graphs.Graph graph, ResourceRef reference) =>
@@ -285,7 +359,9 @@ public static class ExecutionGraphRewriter
     private static void CopyMetadata(GraphAction source, GraphAction target)
     {
         foreach (var pair in source.Metadata)
+        {
             target.Metadata.Add(pair.Key, pair.Value);
+        }
     }
 
     private static void ReplaceFlow(ExecutionGraph graph, HashSet<string> replaced, string id)
@@ -308,7 +384,10 @@ public static class ExecutionGraphRewriter
             replacement.SelectedImplementation = operation.SelectedImplementation;
             replacement.Sources.AddRange(operation.Sources);
             foreach (var pair in operation.Attributes)
+            {
                 replacement.Attributes.Add(pair.Key, pair.Value);
+            }
+
             copy = replacement;
         }
         else if (action is ExecutionCall call)
@@ -318,7 +397,10 @@ public static class ExecutionGraphRewriter
             copy = replacement;
         }
         else
+        {
             throw new NotSupportedException($"Unsupported execution action '{action.GetType().Name}'.");
+        }
+
         copy.Category = action.Category;
         CopyMetadata(action, copy);
         copy.Bindings.AddRange(action.Bindings.Select(binding => binding with { Target = rebind(binding) }));

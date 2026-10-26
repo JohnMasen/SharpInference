@@ -18,11 +18,20 @@ public static class ExecutionPackageCompilation
         while (true)
         {
             if (!visited.Add(id))
+            {
                 throw new InvalidDataException($"Storage aliases contain a cycle at '{graph.Id}/{id}'.");
+            }
+
             if (!graph.Storage.TryGetValue(id, out var storage))
+            {
                 throw new InvalidDataException($"Resource '{graph.Id}/{id}' has no selected storage.");
+            }
+
             if (storage.Slot is not { } next || next == id)
+            {
                 return id;
+            }
+
             id = next;
         }
     }
@@ -41,7 +50,10 @@ public static class ExecutionPackageCompilation
             bool Before(string first, string second) =>
                 first != second && reach.IsReachable(new GraphNodeId(first), new GraphNodeId(second));
             if (analysis.Dependencies.Any(flow => !Before(flow.Source.Action, flow.Target.Action)))
+            {
                 throw new InvalidDataException($"Execution graph '{graph.Id}' is missing derived dependencies. Compile the package before emission.");
+            }
+
             foreach (var group in graph.Resources.GroupBy(resource => StorageSlot(graph, resource.Id))
                 .Where(group => group.Count() > 1))
             {
@@ -53,25 +65,37 @@ public static class ExecutionPackageCompilation
                         resource.Usage is ResourceUsage.Weight or ResourceUsage.Constant ||
                         !GraphValidation.SameTensor(resource.Tensor, resources[0].Tensor) ||
                         resource.Permission != resources[0].Permission)
+                    {
                         throw new InvalidDataException($"Storage alias '{graph.Id}/{resource.Id}' has an incompatible resource contract.");
+                    }
+
                     if (package.Any(caller => caller.Actions.SelectMany(action => action.Bindings).Any(binding =>
                         binding.Target.TargetProperty == resource.Id &&
                         (binding.Target.TargetKind == ResourceTarget.Graph && binding.Target.Target == graph.Id && caller != graph ||
                          binding.Target.TargetKind == ResourceTarget.Call && caller.Actions.OfType<CallAction>().Any(call =>
                              call.Id == binding.Target.Target && call.Target == graph.Id)))))
+                    {
                         throw new InvalidDataException($"Externally referenced resource '{graph.Id}/{resource.Id}' cannot share temporary storage.");
+                    }
                 }
                 for (var left = 0; left < resources.Length; left++)
+                {
                     for (var right = left + 1; right < resources.Length; right++)
                     {
                         var first = graph.Readers(resources[left]).Concat(graph.Writers(resources[left])).Distinct().ToArray();
                         var second = graph.Readers(resources[right]).Concat(graph.Writers(resources[right])).Distinct().ToArray();
                         if (first.Length == 0 || second.Length == 0)
+                        {
                             continue;
+                        }
+
                         if (!first.All(a => second.All(b => Before(a.Id, b.Id))) &&
                             !second.All(a => first.All(b => Before(a.Id, b.Id))))
+                        {
                             throw new InvalidDataException($"Storage alias '{graph.Id}/{group.Key}' has overlapping or unproven lifetimes.");
+                        }
                     }
+                }
             }
         }
     }
@@ -83,7 +107,10 @@ public static class ExecutionPackageCompilation
         GraphValidation.ThrowIfErrors(diagnostics);
         if (source.GetTarget() is { } requested &&
             ExecutionImplementationSelector.Target(requested) != ExecutionImplementationSelector.Target(backend))
+        {
             throw new InvalidDataException($"Package target '{requested}' does not match '{backend}'.");
+        }
+
         var analyses = new Dictionary<string, GraphAnalysis>(StringComparer.Ordinal);
         foreach (var graph in source)
         {
@@ -92,7 +119,9 @@ public static class ExecutionPackageCompilation
             graph.GraphFlow.Clear();
             graph.GraphFlow.AddRange(analysis.Dependencies);
             foreach (var resource in graph.Resources)
+            {
                 graph.Storage.TryAdd(resource.Id, DefaultStorage(resource));
+            }
         }
         selector.Select(source, backend);
         ValidatePlan(source);

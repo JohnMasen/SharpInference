@@ -38,7 +38,9 @@ public abstract class GraphAction(Graph graph, string id)
         copy.Category = Category;
         copy.Bindings.AddRange(Bindings);
         foreach (var pair in Metadata)
+        {
             copy.Metadata.Add(pair.Key, pair.Value);
+        }
     }
 
     protected abstract GraphAction CopyAction(Graph target);
@@ -62,7 +64,10 @@ public class OperationAction(Graph graph, string id, OperationId operation) : Gr
         var copy = target.Operation(Id, Operation);
         copy.Precision = Precision;
         foreach (var pair in Attributes)
+        {
             copy.Attributes.Add(pair.Key, pair.Value);
+        }
+
         return copy;
     }
 }

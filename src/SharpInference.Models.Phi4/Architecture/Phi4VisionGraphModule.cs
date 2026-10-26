@@ -178,27 +178,27 @@ public sealed class Phi4VisionGraphModule : IPhi4GraphModule
                     var prefix = $"v.blk.{layer}.";
                     layerScope.Section(attentionRegion, GraphSectionTypes.Stage, "Attention", attentionScope =>
                     {
-            var normalized = attentionScope.SectionValue(attentionRegion + ".norm", GraphSectionTypes.Architecture, "LayerNorm",
-                scope => Norm(scope, hidden, prefix + "ln1"),
-                architecture: new(null, "Normalizes patch features before attention.", null));
-            var projections = attentionRegion + ".qkv";
-            string query = null!;
-            string key = null!;
-            string value = null!;
-            attentionScope.Section(projections, GraphSectionTypes.Architecture, "QKV Projections", projectionsScope =>
-            {
-                query = projectionsScope.SectionValue(projections + ".q", GraphSectionTypes.Architecture, "Query", scope => Linear(scope, normalized, prefix + "attn_q", width), architecture: new(null, "Projects query features.", null));
-                key = projectionsScope.SectionValue(projections + ".k", GraphSectionTypes.Architecture, "Key", scope => Linear(scope, normalized, prefix + "attn_k", width), architecture: new(null, "Projects key features.", null));
-                value = projectionsScope.SectionValue(projections + ".v", GraphSectionTypes.Architecture, "Value", scope => Linear(scope, normalized, prefix + "attn_v", width), architecture: new(null, "Projects value features.", null));
-            }, architecture: new(null, "Projects separate query, key and value branches.", null));
-            var attention = attentionScope.SectionValue(attentionRegion + ".attention", GraphSectionTypes.Architecture, "Masked Attention", scope =>
-            {
-                var attention = Temporary(crops, grid, grid, width);
-                var tokens = checked(grid * grid);
-                Emit(scope, Phi4VisionGraphOperations.Attention, [View("query", query, ResourceAccess.Read, crops, tokens, width), View("key", key, ResourceAccess.Read, crops, tokens, width), View("value", value, ResourceAccess.Read, crops, tokens, width), View("mask", "mask", ResourceAccess.Read, crops, tokens), View("output", attention, ResourceAccess.Write, crops, tokens, width)], Attr(("heads", heads)));
-                return attention;
-            }, architecture: new(null, "Computes masked multi-head attention.", "attention = softmax(mask(Q K^T / sqrt(head_size))) V"));
-            var attentionOutput = attentionScope.SectionValue(attentionRegion + ".output", GraphSectionTypes.Architecture, "Output Projection", scope => Linear(scope, attention, prefix + "attn_out", width), architecture: new(null, "Projects attended features back to vision width.", null));
+                        var normalized = attentionScope.SectionValue(attentionRegion + ".norm", GraphSectionTypes.Architecture, "LayerNorm",
+                            scope => Norm(scope, hidden, prefix + "ln1"),
+                            architecture: new(null, "Normalizes patch features before attention.", null));
+                        var projections = attentionRegion + ".qkv";
+                        string query = null!;
+                        string key = null!;
+                        string value = null!;
+                        attentionScope.Section(projections, GraphSectionTypes.Architecture, "QKV Projections", projectionsScope =>
+                        {
+                            query = projectionsScope.SectionValue(projections + ".q", GraphSectionTypes.Architecture, "Query", scope => Linear(scope, normalized, prefix + "attn_q", width), architecture: new(null, "Projects query features.", null));
+                            key = projectionsScope.SectionValue(projections + ".k", GraphSectionTypes.Architecture, "Key", scope => Linear(scope, normalized, prefix + "attn_k", width), architecture: new(null, "Projects key features.", null));
+                            value = projectionsScope.SectionValue(projections + ".v", GraphSectionTypes.Architecture, "Value", scope => Linear(scope, normalized, prefix + "attn_v", width), architecture: new(null, "Projects value features.", null));
+                        }, architecture: new(null, "Projects separate query, key and value branches.", null));
+                        var attention = attentionScope.SectionValue(attentionRegion + ".attention", GraphSectionTypes.Architecture, "Masked Attention", scope =>
+                        {
+                            var attention = Temporary(crops, grid, grid, width);
+                            var tokens = checked(grid * grid);
+                            Emit(scope, Phi4VisionGraphOperations.Attention, [View("query", query, ResourceAccess.Read, crops, tokens, width), View("key", key, ResourceAccess.Read, crops, tokens, width), View("value", value, ResourceAccess.Read, crops, tokens, width), View("mask", "mask", ResourceAccess.Read, crops, tokens), View("output", attention, ResourceAccess.Write, crops, tokens, width)], Attr(("heads", heads)));
+                            return attention;
+                        }, architecture: new(null, "Computes masked multi-head attention.", "attention = softmax(mask(Q K^T / sqrt(head_size))) V"));
+                        var attentionOutput = attentionScope.SectionValue(attentionRegion + ".output", GraphSectionTypes.Architecture, "Output Projection", scope => Linear(scope, attention, prefix + "attn_out", width), architecture: new(null, "Projects attended features back to vision width.", null));
                         attentionScope.Section(attentionRegion + ".residual", GraphSectionTypes.Architecture, "Attention Residual", scope =>
                         {
                             hidden = Add(scope, hidden, attentionOutput);
@@ -207,10 +207,10 @@ public sealed class Phi4VisionGraphModule : IPhi4GraphModule
                     var ffnRegion = layerRegion + ".ffn";
                     layerScope.Section(ffnRegion, GraphSectionTypes.Stage, "Feed forward", ffnScope =>
                     {
-            var ffnInput = ffnScope.SectionValue(ffnRegion + ".norm", GraphSectionTypes.Architecture, "LayerNorm", scope => Norm(scope, hidden, prefix + "ln2"), architecture: new(null, "Normalizes the feed-forward input.", null));
-            var up = ffnScope.SectionValue(ffnRegion + ".up", GraphSectionTypes.Architecture, "Up Projection", scope => Linear(scope, ffnInput, prefix + "ffn_up", dimensions["intermediate"]), architecture: new(null, "Expands to the feed-forward width.", null));
-            var activated = ffnScope.SectionValue(ffnRegion + ".activation", GraphSectionTypes.Architecture, "GELU", scope => Gelu(scope, up), architecture: new(null, "Applies GELU.", null));
-            var ffnOutput = ffnScope.SectionValue(ffnRegion + ".down", GraphSectionTypes.Architecture, "Down Projection", scope => Linear(scope, activated, prefix + "ffn_down", width), architecture: new(null, "Projects back to vision width.", null));
+                        var ffnInput = ffnScope.SectionValue(ffnRegion + ".norm", GraphSectionTypes.Architecture, "LayerNorm", scope => Norm(scope, hidden, prefix + "ln2"), architecture: new(null, "Normalizes the feed-forward input.", null));
+                        var up = ffnScope.SectionValue(ffnRegion + ".up", GraphSectionTypes.Architecture, "Up Projection", scope => Linear(scope, ffnInput, prefix + "ffn_up", dimensions["intermediate"]), architecture: new(null, "Expands to the feed-forward width.", null));
+                        var activated = ffnScope.SectionValue(ffnRegion + ".activation", GraphSectionTypes.Architecture, "GELU", scope => Gelu(scope, up), architecture: new(null, "Applies GELU.", null));
+                        var ffnOutput = ffnScope.SectionValue(ffnRegion + ".down", GraphSectionTypes.Architecture, "Down Projection", scope => Linear(scope, activated, prefix + "ffn_down", width), architecture: new(null, "Projects back to vision width.", null));
                         ffnScope.Section(ffnRegion + ".residual", GraphSectionTypes.Architecture, "FFN Residual", scope =>
                         {
                             hidden = Add(scope, hidden, ffnOutput);

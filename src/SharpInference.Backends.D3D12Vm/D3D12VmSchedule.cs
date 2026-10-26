@@ -31,15 +31,15 @@ internal static class D3D12VmSchedule
                 else if (node.Instruction is VmOperator op)
                 {
                     foreach (var bound in op.IndexBounds)
-                {
-                    var indexArgument = op.Arguments.Single(a => a.Parameter == bound.IndexPort);
-                    var index = bindings[indexArgument.Source];
-                    var table = definition.Parameters.Single(p => p.Name ==
-                        op.Arguments.Single(a => a.Parameter == bound.TensorPort).Source);
-                    var indices = definition.Parameters.Single(p => p.Name == indexArgument.Source);
-                    result.Add(new(index.Slot, checked(index.Offset + indexArgument.ByteOffset), table.Tensor.Dimensions[bound.Axis],
-                        checked((int)indices.Tensor.ElementCount), bound.MinimumIndex));
-                }
+                    {
+                        var indexArgument = op.Arguments.Single(a => a.Parameter == bound.IndexPort);
+                        var index = bindings[indexArgument.Source];
+                        var table = definition.Parameters.Single(p => p.Name ==
+                            op.Arguments.Single(a => a.Parameter == bound.TensorPort).Source);
+                        var indices = definition.Parameters.Single(p => p.Name == indexArgument.Source);
+                        result.Add(new(index.Slot, checked(index.Offset + indexArgument.ByteOffset), table.Tensor.Dimensions[bound.Axis],
+                            checked((int)indices.Tensor.ElementCount), bound.MinimumIndex));
+                    }
                 }
             }
         }

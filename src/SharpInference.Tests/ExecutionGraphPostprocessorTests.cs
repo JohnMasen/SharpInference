@@ -23,7 +23,9 @@ public sealed class ExecutionGraphPostprocessorTests
             {
                 var action = Add(graph, $"n{index}", "output");
                 foreach (var predecessor in Enumerable.Range(0, index).Where(_ => random.Next(3) == 0))
+                {
                     graph.Actions[predecessor].Then(action);
+                }
             }
             graph.Actions[0].Then(graph.Actions[1]);
             graph.Actions[0].Then(graph.Actions[1]);
@@ -31,8 +33,13 @@ public sealed class ExecutionGraphPostprocessorTests
             var after = Process(new DependencyReductionPostprocessor(), graph).MainGraph!;
             var structure = after.DependencyGraph();
             foreach (var first in before.Nodes)
+            {
                 foreach (var second in before.Nodes)
+                {
                     Assert.Equal(before.IsReachable(first.Id, second.Id), structure.IsReachable(first.Id, second.Id));
+                }
+            }
+
             Assert.Single(after.GraphFlow, flow => flow.Source.Action == "n0" && flow.Target.Action == "n1");
             Assert.Equal(graph.Actions.SelectMany(action => action.Bindings), after.Actions.SelectMany(action => action.Bindings));
             AssertIdempotent(new DependencyReductionPostprocessor(), new(graph));
@@ -67,7 +74,10 @@ public sealed class ExecutionGraphPostprocessorTests
         Add(graph, "write", "a");
         Add(graph, "left", "left-output", "a", ["write"]);
         if (diamond)
+        {
             Add(graph, "right", "right-output", "a", ["write"]);
+        }
+
         Add(graph, "next", "b", dependencies: joined ? ["left", "right"] : diamond ? ["left"] : []);
         var after = Process(new TemporaryResourceReusePostprocessor(), graph).MainGraph!;
         Assert.Equal(joined ? "a" : null, after.Storage["b"].Slot);
@@ -85,18 +95,31 @@ public sealed class ExecutionGraphPostprocessorTests
         var graph = Create();
         Add(graph, "first", "a");
         if (scenario == "initial-read")
+        {
             Add(graph, "second", "output", "b", ["first"]);
+        }
         else
         {
             var operation = Add(graph, "second", "b", scenario == "same-operation" ? "a" : null, ["first"]);
             if (scenario == "read-write")
+            {
                 operation.Bindings[0] = operation.Bindings[0] with { Access = ResourceAccess.ReadWrite };
+            }
+
             if (scenario == "unknown-write")
+            {
                 operation.Operation = new("custom.partial");
+            }
+
             if (scenario == "unknown-version")
+            {
                 operation.Operation = new(Operations.Copy, 2);
+            }
+
             if (scenario == "multiple-writes")
+            {
                 Add(graph, "last", "a", dependencies: ["second"]);
+            }
         }
         Assert.Null(Process(new TemporaryResourceReusePostprocessor(), graph).MainGraph!.Storage["b"].Slot);
     }
@@ -133,9 +156,14 @@ public sealed class ExecutionGraphPostprocessorTests
         }
         Add(graph, "first", "a");
         if (protection is "weight" or "input")
+        {
             Add(graph, "second", "output", "b", ["first"]);
+        }
         else
+        {
             Add(graph, "second", "b", dependencies: ["first"]);
+        }
+
         Assert.Null(Process(new TemporaryResourceReusePostprocessor(), graph).MainGraph!.Storage["b"].Slot);
     }
 
@@ -162,7 +190,10 @@ public sealed class ExecutionGraphPostprocessorTests
             {
                 var operation = readWrite ? graph.Operation(id, "custom.update") : Add(graph, id, id, "input");
                 if (readWrite)
+                {
                     operation.Bind("state", id, ResourceAccess.ReadWrite);
+                }
+
                 operation.Source("test", graph.Id, id);
             }
             graph.Actions[0].Then(graph.Actions[1]);
@@ -215,7 +246,10 @@ public sealed class ExecutionGraphPostprocessorTests
         var root = Create();
         var call = root.Call("invoke", child);
         foreach (var resource in child.GraphIOs)
+        {
             call.Bind(resource.Id, resource.Id, resource.GraphIO == GraphIO.In ? ResourceAccess.Read : ResourceAccess.Write);
+        }
+
         var consume = Add(root, "consume", "output", dependencies: ["invoke"]);
         consume.Bind("input", ResourceRef.InCall("invoke", "a"), ResourceAccess.Read);
         var result = new TemporaryResourceReusePostprocessor().Process(new(root, child), Context);
@@ -226,8 +260,11 @@ public sealed class ExecutionGraphPostprocessorTests
     {
         var graph = new ExecutionGraph { Id = id };
         foreach (var name in new[] { "input", "output", "left-output", "right-output", "a", "b" })
+        {
             graph.Resource(name, Vector, new ExecutionStorage(ResourceStorageKind.LocalBuffer),
                 name == "input" ? GraphIO.In : name.Contains("output", StringComparison.Ordinal) ? GraphIO.Out : GraphIO.Internal);
+        }
+
         return graph;
     }
 
@@ -236,10 +273,16 @@ public sealed class ExecutionGraphPostprocessorTests
     {
         var action = graph.Operation(id, Operations.Copy);
         if (input is not null)
+        {
             action.Bind("input", input, ResourceAccess.Read);
+        }
+
         action.Bind("output", output, ResourceAccess.Write);
         foreach (var dependency in dependencies ?? [])
+        {
             graph.Actions.Single(operation => operation.Id == dependency).Then(action);
+        }
+
         return action;
     }
 

@@ -13,7 +13,9 @@ public sealed class GraphPackage<TGraph> : Collection<TGraph> where TGraph : Gra
         get
         {
             foreach (var resource in MainGraph?.GraphIOs ?? [])
+            {
                 yield return resource;
+            }
         }
     }
     public IEnumerable<Resource> Inputs => GraphIOs.Where(resource => resource.GraphIO is GraphIO.In or GraphIO.InOut);
@@ -26,7 +28,9 @@ public sealed class GraphPackage<TGraph> : Collection<TGraph> where TGraph : Gra
         MainGraphId = main.Id;
         Add(main);
         foreach (var graph in definitions)
+        {
             Add(graph);
+        }
     }
 
     public IReadOnlyList<GraphDiagnostic> Validate() =>
@@ -36,11 +40,17 @@ public sealed class GraphPackage<TGraph> : Collection<TGraph> where TGraph : Gra
     {
         var copy = new GraphPackage<TGraph> { MainGraphId = MainGraphId };
         foreach (var pair in Metadata)
+        {
             copy.Metadata.Add(pair.Key, pair.Value);
+        }
+
         foreach (var graph in this)
         {
             if (graph.Snapshot() is not TGraph snapshot)
+            {
                 throw new InvalidOperationException($"Snapshot of '{graph.Id}' did not preserve {typeof(TGraph).Name}.");
+            }
+
             copy.Add(snapshot);
         }
         return copy;

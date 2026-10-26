@@ -85,7 +85,9 @@ internal sealed class Phi4GraphComposer
             graph.Metadata["version"] = id.Version.ToString(System.Globalization.CultureInfo.InvariantCulture);
             graph.Metadata["state.abi"] = model.StateAbiId;
             foreach (var (name, value) in model.Dimensions)
+            {
                 graph.Metadata["dimension." + name] = value.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            }
         });
     }
 
@@ -96,7 +98,10 @@ internal sealed class Phi4GraphComposer
         graph.Name = name;
         graph.Description = architecture?.Description;
         foreach (var pair in metadata)
+        {
             graph.Metadata[pair.Key] = pair.Value;
+        }
+
         return new(this, id, metadata);
     }
 
@@ -109,7 +114,10 @@ internal sealed class Phi4GraphComposer
         var resource = graph.Resource(id, tensor, graphIO, scope, usage, isState, permission, bindingKey);
         resources.Add(id, resource);
         if (name is not null)
+        {
             graph.Metadata[$"resource.{id}.name"] = name;
+        }
+
         return this;
     }
 
@@ -122,7 +130,10 @@ internal sealed class Phi4GraphComposer
         foreach (var binding in bindings)
         {
             if (!resources.TryGetValue(binding.Resource, out var resource))
+            {
                 throw new InvalidDataException($"Phi4 node '{id}' references unknown resource '{binding.Resource}'.");
+            }
+
             node.Bind(binding.Port, resource, binding.Access);
             if (binding.View is { } view)
             {
@@ -132,14 +143,23 @@ internal sealed class Phi4GraphComposer
                 node.Attributes[$"view.{binding.Port}.layout"] = view.Tensor.Layout;
             }
             if (binding.InitializedBeforeRead)
+            {
                 node.Metadata[$"binding.{binding.Port}.initialized_before_read"] = bool.TrueString;
+            }
         }
         node.Precision = requirements;
         if (attributes is not null)
+        {
             foreach (var pair in attributes)
+            {
                 node.Attributes[pair.Key] = pair.Value;
+            }
+        }
+
         foreach (var pair in metadata)
+        {
             node.Metadata[pair.Key] = pair.Value;
+        }
 
         previous?.Then(node);
         previous = node;
@@ -154,14 +174,21 @@ internal sealed class Phi4GraphComposer
         foreach (var component in package)
         {
             if (component.Id == graph.Id)
+            {
                 throw new InvalidDataException($"Phi4 component '{tag}' conflicts with its parent graph.");
+            }
+
             if (definitions.TryGetValue(component.Id, out var existing))
             {
                 if (!ReferenceEquals(existing, component))
+                {
                     throw new InvalidDataException($"Phi4 component '{tag}' duplicates graph '{component.Id}'.");
+                }
             }
             else
+            {
                 definitions.Add(component.Id, component);
+            }
         }
 
         var call = graph.Call(tag, definition);
@@ -173,7 +200,9 @@ internal sealed class Phi4GraphComposer
                 if (existing.Tensor.ElementType != resource.Tensor.ElementType ||
                     existing.Tensor.Layout != resource.Tensor.Layout ||
                     !existing.Tensor.Dimensions.SequenceEqual(resource.Tensor.Dimensions))
+                {
                     throw new InvalidDataException($"Phi4 component '{tag}' has an incompatible resource '{resource.Id}'.");
+                }
             }
             else
             {
@@ -190,11 +219,19 @@ internal sealed class Phi4GraphComposer
             });
         }
         if (definition.Name is { } name)
+        {
             call.Metadata["name"] = name;
+        }
+
         if (definition.Description is { } description)
+        {
             call.Metadata["description"] = description;
+        }
+
         foreach (var pair in definition.Metadata)
+        {
             call.Metadata[pair.Key] = pair.Value;
+        }
 
         previous?.Then(call);
         previous = call;
@@ -212,22 +249,40 @@ internal sealed class Phi4GraphComposer
             ["architecture.name"] = name,
         };
         if ((role ?? architecture?.Role) is { } sectionRole)
+        {
             values["role"] = sectionRole;
+        }
+
         if (architecture?.Description is { } description)
+        {
             values["description"] = description;
+        }
+
         if (architecture?.Formula is { } formula)
         {
             values["formula"] = formula;
             values["architecture.formula"] = formula;
         }
         if (architecture?.DefaultCollapsed is { } collapsed)
+        {
             values["default_collapsed"] = collapsed.ToString();
+        }
+
         if (architecture?.RepeatGroup is { } repeat)
+        {
             values["repeat_group"] = repeat.ToString();
+        }
+
         if (architecture?.DefaultView is { } view)
+        {
             values["default_view"] = view.ToString();
+        }
+
         if (architecture?.Step is { } step)
+        {
             values["step"] = step.ToString();
+        }
+
         return values;
     }
 

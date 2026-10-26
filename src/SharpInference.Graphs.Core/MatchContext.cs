@@ -37,7 +37,10 @@ public sealed class MatchContext
         ArgumentNullException.ThrowIfNull(context);
         ArgumentNullException.ThrowIfNull(edge);
         if (!context.Complete)
+        {
             throw new ArgumentException("An edge must follow a node.", nameof(context));
+        }
+
         return new(context.nodes, [.. context.edges, edge]);
     }
 
@@ -52,7 +55,10 @@ public sealed class MatchContext
         ArgumentNullException.ThrowIfNull(context);
         ArgumentNullException.ThrowIfNull(node);
         if (context.Complete)
+        {
             throw new ArgumentException("A node must follow an edge.", nameof(context));
+        }
+
         return new([.. context.nodes, node], context.edges);
     }
 }

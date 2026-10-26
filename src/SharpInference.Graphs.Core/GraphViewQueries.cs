@@ -46,7 +46,10 @@ public static class GraphViewQueries
         ArgumentNullException.ThrowIfNull(view);
         ArgumentNullException.ThrowIfNull(pattern);
         if (!pattern.Complete)
+        {
             throw new ArgumentException("A complete pattern must end with a node.", nameof(pattern));
+        }
+
         return Enumerate();
 
         IEnumerable<IGraphView<TNode, TEdge>> Enumerate()
@@ -68,7 +71,10 @@ public static class GraphViewQueries
             {
                 var targets = Candidates(last).ToArray();
                 if (targets.Length == 0)
+                {
                     yield break;
+                }
+
                 var sources = view.Nodes.Take(3).ToArray();
                 reverse = sources.Length > 2;
                 candidates = reverse ? targets : sources;
@@ -79,16 +85,27 @@ public static class GraphViewQueries
                 var sources = new List<TNode>();
                 var targets = new List<TNode>();
                 if (last.Id is not null)
+                {
                     targets.AddRange(Candidates(last));
+                }
+
                 foreach (var node in view.Nodes)
                 {
                     if (first.Predicate(node))
+                    {
                         sources.Add(node);
+                    }
+
                     if (last.Id is null && last.Predicate(node))
+                    {
                         targets.Add(node);
+                    }
                 }
                 if (sources.Count == 0 || targets.Count == 0)
+                {
                     yield break;
+                }
+
                 sourceIds = sources.Select(node => node.Id).ToHashSet();
                 targetIds = targets.Select(node => node.Id).ToHashSet();
                 reverse = 2L * targets.Count < sources.Count;
@@ -101,7 +118,10 @@ public static class GraphViewQueries
                 nodes[initial] = candidate;
                 visited.Add(candidate.Id);
                 foreach (var match in Extend(initial))
+                {
                     yield return match;
+                }
+
                 visited.Remove(candidate.Id);
             }
 
@@ -112,14 +132,20 @@ public static class GraphViewQueries
                     if (view.TryGetNode(id, out var node))
                     {
                         if (constraint.Predicate(node))
+                        {
                             yield return node;
+                        }
                     }
                 }
                 else
                 {
                     foreach (var node in view.Nodes)
+                    {
                         if (constraint.Predicate(node))
+                        {
                             yield return node;
+                        }
+                    }
                 }
             }
 
@@ -142,17 +168,26 @@ public static class GraphViewQueries
                     if (visited.Contains(nextId) ||
                         next.Id is { } targetId && nextId != targetId ||
                         !pattern.Edges[edgeIndex].Predicate(edge))
+                    {
                         continue;
+                    }
+
                     var target = view.GetNode(nextId);
                     var cached = nextIndex == 0 ? sourceIds
                         : nextIndex == nodes.Length - 1 ? targetIds : null;
                     if (cached is not null ? !cached.Contains(nextId) : !next.Predicate(target))
+                    {
                         continue;
+                    }
+
                     nodes[nextIndex] = target;
                     edges[edgeIndex] = edge;
                     visited.Add(target.Id);
                     foreach (var match in Extend(nextIndex))
+                    {
                         yield return match;
+                    }
+
                     visited.Remove(target.Id);
                 }
             }
@@ -201,7 +236,10 @@ public static class GraphViewQueries
             {
                 if (nodes.TryGetValue(node.Id, out var previous) &&
                     !EqualityComparer<TNode>.Default.Equals(previous, node))
+                {
                     throw new InvalidDataException($"Conflicting graph node '{node.Id}'.");
+                }
+
                 nodes.TryAdd(node.Id, node);
             }
             foreach (var edge in view.Edges)
@@ -209,7 +247,10 @@ public static class GraphViewQueries
                 if (edges.TryGetValue(edge.Id, out var previous) &&
                     (previous.Source != edge.Source || previous.Target != edge.Target ||
                      !EqualityComparer<TEdge>.Default.Equals(previous, edge)))
+                {
                     throw new InvalidDataException($"Conflicting graph edge '{edge.Id}'.");
+                }
+
                 edges.TryAdd(edge.Id, edge);
             }
         }
