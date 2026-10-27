@@ -1,3 +1,5 @@
+using SharpInference.Graphs.Execution;
+using SharpInference.Graphs;
 using System.Globalization;
 using System.Text;
 using SharpInference.Instructions;
@@ -175,9 +177,9 @@ public sealed class D3D12VmCompiler
     private string Operator(VmOperator op, IReadOnlyDictionary<string, (VmParameter p, string Name)> parameters,
         Dictionary<string, InstructionHelper> helpers)
     {
-        var instruction = registry.Resolve(op.InstructionCollectionId, op.InstructionName, InstructionTarget.Direct3D12);
+        var instruction = registry.Resolve(op.InstructionCollectionId, op.InstructionName, ExecutionTarget.Direct3D12);
         var args = VmInstructionParameters.Create(op, parameters.Values.Select(value => value.p).ToArray(), p => (parameters[p.Name].Name, parameters[p.Name].Name + "o"));
-        var recorder = new SourceInstructionRecorder(InstructionTarget.Direct3D12);
+        var recorder = new SourceInstructionRecorder(ExecutionTarget.Direct3D12);
         instruction.Invoke(recorder, args, op.Precision, op.ExecutionConfiguration);
         foreach (var helper in recorder.Helpers)
         {
@@ -206,7 +208,7 @@ public sealed class D3D12VmCompiler
                 }
                 else if (node.Instruction is VmOperator op)
                 {
-                    var instruction = registry.Resolve(op.InstructionCollectionId, op.InstructionName, InstructionTarget.Direct3D12);
+                    var instruction = registry.Resolve(op.InstructionCollectionId, op.InstructionName, ExecutionTarget.Direct3D12);
                     var nonPointwise = instruction.RequiresDispatchIsolation;
                     var signature = instruction.Adapt(VmInstructionParameters.Create(op, d.Parameters, parameter => (parameter.Name, "0")),
                         op.Precision, op.ExecutionConfiguration);

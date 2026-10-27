@@ -1,9 +1,8 @@
 using SharpInference.Graphs;
 using SharpInference.Graphs.Core;
-using SharpInference.Instructions;
 using ComputationGraph = SharpInference.Graphs.Graph;
 
-namespace SharpInference.Vm.Optimization;
+namespace SharpInference.Graphs;
 
 public sealed record GraphAnalysis(
     IReadOnlyList<GraphAction> Order,
@@ -18,15 +17,8 @@ internal readonly record struct ResourceInstance(
 internal sealed record GraphResourceEffect(ResourceInstance Identity, Resource Resource, ResourceAccess Access);
 
 /// <summary>Derives value dependencies from explicit flow, entry values and resolved resource accesses.</summary>
-public static class GraphDependencyAnalyzer
+internal static class GraphAnalysisEngine
 {
-    public static GraphAnalysis Analyze<TGraph>(GraphPackage<TGraph> package, TGraph graph) where TGraph : ComputationGraph
-    {
-        ArgumentNullException.ThrowIfNull(package);
-        ArgumentNullException.ThrowIfNull(graph);
-        return AnalyzeValidated(package, graph, package.Validate());
-    }
-
     internal static GraphAnalysis AnalyzeValidated<TGraph>(
         GraphPackage<TGraph> package, TGraph graph, IReadOnlyList<GraphDiagnostic> packageDiagnostics,
         Dictionary<string, GraphAnalysis>? cache = null)

@@ -4,7 +4,7 @@ using SharpInference.Graphs.Logical;
 namespace SharpInference.Vm.Optimization.GraphHelper;
 
 public sealed record ExecutionPassContext(
-    GraphPackage<LogicalGraph>? Source,
+    LogicalGraphPackage? Source,
     ExecutionGraphCompilationContext Compilation,
     int ProcessorIndex,
     string ProcessorName)

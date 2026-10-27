@@ -27,7 +27,7 @@ public sealed class ExecutionPackageIntegrationTests
         var output = graph.Resource("output", Vector, GraphIO.Out);
         Copy(graph, "produce", new(input), new(temporary));
         Copy(graph, "consume", new(temporary), new(output));
-        var package = new GraphPackage<ExecutionGraph>(graph);
+        var package = new ExecutionGraphPackage(graph);
 
         var program = package.Compile(VmTarget.Cpu, Cpu);
         Assert.Equal(Values(), Execute(program));
@@ -57,8 +57,8 @@ public sealed class ExecutionPackageIntegrationTests
         var output = graph.Resource("output", Vector, GraphIO.Out);
         Copy(graph, "first", new(input), new(middle));
         Copy(graph, "second", new(middle), new(output));
-        var source = new GraphPackage<ExecutionGraph>(graph);
-        GraphPackage<ExecutionGraph> result;
+        var source = new ExecutionGraphPackage(graph);
+        ExecutionGraphPackage result;
         if (rewrite == "fuse")
         {
             result = ExecutionGraphRewriter.FuseNodesToOperation(source, "main", ["first", "second"], "fused",
@@ -97,7 +97,7 @@ public sealed class ExecutionPackageIntegrationTests
         var middle = new ExecutionGraph { Id = "middle" };
         middle.Call("inner", leaf);
         main.Call("outer", middle);
-        var package = new GraphPackage<ExecutionGraph>(main, middle, leaf);
+        var package = new ExecutionGraphPackage(main, middle, leaf);
 
         var program = package.Compile(VmTarget.Cpu, Cpu);
         Assert.Equal(3, program.Definitions.Count);
@@ -128,7 +128,7 @@ public sealed class ExecutionPackageIntegrationTests
         }
 
         Copy(main, "consume", new(scratch), new(output));
-        var package = new GraphPackage<ExecutionGraph>(main, middle, leaf);
+        var package = new ExecutionGraphPackage(main, middle, leaf);
         if (repeated)
         {
             Assert.Contains("A0006", Assert.Throws<InvalidDataException>(() => package.Compile(VmTarget.Cpu, Cpu)).Message);
@@ -151,10 +151,10 @@ public sealed class ExecutionPackageIntegrationTests
         write.Bind("output", first, ResourceAccess.Write);
         var read = graph.Operation("read", Operations.Copy);
         read.Bind("input", second, ResourceAccess.Read);
-        var package = new GraphPackage<LogicalGraph>(graph);
-        Assert.Contains(GraphDependencyAnalyzer.Analyze(package, graph).Diagnostics, diagnostic => diagnostic.Code == "A0003");
+        var package = new LogicalGraphPackage(graph);
+        Assert.Contains(package.Analyze(graph).Diagnostics, diagnostic => diagnostic.Code == "A0003");
         write.Then(read);
-        Assert.Empty(GraphDependencyAnalyzer.Analyze(package, graph).Diagnostics);
+        Assert.Empty(package.Analyze(graph).Diagnostics);
         second.Permission = ResourcePermission.ReadOnly;
         Assert.Contains(package.Validate(), diagnostic => diagnostic.Code == "P0011");
     }
@@ -174,7 +174,7 @@ public sealed class ExecutionPackageIntegrationTests
         add.Bind("right", right, ResourceAccess.Read);
         add.Bind("output", output, ResourceAccess.Write);
         graph.Storage.Add(right.Id, new(ResourceStorageKind.LocalBuffer, left.Id));
-        Assert.Throws<InvalidDataException>(() => new GraphPackage<ExecutionGraph>(graph).Compile(VmTarget.Cpu, Cpu));
+        Assert.Throws<InvalidDataException>(() => new ExecutionGraphPackage(graph).Compile(VmTarget.Cpu, Cpu));
     }
 
     [Theory]
@@ -186,7 +186,7 @@ public sealed class ExecutionPackageIntegrationTests
         var input = graph.Resource("input", Vector, GraphIO.InOut);
         var output = graph.Resource("output", Vector, GraphIO.Out);
         Copy(graph, "copy", new(input), new(output));
-        var package = new GraphPackage<ExecutionGraph>(graph);
+        var package = new ExecutionGraphPackage(graph);
         if (alreadySelected)
         {
             foreach (var resource in graph.Resources)
@@ -217,7 +217,7 @@ public sealed class ExecutionPackageIntegrationTests
         Copy(graph, "copy", new(input), new(first));
         Copy(graph, "copy.complete", new(input), new(second));
         IInstructionCollectionProvider[] gpu = [new GpuFloat32InstructionCollection()];
-        var program = new GraphPackage<ExecutionGraph>(graph).Compile(VmTarget.Direct3D12, gpu);
+        var program = new ExecutionGraphPackage(graph).Compile(VmTarget.Direct3D12, gpu);
         var nodes = program.Definitions.Single(definition => definition.Kind == VmDefinitionKind.Orchestration).Nodes;
         Assert.Equal(4, nodes.Select(node => node.Id).Distinct().Count());
         Assert.Contains(nodes, node => node.Id == "copy.complete.1");
@@ -232,7 +232,7 @@ public sealed class ExecutionPackageIntegrationTests
         var main = new ExecutionGraph { Id = "main" };
         var value = main.Resource("value", Vector, GraphIO.InOut, ResourceScope.Session);
         main.Call("borrow", child).Bind("value", value, ResourceAccess.ReadWrite);
-        var program = new GraphPackage<ExecutionGraph>(main, child).Compile(VmTarget.Cpu, Cpu);
+        var program = new ExecutionGraphPackage(main, child).Compile(VmTarget.Cpu, Cpu);
         Assert.Equal("value", Assert.Single(program.State.Entries).Slot);
         Assert.Equal(VmSlotScope.Session, Assert.Single(program.Slots).Scope);
         Assert.False(value.IsState);
@@ -244,7 +244,7 @@ public sealed class ExecutionPackageIntegrationTests
         var graph = new ExecutionGraph { Id = "main" };
         graph.Resource("session", Vector, GraphIO.InOut, ResourceScope.Session, isState: true, bindingKey: "shared");
         graph.Resource("global", Vector, GraphIO.InOut, ResourceScope.Global, isState: true, bindingKey: "shared");
-        var program = new GraphPackage<ExecutionGraph>(graph).Compile(VmTarget.Cpu, Cpu);
+        var program = new ExecutionGraphPackage(graph).Compile(VmTarget.Cpu, Cpu);
         Assert.Equal(2, program.State.Entries.Select(entry => entry.Name).Distinct().Count());
         Assert.Contains(program.State.Entries, entry => entry.Name == "session:binding:shared");
         Assert.Contains(program.State.Entries, entry => entry.Name == "global:binding:shared");
@@ -267,7 +267,7 @@ public sealed class ExecutionPackageIntegrationTests
     [Fact]
     public void PackageInterfaceEnumeratorsFollowLaterMainGraphSelection()
     {
-        var package = new GraphPackage<ExecutionGraph>();
+        var package = new ExecutionGraphPackage();
         var inputs = package.Inputs;
         var first = new ExecutionGraph { Id = "first" };
         first.Resource("first", Vector, GraphIO.In);
@@ -289,7 +289,13 @@ public sealed class ExecutionPackageIntegrationTests
     {
         if (logical)
         {
-            CheckMetadata(new LogicalGraph { Id = "main" });
+            var graph = new LogicalGraph { Id = "main" };
+            graph.Operation("pending", "pending").Attributes.Add("empty", "");
+            var package = new LogicalGraphPackage(graph);
+            package.Metadata.Add("execution.backend", "descriptive");
+            var loaded = LogicalGraphPackageXml.Deserialize(LogicalGraphPackageXml.Serialize(package));
+            Assert.Equal("descriptive", loaded.Metadata["execution.backend"]);
+            Assert.Equal("", Assert.IsType<OperationAction>(loaded.MainGraph!.Actions[0]).Attributes["empty"]);
         }
         else
         {
@@ -297,13 +303,13 @@ public sealed class ExecutionPackageIntegrationTests
         }
     }
 
-    private static void CheckMetadata<TGraph>(TGraph graph) where TGraph : Graph, new()
+    private static void CheckMetadata(Graph graph)
     {
         graph.Operation("pending", "pending").Attributes.Add("empty", "");
-        var package = new GraphPackage<TGraph>(graph);
-        package.Metadata.Add(ExecutionPackage.BackendMetadataKey, "descriptive");
-        var loaded = GraphPackageXml.Deserialize<TGraph>(GraphPackageXml.Serialize(package));
-        Assert.Equal("descriptive", loaded.Metadata[ExecutionPackage.BackendMetadataKey]);
+        var package = new GraphPackage<Graph>(graph);
+        package.Metadata.Add("execution.backend", "descriptive");
+        var loaded = GraphPackageXml.Deserialize<Graph>(GraphPackageXml.Serialize(package));
+        Assert.Equal("descriptive", loaded.Metadata["execution.backend"]);
         Assert.Equal("", Assert.IsType<OperationAction>(loaded.MainGraph!.Actions[0]).Attributes["empty"]);
     }
 

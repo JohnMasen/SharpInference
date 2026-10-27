@@ -117,11 +117,11 @@ public sealed class GraphDependencyAnalyzerTests
         main.Call("second", child);
         var read = main.Operation("read", Operations.Copy);
         read.Bind("input", ResourceRef.InGraph("child", "temporary"), ResourceAccess.Read);
-        var package = new GraphPackage<LogicalGraph>(main, child);
-        Assert.Contains(GraphDependencyAnalyzer.Analyze(package, main).Diagnostics, item => item.Code == "A0006");
+        var package = new LogicalGraphPackage(main, child);
+        Assert.Contains(package.Analyze(main).Diagnostics, item => item.Code == "A0006");
         read.Bindings.Clear();
         read.Bind("input", ResourceRef.InCall("first", "temporary"), ResourceAccess.Read);
-        var result = GraphDependencyAnalyzer.Analyze(package, main);
+        var result = package.Analyze(main);
         Assert.DoesNotContain(result.Diagnostics, item => item.Code == "A0006");
         Assert.Contains(result.Diagnostics, item => item.Code == "A0002");
     }
@@ -138,10 +138,10 @@ public sealed class GraphDependencyAnalyzerTests
         var call = main.Call("outer", middle);
         var read = main.Operation("read", Operations.Copy);
         read.Bind("input", state, ResourceAccess.Read);
-        var package = new GraphPackage<LogicalGraph>(main, middle, leaf);
-        Assert.Contains(GraphDependencyAnalyzer.Analyze(package, main).Diagnostics, item => item.Code == "A0003");
+        var package = new LogicalGraphPackage(main, middle, leaf);
+        Assert.Contains(package.Analyze(main).Diagnostics, item => item.Code == "A0003");
         call.Then(read);
-        Assert.Empty(GraphDependencyAnalyzer.Analyze(package, main).Diagnostics);
+        Assert.Empty(package.Analyze(main).Diagnostics);
     }
 
     [Fact]
@@ -153,11 +153,11 @@ public sealed class GraphDependencyAnalyzerTests
         var local = main.Resource("same", Vector);
         main.Operation("write-local", Operations.Copy).Bind("output", local, ResourceAccess.Write);
         main.Operation("read-shared", Operations.Copy).Bind("input", weight, ResourceAccess.Read);
-        var result = GraphDependencyAnalyzer.Analyze(new GraphPackage<LogicalGraph>(main, weights), main);
+        var result = new LogicalGraphPackage(main, weights).Analyze(main);
         Assert.Empty(result.Diagnostics);
         Assert.Empty(result.Dependencies);
     }
 
     private static GraphAnalysis Analyze(LogicalGraph graph) =>
-        GraphDependencyAnalyzer.Analyze(new GraphPackage<LogicalGraph>(graph), graph);
+        new LogicalGraphPackage(graph).Analyze(graph);
 }

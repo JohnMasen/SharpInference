@@ -10,17 +10,17 @@ public sealed class ExecutionImplementationSelector(IEnumerable<IInstructionColl
 {
     private readonly InstructionRegistry registry = new(providers);
 
-    public void Select(GraphPackage<ExecutionGraph> package, string backend)
+    public void Select(ExecutionGraphPackage package, string backend)
     {
         Resolve(package, backend, select: true);
     }
 
-    public void Validate(GraphPackage<ExecutionGraph> package, string backend)
+    public void Validate(ExecutionGraphPackage package, string backend)
     {
         Resolve(package, backend, select: false);
     }
 
-    private void Resolve(GraphPackage<ExecutionGraph> package, string backend, bool select)
+    private void Resolve(ExecutionGraphPackage package, string backend, bool select)
     {
         ArgumentNullException.ThrowIfNull(package);
         ArgumentException.ThrowIfNullOrWhiteSpace(backend);
@@ -68,7 +68,7 @@ public sealed class ExecutionImplementationSelector(IEnumerable<IInstructionColl
                         throw new InvalidDataException($"Implementation access or parameter contracts conflict with '{graph.Id}/{operation.Id}'.");
                     }
 
-                    if (target == InstructionTarget.Direct3D12 && selected.Dispatch is null)
+                    if (target == ExecutionTarget.Direct3D12 && selected.Dispatch is null)
                     {
                         throw new InvalidDataException($"GPU operation '{graph.Id}/{operation.Id}' requires a dispatch configuration.");
                     }
@@ -104,7 +104,7 @@ public sealed class ExecutionImplementationSelector(IEnumerable<IInstructionColl
                         var requirement = operation.Precision ?? new PrecisionRequirement(
                             matching[0].Precision.ArithmeticType, matching[0].Precision.AccumulatorType);
                         var signature = instruction.Adapt(parameters, requirement);
-                        var dispatch = target == InstructionTarget.Direct3D12
+                        var dispatch = target == ExecutionTarget.Direct3D12
                             ? mapping?.Dispatch?.Invoke(new(tensors, operation.Attributes)) ?? DefaultDispatch(operation, tensors)
                             : null;
                         ValidateDispatch(dispatch, operation.Id);
@@ -131,14 +131,14 @@ public sealed class ExecutionImplementationSelector(IEnumerable<IInstructionColl
         }
     }
 
-    internal static InstructionTarget Target(string backend) => backend switch
+    internal static ExecutionTarget Target(string backend) => backend switch
     {
-        "cpu-vm" or "cpu" or "cpu.managed" => InstructionTarget.Cpu,
-        "d3d12-vm" or "d3d12" or "direct3d12" => InstructionTarget.Direct3D12,
+        "cpu-vm" or "cpu" or "cpu.managed" => ExecutionTarget.Cpu,
+        "d3d12-vm" or "d3d12" or "direct3d12" => ExecutionTarget.Direct3D12,
         _ => throw new NotSupportedException($"Unsupported execution backend '{backend}'."),
     };
 
-    private static GraphInstructionDispatch DefaultDispatch(
+    private static ExecutionDispatch DefaultDispatch(
         ExecutionOperation operation, IReadOnlyDictionary<string, TensorDescriptor> tensors)
     {
         var outputs = operation.Bindings.Where(binding => binding.Access != ResourceAccess.Read)
@@ -152,7 +152,7 @@ public sealed class ExecutionImplementationSelector(IEnumerable<IInstructionColl
         return new(64, 1, 1, checked((uint)((count + 63) / 64)), 1, 1);
     }
 
-    private static void ValidateDispatch(GraphInstructionDispatch? dispatch, string operation)
+    private static void ValidateDispatch(ExecutionDispatch? dispatch, string operation)
     {
         if (dispatch is null)
         {

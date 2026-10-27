@@ -1,3 +1,4 @@
+using SharpInference.Graphs.Execution;
 using System.Collections.ObjectModel;
 using SharpInference.Instructions;
 using SharpInference.Graphs;
@@ -168,7 +169,7 @@ public sealed class VmOperator : VmInstruction
     public VmOperator(PrecisionRequirement precision, Guid instructionCollectionId, string instructionName, IEnumerable<VmArgument> arguments,
         IReadOnlyDictionary<string, string>? attributes = null, IEnumerable<InstructionIndexBound>? indexBounds = null,
         IReadOnlyDictionary<string, ResourceAccess>? parameterAccesses = null,
-        KernelPrecisionProfile? resolvedPrecision = null,
+        ExecutionPrecision? resolvedPrecision = null,
         InstructionExecutionConfiguration? executionConfiguration = null)
         : this(precision, instructionName, 1, arguments, attributes)
     {
@@ -206,7 +207,7 @@ public sealed class VmOperator : VmInstruction
     /// <summary>Gets the minimum arithmetic and accumulator precision required by the invocation.</summary>
     public PrecisionRequirement Precision { get; }
     /// <summary>Gets the bound instruction's internal precision, or null before contract resolution.</summary>
-    public KernelPrecisionProfile? ResolvedPrecision { get; }
+    public ExecutionPrecision? ResolvedPrecision { get; }
     /// <summary>Gets the selected execution implementation, or null when no configuration is required.</summary>
     public InstructionExecutionConfiguration? ExecutionConfiguration { get; }
     /// <summary>Gets the legacy operation contract version.</summary>

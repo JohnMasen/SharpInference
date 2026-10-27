@@ -128,7 +128,7 @@ public sealed class Phi4AudioGraphModule : IPhi4GraphModule
     }
 
     /// <inheritdoc/>
-    public GraphPackage<LogicalGraph> Build(IModelTensorCatalog tensors)
+    public LogicalGraphPackage Build(IModelTensorCatalog tensors)
     {
         var metadata = ReadMetadata(tensors);
         var dimensions = metadata.Dimensions.ToDictionary(value => value.Key, value => checked((int)value.Value), StringComparer.Ordinal);
@@ -246,7 +246,7 @@ public sealed class Phi4AudioGraphModule : IPhi4GraphModule
         }, architecture: new(Description: "Projects Conformer features to decoder embeddings."));
         return builder.Build();
 
-        void Append(Phi4GraphComposer.Scope parentScope, GraphPackage<LogicalGraph> component, string tag, IReadOnlyDictionary<string, string> aliases) =>
+        void Append(Phi4GraphComposer.Scope parentScope, LogicalGraphPackage component, string tag, IReadOnlyDictionary<string, string> aliases) =>
             parentScope.AppendDefinition(component, tag, aliases);
         string Temporary(params int[] shape)
         {

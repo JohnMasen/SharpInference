@@ -6,7 +6,7 @@ public enum GraphDiagnosticSeverity
     Error,
 }
 
-/// <summary>A validation finding in a logical or execution graph.</summary>
+/// <summary>A validation finding associated with graph declarations.</summary>
 public sealed record GraphDiagnostic(
     GraphDiagnosticSeverity Severity,
     string Code,

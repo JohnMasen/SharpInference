@@ -1,3 +1,5 @@
+using SharpInference.Graphs.Execution;
+using SharpInference.Graphs;
 
 namespace SharpInference.Instructions;
 
@@ -112,7 +114,7 @@ public sealed class TierOnePointwiseDefinition
 public static class TierOnePointwiseCatalog
 {
     /// <summary>Gets the internal arithmetic and accumulator precision contract.</summary>
-    public static KernelPrecisionProfile Precision { get; } = new(ElementType.Float32, ElementType.Float32);
+    public static ExecutionPrecision Precision { get; } = new(ElementType.Float32, ElementType.Float32);
     /// <summary>Gets the complete set of supported FP32 pointwise fusion definitions.</summary>
     public static IReadOnlyList<TierOnePointwiseDefinition> Definitions { get; } = Array.AsReadOnly(Create());
     private static readonly IReadOnlyDictionary<string, TierOnePointwiseDefinition> ByName =

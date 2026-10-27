@@ -1,4 +1,4 @@
-namespace SharpInference.Instructions;
+namespace SharpInference.Graphs;
 
 /// <summary>Specifies the scalar element representation of a tensor.</summary>
 public enum ElementType

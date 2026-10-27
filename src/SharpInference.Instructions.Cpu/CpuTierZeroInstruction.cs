@@ -1,3 +1,4 @@
+using SharpInference.Graphs.Execution;
 using SharpInference.Instructions;
 using System.Globalization;
 using System.Text;
@@ -5,7 +6,7 @@ using SharpInference.Graphs;
 
 namespace SharpInference.Instructions.Cpu;
 
-internal sealed class CpuTierZeroInstruction(Guid id, string name) : TierZeroInstruction(id, name, InstructionTarget.Cpu)
+internal sealed class CpuTierZeroInstruction(Guid id, string name) : TierZeroInstruction(id, name, ExecutionTarget.Cpu)
 {
     protected override InstructionRecording Generate(InstructionParameter[] parameters)
     {

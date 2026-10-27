@@ -2,7 +2,6 @@
 
   <ItemGroup>
     <ProjectReference Include="..\SharpInference.Graphs.Core\SharpInference.Graphs.Core.csproj" />
-    <ProjectReference Include="..\SharpInference.Instructions\SharpInference.Instructions.csproj" />
   </ItemGroup>
 
   <PropertyGroup>

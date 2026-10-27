@@ -3,7 +3,7 @@ using System.Collections.ObjectModel;
 namespace SharpInference.Graphs;
 
 /// <summary>A collection of same-stage definitions with an explicitly selected entry graph.</summary>
-public sealed class GraphPackage<TGraph> : Collection<TGraph> where TGraph : Graph
+public class GraphPackage<TGraph> : Collection<TGraph> where TGraph : Graph
 {
     public Dictionary<string, string> Metadata { get; } = new(StringComparer.Ordinal);
     public string? MainGraphId { get; set; }
@@ -33,12 +33,15 @@ public sealed class GraphPackage<TGraph> : Collection<TGraph> where TGraph : Gra
         }
     }
 
-    public IReadOnlyList<GraphDiagnostic> Validate() =>
+    public virtual IReadOnlyList<GraphDiagnostic> Validate() => ValidateStructure();
+
+    public IReadOnlyList<GraphDiagnostic> ValidateStructure() =>
         GraphValidation.ValidatePackage(this, MainGraphId);
 
-    public GraphPackage<TGraph> Snapshot()
+    public virtual GraphPackage<TGraph> Snapshot()
     {
-        var copy = new GraphPackage<TGraph> { MainGraphId = MainGraphId };
+        var copy = CreateSnapshot();
+        copy.MainGraphId = MainGraphId;
         foreach (var pair in Metadata)
         {
             copy.Metadata.Add(pair.Key, pair.Value);
@@ -54,5 +57,19 @@ public sealed class GraphPackage<TGraph> : Collection<TGraph> where TGraph : Gra
             copy.Add(snapshot);
         }
         return copy;
+    }
+
+    protected virtual GraphPackage<TGraph> CreateSnapshot() => new();
+
+    protected IReadOnlyDictionary<string, GraphAnalysis> AnalyzeDefinitions(IReadOnlyList<GraphDiagnostic> diagnostics)
+    {
+        GraphValidation.ThrowIfErrors(diagnostics);
+        var results = new Dictionary<string, GraphAnalysis>(StringComparer.Ordinal);
+        foreach (var graph in this)
+        {
+            var result = GraphAnalysisEngine.AnalyzeValidated(this, graph, diagnostics, results);
+            results.TryAdd(graph.Id, result);
+        }
+        return results;
     }
 }

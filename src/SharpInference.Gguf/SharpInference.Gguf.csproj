@@ -5,4 +5,7 @@
     <Nullable>enable</Nullable>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\SharpInference.Graphs\SharpInference.Graphs.csproj" />
+  </ItemGroup>
 </Project>

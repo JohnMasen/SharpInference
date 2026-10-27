@@ -7,7 +7,7 @@ namespace SharpInference.Vm.Optimization;
 
 public sealed partial class VmExecutionGraphEmitter
 {
-    public VmProgram Emit(GraphPackage<ExecutionGraph> package, VmExecutionGraphEmitterOptions? options = null)
+    public VmProgram Emit(ExecutionGraphPackage package, VmExecutionGraphEmitterOptions? options = null)
     {
         ArgumentNullException.ThrowIfNull(package);
         options ??= new();
@@ -18,7 +18,7 @@ public sealed partial class VmExecutionGraphEmitter
         }
 
         var source = package.Snapshot();
-        ExecutionPackageCompilation.ValidatePlan(source);
+        GraphValidation.ThrowIfErrors(ExecutionPlanValidation.ValidatePlan(source));
         if (source.GetTarget() is not { } backend || ExecutionImplementationSelector.Target(backend) != instructionTarget)
         {
             throw new InvalidDataException("The execution package target does not match this VM emitter.");
@@ -56,7 +56,7 @@ public sealed partial class VmExecutionGraphEmitter
 
                 var address = resource.Scope switch
                 {
-                    ResourceScope.Call => $"local:{Encode(id)}/{Encode(ExecutionPackageCompilation.StorageSlot(graph, resource.Id))}",
+                    ResourceScope.Call => $"local:{Encode(id)}/{Encode(ExecutionPlanValidation.StorageSlot(graph, resource.Id))}",
                     ResourceScope.Session or ResourceScope.Global => SharedAddress(resource),
                     _ => throw new InvalidDataException($"Unknown scope at '{id}/{resource.Id}'."),
                 };

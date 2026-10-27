@@ -10,11 +10,11 @@ public sealed class DependencyReductionPostprocessor : IExecutionGraphPostproces
 {
     public string Name => "reduce-execution-dependencies";
 
-    public GraphPackage<ExecutionGraph> Process(GraphPackage<ExecutionGraph> package, ExecutionPassContext context)
+    public ExecutionGraphPackage Process(ExecutionGraphPackage package, ExecutionPassContext context)
     {
         ArgumentNullException.ThrowIfNull(package);
         ArgumentNullException.ThrowIfNull(context);
-        GraphValidation.ThrowIfErrors(package.Validate());
+        GraphValidation.ThrowIfErrors(package.ValidateStructure());
         var result = package.Snapshot();
         foreach (var graph in result)
         {

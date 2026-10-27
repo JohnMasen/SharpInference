@@ -1,3 +1,4 @@
+using SharpInference.Graphs.Execution;
 using SharpInference.Instructions;
 
 namespace SharpInference.Vm;
@@ -21,8 +22,8 @@ public static class VmInstructionContracts
     {
         var target = program.Target switch
         {
-            VmTarget.Cpu => InstructionTarget.Cpu,
-            VmTarget.Direct3D12 => InstructionTarget.Direct3D12,
+            VmTarget.Cpu => ExecutionTarget.Cpu,
+            VmTarget.Direct3D12 => ExecutionTarget.Direct3D12,
             _ => throw new NotSupportedException($"No instruction target adapter is installed for '{program.Target}'."),
         };
         var changed = false;

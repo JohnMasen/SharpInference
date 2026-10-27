@@ -1,3 +1,5 @@
+using SharpInference.Graphs.Execution;
+using SharpInference.Graphs;
 using System.Reflection;
 
 namespace SharpInference.Instructions;
@@ -15,25 +17,6 @@ public static class InstructionCollectionIds
     public static readonly Guid TransformerFloat32 = new("824d0f9c-16c7-46d8-b49d-0f91d6a4ec83");
 }
 
-/// <summary>Identifies the architecture on which an instruction implementation executes.</summary>
-public readonly record struct InstructionTarget
-{
-    /// <summary>Creates a target identity from a nonempty architecture name.</summary>
-    /// <param name="architecture">The architecture identifier used to select implementations.</param>
-    public InstructionTarget(string architecture)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(architecture);
-        Architecture = architecture;
-    }
-    /// <summary>Gets the architecture identifier used to select implementations.</summary>
-    public string Architecture { get; }
-    /// <summary>Identifies the managed CPU instruction architecture.</summary>
-    public static readonly InstructionTarget Cpu = new("cpu.managed");
-    /// <summary>Identifies the Direct3D12 instruction architecture.</summary>
-    public static readonly InstructionTarget Direct3D12 = new("direct3d12");
-    /// <inheritdoc/>
-    public override string ToString() => Architecture;
-}
 /// <summary>Specifies synchronization required after a recorded instruction.</summary>
 public enum InstructionSynchronization
 {
@@ -47,7 +30,7 @@ public enum InstructionSynchronization
 /// <param name="Name">The human-readable instruction collection name.</param>
 /// <param name="Tier">The nonnegative instruction optimization tier.</param>
 /// <param name="Architecture">The architecture identifier used to select implementations.</param>
-public sealed record InstructionCollectionDescription(Guid Id, string Name, int Tier, InstructionTarget Architecture);
+public sealed record InstructionCollectionDescription(Guid Id, string Name, int Tier, ExecutionTarget Architecture);
 /// <summary>Declares a named tensor port's element type and resource access.</summary>
 /// <param name="Name">The tensor port name used to match invocation parameters.</param>
 /// <param name="ElementType">The scalar storage representation of each tensor element.</param>
@@ -61,7 +44,7 @@ public sealed record InstructionSignature
     /// <param name="attributes">The attribute names required by the signature.</param>
     /// <param name="precision">The supported internal arithmetic and accumulator precision.</param>
     public InstructionSignature(IReadOnlyList<InstructionPort> ports, IReadOnlyList<string> attributes,
-        KernelPrecisionProfile precision)
+        ExecutionPrecision precision)
     {
         ArgumentNullException.ThrowIfNull(ports);
         ArgumentNullException.ThrowIfNull(attributes);
@@ -75,7 +58,7 @@ public sealed record InstructionSignature
     /// <summary>Gets the attribute names required by the signature.</summary>
     public IReadOnlyList<string> Attributes { get; }
     /// <summary>Gets the supported internal arithmetic and accumulator precision.</summary>
-    public KernelPrecisionProfile Precision { get; }
+    public ExecutionPrecision Precision { get; }
 }
 /// <summary>Constrains an index port using a tensor dimension and a minimum valid index.</summary>
 /// <param name="IndexPort">The port supplying index values to validate.</param>
@@ -138,7 +121,7 @@ public sealed class InstructionRecording
 public interface IInstructionRecorder
 {
     /// <summary>Gets the execution architecture required by this contract.</summary>
-    InstructionTarget Target { get; }
+    ExecutionTarget Target { get; }
     /// <summary>Records an instruction's generated source and compilation dependencies for this target.</summary>
     /// <param name="recording">The source, helpers, synchronization, and references to record.</param>
     void Record(InstructionRecording recording);
@@ -152,7 +135,7 @@ public abstract class Instruction
     /// <summary>Gets the registered instruction name within its collection.</summary>
     public abstract string Name { get; }
     /// <summary>Gets the execution architecture required by this contract.</summary>
-    public abstract InstructionTarget Target { get; }
+    public abstract ExecutionTarget Target { get; }
     /// <summary>Gets the parameter and precision signatures supported by this implementation.</summary>
     public abstract IReadOnlyList<InstructionSignature> Signatures { get; }
     /// <summary>Gets whether the instruction must execute in a kernel without other operations.</summary>
@@ -418,7 +401,7 @@ public sealed class InstructionRegistry : IInstructionCollectionProvider, IInstr
     /// <param name="collectionId">The identity of the collection providing this implementation.</param>
     /// <param name="instructionName">The registered instruction name.</param>
     /// <param name="target">The instruction architecture for implementation resolution.</param>
-    public Instruction Resolve(Guid collectionId, string instructionName, InstructionTarget target) =>
+    public Instruction Resolve(Guid collectionId, string instructionName, ExecutionTarget target) =>
         QueryInstruction(collectionId, instructionName).SingleOrDefault(instruction => instruction.Target == target)
         ?? throw new NotSupportedException($"No {target} implementation for '{collectionId:D}/{instructionName}'.");
 }

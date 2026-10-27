@@ -1,4 +1,4 @@
-namespace SharpInference.Instructions;
+namespace SharpInference.Graphs;
 
 /// <summary>Specifies whether a node reads, writes, or updates a resource.</summary>
 public enum ResourceAccess

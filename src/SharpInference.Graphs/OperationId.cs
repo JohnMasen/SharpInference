@@ -1,4 +1,4 @@
-namespace SharpInference.Instructions;
+namespace SharpInference.Graphs;
 
 /// <summary>Identifies an operation contract by name and version.</summary>
 /// <param name="Name">The operation contract name; this value type does not validate it.</param>

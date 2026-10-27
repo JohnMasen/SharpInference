@@ -9,8 +9,8 @@ Direct3D 12 VM backends. The repository is under active development.
 
 ```text
 model tensor catalog + model graph provider
-  -> GraphPackage<LogicalGraph>
-  -> GraphPackage<ExecutionGraph>
+  -> LogicalGraphPackage
+  -> ExecutionGraphPackage
   -> VmExecutionGraphEmitter
   -> VmProgram
   -> CpuVmCompiler / D3D12VmCompiler
@@ -36,7 +36,6 @@ registers declarations; explicit validation reports problems without changing th
 source. The package is the collection itself, with an explicitly selected main graph:
 
 ```csharp
-using SharpInference.Instructions;
 using SharpInference.Graphs;
 using SharpInference.Graphs.Logical;
 
@@ -50,10 +49,13 @@ var logical = InferenceGraphBuilder.Builder<LogicalGraph>("relu", graph =>
     relu.Bind("input", input, ResourceAccess.Read);
     relu.Bind("output", output, ResourceAccess.Write);
 });
-var package = new GraphPackage<LogicalGraph>(logical);
+var package = new LogicalGraphPackage(logical);
 var diagnostics = package.Validate();
-var xml = GraphPackageXml.Serialize(package);
-var restored = GraphPackageXml.Deserialize<LogicalGraph>(xml);
+var analyses = package.Analyze(); // Graph ID -> GraphAnalysis; does not add edges.
+var analysis = package.Analyze(logical);
+LogicalGraphPackage snapshot = package.Snapshot();
+var xml = LogicalGraphPackageXml.Serialize(package);
+var restored = LogicalGraphPackageXml.Deserialize(xml);
 ```
 
 Names use ordinal comparison. Objects and string IDs are both accepted by binding
@@ -63,12 +65,25 @@ schedule. Conversion/compilation captures a snapshot, validates the entire packa
 and analyzes value dependencies. `CompileBoundary` is logical author intent; it is
 not retained as an execution field or an enforced inlining restriction.
 
+`Graph.Validate()` is public and virtual; each stage overrides its own checks.
+Stage-package `Validate()` includes read-only value/dependency validation, while
+`ValidateStructure()` checks declarations, references, and structure without requiring
+a complete value plan. Explicit graph operations and optimizers can therefore work
+on unfinished sources. Stage packages support `new(main, helpers)` and preserve their
+concrete type through `Snapshot()`. `Analyze()` returns an
+`IReadOnlyDictionary<string, GraphAnalysis>` for all definitions; `Analyze(graph)`
+returns one result. Neither analysis nor validation inserts dependency edges.
+
 Resources declare `GraphIO`, `Scope` (`Call`, `Session`, `Global`), optional `Usage`,
 independent `IsState`, permission, and optional `BindingKey`. Resources and actions
 have extensible string `Category` values.
 
-`GraphPackageXml` is the single **version 1** source format, with
-`stage="business|logical|execution"`. Tensor shapes use `Tensor/Dimension`,
+The **version 1** XML shape is retained, with
+`stage="business|logical|execution"`. Use `GraphPackageXml.Serialize` /
+`Deserialize<Graph>` for the common business format only, and
+`LogicalGraphPackageXml.Serialize/Deserialize` or
+`ExecutionGraphPackageXml.Serialize/Deserialize` for the corresponding stage.
+Tensor shapes use `Tensor/Dimension`,
 metadata uses `Metadata/Entry`, and actions own `Binding` entries. Explicit
 ordering uses `GraphFlow/Then`. Execution packages additionally use a `Target`
 child, resource `Storage`, and action `Implementation`/`Dispatch`/`Sources`.
@@ -85,6 +100,7 @@ program using the existing nodes, edges, and graph calls:
 
 ```csharp
 using SharpInference.Instructions.Cpu;
+using SharpInference.Instructions;
 using SharpInference.Vm;
 using SharpInference.Vm.Optimization;
 using SharpInference.Vm.Optimization.GraphHelper;
@@ -98,7 +114,7 @@ var compiler = new ExecutionGraphCompiler(providers,
     new OperationTemplateSharingPostprocessor(),
 ]);
 var execution = compiler.Compile(package, context);
-// package is GraphPackage<LogicalGraph>; execution is GraphPackage<ExecutionGraph>.
+// package is LogicalGraphPackage; execution is ExecutionGraphPackage.
 var program = execution.Compile(VmTarget.Cpu, providers, options: null);
 ```
 
@@ -113,6 +129,15 @@ read-only implementation-contract validation; it never selects implementations.
 For standalone execution-package postprocessing, use
 `new ExecutionPassContext(context, index, processor.Name)`; its logical `Source`
 is nullable, so no synthetic logical graph is needed.
+
+The execution project owns read-only
+`ExecutionPlanValidation.ValidatePlan(package)` diagnostics and
+`ExecutionPlanValidation.StorageSlot(graph, id)` alias resolution. It also owns
+`ExecutionGraphRewriter` for explicit replace/fuse/extract/inline operations;
+external optimizers decide when and why to apply them. These APIs neither select
+instructions nor depend on VM compilation. Execution packages expose instance
+`SetTarget` / `GetTarget` methods and the `BackendMetadataKey` constant; the former
+`ExecutionPackage` helper is removed.
 
 - Dependency reduction preserves dependency reachability, including parallel
   edges, without changing resource bindings.
@@ -240,12 +265,14 @@ discovery after changing the build property or the default directory.
 | Area | Responsibility |
 | --- | --- |
 | `src/SharpInference.Graphs.Core` | Generic strongly typed graph, views, algorithms, patterns, and rewrites |
-| `src/SharpInference.Graphs` | Logical and execution graph models, construction, queries, validation, and XML support |
+| `src/SharpInference.Graphs` | Common business graph, tensor/operation/access/precision values, construction, queries, validation, and common XML |
+| `src/SharpInference.Graphs.Logical` | Logical graph/package, compilation-boundary intent, analysis, and logical XML |
+| `src/SharpInference.Graphs.Execution` | Execution graph/package, execution value contracts, plan validation, explicit rewrites, and execution XML |
 | `src/SharpInference.Models.Rwkv` | RWKV logical graph providers |
 | `src/SharpInference.Models.Phi4` | Phi-4 graph and model components |
-| `src/SharpInference.Instructions*` | Tensor, operation, access, and precision contracts; VM instructions and CPU/D3D12 implementations |
+| `src/SharpInference.Instructions*` | Instruction contracts, selection support, and CPU/D3D12 implementations; reuses graph value contracts |
 | `src/SharpInference.Vm` | VM program contracts |
-| `src/SharpInference.Vm.Optimization` | Conversion, compilation, rewrites, optimization, and VM emission; consumes both graph models |
+| `src/SharpInference.Vm.Optimization` | Conversion, instruction selection, compilation, optimization policy, and VM emission; consumes both graph stages |
 | `src/SharpInference.Backends.CpuVm` | CPU VM compiler and executor |
 | `src/SharpInference.Backends.D3D12Vm` | D3D12 VM compiler and executor |
 | `src/SharpInference.Tests` | Graph, emitter, and end-to-end inference tests |
@@ -255,27 +282,40 @@ discovery after changing the build property or the default directory.
 
 The graph domain namespaces are organized by responsibility:
 
-- `SharpInference.Instructions`: `ElementType`, `TensorDescriptor`, `ResourceAccess`,
-  `PrecisionRequirement`, `NumericTypeCompatibility`, `OperationId`, and `PrimitiveOperations`.
-- `SharpInference.Graphs`: editable `Graph`, resources/actions, bindings, packages, diagnostics, queries, and `GraphPackageXml`.
-- `SharpInference.Graphs.Logical` ([Logical](src/SharpInference.Graphs/Logical)):
-  `LogicalGraph`, carrying logical compilation-boundary intent.
-- `SharpInference.Graphs.Execution` ([Execution](src/SharpInference.Graphs/Execution)):
-  `ExecutionGraph`, selected implementations, storage, targets, and source origins.
+- `SharpInference.Graphs` ([project](src/SharpInference.Graphs)):
+  `ElementType`, `TensorDescriptor`, `ResourceAccess`, `PrecisionRequirement`,
+  `NumericTypeCompatibility`, `OperationId`, editable `Graph`, resources/actions,
+  bindings, common packages, diagnostics, queries, and business `GraphPackageXml`.
+- `SharpInference.Graphs.Logical` ([project](src/SharpInference.Graphs.Logical)):
+  `LogicalGraph`, `GraphCompileBoundary`, `LogicalGraphPackage`, and `LogicalGraphPackageXml`.
+- `SharpInference.Graphs.Execution` ([project](src/SharpInference.Graphs.Execution)):
+  `ExecutionGraph`, `ExecutionGraphPackage`, `ExecutionGraphPackageXml`, selected
+  implementations, storage, source origins, `ExecutionTarget` (formerly
+  `InstructionTarget`), `ExecutionPrecision` (formerly `KernelPrecisionProfile`),
+  and `ExecutionDispatch` (formerly `GraphInstructionDispatch`).
+- `SharpInference.Instructions`: concrete instruction contracts and
+  `PrimitiveOperations`; directly reuses the execution value contracts.
 - `SharpInference.Vm.Optimization.GraphHelper` ([GraphHelper](src/SharpInference.Vm.Optimization/GraphHelper)):
-  conversion, compilation, postprocessing contracts, and rewrites; not execution graph models.
-- `SharpInference.Graphs.Internal`: shared construction, validation, and XML support.
+  conversion, compilation, and postprocessing contracts; not execution graph models or rewrites.
+- `SharpInference.Graphs.Internal`: shared construction, validation, XML support,
+  and the stage-neutral fixed-point analysis mechanism.
   XML implementation details, including `GraphXmlSupport`, are internal.
 
-Use `GraphPackageXml.Serialize(package)` and
-`GraphPackageXml.Deserialize<TGraph>(xml)`, with `TGraph` equal to `Graph`,
-`LogicalGraph`, or `ExecutionGraph`. Older `GraphXml`, `LogicalGraphXml`, and
-`ExecutionGraphXml` entry points are removed.
-Consumers import the corresponding Logical or Execution namespace and reference Graphs.
+Public analysis entry points belong to the stage packages; the shared engine
+does not identify stages. Generic `GraphPackage<TGraph>` remains the common base,
+not the logical/execution production API. Public `GraphPackageXml.Serialize(GraphPackage<Graph>)`
+is non-generic. `Deserialize<Graph>(xml)` remains available; any derived `TGraph`
+throws `NotSupportedException`, preventing stage fields from being lost through
+the business facade. Stage-specific entry points are unchanged. Older `GraphXml`,
+`LogicalGraphXml`, and `ExecutionGraphXml` entry points remain removed.
+Consumers reference the corresponding Logical or Execution project and namespace.
 Constructing, querying, validating, or serializing an execution graph does not require
 Vm.Optimization. The optimizer references both graph models, never the reverse.
-Graphs depends on Graphs.Core and Instructions, not Abstractions, Vm, or
-Vm.Optimization; Instructions does not depend on either graph project.
+Graphs depends only on Graphs.Core. Logical and Execution are independent projects,
+each referencing only Graphs and Graphs.Core, not each other, Instructions, VM,
+optimizers, or models. Instructions references the graph layers, never the reverse.
+Model construction, concrete instruction selection, conversion/compilation, and
+VM `Compile` extensions remain in their existing consumer projects.
 
 ## License
 

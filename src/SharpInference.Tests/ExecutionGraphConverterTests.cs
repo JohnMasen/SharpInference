@@ -28,8 +28,8 @@ public sealed class ExecutionGraphConverterTests
         first.Bind("input", input, ResourceAccess.Read).Bind("output", middle, ResourceAccess.Write);
         var second = root.Call("second", child);
         second.Bind("input", middle, ResourceAccess.Read).Bind("output", output, ResourceAccess.Write);
-        var source = new GraphPackage<LogicalGraph>(root, child);
-        var before = GraphPackageXml.Serialize(source);
+        var source = new LogicalGraphPackage(root, child);
+        var before = LogicalGraphPackageXml.Serialize(source);
 
         var result = Converter().Convert(source, new("test", "cpu-vm"));
 
@@ -43,14 +43,14 @@ public sealed class ExecutionGraphConverterTests
         Assert.Equal(Operations.Copy, operation.Operation.Name);
         Assert.Equal("copy", Assert.Single(operation.Sources).Node);
         Assert.NotNull(operation.SelectedImplementation);
-        Assert.Equal(before, GraphPackageXml.Serialize(source));
+        Assert.Equal(before, LogicalGraphPackageXml.Serialize(source));
         Assert.Single(result.MainGraph.GraphFlow);
     }
 
     [Fact]
     public void CompilerRunsProcessorsInOrderWithOriginalSourceAndContext()
     {
-        var source = new GraphPackage<LogicalGraph>(CopyGraph("main"));
+        var source = new LogicalGraphPackage(CopyGraph("main"));
         var records = new List<string>();
         var context = new ExecutionGraphCompilationContext("test", "cpu-vm");
         var compiler = new ExecutionGraphCompiler([new CpuFloat32InstructionCollection()],
@@ -67,15 +67,15 @@ public sealed class ExecutionGraphConverterTests
     public void RewriterExtractsAndInlinesAnOperationChain()
     {
         var package = Chain();
-        var before = GraphPackageXml.Serialize(package);
+        var before = ExecutionGraphPackageXml.Serialize(package);
         var extracted = ExecutionGraphRewriter.ExtractNodesToGraph(package, "main", ["copy", "relu"], "kernel", "invoke");
         Assert.Equal(2, extracted.Count);
         Assert.IsType<ExecutionCall>(Assert.Single(extracted.MainGraph!.Actions));
         Assert.Equal(2, extracted.Single(graph => graph.Id == "kernel").Actions.Count);
         var inlined = ExecutionGraphRewriter.InlineGraphCall(extracted, "main", "invoke");
         Assert.Equal(["main", "kernel"], inlined.Select(graph => graph.Id));
-        Assert.Equal(GraphPackageXml.Serialize(new GraphPackage<ExecutionGraph>(extracted.Single(graph => graph.Id == "kernel"))),
-            GraphPackageXml.Serialize(new GraphPackage<ExecutionGraph>(inlined.Single(graph => graph.Id == "kernel"))));
+        Assert.Equal(ExecutionGraphPackageXml.Serialize(new ExecutionGraphPackage(extracted.Single(graph => graph.Id == "kernel"))),
+            ExecutionGraphPackageXml.Serialize(new ExecutionGraphPackage(inlined.Single(graph => graph.Id == "kernel"))));
         Assert.Equal(["invoke/copy", "invoke/relu"], inlined.MainGraph!.Actions.Select(action => action.Id));
         var diagnostics = inlined.Validate();
         Assert.DoesNotContain(diagnostics, diagnostic => diagnostic.Severity == GraphDiagnosticSeverity.Error);
@@ -83,7 +83,7 @@ public sealed class ExecutionGraphConverterTests
         Assert.Equal("P0002", unused.Code);
         Assert.Equal(GraphDiagnosticSeverity.Warning, unused.Severity);
         Assert.Equal("kernel", unused.Graph);
-        Assert.Equal(before, GraphPackageXml.Serialize(package));
+        Assert.Equal(before, ExecutionGraphPackageXml.Serialize(package));
     }
 
     [Fact]
@@ -123,24 +123,24 @@ public sealed class ExecutionGraphConverterTests
     [Fact]
     public void XmlProcessorReplacesMatchingPackageAndRejectsMismatchedTargetOrMain()
     {
-        var source = new GraphPackage<LogicalGraph>(CopyGraph("main"));
+        var source = new LogicalGraphPackage(CopyGraph("main"));
         var package = Converter().Convert(source, new("test", "cpu-vm"));
         var path = Path.Combine(Directory.GetCurrentDirectory(), $"execution-package-{Guid.NewGuid():N}.xml");
         try
         {
             var replacement = package.Snapshot();
             replacement.MainGraph!.Metadata["loaded"] = "yes";
-            File.WriteAllText(path, GraphPackageXml.Serialize(replacement));
+            File.WriteAllText(path, ExecutionGraphPackageXml.Serialize(replacement));
             var processor = new XmlExecutionPackagePostprocessor(path, "test", "cpu-vm");
             var context = new ExecutionPassContext(source, new("test", "cpu-vm"), 0, processor.Name);
             Assert.Equal("yes", processor.Process(package, context).MainGraph!.Metadata["loaded"]);
             Assert.Throws<InvalidOperationException>(() => processor.Process(package,
                 context with { Compilation = new("other-model", "cpu-vm") }));
             replacement.SetTarget("d3d12-vm");
-            File.WriteAllText(path, GraphPackageXml.Serialize(replacement));
+            File.WriteAllText(path, ExecutionGraphPackageXml.Serialize(replacement));
             Assert.Throws<InvalidDataException>(() => processor.Process(package, context));
             replacement = Converter().Convert(new(CopyGraph("other-main")), new("test", "cpu-vm"));
-            File.WriteAllText(path, GraphPackageXml.Serialize(replacement));
+            File.WriteAllText(path, ExecutionGraphPackageXml.Serialize(replacement));
             Assert.Throws<InvalidDataException>(() => processor.Process(package, context));
         }
         finally
@@ -149,7 +149,7 @@ public sealed class ExecutionGraphConverterTests
         }
     }
 
-    private static GraphPackage<ExecutionGraph> Chain()
+    private static ExecutionGraphPackage Chain()
     {
         var graph = CopyGraph("main");
         graph.Resources.Single(resource => resource.Id == "output").GraphIO = GraphIO.Internal;
@@ -176,9 +176,9 @@ public sealed class ExecutionGraphConverterTests
     private sealed class RecordingProcessor(string name, List<string> records) : IExecutionGraphPostprocessor
     {
         public string Name => name;
-        public GraphPackage<ExecutionGraph> Process(GraphPackage<ExecutionGraph> package, ExecutionPassContext context)
+        public ExecutionGraphPackage Process(ExecutionGraphPackage package, ExecutionPassContext context)
         {
-            Assert.Equal("main", Assert.IsType<GraphPackage<LogicalGraph>>(context.Source).MainGraphId);
+            Assert.Equal("main", Assert.IsType<LogicalGraphPackage>(context.Source).MainGraphId);
             records.Add($"{Name}:{context.ProcessorIndex}:{context.Compilation.ModelType}:{context.Compilation.Backend}");
             var result = package.Snapshot();
             result.MainGraph!.Metadata[Name] = "yes";

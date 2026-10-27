@@ -102,7 +102,7 @@ public sealed class ComputationGraphTests
         operation.Bind("input", resource, ResourceAccess.Read);
         operation.Attributes.Add("mode", "first");
         graph.Metadata.Add("name", "original");
-        var package = new GraphPackage<LogicalGraph>(graph);
+        var package = new LogicalGraphPackage(graph);
         var snapshot = package.Snapshot();
 
         operation.Attributes["mode"] = "second";
@@ -163,7 +163,7 @@ public sealed class ComputationGraphTests
         second.Bind("input", middle, ResourceAccess.Read);
         second.Bind("output", output, ResourceAccess.Write);
         first.Then(second);
-        var package = new GraphPackage<LogicalGraph>(main, child);
+        var package = new LogicalGraphPackage(main, child);
         Assert.DoesNotContain(package.Validate(), item => item.Severity == GraphDiagnosticSeverity.Error);
         second.Bindings.RemoveAt(1);
         var missing = Assert.Single(package.Validate(), item => item.Code == "P0005");
@@ -179,7 +179,7 @@ public sealed class ComputationGraphTests
             usage: ResourceUsage.Weight, permission: ResourcePermission.ReadOnly);
         var main = new LogicalGraph { Id = "main" };
         main.Operation("read", Operations.Copy).Bind("input", privateWeight, ResourceAccess.Read);
-        var package = new GraphPackage<LogicalGraph>(main, catalog);
+        var package = new LogicalGraphPackage(main, catalog);
         Assert.Empty(package.Validate());
     }
 
@@ -212,11 +212,11 @@ public sealed class ComputationGraphTests
         graph.Resource("state", Vector, GraphIO.InOut, ResourceScope.Session, isState: true);
         var call = graph.Call("later", "missing-target");
         call.Bind("input", "future", ResourceAccess.ReadWrite);
-        var package = new GraphPackage<LogicalGraph>(graph);
-        var xml = GraphPackageXml.Serialize(package);
-        var loaded = GraphPackageXml.Deserialize<LogicalGraph>(xml);
+        var package = new LogicalGraphPackage(graph);
+        var xml = LogicalGraphPackageXml.Serialize(package);
+        var loaded = LogicalGraphPackageXml.Deserialize(xml);
         var saved = Assert.Single(loaded);
-        Assert.Equal(xml, GraphPackageXml.Serialize(loaded));
+        Assert.Equal(xml, LogicalGraphPackageXml.Serialize(loaded));
         Assert.Equal(GraphCompileBoundary.Transparent, saved.CompileBoundary);
         Assert.Null(Assert.IsType<OperationAction>(saved.Actions[0]).Precision);
         Assert.True(saved.Resources.Single(resource => resource.Id == "state").IsState);

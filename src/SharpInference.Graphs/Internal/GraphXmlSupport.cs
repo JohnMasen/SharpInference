@@ -1,4 +1,3 @@
-using SharpInference.Instructions;
 using System.Collections.ObjectModel;
 using System.Globalization;
 using System.Xml;
@@ -6,7 +5,7 @@ using System.Xml.Linq;
 
 namespace SharpInference.Graphs.Internal;
 
-/// <summary>Shares XML primitives, validation, and limits between logical and execution serializers.</summary>
+/// <summary>Provides shared XML primitives, validation, and limits for graph package serializers.</summary>
 internal static class GraphXmlSupport
 {
     /// <summary>The maximum serialized string length and XML reader document character count.</summary>

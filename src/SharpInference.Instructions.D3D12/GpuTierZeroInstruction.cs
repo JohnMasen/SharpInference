@@ -1,3 +1,4 @@
+using SharpInference.Graphs.Execution;
 using SharpInference.Instructions;
 using System.Globalization;
 using System.Text;
@@ -5,7 +6,7 @@ using SharpInference.Graphs;
 using SharpInference.Vm;
 namespace SharpInference.Instructions.D3D12;
 
-internal sealed class GpuTierZeroInstruction(Guid id, string name) : TierZeroInstruction(id, name, InstructionTarget.Direct3D12)
+internal sealed class GpuTierZeroInstruction(Guid id, string name) : TierZeroInstruction(id, name, ExecutionTarget.Direct3D12)
 {
     protected override void ValidateExecutionConfiguration(InstructionExecutionConfiguration? configuration)
     {

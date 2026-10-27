@@ -1,4 +1,4 @@
-namespace SharpInference.Instructions;
+namespace SharpInference.Graphs;
 
 /// <summary>Specifies minimum arithmetic and accumulator precision for an operation.</summary>
 public sealed record PrecisionRequirement

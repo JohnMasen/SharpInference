@@ -1,4 +1,3 @@
-using SharpInference.Instructions;
 
 namespace SharpInference.Graphs.Execution;
 
@@ -6,6 +5,51 @@ namespace SharpInference.Graphs.Execution;
 public sealed class ExecutionGraph : Graph
 {
     public Dictionary<string, ExecutionStorage> Storage { get; } = new(StringComparer.Ordinal);
+
+    public override IReadOnlyList<GraphDiagnostic> Validate()
+    {
+        var diagnostics = base.Validate().ToList();
+        foreach (var action in Actions)
+        {
+            if (action is not (ExecutionOperation or ExecutionCall))
+            {
+                diagnostics.Add(new(GraphDiagnosticSeverity.Error, "G0017",
+                    "Execution graphs require execution actions.", action.Id, Graph: Id));
+            }
+            var sources = action switch
+            {
+                ExecutionOperation operation => operation.Sources,
+                ExecutionCall call => call.Sources,
+                _ => [],
+            };
+            if (sources.Any(source => string.IsNullOrWhiteSpace(source.Document) ||
+                string.IsNullOrWhiteSpace(source.Graph) || string.IsNullOrWhiteSpace(source.Node)))
+            {
+                diagnostics.Add(new(GraphDiagnosticSeverity.Error, "G0018",
+                    "A source origin requires document, graph and node identities.", action.Id, Graph: Id));
+            }
+            if (action is ExecutionOperation { SelectedImplementation: { } implementation } &&
+                (string.IsNullOrWhiteSpace(implementation.InstructionName) ||
+                 string.IsNullOrWhiteSpace(implementation.Target.Architecture) ||
+                 implementation.Precision is null ||
+                 implementation.Dispatch is { } dispatch &&
+                 (dispatch.ThreadsX == 0 || dispatch.ThreadsY == 0 || dispatch.ThreadsZ == 0 ||
+                  dispatch.GroupsX == 0 || dispatch.GroupsY == 0 || dispatch.GroupsZ == 0)))
+            {
+                diagnostics.Add(new(GraphDiagnosticSeverity.Error, "G0021",
+                    "An implementation requires instruction, target, precision and positive dispatch dimensions.", action.Id, Graph: Id));
+            }
+        }
+        foreach (var (id, storage) in Storage)
+        {
+            if (!Resources.Any(resource => resource.Id == id) || !Enum.IsDefined(storage.Kind) ||
+                storage.Slot is { } slot && (string.IsNullOrWhiteSpace(slot) || !Resources.Any(resource => resource.Id == slot)))
+            {
+                diagnostics.Add(new(GraphDiagnosticSeverity.Error, "G0019", $"Invalid storage selection for '{id}'.", Graph: Id));
+            }
+        }
+        return diagnostics;
+    }
 
     public override ExecutionOperation Operation(string id, OperationId operation)
     {
@@ -47,25 +91,11 @@ public sealed class ExecutionGraph : Graph
     }
 }
 
-public static class ExecutionPackage
-{
-    public const string BackendMetadataKey = "execution.backend";
-
-    public static void SetTarget(this GraphPackage<ExecutionGraph> package, string backend)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(backend);
-        package.Metadata[BackendMetadataKey] = backend;
-    }
-
-    public static string? GetTarget(this GraphPackage<ExecutionGraph> package) =>
-        package.Metadata.GetValueOrDefault(BackendMetadataKey);
-}
-
 public sealed record SourceOrigin(string Document, string Graph, string Node);
 
 public sealed record ExecutionImplementation(
-    Guid CollectionId, string InstructionName, InstructionTarget Target,
-    KernelPrecisionProfile Precision, GraphInstructionDispatch? Dispatch = null);
+    Guid CollectionId, string InstructionName, ExecutionTarget Target,
+    ExecutionPrecision Precision, ExecutionDispatch? Dispatch = null);
 
 public enum ResourceStorageKind { ExternalArgument, SharedBinding, LocalBuffer }
 public sealed record ExecutionStorage(ResourceStorageKind Kind, string? Slot = null);

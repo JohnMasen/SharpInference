@@ -1,3 +1,4 @@
+using SharpInference.Graphs.Execution;
 using System.Globalization;
 using System.Xml;
 using System.Xml.Linq;
@@ -219,7 +220,7 @@ public static class VmProgramXml
                 var requirement = new PrecisionRequirement(EnumValue<ElementType>(precision, "minimumArithmeticType"),
                     EnumValue<ElementType>(precision, "minimumAccumulatorType"));
                 var resolved = OptionalOne(instruction, "ResolvedPrecision");
-                KernelPrecisionProfile? capability = null;
+                ExecutionPrecision? capability = null;
                 if (resolved is not null)
                 {
                     Check(resolved, "ResolvedPrecision", ["arithmeticType", "accumulatorType"], []);

@@ -1,5 +1,5 @@
 
-namespace SharpInference.Graphs;
+namespace SharpInference.Graphs.Logical;
 
 /// <summary>Expresses the logical author's compilation-boundary intent.</summary>
 /// <remarks>Optimizers determine concrete transformations independently of the recorded intent.</remarks>

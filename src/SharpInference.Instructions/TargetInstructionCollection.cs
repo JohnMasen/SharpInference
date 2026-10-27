@@ -1,9 +1,10 @@
+using SharpInference.Graphs.Execution;
 namespace SharpInference.Instructions;
 
 /// <summary>Filters a provider's collections, implementations, and graph mappings to one architecture.</summary>
 /// <param name="provider">The instruction collection provider to filter.</param>
 /// <param name="target">The CPU or Direct3D12 VM execution backend.</param>
-public sealed class TargetInstructionCollection(IInstructionCollectionProvider provider, InstructionTarget target)
+public sealed class TargetInstructionCollection(IInstructionCollectionProvider provider, ExecutionTarget target)
     : IInstructionCollectionProvider, IInstructionOptimizationProvider, IGraphInstructionProvider
 {
     /// <summary>Returns descriptions of instruction collections exposed by the provider.</summary>

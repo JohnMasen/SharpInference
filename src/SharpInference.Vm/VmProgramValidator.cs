@@ -1,3 +1,5 @@
+using SharpInference.Graphs.Execution;
+using SharpInference.Graphs;
 using System.Diagnostics.CodeAnalysis;
 using SharpInference.Instructions;
 
@@ -120,8 +122,8 @@ public static class VmProgramValidator
                             (configuration is not (SharpInference.Instructions.CpuInstructionExecutionConfiguration or
                                 SharpInference.Instructions.D3D12InstructionExecutionConfiguration) ||
                             configuration.Target != (program.Target == VmTarget.Cpu
-                                ? SharpInference.Instructions.InstructionTarget.Cpu
-                                : SharpInference.Instructions.InstructionTarget.Direct3D12)))
+                                ? ExecutionTarget.Cpu
+                                : ExecutionTarget.Direct3D12)))
                         {
                             Fail($"Node '{node.Id}' has an incompatible execution configuration.");
                         }

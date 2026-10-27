@@ -64,7 +64,7 @@ public sealed class Phi4ModelGraphModule : IPhi4GraphModule
     }
 
     /// <inheritdoc/>
-    public GraphPackage<LogicalGraph> Build(IModelTensorCatalog tensors)
+    public LogicalGraphPackage Build(IModelTensorCatalog tensors)
     {
         var metadata = ReadMetadata(tensors);
         var dimensions = metadata.Dimensions.ToDictionary(

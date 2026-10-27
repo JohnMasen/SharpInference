@@ -6,4 +6,8 @@
     <ProjectReference Include="..\SharpInference.Vm\SharpInference.Vm.csproj" />
     <ProjectReference Include="..\SharpInference.Backends.Cpu\SharpInference.Backends.Cpu.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\SharpInference.Graphs\SharpInference.Graphs.csproj" />
+    <ProjectReference Include="..\SharpInference.Graphs.Execution\SharpInference.Graphs.Execution.csproj" />
+  </ItemGroup>
 </Project>

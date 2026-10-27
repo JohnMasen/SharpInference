@@ -26,7 +26,7 @@ public sealed class XmlExecutionPackagePostprocessor :
 
     public string Name => "load-execution-graph-xml";
 
-    public GraphPackage<ExecutionGraph> Process(GraphPackage<ExecutionGraph> package, ExecutionPassContext context)
+    public ExecutionGraphPackage Process(ExecutionGraphPackage package, ExecutionPassContext context)
     {
         ArgumentNullException.ThrowIfNull(package);
         ArgumentNullException.ThrowIfNull(context);
@@ -36,7 +36,7 @@ public sealed class XmlExecutionPackagePostprocessor :
                 $"not '{context.Compilation.ModelType}/{context.Compilation.Backend}'.");
         }
 
-        var loaded = GraphPackageXml.Deserialize<ExecutionGraph>(File.ReadAllText(path));
+        var loaded = ExecutionGraphPackageXml.Deserialize(File.ReadAllText(path));
         GraphValidation.ThrowIfErrors(loaded.Validate());
         if (loaded.MainGraphId != package.MainGraphId || loaded.GetTarget() != context.Compilation.Backend)
         {

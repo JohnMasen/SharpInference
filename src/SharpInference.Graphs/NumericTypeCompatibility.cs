@@ -1,4 +1,4 @@
-namespace SharpInference.Instructions;
+namespace SharpInference.Graphs;
 
 /// <summary>Provides numeric precision helpers for operation contracts.</summary>
 public static class NumericTypeCompatibility

@@ -1,3 +1,4 @@
+using SharpInference.Graphs.Execution;
 namespace SharpInference.Instructions;
 
 /// <summary>Identifies a concrete execution implementation using a bounded ASCII identifier.</summary>
@@ -37,7 +38,7 @@ public abstract record InstructionExecutionConfiguration
     /// <summary>Gets the identity of the selected execution implementation.</summary>
     public InstructionImplementationId Implementation { get; }
     /// <summary>Gets the execution architecture required by this contract.</summary>
-    public abstract InstructionTarget Target { get; }
+    public abstract ExecutionTarget Target { get; }
 }
 
 /// <summary>Selects an instruction implementation for managed CPU execution.</summary>
@@ -47,7 +48,7 @@ public sealed record CpuInstructionExecutionConfiguration : InstructionExecution
     /// <param name="implementation">The identity of the selected execution implementation.</param>
     public CpuInstructionExecutionConfiguration(InstructionImplementationId implementation) : base(implementation) { }
     /// <inheritdoc/>
-    public override InstructionTarget Target => InstructionTarget.Cpu;
+    public override ExecutionTarget Target => ExecutionTarget.Cpu;
 }
 
 /// <summary>Selects an instruction implementation for Direct3D12 execution.</summary>
@@ -57,5 +58,5 @@ public sealed record D3D12InstructionExecutionConfiguration : InstructionExecuti
     /// <param name="implementation">The identity of the selected execution implementation.</param>
     public D3D12InstructionExecutionConfiguration(InstructionImplementationId implementation) : base(implementation) { }
     /// <inheritdoc/>
-    public override InstructionTarget Target => InstructionTarget.Direct3D12;
+    public override ExecutionTarget Target => ExecutionTarget.Direct3D12;
 }

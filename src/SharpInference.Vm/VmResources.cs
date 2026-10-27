@@ -1,3 +1,4 @@
+using SharpInference.Graphs;
 namespace SharpInference.Vm;
 
 /// <summary>Provides byte-addressable storage for VM resources.</summary>

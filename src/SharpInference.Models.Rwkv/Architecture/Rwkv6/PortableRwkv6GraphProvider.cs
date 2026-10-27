@@ -15,7 +15,7 @@ public sealed class PortableRwkv6GraphProvider
     public string ArchitectureId => "rwkv-6";
 
     /// <inheritdoc/>
-    public GraphPackage<LogicalGraph> Build(IModelTensorCatalog tensors)
+    public LogicalGraphPackage Build(IModelTensorCatalog tensors)
     {
         ArgumentNullException.ThrowIfNull(tensors);
         var modelDimensions = RwkvTensorCatalogDimensions.Read(tensors);

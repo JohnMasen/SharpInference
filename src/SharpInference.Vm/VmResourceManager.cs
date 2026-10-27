@@ -1,3 +1,4 @@
+using SharpInference.Graphs;
 namespace SharpInference.Vm;
 
 /// <summary>Allocates program resources and manages shared global storage and session bindings.</summary>

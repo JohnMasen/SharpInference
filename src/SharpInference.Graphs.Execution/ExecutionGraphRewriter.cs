@@ -1,14 +1,13 @@
 using SharpInference.Graphs;
 using SharpInference.Graphs.Core;
 using SharpInference.Graphs.Execution;
-using SharpInference.Instructions;
 
-namespace SharpInference.Vm.Optimization.GraphHelper;
+namespace SharpInference.Graphs.Execution;
 
 public static class ExecutionGraphRewriter
 {
-    public static GraphPackage<ExecutionGraph> ReplaceGraphCallWithOperation(
-        GraphPackage<ExecutionGraph> package, string graphId, string callId, OperationId operation,
+    public static ExecutionGraphPackage ReplaceGraphCallWithOperation(
+        ExecutionGraphPackage package, string graphId, string callId, OperationId operation,
         IEnumerable<Binding>? bindings = null, ExecutionImplementation? implementation = null)
     {
         var result = CopyPackage(package);
@@ -39,12 +38,12 @@ public static class ExecutionGraphRewriter
             }
         }
 
-        GraphValidation.ThrowIfErrors(result.Validate());
+        GraphValidation.ThrowIfErrors(result.ValidateStructure());
         return result;
     }
 
-    public static GraphPackage<ExecutionGraph> FuseNodesToOperation(
-        GraphPackage<ExecutionGraph> package, string graphId, IEnumerable<string> nodeIds,
+    public static ExecutionGraphPackage FuseNodesToOperation(
+        ExecutionGraphPackage package, string graphId, IEnumerable<string> nodeIds,
         string fusedId, OperationId operation, IEnumerable<Binding> bindings,
         ExecutionImplementation? implementation = null)
     {
@@ -89,12 +88,12 @@ public static class ExecutionGraphRewriter
         graph.Actions.RemoveAll(action => ids.Contains(action.Id));
         graph.Actions.Insert(Math.Min(position, graph.Actions.Count), fused);
         ReplaceFlow(graph, ids, fusedId);
-        GraphValidation.ThrowIfErrors(result.Validate());
+        GraphValidation.ThrowIfErrors(result.ValidateStructure());
         return result;
     }
 
-    public static GraphPackage<ExecutionGraph> ExtractNodesToGraph(
-        GraphPackage<ExecutionGraph> package, string graphId, IEnumerable<string> nodeIds,
+    public static ExecutionGraphPackage ExtractNodesToGraph(
+        ExecutionGraphPackage package, string graphId, IEnumerable<string> nodeIds,
         string extractedId, string callId)
     {
         var result = CopyPackage(package);
@@ -183,12 +182,12 @@ public static class ExecutionGraphRewriter
 
         ReplaceFlow(graph, ids, callId);
         result.Add(child);
-        GraphValidation.ThrowIfErrors(result.Validate());
+        GraphValidation.ThrowIfErrors(result.ValidateStructure());
         return result;
     }
 
-    public static GraphPackage<ExecutionGraph> InlineGraphCall(
-        GraphPackage<ExecutionGraph> package, string graphId, string callId)
+    public static ExecutionGraphPackage InlineGraphCall(
+        ExecutionGraphPackage package, string graphId, string callId)
     {
         var result = CopyPackage(package);
         var graph = result.Single(graph => graph.Id == graphId);
@@ -313,14 +312,14 @@ public static class ExecutionGraphRewriter
             graph.GraphFlow.AddRange(incoming.SelectMany(before => entries.Select(entry => new GraphFlow(before.Source, new(entry)))));
             graph.GraphFlow.AddRange(outgoing.SelectMany(after => exits.Select(exit => new GraphFlow(new(exit), after.Target))));
         }
-        GraphValidation.ThrowIfErrors(result.Validate());
+        GraphValidation.ThrowIfErrors(result.ValidateStructure());
         return result;
     }
 
-    private static GraphPackage<ExecutionGraph> CopyPackage(GraphPackage<ExecutionGraph> package)
+    private static ExecutionGraphPackage CopyPackage(ExecutionGraphPackage package)
     {
         ArgumentNullException.ThrowIfNull(package);
-        GraphValidation.ThrowIfErrors(package.Validate());
+        GraphValidation.ThrowIfErrors(package.ValidateStructure());
         return package.Snapshot();
     }
 

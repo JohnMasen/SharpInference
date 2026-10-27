@@ -37,4 +37,8 @@
     <AssemblyMetadata Include="RwkvTestModelDirectory" Value="$(RwkvTestModelDirectory)" />
   </ItemGroup>
 
+  <ItemGroup>
+    <ProjectReference Include="..\SharpInference.Graphs.Execution\SharpInference.Graphs.Execution.csproj" />
+    <ProjectReference Include="..\SharpInference.Graphs.Logical\SharpInference.Graphs.Logical.csproj" />
+  </ItemGroup>
 </Project>

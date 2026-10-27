@@ -53,14 +53,14 @@ public sealed class ExecutionGraphPostprocessorTests
         Add(graph, "write", "a");
         Add(graph, "read", "output", "a", ["write"]);
         Add(graph, "next", "b", dependencies: ["read"]);
-        var before = GraphPackageXml.Serialize(new GraphPackage<ExecutionGraph>(graph));
+        var before = ExecutionGraphPackageXml.Serialize(new ExecutionGraphPackage(graph));
         var after = Process(new TemporaryResourceReusePostprocessor(), graph).MainGraph!;
         Assert.Equal("a", after.Storage["b"].Slot);
         Assert.Equal(ResourceStorageKind.LocalBuffer, after.Storage["b"].Kind);
         Assert.Equal(graph.Resources.Select(resource => resource.Id), after.Resources.Select(resource => resource.Id));
         Assert.Equal(graph.GraphFlow, after.GraphFlow);
         Assert.Equal(graph.Actions.SelectMany(action => action.Bindings), after.Actions.SelectMany(action => action.Bindings));
-        Assert.Equal(before, GraphPackageXml.Serialize(new GraphPackage<ExecutionGraph>(graph)));
+        Assert.Equal(before, ExecutionGraphPackageXml.Serialize(new ExecutionGraphPackage(graph)));
         AssertIdempotent(new TemporaryResourceReusePostprocessor(), new(graph));
     }
 
@@ -286,12 +286,12 @@ public sealed class ExecutionGraphPostprocessorTests
         return action;
     }
 
-    private static GraphPackage<ExecutionGraph> Process(IExecutionGraphPostprocessor processor, ExecutionGraph graph) =>
+    private static ExecutionGraphPackage Process(IExecutionGraphPostprocessor processor, ExecutionGraph graph) =>
         processor.Process(new(graph), Context);
 
-    private static void AssertIdempotent(IExecutionGraphPostprocessor processor, GraphPackage<ExecutionGraph> package)
+    private static void AssertIdempotent(IExecutionGraphPostprocessor processor, ExecutionGraphPackage package)
     {
         var once = processor.Process(package, Context);
-        Assert.Equal(GraphPackageXml.Serialize(once), GraphPackageXml.Serialize(processor.Process(once, Context)));
+        Assert.Equal(ExecutionGraphPackageXml.Serialize(once), ExecutionGraphPackageXml.Serialize(processor.Process(once, Context)));
     }
 }

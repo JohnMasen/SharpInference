@@ -1,4 +1,4 @@
-namespace SharpInference.Instructions;
+namespace SharpInference.Graphs;
 
 /// <summary>Describes a tensor's element type, positive dimensions, and logical layout.</summary>
 public sealed record TensorDescriptor

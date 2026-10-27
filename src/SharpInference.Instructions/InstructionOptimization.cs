@@ -1,3 +1,5 @@
+using SharpInference.Graphs.Execution;
+using SharpInference.Graphs;
 
 namespace SharpInference.Instructions;
 
@@ -32,7 +34,7 @@ public sealed class InstructionOptimizationCapability
     /// <param name="implementationFingerprint">The implementation identity used to match trusted measurements.</param>
     /// <param name="benefits">The categories of optimization benefit offered by the implementation.</param>
     /// <param name="definition">The pointwise fusion definition supported by this implementation.</param>
-    public InstructionOptimizationCapability(Guid collectionId, string name, InstructionTarget target,
+    public InstructionOptimizationCapability(Guid collectionId, string name, ExecutionTarget target,
         InstructionExecutionConfiguration configuration, string implementationFingerprint,
         InstructionBenefitKind benefits, TierOnePointwiseDefinition definition)
     {
@@ -61,7 +63,7 @@ public sealed class InstructionOptimizationCapability
     /// <summary>Gets the registered tier-one pointwise instruction name.</summary>
     public string Name { get; }
     /// <summary>Gets the execution architecture required by this contract.</summary>
-    public InstructionTarget Target { get; }
+    public ExecutionTarget Target { get; }
     /// <summary>Gets the concrete target execution configuration.</summary>
     public InstructionExecutionConfiguration Configuration { get; }
     /// <summary>Gets the implementation identity used to match trusted measurements.</summary>
@@ -71,7 +73,7 @@ public sealed class InstructionOptimizationCapability
     /// <summary>Gets the pointwise fusion definition supported by this implementation.</summary>
     public TierOnePointwiseDefinition Definition { get; }
     /// <summary>Gets the internal arithmetic and accumulator precision contract.</summary>
-    public KernelPrecisionProfile Precision => TierOnePointwiseCatalog.Precision;
+    public ExecutionPrecision Precision => TierOnePointwiseCatalog.Precision;
 
     /// <summary>Checks whether operand types, shapes, access, aliases, and precision permit this pointwise fusion.</summary>
     /// <param name="operands">The named tensor operands, including the writable output.</param>

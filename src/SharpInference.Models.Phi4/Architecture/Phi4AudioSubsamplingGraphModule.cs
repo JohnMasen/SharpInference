@@ -78,7 +78,7 @@ public sealed class Phi4AudioSubsamplingGraphModule : IPhi4GraphModule
     }
 
     /// <inheritdoc/>
-    public GraphPackage<LogicalGraph> Build(IModelTensorCatalog tensors)
+    public LogicalGraphPackage Build(IModelTensorCatalog tensors)
     {
         var metadata = ReadMetadata(tensors);
         var features = checked((int)metadata.Dimensions["features"]);

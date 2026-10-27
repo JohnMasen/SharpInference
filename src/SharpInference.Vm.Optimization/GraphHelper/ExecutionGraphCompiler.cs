@@ -28,18 +28,18 @@ public sealed class ExecutionGraphCompiler
         }
     }
 
-    public GraphPackage<ExecutionGraph> Compile(
-        GraphPackage<LogicalGraph> package, ExecutionGraphCompilationContext context)
+    public ExecutionGraphPackage Compile(
+        LogicalGraphPackage package, ExecutionGraphCompilationContext context)
     {
         ArgumentNullException.ThrowIfNull(package);
         ArgumentNullException.ThrowIfNull(context);
         var source = package.Snapshot();
         var diagnostics = source.Validate();
         GraphValidation.ThrowIfErrors(diagnostics);
-        var analyses = new Dictionary<string, GraphAnalysis>(StringComparer.Ordinal);
+        var analyses = source.Analyze();
         foreach (var graph in source)
         {
-            GraphValidation.ThrowIfErrors(GraphDependencyAnalyzer.AnalyzeValidated(source, graph, diagnostics, analyses).Diagnostics);
+            GraphValidation.ThrowIfErrors(analyses[graph.Id].Diagnostics);
         }
 
         var result = (converter.Convert(source, context)

@@ -16,4 +16,7 @@
                       LogicalName="SharpInference.Resources.rwkv_vocab_v20230424.txt" />
     <InternalsVisibleTo Include="SharpInference.Tests" />
   </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\SharpInference.Graphs.Logical\SharpInference.Graphs.Logical.csproj" />
+  </ItemGroup>
 </Project>

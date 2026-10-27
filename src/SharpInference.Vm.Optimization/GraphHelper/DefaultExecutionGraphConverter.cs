@@ -16,16 +16,16 @@ public sealed class DefaultExecutionGraphConverter : IExecutionGraphConverter
         this.providers = providers.ToArray();
     }
 
-    public GraphPackage<ExecutionGraph> Convert(
-        GraphPackage<LogicalGraph> package, ExecutionGraphCompilationContext context)
+    public ExecutionGraphPackage Convert(
+        LogicalGraphPackage package, ExecutionGraphCompilationContext context)
     {
         ArgumentNullException.ThrowIfNull(package);
         ArgumentNullException.ThrowIfNull(context);
         var source = package.Snapshot();
         var diagnostics = source.Validate();
         GraphValidation.ThrowIfErrors(diagnostics);
-        var result = new GraphPackage<ExecutionGraph> { MainGraphId = source.MainGraphId };
-        var analyses = new Dictionary<string, GraphAnalysis>(StringComparer.Ordinal);
+        var result = new ExecutionGraphPackage { MainGraphId = source.MainGraphId };
+        var analyses = source.Analyze();
         foreach (var pair in source.Metadata)
         {
             result.Metadata.Add(pair.Key, pair.Value);
@@ -33,7 +33,7 @@ public sealed class DefaultExecutionGraphConverter : IExecutionGraphConverter
 
         foreach (var definition in source)
         {
-            var analysis = GraphDependencyAnalyzer.AnalyzeValidated(source, definition, diagnostics, analyses);
+            var analysis = analyses[definition.Id];
             GraphValidation.ThrowIfErrors(analysis.Diagnostics);
             var graph = new ExecutionGraph { Id = definition.Id, Name = definition.Name, Description = definition.Description };
             foreach (var pair in definition.Metadata)

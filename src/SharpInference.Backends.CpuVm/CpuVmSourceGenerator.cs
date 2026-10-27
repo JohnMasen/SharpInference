@@ -1,3 +1,4 @@
+using SharpInference.Graphs.Execution;
 using System.Text;
 using System.Text.Json;
 using SharpInference.Instructions;
@@ -13,7 +14,7 @@ internal sealed class CpuVmSourceGenerator
     private readonly StringBuilder code = new();
     private readonly Dictionary<string, string> methods;
     private readonly InstructionRegistry registry;
-    private readonly SourceInstructionRecorder recorder = new(InstructionTarget.Cpu);
+    private readonly SourceInstructionRecorder recorder = new(ExecutionTarget.Cpu);
     internal Dictionary<string, List<CpuVmAccess>> Accesses { get; } = new(StringComparer.Ordinal);
     internal Dictionary<string, CpuVmCallFrame> Frames { get; } = new(StringComparer.Ordinal);
     internal IReadOnlyList<System.Reflection.Assembly> References => recorder.References;
@@ -96,7 +97,7 @@ internal sealed class CpuVmSourceGenerator
 
     private void Emit(VmDefinition definition, VmNode node, VmOperator operation)
     {
-        var instruction = registry.Resolve(operation.InstructionCollectionId, operation.InstructionName, InstructionTarget.Cpu);
+        var instruction = registry.Resolve(operation.InstructionCollectionId, operation.InstructionName, ExecutionTarget.Cpu);
         var contract = (VmOperator)contracts.Definitions.Single(value => value.Id == definition.Id)
             .Nodes.Single(value => value.Id == node.Id).Instruction;
         var parameters = VmInstructionParameters.Create(operation, definition.Parameters, p =>

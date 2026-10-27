@@ -1,3 +1,4 @@
+using SharpInference.Graphs;
 namespace SharpInference.Instructions;
 
 /// <summary>Standard backend-neutral primitive operation identifiers.</summary>

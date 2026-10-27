@@ -1,7 +1,9 @@
+using SharpInference.Graphs.Execution;
+using SharpInference.Graphs;
 namespace SharpInference.Instructions;
 
 /// <summary>Defines primitive instruction signatures without depending on a logical graph IR.</summary>
-public abstract class TierZeroInstruction(Guid collectionId, string name, InstructionTarget target) : Instruction
+public abstract class TierZeroInstruction(Guid collectionId, string name, ExecutionTarget target) : Instruction
 {
     private static readonly IReadOnlyDictionary<string, string[]> Ports =
         new Dictionary<string, string[]>(StringComparer.Ordinal)
@@ -45,7 +47,7 @@ public abstract class TierZeroInstruction(Guid collectionId, string name, Instru
 
     public override Guid CollectionId { get; } = collectionId;
     public override string Name { get; } = name;
-    public override InstructionTarget Target { get; } = target;
+    public override ExecutionTarget Target { get; } = target;
     public override bool RequiresDispatchIsolation => Name is not (
         "core.copy" or "core.add" or "core.subtract" or "core.multiply" or "core.divide" or
         "core.maximum" or "core.exp" or "core.tanh" or "core.sigmoid" or "core.rsqrt" or

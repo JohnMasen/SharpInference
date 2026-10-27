@@ -1,9 +1,8 @@
 #:project ..\src\SharpInference.Graphs.Core\SharpInference.Graphs.Core.csproj
 #:project ..\src\SharpInference.Graphs\SharpInference.Graphs.csproj
-#:project ..\src\SharpInference.Instructions\SharpInference.Instructions.csproj
+#:project ..\src\SharpInference.Graphs.Execution\SharpInference.Graphs.Execution.csproj
 
 using System.Diagnostics;
-using SharpInference.Instructions;
 using SharpInference.Graphs;
 using SharpInference.Graphs.Core;
 using SharpInference.Graphs.Execution;
@@ -84,7 +83,7 @@ static void Measure(string name, Func<int> action)
     Console.WriteLine($"{name} | {median.Time:F3} | {median.Allocated} | {median.Value}");
 }
 
-static GraphPackage<ExecutionGraph> CreatePackage(int size)
+static ExecutionGraphPackage CreatePackage(int size)
 {
     var graph = new ExecutionGraph { Id = "benchmark" };
     var tensor = new TensorDescriptor(ElementType.Float32, [4]);

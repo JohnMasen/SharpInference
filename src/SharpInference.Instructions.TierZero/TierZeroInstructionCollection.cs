@@ -1,3 +1,4 @@
+using SharpInference.Graphs.Execution;
 namespace SharpInference.Instructions;
 
 /// <summary>Builds the supported primitive instruction set using the supplied instruction factory.</summary>
@@ -8,7 +9,7 @@ public abstract class TierZeroInstructionCollection : IInstructionCollectionProv
 
     protected TierZeroInstructionCollection(
         Guid id,
-        InstructionTarget architecture,
+        ExecutionTarget architecture,
         Func<string, Instruction> create)
     {
         collections =

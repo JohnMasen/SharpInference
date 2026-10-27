@@ -1,0 +1,111 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="1270" viewBox="0 0 1000 1270" role="img" aria-labelledby="title description">
+  <title id="title">完整测试项目依赖图</title>
+  <desc id="description">三个测试项目共十九条直接项目引用。每条引用均为一条水平直线和一个箭头，无折点。相同名称表示相同项目。</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto">
+      <path d="M 0 0 L 10 5 L 0 10 Z" fill="#475569"/>
+    </marker>
+    <style>
+      text { font-family: "Segoe UI", "Microsoft YaHei", sans-serif; fill: #172033; }
+      .heading { font-size: 22px; font-weight: 600; }
+      .category { font-size: 16px; font-weight: 600; }
+      .node { font-size: 18px; text-anchor: middle; dominant-baseline: central; }
+      .source { fill: #f3e5f5; stroke: #7b1fa2; stroke-width: 1.5; }
+      .target { fill: white; stroke: #64748b; stroke-width: 1.3; }
+      .edge { stroke: #475569; stroke-width: 1.7; marker-end: url(#arrow); }
+    </style>
+  </defs>
+  <rect width="1000" height="1270" fill="white"/>
+  <text x="35" y="33" class="heading">测试项目</text>
+  <text x="475" y="33" class="heading">直接引用的项目</text>
+
+  <rect x="450" y="55" width="515" height="270" rx="5" fill="#e3f2fd"/>
+  <text x="475" y="80" class="category">图体系</text>
+  <rect x="35" y="96" width="250" height="208" rx="5" class="source"/>
+  <text x="160" y="200" class="node">Graphs.Tests</text>
+  <g class="target">
+    <rect x="475" y="96" width="460" height="40" rx="3"/>
+    <rect x="475" y="152" width="460" height="40" rx="3"/>
+    <rect x="475" y="208" width="460" height="40" rx="3"/>
+    <rect x="475" y="264" width="460" height="40" rx="3"/>
+  </g>
+  <g class="edge">
+    <line data-source="Graphs.Tests" data-target="Graphs.Core" x1="285" y1="116" x2="473" y2="116"/>
+    <line data-source="Graphs.Tests" data-target="Graphs" x1="285" y1="172" x2="473" y2="172"/>
+    <line data-source="Graphs.Tests" data-target="Graphs.Logical" x1="285" y1="228" x2="473" y2="228"/>
+    <line data-source="Graphs.Tests" data-target="Graphs.Execution" x1="285" y1="284" x2="473" y2="284"/>
+  </g>
+  <g class="node">
+    <text x="705" y="116">Graphs.Core</text>
+    <text x="705" y="172">Graphs</text>
+    <text x="705" y="228">Graphs.Logical</text>
+    <text x="705" y="284">Graphs.Execution</text>
+  </g>
+
+  <rect x="450" y="350" width="515" height="100" rx="5" fill="#e8f5e9"/>
+  <text x="475" y="375" class="category">文件格式</text>
+  <rect x="35" y="390" width="250" height="40" rx="5" class="source"/>
+  <text x="160" y="410" class="node">Gguf.Tests</text>
+  <rect x="475" y="390" width="460" height="40" rx="3" class="target"/>
+  <line class="edge" data-source="Gguf.Tests" data-target="Gguf" x1="285" y1="410" x2="473" y2="410"/>
+  <text x="705" y="410" class="node">Gguf</text>
+
+  <rect x="35" y="510" width="250" height="724" rx="5" class="source"/>
+  <text x="160" y="872" class="node">Tests</text>
+  <rect x="450" y="475" width="515" height="228" rx="5" fill="#e3f2fd"/>
+  <text x="475" y="500" class="category">图体系</text>
+  <rect x="450" y="715" width="515" height="180" rx="5" fill="#fff3e0"/>
+  <text x="475" y="740" class="category">指令体系</text>
+  <rect x="450" y="907" width="515" height="180" rx="5" fill="#f1f5f9"/>
+  <text x="475" y="932" class="category">优化与 VM 后端</text>
+  <rect x="450" y="1099" width="515" height="147" rx="5" fill="#e8f5e9"/>
+  <text x="475" y="1124" class="category">模型</text>
+  <g class="target">
+    <rect x="475" y="510" width="460" height="36" rx="3"/>
+    <rect x="475" y="558" width="460" height="36" rx="3"/>
+    <rect x="475" y="606" width="460" height="36" rx="3"/>
+    <rect x="475" y="654" width="460" height="36" rx="3"/>
+    <rect x="475" y="750" width="460" height="36" rx="3"/>
+    <rect x="475" y="798" width="460" height="36" rx="3"/>
+    <rect x="475" y="846" width="460" height="36" rx="3"/>
+    <rect x="475" y="942" width="460" height="30" rx="3"/>
+    <rect x="475" y="978" width="460" height="30" rx="3"/>
+    <rect x="475" y="1014" width="460" height="30" rx="3"/>
+    <rect x="475" y="1050" width="460" height="30" rx="3"/>
+    <rect x="475" y="1134" width="460" height="30" rx="3"/>
+    <rect x="475" y="1169" width="460" height="30" rx="3"/>
+    <rect x="475" y="1204" width="460" height="30" rx="3"/>
+  </g>
+  <g class="edge">
+    <line data-source="Tests" data-target="Graphs.Core" x1="285" y1="528" x2="473" y2="528"/>
+    <line data-source="Tests" data-target="Graphs" x1="285" y1="576" x2="473" y2="576"/>
+    <line data-source="Tests" data-target="Graphs.Logical" x1="285" y1="624" x2="473" y2="624"/>
+    <line data-source="Tests" data-target="Graphs.Execution" x1="285" y1="672" x2="473" y2="672"/>
+    <line data-source="Tests" data-target="Instructions" x1="285" y1="768" x2="473" y2="768"/>
+    <line data-source="Tests" data-target="Instructions.Cpu" x1="285" y1="816" x2="473" y2="816"/>
+    <line data-source="Tests" data-target="Instructions.D3D12" x1="285" y1="864" x2="473" y2="864"/>
+    <line data-source="Tests" data-target="Vm" x1="285" y1="957" x2="473" y2="957"/>
+    <line data-source="Tests" data-target="Vm.Optimization" x1="285" y1="993" x2="473" y2="993"/>
+    <line data-source="Tests" data-target="Backends.CpuVm" x1="285" y1="1029" x2="473" y2="1029"/>
+    <line data-source="Tests" data-target="Backends.D3D12Vm" x1="285" y1="1065" x2="473" y2="1065"/>
+    <line data-source="Tests" data-target="Models.Rwkv" x1="285" y1="1149" x2="473" y2="1149"/>
+    <line data-source="Tests" data-target="Models.Phi4" x1="285" y1="1184" x2="473" y2="1184"/>
+    <line data-source="Tests" data-target="Models.Ggml" x1="285" y1="1219" x2="473" y2="1219"/>
+  </g>
+  <g class="node">
+    <text x="705" y="528">Graphs.Core</text>
+    <text x="705" y="576">Graphs</text>
+    <text x="705" y="624">Graphs.Logical</text>
+    <text x="705" y="672">Graphs.Execution</text>
+    <text x="705" y="768">Instructions</text>
+    <text x="705" y="816">Instructions.Cpu</text>
+    <text x="705" y="864">Instructions.D3D12</text>
+    <text x="705" y="957">Vm</text>
+    <text x="705" y="993">Vm.Optimization</text>
+    <text x="705" y="1029">Backends.CpuVm</text>
+    <text x="705" y="1065">Backends.D3D12Vm</text>
+    <text x="705" y="1149">Models.Rwkv</text>
+    <text x="705" y="1184">Models.Phi4</text>
+    <text x="705" y="1219">Models.Ggml</text>
+  </g>
+</svg>

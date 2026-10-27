@@ -1,13 +1,14 @@
+using SharpInference.Graphs.Execution;
 namespace SharpInference.Instructions;
 
 /// <summary>Collects source recordings and deduplicates helper declarations and assembly references.</summary>
 /// <param name="target">The CPU or Direct3D12 VM execution backend.</param>
-public sealed class SourceInstructionRecorder(InstructionTarget target) : IInstructionRecorder
+public sealed class SourceInstructionRecorder(ExecutionTarget target) : IInstructionRecorder
 {
     private readonly List<InstructionRecording> recordings = [];
     private readonly Dictionary<string, InstructionHelper> helpers = new(StringComparer.Ordinal);
     /// <summary>Gets the execution architecture required by this contract.</summary>
-    public InstructionTarget Target { get; } = target;
+    public ExecutionTarget Target { get; } = target;
     /// <summary>Gets the instruction recordings in invocation order.</summary>
     public IReadOnlyList<InstructionRecording> Recordings => recordings.AsReadOnly();
     /// <summary>Gets the named helper declarations required by the recorded source.</summary>
@@ -26,7 +27,7 @@ public sealed class SourceInstructionRecorder(InstructionTarget target) : IInstr
             throw new InvalidDataException("Unknown instruction synchronization.");
         }
 
-        if (Target == InstructionTarget.Cpu && recording.Synchronization != InstructionSynchronization.None)
+        if (Target == ExecutionTarget.Cpu && recording.Synchronization != InstructionSynchronization.None)
         {
             throw new NotSupportedException("CPU recorder does not support GPU group synchronization.");
         }

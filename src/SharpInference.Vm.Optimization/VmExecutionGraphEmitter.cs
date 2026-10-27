@@ -1,3 +1,5 @@
+using SharpInference.Graphs.Execution;
+using SharpInference.Graphs;
 using SharpInference.Instructions;
 
 namespace SharpInference.Vm.Optimization;
@@ -13,7 +15,7 @@ public sealed record VmExecutionGraphEmitterOptions(
 public sealed partial class VmExecutionGraphEmitter
 {
     private readonly VmTarget target;
-    private readonly InstructionTarget instructionTarget;
+    private readonly ExecutionTarget instructionTarget;
     private readonly InstructionRegistry registry;
     private readonly ExecutionImplementationSelector implementationValidator;
 
@@ -23,8 +25,8 @@ public sealed partial class VmExecutionGraphEmitter
         this.target = target;
         instructionTarget = target switch
         {
-            VmTarget.Cpu => InstructionTarget.Cpu,
-            VmTarget.Direct3D12 => InstructionTarget.Direct3D12,
+            VmTarget.Cpu => ExecutionTarget.Cpu,
+            VmTarget.Direct3D12 => ExecutionTarget.Direct3D12,
             _ => throw new NotSupportedException($"No VM emitter is installed for target '{target}'."),
         };
         registry = new InstructionRegistry(instructionCollections);

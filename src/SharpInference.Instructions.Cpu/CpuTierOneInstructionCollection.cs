@@ -1,3 +1,4 @@
+using SharpInference.Graphs.Execution;
 namespace SharpInference.Instructions.Cpu;
 
 /// <summary>Provides optimized Float32 CPU pointwise instructions and their graph optimization capabilities.</summary>
@@ -9,7 +10,7 @@ public sealed class CpuTierOneInstructionCollection : IInstructionCollectionProv
 
     /// <inheritdoc/>
     public IReadOnlyList<InstructionCollectionDescription> QueryInstructionCollection() =>
-        [new(InstructionCollectionIds.TierOneFloat32, "FP32 optimized pointwise", 1, InstructionTarget.Cpu)];
+        [new(InstructionCollectionIds.TierOneFloat32, "FP32 optimized pointwise", 1, ExecutionTarget.Cpu)];
 
     /// <inheritdoc/>
     public IReadOnlyList<Instruction> QueryInstruction(Guid collectionId, string instructionName) =>

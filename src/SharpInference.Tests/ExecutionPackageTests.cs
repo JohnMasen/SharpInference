@@ -26,9 +26,9 @@ public sealed class ExecutionPackageTests
         Assert.Null(Assert.IsType<OperationAction>(source.MainGraph!.Actions[0]).Precision);
         Assert.Equal(ElementType.Float32, operation.SelectedImplementation!.Precision.ArithmeticType);
         Assert.Equal(new SourceOrigin("test", "main", "copy"), Assert.Single(operation.Sources));
-        var xml = GraphPackageXml.Serialize(execution);
-        var loaded = GraphPackageXml.Deserialize<ExecutionGraph>(xml);
-        Assert.Equal(xml, GraphPackageXml.Serialize(loaded));
+        var xml = ExecutionGraphPackageXml.Serialize(execution);
+        var loaded = ExecutionGraphPackageXml.Deserialize(xml);
+        Assert.Equal(xml, ExecutionGraphPackageXml.Serialize(loaded));
         Assert.Equal("cpu-vm", loaded.GetTarget());
         Assert.NotSame(operation, loaded.MainGraph!.Actions[0]);
     }
@@ -149,16 +149,16 @@ public sealed class ExecutionPackageTests
             graph.Storage.Add(resource.Id, new(ResourceStorageKind.ExternalArgument));
         }
 
-        var package = new GraphPackage<ExecutionGraph>(graph);
+        var package = new ExecutionGraphPackage(graph);
         new ExecutionImplementationSelector([new CpuFloat32InstructionCollection()]).Select(package, "cpu-vm");
-        var loaded = GraphPackageXml.Deserialize<ExecutionGraph>(GraphPackageXml.Serialize(package));
+        var loaded = ExecutionGraphPackageXml.Deserialize(ExecutionGraphPackageXml.Serialize(package));
         Assert.Equal(2, Assert.IsType<ExecutionOperation>(loaded.MainGraph!.Actions[0]).Sources.Count);
         Assert.IsType<ExecutionOperation>(graph.Actions[0]).Sources.Clear();
         var saved = package.Snapshot();
         Assert.Empty(Assert.IsType<ExecutionOperation>(saved.MainGraph!.Actions[0]).Sources);
     }
 
-    private static GraphPackage<LogicalGraph> Pass(ElementType elementType = ElementType.Float32)
+    private static LogicalGraphPackage Pass(ElementType elementType = ElementType.Float32)
     {
         var graph = new LogicalGraph { Id = "main" };
         var tensor = new TensorDescriptor(elementType, [8]);
@@ -170,7 +170,7 @@ public sealed class ExecutionPackageTests
         return new(graph);
     }
 
-    private static GraphPackage<ExecutionGraph> Convert(GraphPackage<LogicalGraph> source) =>
+    private static ExecutionGraphPackage Convert(LogicalGraphPackage source) =>
         new DefaultExecutionGraphConverter([new CpuFloat32InstructionCollection()])
             .Convert(source, new("test", "cpu-vm"));
 
@@ -178,7 +178,7 @@ public sealed class ExecutionPackageTests
     {
         public override Guid CollectionId => Guid.Empty;
         public override string Name => Operations.Copy;
-        public override InstructionTarget Target => InstructionTarget.Cpu;
+        public override ExecutionTarget Target => ExecutionTarget.Cpu;
         public override IReadOnlyList<InstructionSignature> Signatures =>
             [new([new("input", ElementType.Float16, ResourceAccess.Read),
                 new("output", ElementType.Float16, ResourceAccess.Write)], [],

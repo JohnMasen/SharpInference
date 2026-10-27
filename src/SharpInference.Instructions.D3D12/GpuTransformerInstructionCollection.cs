@@ -1,3 +1,4 @@
+using SharpInference.Graphs.Execution;
 using SharpInference.Instructions;
 using System.Globalization;
 using SharpInference.Graphs;
@@ -37,7 +38,7 @@ public sealed class GpuTransformerInstructionCollection : IInstructionCollection
     /// <inheritdoc/>
     public IReadOnlyList<InstructionCollectionDescription> QueryInstructionCollection() =>
         [new(InstructionCollectionIds.TransformerFloat32,
-            "FP32 transformer operations", 1, InstructionTarget.Direct3D12)];
+            "FP32 transformer operations", 1, ExecutionTarget.Direct3D12)];
 
     /// <inheritdoc/>
     public IReadOnlyList<Instruction> QueryInstruction(Guid collectionId, string instructionName) =>
@@ -306,12 +307,12 @@ internal abstract class GpuTransformerInstruction(
     IReadOnlyList<InstructionPort> ports,
     IReadOnlyList<string>? attributes = null) : Instruction
 {
-    private static readonly KernelPrecisionProfile Precision =
+    private static readonly ExecutionPrecision Precision =
         new(ElementType.Float32, ElementType.Float32);
 
     public override Guid CollectionId => InstructionCollectionIds.TransformerFloat32;
     public override string Name => name;
-    public override InstructionTarget Target => InstructionTarget.Direct3D12;
+    public override ExecutionTarget Target => ExecutionTarget.Direct3D12;
     public override IReadOnlyList<InstructionSignature> Signatures { get; } =
         [new(ports, attributes ?? [], Precision)];
 

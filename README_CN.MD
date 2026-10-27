@@ -9,8 +9,8 @@ SharpInference 是一个实验性的 .NET 推理编译器，提供 CPU 与 Direc
 
 ```text
 模型张量目录 + 模型图提供器
-  -> GraphPackage<LogicalGraph>
-  -> GraphPackage<ExecutionGraph>
+  -> LogicalGraphPackage
+  -> ExecutionGraphPackage
   -> VmExecutionGraphEmitter
   -> VmProgram
   -> CpuVmCompiler / D3D12VmCompiler
@@ -33,7 +33,6 @@ Package 自身就是同阶段图的集合，通过 `MainGraphId` 明确入口。
 下面描述 `output = ReLU(input)`：
 
 ```csharp
-using SharpInference.Instructions;
 using SharpInference.Graphs;
 using SharpInference.Graphs.Logical;
 
@@ -47,18 +46,28 @@ var logical = InferenceGraphBuilder.Builder<LogicalGraph>("relu", graph =>
     relu.Bind("input", input, ResourceAccess.Read);
     relu.Bind("output", output, ResourceAccess.Write);
 });
-var package = new GraphPackage<LogicalGraph>(logical);
+var package = new LogicalGraphPackage(logical);
 var diagnostics = package.Validate();
 foreach (var diagnostic in diagnostics)
     Console.WriteLine($"{diagnostic.Code}: {diagnostic.Message}");
-var xml = GraphPackageXml.Serialize(package);
-var restored = GraphPackageXml.Deserialize<LogicalGraph>(xml);
+var analyses = package.Analyze(); // 图 ID -> GraphAnalysis，不补边。
+var analysis = package.Analyze(logical);
+LogicalGraphPackage snapshot = package.Snapshot();
+var xml = LogicalGraphPackageXml.Serialize(package);
+var restored = LogicalGraphPackageXml.Deserialize(xml);
 ```
 
 名字区分大小写，绑定支持资源对象和字符串身份。`Validate()` 不改源图；
 构造不自动验证或补边。转换／编译先捕获快照，验证整个 Package，再分析值来源与依赖，
 不以声明顺序强制串行化。`CompileBoundary` 仅表达逻辑作者意图；
 Execution 不保留该字段，也不将它作为强制内联规则。
+
+`Graph.Validate()` 为 public virtual，各阶段 override 负责自身专属检查。
+阶段包的 `Validate()` 包含只读的完整值／依赖检查；`ValidateStructure()` 仅检查
+声明、引用和结构，不要求已有完整值方案，供优化器和显式图操作处理未完成源。
+阶段包支持 `new(main, helpers)`，`Snapshot()` 保持具体包类型。
+`Analyze()` 返回所有定义的 `IReadOnlyDictionary<string, GraphAnalysis>`，
+`Analyze(graph)` 返回单图结果；分析和验证都不补写依赖边。
 
 子图调用显式绑定接口；同一定义可复用，调用点各有身份和实参：
 
@@ -72,8 +81,8 @@ var parent = InferenceGraphBuilder.Builder<LogicalGraph>("model", graph =>
     call.Bind("input", input, ResourceAccess.Read);
     call.Bind("output", output, ResourceAccess.Write);
 });
-var model = new GraphPackage<LogicalGraph>(parent, logical);
-var modelXml = GraphPackageXml.Serialize(model);
+var model = new LogicalGraphPackage(parent, logical);
+var modelXml = LogicalGraphPackageXml.Serialize(model);
 ```
 
 资源用 `GraphIO`、`Scope`（Call／Session／Global）、可选 `Usage`、独立的
@@ -81,7 +90,10 @@ var modelXml = GraphPackageXml.Serialize(model);
 为可扩展字符串。`first.Then(second)` 将完成到开始的约束写入 `GraphFlow`，
 允许分支和汇合，不等于把所有动作按登记顺序串行执行。
 
-`GraphPackageXml` 统一使用 **version 1**，`stage` 为 business／logical／execution。
+XML 保留 **version 1** 外形，`stage` 为 business／logical／execution。
+公共 `GraphPackageXml.Serialize`／`Deserialize<Graph>` 仅处理 business 公用格式；
+逻辑包使用 `LogicalGraphPackageXml.Serialize/Deserialize`，
+执行包使用 `ExecutionGraphPackageXml.Serialize/Deserialize`，不通过公共入口保存阶段字段。
 形状保存为 `Tensor/Dimension`，元数据为 `Metadata/Entry`，Action 内保存 `Binding`，
 `GraphFlow/Then` 保存显式偏序。执行包另有 `Target` 子节点、资源 `Storage`、
 动作 `Implementation`／`Dispatch`／`Sources`。旧图 XML 和候选 draft XML 不兼容。
@@ -93,10 +105,11 @@ XML 只包含图描述，不包含实际权重、输入或运行中状态的数�
 ## 可选执行图 Postprocessor
 
 三个 Pass 都不依赖模型名称，需要显式启用；默认 Converter 和 Emitter 不自动
-优化。输入输出都是 `GraphPackage<ExecutionGraph>`：
+优化。输入输出都是 `ExecutionGraphPackage`：
 
 ```csharp
 using SharpInference.Instructions.Cpu;
+using SharpInference.Instructions;
 using SharpInference.Vm;
 using SharpInference.Vm.Optimization;
 using SharpInference.Vm.Optimization.GraphHelper;
@@ -110,7 +123,7 @@ var compiler = new ExecutionGraphCompiler(providers,
     new OperationTemplateSharingPostprocessor(),
 ]);
 var execution = compiler.Compile(package, context);
-// package 为 GraphPackage<LogicalGraph>。
+// package 为 LogicalGraphPackage，execution 为 ExecutionGraphPackage。
 var program = execution.Compile(VmTarget.Cpu, providers, options: null);
 ```
 
@@ -122,6 +135,13 @@ Compiler 统一构造器为 `(providers, postprocessors: null, converter: null)`
 Emitter 只读校验实现合同，不选择实现。独立执行包应用后处理时使用
 `new ExecutionPassContext(context, index, processor.Name)`，逻辑 Source 可空，
 无需伪造 LogicalGraph。
+
+执行项目提供只读诊断入口 `ExecutionPlanValidation.ValidatePlan(package)`，
+以及解析存储别名的 `ExecutionPlanValidation.StorageSlot(graph, id)`。
+`ExecutionGraphRewriter` 同样归执行项目，提供显式 replace／fuse／extract／inline；
+是否应用由外部优化器决定，不在图层选择指令或编译 VM。
+执行包通过实例方法 `SetTarget`／`GetTarget` 和常量 `BackendMetadataKey` 保存目标，
+原 `ExecutionPackage` 辅助类已移除。
 
 - 依赖精简保持所有依赖可达性，正确处理平行边，不改变资源绑定。
 - Temporary 复用要求 TensorDescriptor 完全一致，并由依赖偏序证明生命周期
@@ -236,12 +256,14 @@ expected-logits 文件。
 | 区域 | 职责 |
 | --- | --- |
 | `src/SharpInference.Graphs.Core` | 通用强类型图、View、算法、模式与重写 |
-| `src/SharpInference.Graphs` | 逻辑图和执行图模型、构图、查询、校验与 XML 辅助 |
+| `src/SharpInference.Graphs` | 公共业务图、张量／操作／访问／精度值合同、构图、查询、校验与公用 XML |
+| `src/SharpInference.Graphs.Logical` | 逻辑图／包、编译边界意图、分析与逻辑 XML |
+| `src/SharpInference.Graphs.Execution` | 执行图／包、执行值合同、方案校验、显式改写与执行 XML |
 | `src/SharpInference.Models.Rwkv` | RWKV 逻辑图提供器 |
 | `src/SharpInference.Models.Phi4` | Phi-4 图与模型组件 |
-| `src/SharpInference.Instructions*` | 张量、操作、访问与精度契约，VM 指令及 CPU/D3D12 实现 |
+| `src/SharpInference.Instructions*` | 指令合同、选择支持及 CPU/D3D12 实现；复用图层值合同 |
 | `src/SharpInference.Vm` | VM 程序契约 |
-| `src/SharpInference.Vm.Optimization` | 转换、编译、改写、优化与 VM 发射；消费两种图模型 |
+| `src/SharpInference.Vm.Optimization` | 转换、具体指令选择、编译、优化策略与 VM 发射；消费两种阶段图 |
 | `src/SharpInference.Backends.CpuVm` | CPU VM 编译器与执行器 |
 | `src/SharpInference.Backends.D3D12Vm` | D3D12 VM 编译器与执行器 |
 | `src/SharpInference.Tests` | 图、Emitter 与端到端推理测试 |
@@ -251,26 +273,33 @@ expected-logits 文件。
 
 图领域命名空间按职责组织：
 
-- `SharpInference.Instructions`：`ElementType`、`TensorDescriptor`、`ResourceAccess`、
-  `PrecisionRequirement`、`NumericTypeCompatibility`、`OperationId` 和 `PrimitiveOperations`。
-- `SharpInference.Graphs`：可编辑 Graph、资源／Action、绑定、Package、诊断、查询和 GraphPackageXml。
-- `SharpInference.Graphs.Logical`（[Logical](src/SharpInference.Graphs/Logical)）：
-  LogicalGraph 及其逻辑编译边界意图。
-- `SharpInference.Graphs.Execution`（[Execution](src/SharpInference.Graphs/Execution)）：
-  ExecutionGraph、选定实现、存储安排、目标及来源。
+- `SharpInference.Graphs`（[项目](src/SharpInference.Graphs)）：`ElementType`、
+  `TensorDescriptor`、`ResourceAccess`、`PrecisionRequirement`、`NumericTypeCompatibility`、
+  `OperationId`、可编辑 Graph、资源／Action、绑定、公共包、诊断、查询及 business GraphPackageXml。
+- `SharpInference.Graphs.Logical`（[项目](src/SharpInference.Graphs.Logical)）：
+  `LogicalGraph`、`GraphCompileBoundary`、`LogicalGraphPackage` 和 `LogicalGraphPackageXml`。
+- `SharpInference.Graphs.Execution`（[项目](src/SharpInference.Graphs.Execution)）：
+  `ExecutionGraph`、`ExecutionGraphPackage`、`ExecutionGraphPackageXml`、选定实现、存储及来源；
+  `ExecutionTarget`（原 `InstructionTarget`）、`ExecutionPrecision`（原 `KernelPrecisionProfile`）、
+  `ExecutionDispatch`（原 `GraphInstructionDispatch`）。
+- `SharpInference.Instructions`：具体指令合同和 `PrimitiveOperations`，直接复用执行值合同。
 - `SharpInference.Vm.Optimization.GraphHelper`（[GraphHelper](src/SharpInference.Vm.Optimization/GraphHelper)）：
-  转换、编译、后处理契约与重写，不再定义执行图模型。
-- `SharpInference.Graphs.Internal`：共享构造、校验与 XML 辅助。
+  转换、编译和后处理契约，不定义执行图模型或显式改写。
+- `SharpInference.Graphs.Internal`：共享构造、校验、XML 辅助和无阶段识别的固定点分析机制。
   GraphXmlSupport 等 XML 实现细节保持 internal。
 
-三阶段均使用 `GraphPackageXml.Serialize(package)` 和
-`GraphPackageXml.Deserialize<TGraph>(xml)`，其中 TGraph 为 Graph、
-LogicalGraph 或 ExecutionGraph。旧 GraphXml、LogicalGraphXml、
-ExecutionGraphXml 入口已移除。
-消费者导入对应的 Logical 或 Execution 命名空间并引用 Graphs。
+分析公开入口在阶段包，共享引擎不识别阶段。
+`GraphPackage<TGraph>` 保留为公共基类，不再作为逻辑／执行阶段的生产包 API。
+公共 `GraphPackageXml.Serialize(GraphPackage<Graph>)` 为非泛型入口。
+`Deserialize<Graph>(xml)` 仍可用；任意派生 `TGraph` 明确抛出 `NotSupportedException`，
+避免旧调用经 business 门面丢失阶段字段。阶段专属入口不变。
+旧 GraphXml、LogicalGraphXml、ExecutionGraphXml 入口仍已移除。
+消费者引用对应 Logical 或 Execution 独立项目并导入其命名空间。
 构造、查询、校验和读写执行图不需要引用优化器；优化器依赖两种图模型，不能反向引用。
-Graphs 仅依赖 Graphs.Core 和 Instructions，不依赖 Abstractions、Vm，也不反向依赖
-Vm.Optimization；Instructions 不依赖两个图项目。
+Graphs 仅依赖 Graphs.Core。Logical 和 Execution 是独立项目，均仅引用 Graphs 和
+Graphs.Core，彼此不引用，也不引用 Instructions、VM、优化器或模型。
+指令系统引用图层，不能反向引用。模型构造、具体指令选择、转换／编译及 VM
+`Compile` 扩展保留在原消费者项目。
 
 ## 许可证
 

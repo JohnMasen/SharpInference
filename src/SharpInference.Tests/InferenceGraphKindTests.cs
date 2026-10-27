@@ -67,7 +67,7 @@ public sealed class InferenceGraphKindTests
         var operation = graph.Operation("copy", Operations.Copy);
         operation.Category = "custom.copy";
         operation.Bind("input", input, ResourceAccess.Read).Bind("output", output, ResourceAccess.Write);
-        var loaded = GraphPackageXml.Deserialize<LogicalGraph>(GraphPackageXml.Serialize(new GraphPackage<LogicalGraph>(graph)));
+        var loaded = LogicalGraphPackageXml.Deserialize(LogicalGraphPackageXml.Serialize(new LogicalGraphPackage(graph)));
         Assert.Same(loaded.MainGraph!.Actions[0], Assert.Single(loaded.MainGraph.Readers(loaded.MainGraph.Resources[0])));
         Assert.Same(loaded.MainGraph.Actions[0], Assert.Single(loaded.MainGraph.Writers(loaded.MainGraph.Resources[1])));
         var execution = new DefaultExecutionGraphConverter([new CpuFloat32InstructionCollection()])
@@ -75,8 +75,8 @@ public sealed class InferenceGraphKindTests
         Assert.Equal("custom.copy", execution.MainGraph!.Actions[0].Category);
         Assert.Equal(["custom.input", "custom.output"], execution.MainGraph.Resources.Select(resource => resource.Category));
         Assert.Equal("custom.copy", Assert.Single(execution.MainGraph.DependencyGraph().Nodes).NodeKind);
-        var xml = GraphPackageXml.Serialize(execution);
-        Assert.Equal(xml, GraphPackageXml.Serialize(GraphPackageXml.Deserialize<ExecutionGraph>(xml)));
+        var xml = ExecutionGraphPackageXml.Serialize(execution);
+        Assert.Equal(xml, ExecutionGraphPackageXml.Serialize(ExecutionGraphPackageXml.Deserialize(xml)));
     }
 
     [Fact]
@@ -85,7 +85,7 @@ public sealed class InferenceGraphKindTests
         var graph = new LogicalGraph { Id = "main" };
         graph.Actions.Add(new UnknownAction(graph));
         Assert.Contains(graph.Validate(), diagnostic => diagnostic.Code == "G0010");
-        Assert.Throws<NotSupportedException>(() => GraphPackageXml.Serialize(new GraphPackage<LogicalGraph>(graph)));
+        Assert.Throws<NotSupportedException>(() => LogicalGraphPackageXml.Serialize(new LogicalGraphPackage(graph)));
     }
 
     [Fact]
@@ -113,7 +113,7 @@ public sealed class InferenceGraphKindTests
         operation.Bind("output", scratch, ResourceAccess.Write);
         var main = new ExecutionGraph { Id = "main" };
         main.Call("invoke", child).Category = "custom.call";
-        var inlined = ExecutionGraphRewriter.InlineGraphCall(new GraphPackage<ExecutionGraph>(main, child), "main", "invoke");
+        var inlined = ExecutionGraphRewriter.InlineGraphCall(new ExecutionGraphPackage(main, child), "main", "invoke");
         Assert.Equal("custom.scratch", Assert.Single(inlined.MainGraph!.Resources).Category);
         Assert.Equal("custom.write", Assert.Single(inlined.MainGraph.Actions).Category);
         var diagnostics = inlined.Validate();

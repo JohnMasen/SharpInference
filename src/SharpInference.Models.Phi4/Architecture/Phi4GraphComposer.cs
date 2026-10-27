@@ -63,7 +63,7 @@ public interface IPhi4GraphModule
     string ArchitectureId { get; }
     bool CanLoad(IModelTensorCatalog tensors);
     ModelMetadata ReadMetadata(IModelTensorCatalog tensors);
-    GraphPackage<LogicalGraph> Build(IModelTensorCatalog tensors);
+    LogicalGraphPackage Build(IModelTensorCatalog tensors);
 }
 
 /// <summary>Composes Phi-4 architecture sections and component calls into native logical graphs.</summary>
@@ -166,7 +166,7 @@ internal sealed class Phi4GraphComposer
     }
 
     internal void AppendDefinition(
-        GraphPackage<LogicalGraph> package, string tag,
+        LogicalGraphPackage package, string tag,
         IReadOnlyDictionary<string, string> aliases, bool exposeOutputs = false)
     {
         var definition = package.MainGraph
@@ -286,7 +286,7 @@ internal sealed class Phi4GraphComposer
         return values;
     }
 
-    internal GraphPackage<LogicalGraph> Build() => new(graph, definitions.Values.ToArray());
+    internal LogicalGraphPackage Build() => new(graph, definitions.Values.ToArray());
 
     internal sealed class Scope
     {
@@ -323,7 +323,7 @@ internal sealed class Phi4GraphComposer
             return this;
         }
 
-        internal void AppendDefinition(GraphPackage<LogicalGraph> definition, string tag,
+        internal void AppendDefinition(LogicalGraphPackage definition, string tag,
             IReadOnlyDictionary<string, string> aliases, bool exposeOutputs = false) =>
             composer.AppendDefinition(definition, tag, aliases, exposeOutputs);
 
@@ -382,6 +382,6 @@ internal sealed class Phi4GraphComposer
             return this;
         }
 
-        internal GraphPackage<LogicalGraph> Build() => composer.Build();
+        internal LogicalGraphPackage Build() => composer.Build();
     }
 }

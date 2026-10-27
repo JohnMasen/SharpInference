@@ -71,7 +71,7 @@ public sealed class Phi4FusionGraphModule : IPhi4GraphModule
     }
 
     /// <inheritdoc/>
-    public GraphPackage<LogicalGraph> Build(IModelTensorCatalog tensors)
+    public LogicalGraphPackage Build(IModelTensorCatalog tensors)
     {
         var dimensions = ReadMetadata(tensors).Dimensions.ToDictionary(pair => pair.Key, pair => checked((int)pair.Value));
         var width = dimensions["embedding_width"];

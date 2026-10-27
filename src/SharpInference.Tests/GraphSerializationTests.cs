@@ -43,7 +43,7 @@ public sealed class GraphSerializationTests
     [Fact]
     public void IndependentPackageFixturePreservesCategoriesBindingsAndCanonicalRoundTrip()
     {
-        var package = GraphPackageXml.Deserialize<LogicalGraph>(Fixture);
+        var package = LogicalGraphPackageXml.Deserialize(Fixture);
         Assert.Empty(package.Validate());
         Assert.Equal("main", package.MainGraphId);
         Assert.Equal("Copy", package.MainGraph!.Name);
@@ -51,8 +51,8 @@ public sealed class GraphSerializationTests
         var operation = Assert.IsType<OperationAction>(Assert.Single(package.MainGraph.Actions));
         Assert.Equal("custom.copy", operation.Category);
         Assert.Equal(["input", "output"], operation.Bindings.Select(binding => binding.SourceProperty));
-        var xml = GraphPackageXml.Serialize(package);
-        Assert.Equal(xml, GraphPackageXml.Serialize(GraphPackageXml.Deserialize<LogicalGraph>(xml)));
+        var xml = LogicalGraphPackageXml.Serialize(package);
+        Assert.Equal(xml, LogicalGraphPackageXml.Serialize(LogicalGraphPackageXml.Deserialize(xml)));
     }
 
     [Fact]
@@ -62,15 +62,15 @@ public sealed class GraphSerializationTests
         var operation = Assert.IsType<ExecutionOperation>(package.MainGraph!.Actions[0]);
         operation.Source("fixture", "original", "add");
         package.MainGraph.Metadata["role"] = "residual";
-        var xml = GraphPackageXml.Serialize(package);
-        var loaded = GraphPackageXml.Deserialize<ExecutionGraph>(xml);
+        var xml = ExecutionGraphPackageXml.Serialize(package);
+        var loaded = ExecutionGraphPackageXml.Deserialize(xml);
         Assert.Empty(loaded.Validate());
         Assert.Equal("cpu-vm", loaded.GetTarget());
         Assert.Equal(operation.SelectedImplementation, Assert.IsType<ExecutionOperation>(loaded.MainGraph!.Actions[0]).SelectedImplementation);
         Assert.Equal(operation.Sources, Assert.IsType<ExecutionOperation>(loaded.MainGraph.Actions[0]).Sources);
         Assert.Equal(package.MainGraph.GraphFlow, loaded.MainGraph.GraphFlow);
         Assert.Equal(package.MainGraph.Storage.OrderBy(pair => pair.Key), loaded.MainGraph.Storage.OrderBy(pair => pair.Key));
-        Assert.Equal(xml, GraphPackageXml.Serialize(loaded));
+        Assert.Equal(xml, ExecutionGraphPackageXml.Serialize(loaded));
     }
 
     [Theory]
@@ -82,13 +82,13 @@ public sealed class GraphSerializationTests
     public void UnsupportedOrMalformedXmlIsRejected(string before, string after)
     {
         Assert.Throws<InvalidDataException>(() =>
-            GraphPackageXml.Deserialize<LogicalGraph>(Fixture.Replace(before, after, StringComparison.Ordinal)));
+            LogicalGraphPackageXml.Deserialize(Fixture.Replace(before, after, StringComparison.Ordinal)));
     }
 
     [Fact]
     public void MissingReferencesAreReportedByPackageValidation()
     {
-        var package = GraphPackageXml.Deserialize<LogicalGraph>(
+        var package = LogicalGraphPackageXml.Deserialize(
             Fixture.Replace("targetProperty=\"input\"", "targetProperty=\"missing\"", StringComparison.Ordinal));
         Assert.Contains(package.Validate(), diagnostic => diagnostic.Code == "G0012");
     }
@@ -102,14 +102,14 @@ public sealed class GraphSerializationTests
         {
             if (execution)
             {
-                GraphPackageXml.Deserialize<ExecutionGraph>(xml);
+                ExecutionGraphPackageXml.Deserialize(xml);
             }
             else
             {
-                GraphPackageXml.Deserialize<LogicalGraph>(xml);
+                LogicalGraphPackageXml.Deserialize(xml);
             }
         }
-        var xml = execution ? GraphPackageXml.Serialize(Convert(Residual())) : Fixture;
+        var xml = execution ? ExecutionGraphPackageXml.Serialize(Convert(Residual())) : Fixture;
         Assert.Throws<InvalidDataException>(() => Read("<!DOCTYPE GraphPackage [<!ENTITY x 'copy'>]>" + xml));
         Assert.Contains("size limit", Assert.Throws<InvalidDataException>(() =>
             Read(new string(' ', 16 * 1024 * 1024 + 1))).Message, StringComparison.Ordinal);
@@ -132,25 +132,25 @@ public sealed class GraphSerializationTests
             var resource = root.Resource(id, Vector, isState: true, bindingKey: id);
             root.Call(id, child).Bind("state", resource, ResourceAccess.ReadWrite);
         }
-        var xml = GraphPackageXml.Serialize(new GraphPackage<LogicalGraph>(root, child));
+        var xml = LogicalGraphPackageXml.Serialize(new LogicalGraphPackage(root, child));
         Assert.Equal(3, XDocument.Parse(xml).Descendants("Binding").Count());
-        var loaded = GraphPackageXml.Deserialize<LogicalGraph>(xml);
+        var loaded = LogicalGraphPackageXml.Deserialize(xml);
         Assert.Equal(["first", "second"], loaded.MainGraph!.Actions.Select(action => Assert.Single(action.Bindings).Target.TargetProperty));
         Assert.Empty(loaded.Validate());
-        Assert.Equal(xml, GraphPackageXml.Serialize(loaded));
+        Assert.Equal(xml, LogicalGraphPackageXml.Serialize(loaded));
     }
 
     [Fact]
     public void CodeAndXmlProduceIdenticalCpuSourceAndExecuteResidualCorrectly()
     {
         var source = Residual();
-        var restored = GraphPackageXml.Deserialize<LogicalGraph>(GraphPackageXml.Serialize(source));
+        var restored = LogicalGraphPackageXml.Deserialize(LogicalGraphPackageXml.Serialize(source));
         IInstructionCollectionProvider[] providers = [new CpuFloat32InstructionCollection()];
         var emitter = new VmExecutionGraphEmitter(VmTarget.Cpu, providers);
         var compiler = new CpuVmCompiler(providers);
         var first = emitter.Emit(Convert(source));
         var execution = Convert(restored);
-        execution = GraphPackageXml.Deserialize<ExecutionGraph>(GraphPackageXml.Serialize(execution));
+        execution = ExecutionGraphPackageXml.Deserialize(ExecutionGraphPackageXml.Serialize(execution));
         var program = emitter.Emit(execution);
         Assert.Equal(compiler.GenerateSource(first).Source, compiler.GenerateSource(program).Source);
         using var executor = compiler.Compile(program).CreateExecutor();
@@ -162,7 +162,7 @@ public sealed class GraphSerializationTests
         Assert.Equal([-2f, -1f, 0f, 6f], MemoryMarshal.Cast<byte, float>(buffers[output].AsSpan()).ToArray());
     }
 
-    private static GraphPackage<LogicalGraph> Residual()
+    private static LogicalGraphPackage Residual()
     {
         var graph = new LogicalGraph { Id = "main" };
         var input = graph.Resource("input", Vector, GraphIO.In);
@@ -175,6 +175,6 @@ public sealed class GraphSerializationTests
         return new(graph);
     }
 
-    private static GraphPackage<ExecutionGraph> Convert(GraphPackage<LogicalGraph> source) =>
+    private static ExecutionGraphPackage Convert(LogicalGraphPackage source) =>
         new DefaultExecutionGraphConverter([new CpuFloat32InstructionCollection()]).Convert(source, new("test", "cpu-vm"));
 }

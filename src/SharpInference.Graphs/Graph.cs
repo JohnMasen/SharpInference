@@ -1,5 +1,3 @@
-using SharpInference.Instructions;
-
 namespace SharpInference.Graphs;
 
 /// <summary>An editable computation definition containing resources, actions and explicit flow.</summary>
@@ -58,7 +56,7 @@ public class Graph
         return Call(id, target.Id);
     }
 
-    public IReadOnlyList<GraphDiagnostic> Validate() => GraphValidation.Validate(this);
+    public virtual IReadOnlyList<GraphDiagnostic> Validate() => GraphValidation.Validate(this);
 
     public Graph Snapshot()
     {

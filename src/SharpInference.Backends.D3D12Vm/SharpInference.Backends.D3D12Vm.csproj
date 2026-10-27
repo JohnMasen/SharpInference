@@ -13,4 +13,7 @@
     <PackageReference Include="Vortice.DXGI" Version="3.8.3" />
     <PackageReference Include="Vortice.Dxc" Version="3.8.3" />
   </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\SharpInference.Graphs.Execution\SharpInference.Graphs.Execution.csproj" />
+  </ItemGroup>
 </Project>

@@ -1,3 +1,5 @@
+using SharpInference.Graphs.Execution;
+using SharpInference.Graphs;
 using System.Security.Cryptography;
 using System.Text;
 
@@ -30,7 +32,7 @@ public abstract class TierOnePointwiseInstruction : Instruction
     /// <inheritdoc/>
     public override string Name => Definition.Name;
     /// <inheritdoc/>
-    public override InstructionTarget Target => Configuration.Target;
+    public override ExecutionTarget Target => Configuration.Target;
     /// <inheritdoc/>
     public override bool RequiresDispatchIsolation => false;
     /// <inheritdoc/>

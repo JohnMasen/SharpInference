@@ -1,7 +1,3 @@
-using SharpInference.Graphs.Logical;
-using SharpInference.Graphs.Execution;
-using SharpInference.Instructions;
-
 namespace SharpInference.Graphs;
 
 /// <summary>Read-only source validation. Value and execution analysis run at compilation boundaries.</summary>
@@ -26,13 +22,12 @@ public static class GraphValidation
             (code, message) => Error(code, message));
         CheckIdentities(graph.Actions.Select(action => action.Id), "action",
             (code, message) => Error(code, message));
+        if (diagnostics.Any(diagnostic => diagnostic.Code is "G0001" or "G0002"))
+        {
+            return diagnostics;
+        }
         var resourceIndex = graph.Resources.ToLookup(resource => resource.Id, StringComparer.Ordinal);
         var actionIds = graph.Actions.Select(action => action.Id).ToHashSet(StringComparer.Ordinal);
-        if (graph is LogicalGraph logical && !Enum.IsDefined(logical.CompileBoundary))
-        {
-            Error("G0003", "Unknown compilation boundary.");
-        }
-
         foreach (var resource in graph.Resources)
         {
             if (!ReferenceEquals(resource.Graph, graph))
@@ -66,23 +61,6 @@ public static class GraphValidation
 
         foreach (var action in graph.Actions)
         {
-            if (graph is ExecutionGraph && action is not (ExecutionOperation or ExecutionCall))
-            {
-                Error("G0017", "Execution graphs require execution actions.", action.Id);
-            }
-
-            var sources = action switch
-            {
-                ExecutionOperation operation => operation.Sources,
-                ExecutionCall call => call.Sources,
-                _ => [],
-            };
-            if (sources.Any(source => string.IsNullOrWhiteSpace(source.Document) ||
-                string.IsNullOrWhiteSpace(source.Graph) || string.IsNullOrWhiteSpace(source.Node)))
-            {
-                Error("G0018", "A source origin requires document, graph and node identities.", action.Id);
-            }
-
             if (!ReferenceEquals(action.Graph, graph))
             {
                 Error("G0004", "The action belongs to a different graph.", action.Id);
@@ -168,19 +146,6 @@ public static class GraphValidation
             Error("G0015", "GraphFlow contains a cycle.");
         }
 
-        if (graph is ExecutionGraph execution)
-        {
-            foreach (var (id, storage) in execution.Storage)
-            {
-                if (!graph.Resources.Any(resource => resource.Id == id) || !Enum.IsDefined(storage.Kind) ||
-                    storage.Slot is { } slot && (string.IsNullOrWhiteSpace(slot) ||
-                        !graph.Resources.Any(resource => resource.Id == slot)))
-                {
-                    Error("G0019", $"Invalid storage selection for '{id}'.");
-                }
-            }
-        }
-
         return diagnostics;
     }
 
@@ -196,17 +161,13 @@ public static class GraphValidation
         }
         CheckIdentities(definitions.Select(graph => graph.Id), "graph",
             (code, message) => Error(code, message));
-        if (typeof(TGraph) == typeof(Graph) && definitions.Any(graph => graph is LogicalGraph or ExecutionGraph))
-        {
-            Error("P0012", "A business package requires business graph definitions.");
-        }
-
         if (string.IsNullOrWhiteSpace(mainGraphId) || !definitions.Any(graph => graph.Id == mainGraphId))
         {
             Error("P0001", $"Main graph '{mainGraphId}' is not declared.");
         }
 
-        if (definitions.Select(graph => graph.Id).Distinct(StringComparer.Ordinal).Count() != definitions.Length)
+        if (definitions.Any(graph => string.IsNullOrWhiteSpace(graph.Id)) ||
+            definitions.Select(graph => graph.Id).Distinct(StringComparer.Ordinal).Count() != definitions.Length)
         {
             return diagnostics;
         }

@@ -1,5 +1,4 @@
 using SharpInference.Graphs.Core;
-using SharpInference.Instructions;
 
 namespace SharpInference.Graphs;
 

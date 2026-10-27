@@ -1,3 +1,5 @@
+using SharpInference.Graphs.Execution;
+using SharpInference.Graphs;
 using SharpInference.Instructions;
 
 namespace SharpInference.Tests;
@@ -5,17 +7,17 @@ namespace SharpInference.Tests;
 public sealed class InstructionContractTests
 {
     [Fact]
-    public void ContractsAreOwnedByInstructions()
+    public void InstructionsConsumeGraphOwnedDataContracts()
     {
         Type[] types = [typeof(ElementType), typeof(TensorDescriptor), typeof(ResourceAccess),
-            typeof(PrecisionRequirement), typeof(NumericTypeCompatibility), typeof(OperationId),
-            typeof(PrimitiveOperations)];
+            typeof(PrecisionRequirement), typeof(NumericTypeCompatibility), typeof(OperationId)];
 
         Assert.All(types, type =>
         {
-            Assert.Equal("SharpInference.Instructions", type.Namespace);
-            Assert.Equal(typeof(Instruction).Assembly, type.Assembly);
+            Assert.Equal("SharpInference.Graphs", type.Namespace);
+            Assert.Equal(typeof(Graph).Assembly, type.Assembly);
         });
+        Assert.Same(typeof(Instruction).Assembly, typeof(PrimitiveOperations).Assembly);
     }
 
     [Fact]
@@ -90,9 +92,9 @@ public sealed class InstructionContractTests
             new PrecisionRequirement((ElementType)99, ElementType.Float32));
 
         Assert.True(InstructionPrecisionCompatibility.Satisfies(
-            new KernelPrecisionProfile(ElementType.Float32, ElementType.Float32), requirement));
+            new ExecutionPrecision(ElementType.Float32, ElementType.Float32), requirement));
         Assert.False(InstructionPrecisionCompatibility.Satisfies(
-            new KernelPrecisionProfile(ElementType.Float16, ElementType.Float32), requirement));
+            new ExecutionPrecision(ElementType.Float16, ElementType.Float32), requirement));
     }
 
     [Fact]

@@ -131,7 +131,7 @@ public sealed class Phi4TextGraphModule : IPhi4GraphModule
     }
 
     /// <inheritdoc/>
-    public GraphPackage<LogicalGraph> Build(IModelTensorCatalog tensors)
+    public LogicalGraphPackage Build(IModelTensorCatalog tensors)
     {
         var dimensions = ReadMetadata(tensors).Dimensions.ToDictionary(value => value.Key, value => checked((int)value.Value));
         var p = ((Phi4PackageTensorCatalog)tensors).TextParameters;

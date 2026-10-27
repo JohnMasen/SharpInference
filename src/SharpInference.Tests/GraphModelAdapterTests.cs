@@ -162,14 +162,14 @@ public sealed class GraphModelAdapterTests
         }
     }
 
-    private static void AssertRoundTrip(GraphPackage<LogicalGraph> package)
+    private static void AssertRoundTrip(LogicalGraphPackage package)
     {
-        var xml = GraphPackageXml.Serialize(package);
-        var restored = GraphPackageXml.Deserialize<LogicalGraph>(xml);
+        var xml = LogicalGraphPackageXml.Serialize(package);
+        var restored = LogicalGraphPackageXml.Deserialize(xml);
         Assert.Equal(package.MainGraphId, restored.MainGraphId);
-        Assert.Equal(xml, GraphPackageXml.Serialize(restored));
+        Assert.Equal(xml, LogicalGraphPackageXml.Serialize(restored));
         Assert.DoesNotContain(restored.Validate(), item => item.Severity == GraphDiagnosticSeverity.Error);
-        Assert.Equal(xml, GraphPackageXml.Serialize(package.Snapshot()));
+        Assert.Equal(xml, LogicalGraphPackageXml.Serialize(package.Snapshot()));
     }
 
     private static SyntheticCatalog Rwkv7Catalog(TensorDataType dataType)

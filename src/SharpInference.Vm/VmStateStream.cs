@@ -1,3 +1,4 @@
+using SharpInference.Graphs;
 using System.Security.Cryptography;
 using System.Text;
 

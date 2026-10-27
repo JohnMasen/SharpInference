@@ -1,3 +1,4 @@
+using SharpInference.Graphs;
 using System.Collections.ObjectModel;
 using System.IO.MemoryMappedFiles;
 using System.Text;

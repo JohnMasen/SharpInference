@@ -1,3 +1,4 @@
+using SharpInference.Graphs;
 using System.Runtime.InteropServices;
 
 namespace SharpInference.Vm;

@@ -93,7 +93,7 @@ internal sealed class PortableRwkvGraphComposer
         this.graph = graph;
     }
 
-    internal static GraphPackage<LogicalGraph> Define(
+    internal static LogicalGraphPackage Define(
         string id,
         int vocabularySize,
         Action<PortableRwkvGraphComposer> build,

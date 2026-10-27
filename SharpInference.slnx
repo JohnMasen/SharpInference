@@ -8,6 +8,9 @@
     <Project Path="src/SharpInference.Backends.Cpu/SharpInference.Backends.Cpu.csproj" />
     <Project Path="src/SharpInference.Core/SharpInference.Core.csproj" />
     <Project Path="src/SharpInference.Graphs.Core/SharpInference.Graphs.Core.csproj" />
+    <Project Path="src/SharpInference.Graphs.Execution/SharpInference.Graphs.Execution.csproj" />
+    <Project Path="src/SharpInference.Graphs.Logical/SharpInference.Graphs.Logical.csproj" />
+    <Project Path="src/SharpInference.Graphs.Tests/SharpInference.Graphs.Tests.csproj" />
     <Project Path="src/SharpInference.Graphs/SharpInference.Graphs.csproj" />
     <Project Path="src/SharpInference.Instructions/SharpInference.Instructions.csproj" />
     <Project Path="src/SharpInference.Instructions.TierZero/SharpInference.Instructions.TierZero.csproj" />
@@ -22,6 +25,7 @@
     <Project Path="src/SharpInference.Vm.Optimization/SharpInference.Vm.Optimization.csproj" />
     <Project Path="src/SharpInference.Vm/SharpInference.Vm.csproj" />
   </Folder>
+  <Folder Name="/tools/" />
   <Folder Name="/tools/GraphView/">
     <File Path="tools/GraphView/graph-viewer.html" />
     <File Path="tools/GraphView/README.md" />
