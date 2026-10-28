@@ -71,13 +71,20 @@ public sealed class AffinePostprocessorTests
         var output = graph.Resources.Single(resource => resource.Id == "output");
         switch (scenario)
         {
-            case "fp16": output.Tensor = new(ElementType.Float16, [2, 4]); break;
+            case "fp16":
+                output.Tensor = new(ElementType.Float16, [2, 4]);
+                break;
             case "alias":
-                add.Bindings[2] = add.Bindings[2] with { Target = add.Bindings[0].Target };
+                add.Bindings[2] = add.Bindings[2] with
+                {
+                    Target = add.Bindings[0].Target
+                };
                 Assert.DoesNotContain(package.ValidateStructure(),
                     diagnostic => diagnostic.Severity == GraphDiagnosticSeverity.Error);
                 break;
-            case "storage-alias": graph.Storage["temporary"] = new(ResourceStorageKind.LocalBuffer, "output"); break;
+            case "storage-alias":
+                graph.Storage["temporary"] = new(ResourceStorageKind.LocalBuffer, "output");
+                break;
             case "binding-alias":
                 graph.Resources.Single(resource => resource.Id == "left").BindingKey = "same";
                 graph.Resources.Single(resource => resource.Id == "right").BindingKey = "same";
@@ -87,9 +94,15 @@ public sealed class AffinePostprocessorTests
                 left.BindingKey = "same";
                 graph.Resource("alias", left.Tensor, bindingKey: "same");
                 break;
-            case "public-temporary": temporary.GraphIO = GraphIO.Out; break;
-            case "state-temporary": temporary.IsState = true; break;
-            case "global-temporary": temporary.Scope = ResourceScope.Global; break;
+            case "public-temporary":
+                temporary.GraphIO = GraphIO.Out;
+                break;
+            case "state-temporary":
+                temporary.IsState = true;
+                break;
+            case "global-temporary":
+                temporary.Scope = ResourceScope.Global;
+                break;
             case "external-consumer":
                 var consumer = graph.Operation("consumer", PrimitiveOperations.Copy);
                 consumer.Bind("input", temporary, ResourceAccess.Read);
@@ -110,7 +123,9 @@ public sealed class AffinePostprocessorTests
                 writer.Bindings.Add(new("output", new ResourceRef(output), ResourceAccess.Write));
                 package.Add(writerGraph);
                 break;
-            case "unordered": graph.GraphFlow.Clear(); break;
+            case "unordered":
+                graph.GraphFlow.Clear();
+                break;
             case "intervening":
                 var middle = graph.Operation("middle", PrimitiveOperations.Copy);
                 middle.Bind("input", temporary, ResourceAccess.Read);
@@ -118,13 +133,19 @@ public sealed class AffinePostprocessorTests
                 multiply.Then(middle);
                 middle.Then(add);
                 break;
-            case "shape": output.Tensor = new(ElementType.Float32, [4, 2]); break;
-            case "view": multiply.Attributes["view.left.offset"] = "0"; break;
+            case "shape":
+                output.Tensor = new(ElementType.Float32, [4, 2]);
+                break;
+            case "view":
+                multiply.Attributes["view.left.offset"] = "0";
+                break;
             case "selected-fp16":
                 multiply.SelectedImplementation = new(Guid.Empty, "test", ExecutionTarget.Cpu,
                     new(ElementType.Float16, ElementType.Float16));
                 break;
-            case "version": multiply.Operation = new(PrimitiveOperations.MatrixMultiply.Name, 2); break;
+            case "version":
+                multiply.Operation = new(PrimitiveOperations.MatrixMultiply.Name, 2);
+                break;
         }
         var before = ExecutionGraphPackageXml.Serialize(package);
         Assert.Equal(before, ExecutionGraphPackageXml.Serialize(new AffinePostprocessor([new TestInstruction()])

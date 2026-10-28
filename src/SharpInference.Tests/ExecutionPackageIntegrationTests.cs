@@ -196,7 +196,10 @@ public sealed class ExecutionPackageIntegrationTests
 
             new ExecutionImplementationSelector(Cpu).Select(package, "cpu-vm");
         }
-        graph.Actions[0].Bindings[0] = graph.Actions[0].Bindings[0] with { Access = ResourceAccess.Write };
+        graph.Actions[0].Bindings[0] = graph.Actions[0].Bindings[0] with
+        {
+            Access = ResourceAccess.Write
+        };
         if (alreadySelected)
         {
             Assert.Throws<InvalidDataException>(() => new VmExecutionGraphEmitter(VmTarget.Cpu, Cpu).Emit(package));

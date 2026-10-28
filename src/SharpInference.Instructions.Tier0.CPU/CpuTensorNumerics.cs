@@ -6,7 +6,11 @@ public static class CpuTensorNumerics
     public static void ArgMax(ReadOnlySpan<float> input, Span<int> output)
     {
         ArgumentOutOfRangeException.ThrowIfZero(input.Length);
-        if (output.Length != 1) throw new ArgumentException("Expected one output index.", nameof(output));
+        if (output.Length != 1)
+        {
+            throw new ArgumentException("Expected one output index.", nameof(output));
+        }
+
         var best = float.NegativeInfinity;
         var index = -1;
         for (var i = 0; i < input.Length; i++)
@@ -24,13 +28,25 @@ public static class CpuTensorNumerics
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(width);
         if (table.Length % width != 0 || output.Length != checked(indices.Length * width))
+        {
             throw new ArgumentException("Invalid gather dimensions.");
+        }
+
         foreach (var index in indices)
+        {
             if ((uint)index >= (uint)(table.Length / width))
+            {
                 throw new ArgumentOutOfRangeException(nameof(indices));
+            }
+        }
+
         for (var row = 0; row < indices.Length; row++)
+        {
             for (var column = 0; column < width; column++)
+            {
                 output[row * width + column] = (float)table[indices[row] * width + column];
+            }
+        }
     }
 
     public static void CopyRows(ReadOnlySpan<float> input, Span<float> output, int width, int rows, int outputStart)
@@ -50,15 +66,23 @@ public static class CpuTensorNumerics
         if (weight.Length != checked(outputWidth * inputWidth) ||
             input.Length != checked(batch * inputWidth) ||
             output.Length != checked(batch * outputWidth) || control.Length != 2)
+        {
             throw new ArgumentException("Invalid shared matrix dimensions.");
+        }
+
         var validRows = Math.Clamp(control[1], 0, batch);
         for (var row = 0; row < validRows; row++)
+        {
             for (var column = 0; column < outputWidth; column++)
             {
                 var sum = 0f;
                 for (var k = 0; k < inputWidth; k++)
+                {
                     sum += (float)weight[column * inputWidth + k] * input[row * inputWidth + k];
+                }
+
                 output[row * outputWidth + column] = sum;
             }
+        }
     }
 }

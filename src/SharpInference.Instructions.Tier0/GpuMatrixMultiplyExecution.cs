@@ -9,15 +9,24 @@ public static class GpuMatrixMultiplyExecution
     public const uint TileSize = 8;
 
     /// <summary>Gets the implementation assigning each output's reduction to one GPU thread.</summary>
-    public static D3D12InstructionExecutionConfiguration Serial { get; } =
+    public static D3D12InstructionExecutionConfiguration Serial
+    {
+        get;
+    } =
         new(new("serial-matrix-multiply"));
 
     /// <summary>Gets the implementation using a thread group to cooperate on each output reduction.</summary>
-    public static D3D12InstructionExecutionConfiguration Cooperative { get; } =
+    public static D3D12InstructionExecutionConfiguration Cooperative
+    {
+        get;
+    } =
         new(new("cooperative-matrix-multiply"));
 
     /// <summary>Gets the implementation using an 8-by-8 thread group and shared-memory tiles.</summary>
-    public static D3D12InstructionExecutionConfiguration Tiled { get; } =
+    public static D3D12InstructionExecutionConfiguration Tiled
+    {
+        get;
+    } =
         new(new("tiled-matrix-multiply-8x8"));
 
     /// <summary>Computes a two-dimensional cooperative dispatch grid within GPU indexing limits.</summary>

@@ -4,8 +4,14 @@ namespace SharpInference.Graphs;
 public class Graph
 {
     public string Id { get; set; } = "";
-    public string? Name { get; set; }
-    public string? Description { get; set; }
+    public string? Name
+    {
+        get; set;
+    }
+    public string? Description
+    {
+        get; set;
+    }
     public Dictionary<string, string> Metadata { get; } = new(StringComparer.Ordinal);
     public List<Resource> Resources { get; } = [];
     public List<GraphAction> Actions { get; } = [];

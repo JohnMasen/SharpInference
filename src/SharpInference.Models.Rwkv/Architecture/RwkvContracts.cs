@@ -50,7 +50,10 @@ public sealed record RwkvModelMetadata(
 public interface IRwkvModel : IModel
 {
     /// <summary>Gets the model's RWKV-specific dimensions and architecture identifier.</summary>
-    RwkvModelMetadata Metadata { get; }
+    RwkvModelMetadata Metadata
+    {
+        get;
+    }
     ModelMetadata IModel.ModelMetadata => Metadata.ToModelMetadata();
 }
 
@@ -58,7 +61,10 @@ public interface IRwkvModel : IModel
 public interface IRwkvState : IModelState
 {
     /// <summary>Gets the number of float32 values in the flattened recurrent state.</summary>
-    int ElementCount { get; }
+    int ElementCount
+    {
+        get;
+    }
     /// <summary>Creates an independent copy of the current recurrent state.</summary>
     /// <returns>The copied RWKV state.</returns>
     new IRwkvState Clone();
@@ -81,7 +87,10 @@ public sealed record RwkvStateView(string Name, IReadOnlyList<int> Dimensions, f
 public interface INamedRwkvState : IRwkvState
 {
     /// <summary>Gets named host-accessible buffers representing the recurrent state.</summary>
-    IReadOnlyList<RwkvStateView> Views { get; }
+    IReadOnlyList<RwkvStateView> Views
+    {
+        get;
+    }
     /// <summary>Synchronizes edits to named host views back to the state implementation.</summary>
     void CommitViews();
 }
@@ -90,7 +99,10 @@ public interface INamedRwkvState : IRwkvState
 public interface IRwkvArchitecture
 {
     /// <summary>Gets the supported architecture identifier.</summary>
-    string Id { get; }
+    string Id
+    {
+        get;
+    }
     /// <summary>Determines whether the tensor catalog matches this architecture.</summary>
     /// <param name="tensors">The model tensor catalog.</param>
     /// <returns>Whether this architecture can load the catalog.</returns>

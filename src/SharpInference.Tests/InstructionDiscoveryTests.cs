@@ -82,7 +82,9 @@ public sealed class InstructionDiscoveryTests
         {
             StartInfo = new ProcessStartInfo("dotnet")
             {
-                RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
                 ArgumentList = { probe },
             },
         };

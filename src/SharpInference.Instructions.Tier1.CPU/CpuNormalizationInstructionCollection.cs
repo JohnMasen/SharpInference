@@ -27,7 +27,10 @@ internal sealed class CpuNormalizationInstruction(string name) : Instruction
     public override IReadOnlyList<InstructionAttributeDescription> AttributeDescriptions =>
         TierOneNormalizationInstructionSet.Attributes(Name);
     public override ExecutionTarget Target => ExecutionTarget.Cpu;
-    public override IReadOnlyList<InstructionSignature> Signatures { get; } =
+    public override IReadOnlyList<InstructionSignature> Signatures
+    {
+        get;
+    } =
         [TierOneNormalizationInstructionSet.Signatures[name]];
 
     protected override void Validate(InstructionParameter[] parameters) =>

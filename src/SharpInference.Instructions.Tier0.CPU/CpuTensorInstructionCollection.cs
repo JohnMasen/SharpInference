@@ -26,7 +26,10 @@ internal sealed class CpuTensorInstruction(string name) : Instruction
     public override IReadOnlyList<InstructionAttributeDescription> AttributeDescriptions =>
         TierZeroTensorInstructionSet.Attributes(Name);
     public override ExecutionTarget Target => ExecutionTarget.Cpu;
-    public override IReadOnlyList<InstructionSignature> Signatures { get; } =
+    public override IReadOnlyList<InstructionSignature> Signatures
+    {
+        get;
+    } =
         [TierZeroTensorInstructionSet.Signatures[name]];
     public override IReadOnlyList<InstructionIndexBound> IndexBounds =>
         Name == "transformer.embedding-gather-batch" ? [new("indices", "table", 0)] : [];

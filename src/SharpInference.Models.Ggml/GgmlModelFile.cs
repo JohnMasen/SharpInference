@@ -38,19 +38,34 @@ public sealed unsafe class GgmlModelFile : IModelFile
     }
 
     /// <summary>Gets the vocabulary size stored in the GGML header.</summary>
-    public int VocabularySize { get; }
+    public int VocabularySize
+    {
+        get;
+    }
 
     /// <summary>Gets the embedding size stored in the GGML header.</summary>
-    public int EmbeddingSize { get; }
+    public int EmbeddingSize
+    {
+        get;
+    }
 
     /// <summary>Gets the layer count stored in the GGML header.</summary>
-    public int LayerCount { get; }
+    public int LayerCount
+    {
+        get;
+    }
 
     /// <summary>Gets the path of the mapped model file.</summary>
-    public string Path { get; }
+    public string Path
+    {
+        get;
+    }
 
     /// <summary>Gets the names of tensors found in the file, sorted ordinally.</summary>
-    public IReadOnlyCollection<string> Names { get; }
+    public IReadOnlyCollection<string> Names
+    {
+        get;
+    }
 
     /// <summary>Validates the fixed GGML header without retaining a file mapping.</summary>
     /// <param name="path">The path to the model file.</param>
@@ -250,13 +265,22 @@ public sealed unsafe class GgmlModelFile : IModelFile
         }
 
         /// <summary>Gets the tensor name.</summary>
-        public string Name { get; }
+        public string Name
+        {
+            get;
+        }
 
         /// <summary>Gets the tensor data type.</summary>
-        public TensorDataType DataType { get; }
+        public TensorDataType DataType
+        {
+            get;
+        }
 
         /// <summary>Gets the tensor dimensions from the file metadata.</summary>
-        public IReadOnlyList<int> Dimensions { get; }
+        public IReadOnlyList<int> Dimensions
+        {
+            get;
+        }
 
         /// <summary>Gets float32 values, converting float16 mapped values lazily when necessary.</summary>
         public ReadOnlySpan<float> FloatValues

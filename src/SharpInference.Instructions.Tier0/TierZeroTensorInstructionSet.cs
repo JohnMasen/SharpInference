@@ -65,7 +65,10 @@ public static class TierZeroTensorInstructionSet
             tensor.Tensor.Dimensions.Aggregate(1, (a, b) => checked(a * b));
         void Require(bool condition, string message)
         {
-            if (!condition) throw new InstructionAdaptationException(Id, name, message);
+            if (!condition)
+            {
+                throw new InstructionAdaptationException(Id, name, message);
+            }
         }
 
         switch (name)
@@ -108,8 +111,11 @@ public static class TierZeroTensorInstructionSet
         var text = parameters.OfType<InstructionAttributeParameter>().Single(p => p.Name == name).Value;
         if (!int.TryParse(text, NumberStyles.None, CultureInfo.InvariantCulture, out var value) ||
             value < (positive ? 1 : 0))
+        {
             throw new InstructionAdaptationException(Id, name,
                 $"'{name}' must be a {(positive ? "positive" : "nonnegative")} integer.");
+        }
+
         return value;
     }
 

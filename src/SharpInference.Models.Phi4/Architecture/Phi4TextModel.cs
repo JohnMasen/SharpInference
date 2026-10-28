@@ -377,9 +377,15 @@ public sealed class Phi4TextSession
     }
 
     /// <summary>Gets the LoRA adapter applied during this decoding session.</summary>
-    public Phi4Adapter Adapter { get; }
+    public Phi4Adapter Adapter
+    {
+        get;
+    }
     /// <summary>Gets the zero-based position at which the next input will be decoded.</summary>
-    public int Position { get; private set; }
+    public int Position
+    {
+        get; private set;
+    }
 
     /// <summary>Decodes one token ID, updates the key/value caches and position, and returns the vocabulary logits.</summary>
     public float[] ForwardToken(int token)
@@ -410,7 +416,10 @@ public sealed class Phi4TextSession
 internal sealed class Phi4TextWorkspace
 {
     public float[] Normalized { get; } = new float[Phi4TextModel.EmbeddingSize];
-    public float[] Qkv { get; } =
+    public float[] Qkv
+    {
+        get;
+    } =
         new float[Phi4TextModel.EmbeddingSize +
             2 * Phi4TextModel.KeyValueHeadCount * Phi4TextModel.HeadSize];
     public float[] Attention { get; } = new float[Phi4TextModel.EmbeddingSize];
@@ -427,7 +436,10 @@ internal sealed class Phi4KeyValueCache
     private float[] keys = [];
     private float[] values = [];
 
-    public int Length { get; private set; }
+    public int Length
+    {
+        get; private set;
+    }
 
     public void Append(ReadOnlySpan<float> key, ReadOnlySpan<float> value)
     {

@@ -58,19 +58,40 @@ public sealed class InstructionOptimizationCapability
     }
 
     /// <summary>Gets the identity of the collection providing this implementation.</summary>
-    public Guid CollectionId { get; }
+    public Guid CollectionId
+    {
+        get;
+    }
     /// <summary>Gets the registered tier-one pointwise instruction name.</summary>
-    public string Name { get; }
+    public string Name
+    {
+        get;
+    }
     /// <summary>Gets the execution architecture required by this contract.</summary>
-    public ExecutionTarget Target { get; }
+    public ExecutionTarget Target
+    {
+        get;
+    }
     /// <summary>Gets the concrete target execution configuration.</summary>
-    public InstructionExecutionConfiguration Configuration { get; }
+    public InstructionExecutionConfiguration Configuration
+    {
+        get;
+    }
     /// <summary>Gets the implementation identity used to match trusted measurements.</summary>
-    public string ImplementationFingerprint { get; }
+    public string ImplementationFingerprint
+    {
+        get;
+    }
     /// <summary>Gets the categories of optimization benefit offered by the implementation.</summary>
-    public InstructionBenefitKind Benefits { get; }
+    public InstructionBenefitKind Benefits
+    {
+        get;
+    }
     /// <summary>Gets the pointwise fusion definition supported by this implementation.</summary>
-    public IInstructionFusionDefinition Definition { get; }
+    public IInstructionFusionDefinition Definition
+    {
+        get;
+    }
     /// <summary>Gets the internal arithmetic and accumulator precision contract.</summary>
     public ExecutionPrecision Precision => Definition.Precision;
 
@@ -92,8 +113,14 @@ public interface IInstructionOptimizationProvider
 
 public interface IInstructionFusionDefinition
 {
-    string Name { get; }
-    ExecutionPrecision Precision { get; }
+    string Name
+    {
+        get;
+    }
+    ExecutionPrecision Precision
+    {
+        get;
+    }
     bool TryAdapt(IReadOnlyList<InstructionOperandDescription> operands,
         PrecisionRequirement requirement, out string diagnostic);
 }

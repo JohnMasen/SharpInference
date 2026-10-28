@@ -73,8 +73,14 @@ public sealed class VmResourceManager : IDisposable
             }
             catch (Exception error)
             {
-                try { bindings.Dispose(); }
-                catch (Exception cleanup) { throw new AggregateException("Binding construction and cleanup failed.", error, cleanup); }
+                try
+                {
+                    bindings.Dispose();
+                }
+                catch (Exception cleanup)
+                {
+                    throw new AggregateException("Binding construction and cleanup failed.", error, cleanup);
+                }
                 throw;
             }
         }
@@ -123,8 +129,14 @@ public sealed class VmResourceManager : IDisposable
         }
         catch (Exception error)
         {
-            try { storage.Dispose(); }
-            catch (Exception cleanup) { throw new AggregateException("Resource construction and cleanup failed.", error, cleanup); }
+            try
+            {
+                storage.Dispose();
+            }
+            catch (Exception cleanup)
+            {
+                throw new AggregateException("Resource construction and cleanup failed.", error, cleanup);
+            }
             throw;
         }
     }
@@ -143,8 +155,14 @@ public sealed class VmResourceManager : IDisposable
             disposed = true;
             foreach (var resource in globals.Values)
             {
-                try { resource.Dispose(); }
-                catch (Exception error) { (errors ??= []).Add(error); }
+                try
+                {
+                    resource.Dispose();
+                }
+                catch (Exception error)
+                {
+                    (errors ??= []).Add(error);
+                }
             }
             globals.Clear();
         }
@@ -192,11 +210,20 @@ public sealed class VmSessionResources : IDisposable
                     }
                     var storage = allocate(slot);
                     VmResource resource;
-                    try { resource = new VmResource(slot.Tensor, VmSlotScope.Session, VmAccess.ReadWrite, storage); }
+                    try
+                    {
+                        resource = new VmResource(slot.Tensor, VmSlotScope.Session, VmAccess.ReadWrite, storage);
+                    }
                     catch (Exception error)
                     {
-                        try { storage.Dispose(); }
-                        catch (Exception cleanup) { throw new AggregateException("Session storage construction and cleanup failed.", error, cleanup); }
+                        try
+                        {
+                            storage.Dispose();
+                        }
+                        catch (Exception cleanup)
+                        {
+                            throw new AggregateException("Session storage construction and cleanup failed.", error, cleanup);
+                        }
                         throw;
                     }
                     resources.Add(key, resource);
@@ -205,14 +232,23 @@ public sealed class VmSessionResources : IDisposable
         }
         catch (Exception error)
         {
-            try { Dispose(); }
-            catch (Exception cleanup) { throw new AggregateException("Session construction and cleanup failed.", error, cleanup); }
+            try
+            {
+                Dispose();
+            }
+            catch (Exception cleanup)
+            {
+                throw new AggregateException("Session construction and cleanup failed.", error, cleanup);
+            }
             throw;
         }
     }
 
     /// <summary>Gets only explicitly registered session state, retaining its declared access permissions.</summary>
-    public VmProgram StateProgram { get; }
+    public VmProgram StateProgram
+    {
+        get;
+    }
 
     internal static void ValidateContracts(IReadOnlyList<VmProgram> programs)
     {
@@ -299,8 +335,14 @@ public sealed class VmSessionResources : IDisposable
             }
             catch (Exception error)
             {
-                try { bindings.Dispose(); }
-                catch (Exception cleanup) { throw new AggregateException("State binding construction and cleanup failed.", error, cleanup); }
+                try
+                {
+                    bindings.Dispose();
+                }
+                catch (Exception cleanup)
+                {
+                    throw new AggregateException("State binding construction and cleanup failed.", error, cleanup);
+                }
                 throw;
             }
         }
@@ -326,8 +368,14 @@ public sealed class VmSessionResources : IDisposable
             disposed = true;
             foreach (var resource in resources.Values)
             {
-                try { resource.Dispose(); }
-                catch (Exception error) { (errors ??= []).Add(error); }
+                try
+                {
+                    resource.Dispose();
+                }
+                catch (Exception error)
+                {
+                    (errors ??= []).Add(error);
+                }
             }
             resources.Clear();
         }

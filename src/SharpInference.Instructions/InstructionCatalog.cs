@@ -3,7 +3,10 @@ using SharpInference.Graphs.Execution;
 
 namespace SharpInference.Instructions;
 
-public enum InstructionCategory { Tier0, Tier1, Specialized }
+public enum InstructionCategory
+{
+    Tier0, Tier1, Specialized
+}
 
 public sealed record InstructionAttributeDescription(
     string Name, string Meaning, string DataType, bool Required = true, string? Constraints = null);
@@ -26,8 +29,17 @@ public interface IInstructionProvider : IInstructionCollectionProvider;
 
 public interface IInstructionCatalog : IInstructionCollectionProvider
 {
-    IReadOnlyList<InstructionCatalogRow> Rows { get; }
-    IReadOnlyList<InstructionParameterRow> Parameters { get; }
-    IReadOnlyList<InstructionSignatureRow> Signatures { get; }
+    IReadOnlyList<InstructionCatalogRow> Rows
+    {
+        get;
+    }
+    IReadOnlyList<InstructionParameterRow> Parameters
+    {
+        get;
+    }
+    IReadOnlyList<InstructionSignatureRow> Signatures
+    {
+        get;
+    }
     Instruction Resolve(Guid collectionId, string name, ExecutionTarget target);
 }

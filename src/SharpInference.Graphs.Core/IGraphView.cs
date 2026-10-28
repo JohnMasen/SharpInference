@@ -10,9 +10,15 @@ public interface IGraphView<TNode, TEdge>
     where TEdge : IGraphEdge
 {
     /// <summary>Gets visible nodes in the view's deterministic order.</summary>
-    IEnumerable<TNode> Nodes { get; }
+    IEnumerable<TNode> Nodes
+    {
+        get;
+    }
     /// <summary>Gets the exact visible edges, whose endpoints must also be visible.</summary>
-    IEnumerable<TEdge> Edges { get; }
+    IEnumerable<TEdge> Edges
+    {
+        get;
+    }
 
     /// <summary>Gets a visible node by its structural identity.</summary>
     /// <param name="id">The identity of the node to retrieve.</param>

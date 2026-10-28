@@ -21,7 +21,10 @@ internal sealed class OwnedModelTensorCatalog : IModelTensorCatalog
     }
 
     /// <summary>Gets the names of the tensors held by this catalog.</summary>
-    public IReadOnlyCollection<string> Names { get; }
+    public IReadOnlyCollection<string> Names
+    {
+        get;
+    }
 
     /// <summary>Attempts to retrieve a tensor by name.</summary>
     /// <param name="name">The tensor name to find.</param>
@@ -88,13 +91,22 @@ internal sealed class OwnedModelTensorCatalog : IModelTensorCatalog
         }
 
         /// <summary>Gets the tensor name.</summary>
-        public string Name { get; }
+        public string Name
+        {
+            get;
+        }
 
         /// <summary>Gets the tensor data type.</summary>
-        public TensorDataType DataType { get; }
+        public TensorDataType DataType
+        {
+            get;
+        }
 
         /// <summary>Gets the tensor dimensions copied from the source tensor.</summary>
-        public IReadOnlyList<int> Dimensions { get; }
+        public IReadOnlyList<int> Dimensions
+        {
+            get;
+        }
 
         /// <summary>Gets the tensor values as float32, converting copied float16 values on first access when necessary.</summary>
         /// <exception cref="InvalidOperationException">The tensor is backed only by a released source and has no copied CPU values.</exception>

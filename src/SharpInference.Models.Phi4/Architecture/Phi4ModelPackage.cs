@@ -35,17 +35,35 @@ public sealed class Phi4ModelPackage : IDisposable
     }
 
     /// <summary>Gets the absolute directory containing the model package files.</summary>
-    public string Directory { get; }
+    public string Directory
+    {
+        get;
+    }
     /// <summary>Gets the text backbone GGUF file.</summary>
-    public GgufModelFile Text { get; }
+    public GgufModelFile Text
+    {
+        get;
+    }
     /// <summary>Gets the GGUF file containing the vision and audio encoder weights.</summary>
-    public GgufModelFile Omni { get; }
+    public GgufModelFile Omni
+    {
+        get;
+    }
     /// <summary>Gets the vision LoRA adapter GGUF file.</summary>
-    public GgufModelFile VisionAdapter { get; }
+    public GgufModelFile VisionAdapter
+    {
+        get;
+    }
     /// <summary>Gets the speech LoRA adapter GGUF file.</summary>
-    public GgufModelFile SpeechAdapter { get; }
+    public GgufModelFile SpeechAdapter
+    {
+        get;
+    }
     /// <summary>Gets the tokenizer associated with the model package.</summary>
-    public Phi4Tokenizer Tokenizer { get; }
+    public Phi4Tokenizer Tokenizer
+    {
+        get;
+    }
 
     /// <summary>Opens and validates the GGUF components and tokenizer in the specified Phi-4 package directory.</summary>
     public static Phi4ModelPackage Open(string directory)

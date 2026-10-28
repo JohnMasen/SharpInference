@@ -19,7 +19,13 @@ public sealed record PrecisionRequirement
     }
 
     /// <summary>Gets the minimum arithmetic type.</summary>
-    public ElementType MinimumArithmeticType { get; }
+    public ElementType MinimumArithmeticType
+    {
+        get;
+    }
     /// <summary>Gets the minimum accumulator type.</summary>
-    public ElementType MinimumAccumulatorType { get; }
+    public ElementType MinimumAccumulatorType
+    {
+        get;
+    }
 }

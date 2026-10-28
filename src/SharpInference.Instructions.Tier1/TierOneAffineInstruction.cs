@@ -7,7 +7,10 @@ public static class TierOneAffineOperations
 {
     public static readonly OperationId Affine = new("core.affine");
     public static readonly Guid CollectionFloat32 = new("44928a8e-255b-4bdd-8097-597ea5b8f5aa");
-    public static IReadOnlyList<string> Decomposition { get; } =
+    public static IReadOnlyList<string> Decomposition
+    {
+        get;
+    } =
         Array.AsReadOnly(new[] { "core.matrix-multiply", "core.bias-add" });
 }
 
@@ -17,10 +20,16 @@ public abstract class TierOneAffineInstruction(ExecutionTarget target) : Instruc
     public override string Name => TierOneAffineOperations.Affine.Name;
     public override ExecutionTarget Target => target;
     public override string Comment => "Matrix multiplication followed by column bias addition.";
-    public override IReadOnlyList<InstructionAttributeDescription> AttributeDescriptions { get; } =
+    public override IReadOnlyList<InstructionAttributeDescription> AttributeDescriptions
+    {
+        get;
+    } =
         [new("transpose_left", "Transpose the left matrix.", "Boolean"),
          new("transpose_right", "Transpose the right matrix.", "Boolean")];
-    public override IReadOnlyList<InstructionSignature> Signatures { get; } =
+    public override IReadOnlyList<InstructionSignature> Signatures
+    {
+        get;
+    } =
         new[] { ElementType.Float32, ElementType.Float16 }.SelectMany(storage =>
             new[] { ElementType.Float32, ElementType.Float16 }.Select(biasStorage => new InstructionSignature(
             [new("left", ElementType.Float32, ResourceAccess.Read, "Left matrix.", ElementType.Float32, "Rank 2"),

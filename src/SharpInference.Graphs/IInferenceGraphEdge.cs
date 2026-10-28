@@ -6,5 +6,8 @@ namespace SharpInference.Graphs;
 public interface IInferenceGraphEdge : IGraphEdge
 {
     /// <summary>Gets the category interpreted and validated by the containing graph.</summary>
-    string EdgeKind { get; }
+    string EdgeKind
+    {
+        get;
+    }
 }

@@ -97,13 +97,19 @@ public sealed record ExecutionImplementation(
     Guid CollectionId, string InstructionName, ExecutionTarget Target,
     ExecutionPrecision Precision, ExecutionDispatch? Dispatch = null);
 
-public enum ResourceStorageKind { ExternalArgument, SharedBinding, LocalBuffer }
+public enum ResourceStorageKind
+{
+    ExternalArgument, SharedBinding, LocalBuffer
+}
 public sealed record ExecutionStorage(ResourceStorageKind Kind, string? Slot = null);
 
 public sealed class ExecutionOperation(Graph graph, string id, OperationId operation)
     : OperationAction(graph, id, operation)
 {
-    public ExecutionImplementation? SelectedImplementation { get; set; }
+    public ExecutionImplementation? SelectedImplementation
+    {
+        get; set;
+    }
     public List<SourceOrigin> Sources { get; } = [];
 
     public ExecutionOperation Implementation(ExecutionImplementation implementation)

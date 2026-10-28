@@ -65,7 +65,10 @@ public static class TierOneNormalizationInstructionSet
         {
             ValidateBatch(name, tensors);
             foreach (var attribute in parameters.OfType<InstructionAttributeParameter>())
+            {
                 PositiveFloat(parameters, attribute.Name);
+            }
+
             return;
         }
         var count = tensors["output"].Tensor.Dimensions.Aggregate(1, (a, b) => checked(a * b));
@@ -73,11 +76,15 @@ public static class TierOneNormalizationInstructionSet
         {
             var actual = tensor.Tensor.Dimensions.Aggregate(1, (a, b) => checked(a * b));
             if (actual != checked(count * (port == "gate_up" ? 2 : 1)))
+            {
                 throw new InstructionAdaptationException(Id, name,
                     "All ports must contain the same number of elements, except gate_up which contains two halves.");
+            }
         }
         foreach (var attribute in parameters.OfType<InstructionAttributeParameter>())
+        {
             PositiveFloat(parameters, attribute.Name);
+        }
     }
 
     public static float PositiveFloat(InstructionParameter[] parameters, string name)
@@ -85,7 +92,10 @@ public static class TierOneNormalizationInstructionSet
         var text = parameters.OfType<InstructionAttributeParameter>().Single(p => p.Name == name).Value;
         if (!float.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out var value) ||
             !float.IsFinite(value) || value <= 0)
+        {
             throw new InstructionAdaptationException(Id, name, $"'{name}' must be finite and positive.");
+        }
+
         return value;
     }
 
@@ -100,7 +110,10 @@ public static class TierOneNormalizationInstructionSet
     {
         void Require(bool condition, string message)
         {
-            if (!condition) throw new InstructionAdaptationException(Id, name, message);
+            if (!condition)
+            {
+                throw new InstructionAdaptationException(Id, name, message);
+            }
         }
         var output = tensors["output"].Tensor.Dimensions;
         Require(output.Count == 2, "Batched output must have shape [B,H].");
@@ -108,14 +121,24 @@ public static class TierOneNormalizationInstructionSet
         foreach (var (port, tensor) in tensors)
         {
             var dimensions = tensor.Tensor.Dimensions;
-            if (port == "control") continue;
+            if (port == "control")
+            {
+                continue;
+            }
+
             if (port == "weight")
+            {
                 Require(dimensions.Count == 1 && dimensions[0] == output[1], "Weight must have shape [H].");
+            }
             else if (port == "gate_up")
+            {
                 Require(dimensions.Count == 2 && dimensions[0] == output[0] &&
                     dimensions[1] == checked(output[1] * 2), "Gate/up must have shape [B,2H].");
+            }
             else
+            {
                 Require(dimensions.SequenceEqual(output), "Batched tensor shapes must match [B,H].");
+            }
         }
     }
 }

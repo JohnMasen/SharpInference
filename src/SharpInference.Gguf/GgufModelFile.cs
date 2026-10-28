@@ -109,13 +109,22 @@ public sealed unsafe class GgufModelFile : IDisposable
     }
 
     /// <summary>Gets the normalized path of the mapped GGUF file.</summary>
-    public string Path { get; }
+    public string Path
+    {
+        get;
+    }
 
     /// <summary>Gets the GGUF metadata values keyed by metadata name.</summary>
-    public IReadOnlyDictionary<string, object> Metadata { get; }
+    public IReadOnlyDictionary<string, object> Metadata
+    {
+        get;
+    }
 
     /// <summary>Gets the tensor descriptors and mapped tensor views keyed by tensor name.</summary>
-    public IReadOnlyDictionary<string, GgufModelTensor> Tensors { get; }
+    public IReadOnlyDictionary<string, GgufModelTensor> Tensors
+    {
+        get;
+    }
 
     /// <summary>Opens a GGUF v3 model file and maps its tensor data for read-only access.</summary>
     /// <param name="path">The path to the GGUF model file.</param>
@@ -466,11 +475,20 @@ public sealed unsafe class GgufModelTensor
     }
 
     /// <summary>Gets the tensor name in the model file.</summary>
-    public string Name { get; }
+    public string Name
+    {
+        get;
+    }
     /// <summary>Gets the stored element or quantization type.</summary>
-    public GgufModelTensorType Type { get; }
+    public GgufModelTensorType Type
+    {
+        get;
+    }
     /// <summary>Gets dimensions in GGUF order, with the fastest-varying dimension first.</summary>
-    public IReadOnlyList<ulong> Dimensions { get; }
+    public IReadOnlyList<ulong> Dimensions
+    {
+        get;
+    }
     /// <summary>Gets the stored tensor length in bytes, including quantization metadata.</summary>
     public long ByteLength => byteLength;
     /// <summary>Gets the address of mapped tensor storage; the owning file must remain open.</summary>

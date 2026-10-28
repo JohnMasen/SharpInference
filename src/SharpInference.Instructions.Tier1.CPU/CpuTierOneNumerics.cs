@@ -267,31 +267,81 @@ public static class CpuTierOneNumerics
 
     private readonly struct DifferenceMixOperator : ITernaryOperator
     {
-        public static float Invoke(float a, float b, float c) { var difference = a - b; var product = difference * c; return b + product; }
-        public static Vector<float> Invoke(Vector<float> a, Vector<float> b, Vector<float> c) { var difference = a - b; var product = difference * c; return b + product; }
+        public static float Invoke(float a, float b, float c)
+        {
+            var difference = a - b;
+            var product = difference * c;
+            return b + product;
+        }
+        public static Vector<float> Invoke(Vector<float> a, Vector<float> b, Vector<float> c)
+        {
+            var difference = a - b;
+            var product = difference * c;
+            return b + product;
+        }
     }
 
     private readonly struct MultiplyAddSubtractOperator : ITernaryOperator
     {
-        public static float Invoke(float a, float b, float c) { var product = a * b; var sum = product + c; return sum - b; }
-        public static Vector<float> Invoke(Vector<float> a, Vector<float> b, Vector<float> c) { var product = a * b; var sum = product + c; return sum - b; }
+        public static float Invoke(float a, float b, float c)
+        {
+            var product = a * b;
+            var sum = product + c;
+            return sum - b;
+        }
+        public static Vector<float> Invoke(Vector<float> a, Vector<float> b, Vector<float> c)
+        {
+            var product = a * b;
+            var sum = product + c;
+            return sum - b;
+        }
     }
 
     private readonly struct AddMultiplyAddOperator : IQuaternaryOperator
     {
-        public static float Invoke(float a, float b, float c, float d) { var sum = a + b; var product = sum * c; return product + d; }
-        public static Vector<float> Invoke(Vector<float> a, Vector<float> b, Vector<float> c, Vector<float> d) { var sum = a + b; var product = sum * c; return product + d; }
+        public static float Invoke(float a, float b, float c, float d)
+        {
+            var sum = a + b;
+            var product = sum * c;
+            return product + d;
+        }
+        public static Vector<float> Invoke(Vector<float> a, Vector<float> b, Vector<float> c, Vector<float> d)
+        {
+            var sum = a + b;
+            var product = sum * c;
+            return product + d;
+        }
     }
 
     private readonly struct MultiplyMultiplyAddOperator : IQuaternaryOperator
     {
-        public static float Invoke(float a, float b, float c, float d) { var first = a * b; var second = first * c; return second + d; }
-        public static Vector<float> Invoke(Vector<float> a, Vector<float> b, Vector<float> c, Vector<float> d) { var first = a * b; var second = first * c; return second + d; }
+        public static float Invoke(float a, float b, float c, float d)
+        {
+            var first = a * b;
+            var second = first * c;
+            return second + d;
+        }
+        public static Vector<float> Invoke(Vector<float> a, Vector<float> b, Vector<float> c, Vector<float> d)
+        {
+            var first = a * b;
+            var second = first * c;
+            return second + d;
+        }
     }
 
     private readonly struct MultiplyAddMultiplyOperator : IQuaternaryOperator
     {
-        public static float Invoke(float a, float b, float c, float d) { var product = a * b; var sum = product + c; return sum * d; }
-        public static Vector<float> Invoke(Vector<float> a, Vector<float> b, Vector<float> c, Vector<float> d) { var product = a * b; var sum = product + c; return sum * d; }
+        public static float Invoke(float a, float b, float c, float d)
+        {
+            var product = a * b;
+            var sum = product + c;
+            return sum * d;
+        }
+        public static Vector<float> Invoke(Vector<float> a, Vector<float> b, Vector<float> c, Vector<float> d)
+        {
+            var product = a * b;
+            var sum = product + c;
+            return sum * d;
+        }
     }
 }

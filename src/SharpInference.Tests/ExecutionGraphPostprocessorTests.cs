@@ -103,7 +103,10 @@ public sealed class ExecutionGraphPostprocessorTests
             var operation = Add(graph, "second", "b", scenario == "same-operation" ? "a" : null, ["first"]);
             if (scenario == "read-write")
             {
-                operation.Bindings[0] = operation.Bindings[0] with { Access = ResourceAccess.ReadWrite };
+                operation.Bindings[0] = operation.Bindings[0] with
+                {
+                    Access = ResourceAccess.ReadWrite
+                };
             }
 
             if (scenario == "unknown-write")
@@ -142,17 +145,40 @@ public sealed class ExecutionGraphPostprocessorTests
         var resource = graph.Resources.Single(resource => resource.Id == "b");
         switch (protection)
         {
-            case "state": resource.IsState = true; break;
-            case "input": resource.GraphIO = GraphIO.In; break;
-            case "output": resource.GraphIO = GraphIO.Out; break;
-            case "inout": resource.GraphIO = GraphIO.InOut; break;
-            case "weight": resource.Usage = ResourceUsage.Weight; resource.Permission = ResourcePermission.ReadOnly; break;
-            case "session": resource.Scope = ResourceScope.Session; break;
-            case "global": resource.Scope = ResourceScope.Global; break;
-            case "binding": resource.BindingKey = "external"; break;
-            case "shape": resource.Tensor = new(ElementType.Float32, [2, 2]); break;
-            case "precision": resource.Tensor = new(ElementType.Float16, [4]); break;
-            case "layout": resource.Tensor = new(ElementType.Float32, [4], "other"); break;
+            case "state":
+                resource.IsState = true;
+                break;
+            case "input":
+                resource.GraphIO = GraphIO.In;
+                break;
+            case "output":
+                resource.GraphIO = GraphIO.Out;
+                break;
+            case "inout":
+                resource.GraphIO = GraphIO.InOut;
+                break;
+            case "weight":
+                resource.Usage = ResourceUsage.Weight;
+                resource.Permission = ResourcePermission.ReadOnly;
+                break;
+            case "session":
+                resource.Scope = ResourceScope.Session;
+                break;
+            case "global":
+                resource.Scope = ResourceScope.Global;
+                break;
+            case "binding":
+                resource.BindingKey = "external";
+                break;
+            case "shape":
+                resource.Tensor = new(ElementType.Float32, [2, 2]);
+                break;
+            case "precision":
+                resource.Tensor = new(ElementType.Float16, [4]);
+                break;
+            case "layout":
+                resource.Tensor = new(ElementType.Float32, [4], "other");
+                break;
         }
         Add(graph, "first", "a");
         if (protection is "weight" or "input")
@@ -228,11 +254,21 @@ public sealed class ExecutionGraphPostprocessorTests
         var second = Add(graph, "second", "b", difference == "alias" ? "b" : "input");
         switch (difference)
         {
-            case "attributes": second.Attributes["mode"] = "other"; break;
-            case "precision": second.RequirePrecision(ElementType.Float16, ElementType.Float16); break;
-            case "version": second.Operation = new(Operations.Copy, 2); break;
-            case "shape": graph.Resources.Single(resource => resource.Id == "b").Tensor = new(ElementType.Float32, [2]); break;
-            case "category": second.Category = "custom.operation"; break;
+            case "attributes":
+                second.Attributes["mode"] = "other";
+                break;
+            case "precision":
+                second.RequirePrecision(ElementType.Float16, ElementType.Float16);
+                break;
+            case "version":
+                second.Operation = new(Operations.Copy, 2);
+                break;
+            case "shape":
+                graph.Resources.Single(resource => resource.Id == "b").Tensor = new(ElementType.Float32, [2]);
+                break;
+            case "category":
+                second.Category = "custom.operation";
+                break;
         }
         Assert.Single(Process(new OperationTemplateSharingPostprocessor(), graph));
     }

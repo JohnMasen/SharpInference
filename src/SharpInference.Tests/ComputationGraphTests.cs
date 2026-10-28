@@ -248,7 +248,9 @@ public sealed class ComputationGraphTests
 
     private sealed class SpecialGraph : Graph
     {
-        public SpecialGraph() { }
+        public SpecialGraph()
+        {
+        }
 
         public override SpecialOperation Operation(string id, OperationId operation)
         {
@@ -261,6 +263,9 @@ public sealed class ComputationGraphTests
     private sealed class SpecialOperation(Graph graph, string id, OperationId operation)
         : OperationAction(graph, id, operation)
     {
-        public string? Implementation { get; set; }
+        public string? Implementation
+        {
+            get; set;
+        }
     }
 }

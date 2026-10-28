@@ -10,5 +10,8 @@ public interface IExecutionGraphPostprocessor
         ExecutionGraphPackage package, ExecutionPassContext context);
 
     /// <summary>Gets the nonblank processor name reported in the invocation context and diagnostics.</summary>
-    string Name { get; }
+    string Name
+    {
+        get;
+    }
 }

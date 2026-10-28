@@ -73,7 +73,10 @@ internal static class D3D12VmSchedule
                     arguments.ToDictionary(a => a.Parameter, a =>
                     {
                         var source = bindings[a.Source];
-                        return source with { Offset = checked(source.Offset + a.ByteOffset) };
+                        return source with
+                        {
+                            Offset = checked(source.Offset + a.ByteOffset)
+                        };
                     }, StringComparer.Ordinal);
                 foreach (var node in definition.Nodes)
                 {

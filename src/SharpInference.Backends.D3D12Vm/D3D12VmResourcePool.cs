@@ -17,7 +17,10 @@ public sealed class D3D12VmResourcePool : IDisposable
     private readonly Dictionary<byte[], D3D12VmPooledStorage> storage = new(ReferenceEqualityComparer.Instance);
     private readonly Dictionary<ulong, D3D12VmPooledStorage> allocations = new();
     internal object Gate { get; } = new();
-    internal ID3D12Device Device { get; }
+    internal ID3D12Device Device
+    {
+        get;
+    }
     private ulong allocatedGpuBytes;
     private ulong globalUploadBytes;
     private ulong globalUploadCount;
@@ -50,15 +53,60 @@ public sealed class D3D12VmResourcePool : IDisposable
         Device = device ?? throw new ArgumentNullException(nameof(device));
 
     /// <summary>Live, aligned buffer lengths; excludes committed-heap alignment and driver overhead.</summary>
-    public ulong AllocatedGpuBytes { get { lock (Gate) { return allocatedGpuBytes; } } }
+    public ulong AllocatedGpuBytes
+    {
+        get
+        {
+            lock (Gate)
+            {
+                return allocatedGpuBytes;
+            }
+        }
+    }
     /// <summary>Gets the number of live CPU-shadow and GPU-resource allocation pairs.</summary>
-    public int AllocationCount { get { lock (Gate) { return storage.Count; } } }
+    public int AllocationCount
+    {
+        get
+        {
+            lock (Gate)
+            {
+                return storage.Count;
+            }
+        }
+    }
     /// <summary>Gets the number of executors currently attached to this pool.</summary>
-    public int ExecutorCount { get { lock (Gate) { return executors; } } }
+    public int ExecutorCount
+    {
+        get
+        {
+            lock (Gate)
+            {
+                return executors;
+            }
+        }
+    }
     /// <summary>Gets the cumulative number of read-only global resource uploads.</summary>
-    public ulong GlobalUploadCount { get { lock (Gate) { return globalUploadCount; } } }
+    public ulong GlobalUploadCount
+    {
+        get
+        {
+            lock (Gate)
+            {
+                return globalUploadCount;
+            }
+        }
+    }
     /// <summary>Gets the cumulative bytes uploaded for read-only global resources.</summary>
-    public ulong GlobalUploadBytes { get { lock (Gate) { return globalUploadBytes; } } }
+    public ulong GlobalUploadBytes
+    {
+        get
+        {
+            lock (Gate)
+            {
+                return globalUploadBytes;
+            }
+        }
+    }
     /// <summary>Gets a consistent snapshot of cumulative task recordings, transfers, and wall-clock timings.</summary>
     public D3D12VmTaskStatistics TaskStatistics
     {
@@ -410,8 +458,14 @@ internal sealed class D3D12VmPooledStorage(
     internal byte[] RawBuffer => data ?? throw new ObjectDisposedException(nameof(IVmStorage));
     internal D3D12VmResourcePool Owner => pool;
     internal ID3D12Resource Resource => resource ?? throw new ObjectDisposedException(nameof(IVmStorage));
-    internal bool GlobalUploaded { get; set; }
-    internal bool GpuInitialized { get; set; }
+    internal bool GlobalUploaded
+    {
+        get; set;
+    }
+    internal bool GpuInitialized
+    {
+        get; set;
+    }
     internal bool CpuCurrent { get; set; } = true;
     internal bool Disposed => data is null;
 

@@ -13,7 +13,10 @@ public static class GpuMatVecExecution
     /// <summary>Gets the implementation using a thread group to cooperate on each output reduction.</summary>
     public static D3D12InstructionExecutionConfiguration Cooperative { get; } = new(new("cooperative-matvec"));
     /// <summary>Gets the implementation identity used to match trusted measurements.</summary>
-    public static string ImplementationFingerprint { get; } = Convert.ToHexString(
+    public static string ImplementationFingerprint
+    {
+        get;
+    } = Convert.ToHexString(
         SHA256.HashData(Encoding.UTF8.GetBytes(
             $"{typeof(GpuMatVecExecution).Assembly.ManifestModule.ModuleVersionId}|{Cooperative.Implementation}|{Threads}")));
 

@@ -34,7 +34,10 @@ public static class ExecutionGraphRewriter
 
                 var actual = call.Bindings.SingleOrDefault(item => item.SourceProperty == binding.Target.TargetProperty)
                     ?? throw new InvalidDataException($"Replacing '{callId}' requires an explicit mapping for its private resource '{binding.Target.TargetProperty}'.");
-                action.Bindings[bindingIndex] = binding with { Target = actual.Target };
+                action.Bindings[bindingIndex] = binding with
+                {
+                    Target = actual.Target
+                };
             }
         }
 
@@ -225,7 +228,10 @@ public static class ExecutionGraphRewriter
         {
             if (target.Storage.TryGetValue(resource.Id, out var storage) && storage.Slot is { } slot)
             {
-                graph.Storage[resources[resource.Id].TargetProperty] = storage with { Slot = resources[slot].TargetProperty };
+                graph.Storage[resources[resource.Id].TargetProperty] = storage with
+                {
+                    Slot = resources[slot].TargetProperty
+                };
             }
         }
 
@@ -290,7 +296,10 @@ public static class ExecutionGraphRewriter
                 var binding = action.Bindings[index];
                 if (binding.Target.TargetKind == ResourceTarget.Call && binding.Target.Target == callId)
                 {
-                    action.Bindings[index] = binding with { Target = resources[binding.Target.TargetProperty] };
+                    action.Bindings[index] = binding with
+                    {
+                        Target = resources[binding.Target.TargetProperty]
+                    };
                 }
             }
         }
@@ -346,7 +355,10 @@ public static class ExecutionGraphRewriter
 
     private static ResourceRef Canonical(SharpInference.Graphs.Graph graph, ResourceRef reference) =>
         reference.TargetKind == ResourceTarget.Graph && reference.Target is null
-            ? reference with { Target = graph.Id } : reference;
+            ? reference with
+            {
+                Target = graph.Id
+            } : reference;
 
     private static IEnumerable<SourceOrigin> Sources(GraphAction action) => action switch
     {

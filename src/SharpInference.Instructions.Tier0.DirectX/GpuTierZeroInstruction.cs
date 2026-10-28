@@ -336,7 +336,8 @@ internal sealed class GpuTierZeroInstruction(Guid id, string name) : TierZeroIns
                     body = Store($"{Load("left", $"(i/({dims[1]}u*{dims[2]}u))*{dims[1]}u+(i/{dims[2]}u)%{dims[1]}u")}*" +
                         Load("right", $"(i/({dims[1]}u*{dims[2]}u))*{dims[2]}u+i%{dims[2]}u"));
                     break;
-                default: throw Error("unsupported tensor operation.");
+                default:
+                    throw Error("unsupported tensor operation.");
             }
         }
         else

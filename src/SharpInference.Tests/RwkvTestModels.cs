@@ -9,7 +9,10 @@ internal static class RwkvTestModels
     internal const string DefaultModelDirectory = @"D:\GithubRoot\rwkvcpp\tests";
 
     /// <summary>Gets the explicit directory embedded by the test project's build property.</summary>
-    internal static string? ConfiguredDirectory { get; } = typeof(RwkvTestModels).Assembly
+    internal static string? ConfiguredDirectory
+    {
+        get;
+    } = typeof(RwkvTestModels).Assembly
         .GetCustomAttributes<AssemblyMetadataAttribute>()
         .SingleOrDefault(attribute => attribute.Key == "RwkvTestModelDirectory")?.Value;
 

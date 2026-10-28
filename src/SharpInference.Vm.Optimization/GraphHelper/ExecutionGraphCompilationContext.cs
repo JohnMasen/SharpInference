@@ -27,15 +27,30 @@ public sealed class ExecutionGraphCompilationContext
     }
 
     /// <summary>Gets the model type identifier.</summary>
-    public string ModelType { get; }
+    public string ModelType
+    {
+        get;
+    }
     /// <summary>Gets the backend identifier.</summary>
-    public string Backend { get; }
+    public string Backend
+    {
+        get;
+    }
     /// <summary>Gets the read-only model metadata snapshot.</summary>
-    public IReadOnlyDictionary<string, string> ModelAttributes { get; }
+    public IReadOnlyDictionary<string, string> ModelAttributes
+    {
+        get;
+    }
     /// <summary>Gets the read-only backend metadata snapshot.</summary>
-    public IReadOnlyDictionary<string, string> BackendAttributes { get; }
+    public IReadOnlyDictionary<string, string> BackendAttributes
+    {
+        get;
+    }
     /// <summary>Gets the read-only compilation options snapshot.</summary>
-    public IReadOnlyDictionary<string, string> Options { get; }
+    public IReadOnlyDictionary<string, string> Options
+    {
+        get;
+    }
 
     /// <summary>Checks that a context identifier contains non-whitespace text without trimming it.</summary>
     /// <param name="value">The identifier to validate.</param>

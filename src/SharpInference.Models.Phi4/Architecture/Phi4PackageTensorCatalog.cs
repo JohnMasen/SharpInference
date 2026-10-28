@@ -97,17 +97,35 @@ public sealed class Phi4PackageTensorCatalog : IModelFile
     }
 
     /// <inheritdoc/>
-    public string Path { get; }
+    public string Path
+    {
+        get;
+    }
     /// <summary>Gets the dimensions and normalization and rotary constants used by the text graph.</summary>
-    public Phi4TextGraphParameters TextParameters { get; }
+    public Phi4TextGraphParameters TextParameters
+    {
+        get;
+    }
     /// <summary>Gets the tokenizer associated with the model package.</summary>
-    public Phi4Tokenizer? Tokenizer { get; }
+    public Phi4Tokenizer? Tokenizer
+    {
+        get;
+    }
     /// <summary>Gets the optional vision LoRA alpha used to determine adapter scaling.</summary>
-    public float? VisionAdapterAlpha { get; }
+    public float? VisionAdapterAlpha
+    {
+        get;
+    }
     /// <summary>Gets the optional speech LoRA alpha used to determine adapter scaling.</summary>
-    public float? SpeechAdapterAlpha { get; }
+    public float? SpeechAdapterAlpha
+    {
+        get;
+    }
     /// <inheritdoc/>
-    public IReadOnlyCollection<string> Names { get; }
+    public IReadOnlyCollection<string> Names
+    {
+        get;
+    }
     /// <inheritdoc/>
     public bool TryGet(string name, out IModelTensor tensor) => tensors.TryGetValue(name, out tensor!);
     /// <inheritdoc/>
@@ -132,8 +150,14 @@ public sealed class Phi4PackageTensorCatalog : IModelFile
                 continue;
             }
 
-            try { source.Dispose(); }
-            catch (Exception error) { (errors ??= []).Add(error); }
+            try
+            {
+                source.Dispose();
+            }
+            catch (Exception error)
+            {
+                (errors ??= []).Add(error);
+            }
         }
         if (errors is not null)
         {
@@ -148,11 +172,19 @@ public sealed class Phi4PackageTensorCatalog : IModelFile
         public IReadOnlyList<int> Dimensions { get; } = Array.AsReadOnly(source.Dimensions.ToArray());
         public ReadOnlySpan<float> FloatValues
         {
-            get { ObjectDisposedException.ThrowIf(owner.disposed, owner); return source.FloatValues; }
+            get
+            {
+                ObjectDisposedException.ThrowIf(owner.disposed, owner);
+                return source.FloatValues;
+            }
         }
         public ReadOnlySpan<Half> HalfValues
         {
-            get { ObjectDisposedException.ThrowIf(owner.disposed, owner); return source.HalfValues; }
+            get
+            {
+                ObjectDisposedException.ThrowIf(owner.disposed, owner);
+                return source.HalfValues;
+            }
         }
     }
 
@@ -163,7 +195,11 @@ public sealed class Phi4PackageTensorCatalog : IModelFile
         public IReadOnlyList<int> Dimensions { get; } = Array.AsReadOnly(new[] { values.Length });
         public ReadOnlySpan<float> FloatValues
         {
-            get { ObjectDisposedException.ThrowIf(owner.disposed, owner); return values; }
+            get
+            {
+                ObjectDisposedException.ThrowIf(owner.disposed, owner);
+                return values;
+            }
         }
         public ReadOnlySpan<Half> HalfValues => throw new InvalidOperationException("Rotary frequencies use FP32 storage.");
     }
@@ -192,8 +228,14 @@ public sealed class Phi4PackageGraphReader : IModelReader
         }
         catch (Exception error)
         {
-            try { package.Dispose(); }
-            catch (Exception cleanup) { throw new AggregateException("Phi4 package creation and cleanup failed.", error, cleanup); }
+            try
+            {
+                package.Dispose();
+            }
+            catch (Exception cleanup)
+            {
+                throw new AggregateException("Phi4 package creation and cleanup failed.", error, cleanup);
+            }
             throw;
         }
     }
@@ -210,7 +252,10 @@ public sealed class Phi4PackageGraphReader : IModelReader
             Names = Array.AsReadOnly(tensors.Keys.ToArray());
         }
         public string Path => file.Path;
-        public IReadOnlyCollection<string> Names { get; }
+        public IReadOnlyCollection<string> Names
+        {
+            get;
+        }
         public bool TryGet(string name, out IModelTensor tensor) => tensors.TryGetValue(name, out tensor!);
         public IModelTensor GetRequired(string name) => tensors.TryGetValue(name, out var tensor) ? tensor : throw new InvalidDataException(name);
         public void Dispose()
@@ -240,15 +285,29 @@ public sealed class Phi4PackageGraphReader : IModelReader
                 Dimensions = Array.AsReadOnly(tensor.Dimensions.Reverse().Select(value => checked((int)value)).ToArray());
             }
             public string Name => tensor.Name;
-            public TensorDataType DataType { get; }
-            public IReadOnlyList<int> Dimensions { get; }
+            public TensorDataType DataType
+            {
+                get;
+            }
+            public IReadOnlyList<int> Dimensions
+            {
+                get;
+            }
             public ReadOnlySpan<float> FloatValues
             {
-                get { ObjectDisposedException.ThrowIf(owner.disposed, owner); return tensor.FloatValues; }
+                get
+                {
+                    ObjectDisposedException.ThrowIf(owner.disposed, owner);
+                    return tensor.FloatValues;
+                }
             }
             public ReadOnlySpan<Half> HalfValues
             {
-                get { ObjectDisposedException.ThrowIf(owner.disposed, owner); return tensor.HalfValues; }
+                get
+                {
+                    ObjectDisposedException.ThrowIf(owner.disposed, owner);
+                    return tensor.HalfValues;
+                }
             }
         }
     }

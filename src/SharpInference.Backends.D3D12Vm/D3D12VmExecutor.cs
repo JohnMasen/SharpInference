@@ -153,7 +153,10 @@ public sealed class D3D12VmExecutor : IVmTaskExecutable
     }
 
     /// <summary>Gets the compiled GPU program and kernel modules used by this executor.</summary>
-    public D3D12VmArtifact Artifact { get; }
+    public D3D12VmArtifact Artifact
+    {
+        get;
+    }
     /// <inheritdoc/>
     public VmProgram Program => Artifact.Program;
     /// <summary>Gets the shared resource pool, or null when the executor owns independent slot allocations.</summary>
@@ -164,9 +167,27 @@ public sealed class D3D12VmExecutor : IVmTaskExecutable
     public ulong AllocatedGpuBytes => pool is null ?
         Artifact.Program.Slots.Aggregate(0UL, (sum, s) => checked(sum + Align(s.Tensor.ByteLength))) : 0;
     /// <summary>Gets the cumulative number of complete entry-list recordings for slot resource bindings.</summary>
-    public ulong BindingRecordCount { get { lock (gate) { return bindingRecordCount; } } }
+    public ulong BindingRecordCount
+    {
+        get
+        {
+            lock (gate)
+            {
+                return bindingRecordCount;
+            }
+        }
+    }
     /// <summary>Gets the cumulative number of compute entry recordings made for queued task execution.</summary>
-    public ulong ComputeRecordCount { get { lock (gate) { return computeRecordCount; } } }
+    public ulong ComputeRecordCount
+    {
+        get
+        {
+            lock (gate)
+            {
+                return computeRecordCount;
+            }
+        }
+    }
 
     /// <inheritdoc/>
     public void ExecuteTask(string entryName, VmExecutionLease lease, CancellationToken cancellation)
@@ -231,7 +252,16 @@ public sealed class D3D12VmExecutor : IVmTaskExecutable
         }
     }
     /// <summary>Gets the cumulative number of command-list submissions, including initialization and transfers.</summary>
-    public ulong SubmissionCount { get { lock (gate) { return submissionCount; } } }
+    public ulong SubmissionCount
+    {
+        get
+        {
+            lock (gate)
+            {
+                return submissionCount;
+            }
+        }
+    }
     /// <summary>Returns the number of GPU dispatch commands in the named entry&apos;s expanded schedule.</summary>
     /// <param name="entry">The name of the compiled entry to invoke or inspect.</param>
     public int DispatchCount(string entry) => D3D12VmSchedule.Create(Artifact.Program)[entry].Count(c => c is D3D12VmDispatch);
@@ -291,7 +321,11 @@ public sealed class D3D12VmExecutor : IVmTaskExecutable
 
     private void ClearEntries()
     {
-        foreach (var value in entries.Values) { value.Commands.Dispose(); value.Allocator.Dispose(); }
+        foreach (var value in entries.Values)
+        {
+            value.Commands.Dispose();
+            value.Allocator.Dispose();
+        }
         entries.Clear();
         entriesRecorded = false;
     }
@@ -692,7 +726,11 @@ public sealed class D3D12VmExecutor : IVmTaskExecutable
             using var use = BeginPoolUse();
             ValidateContext(context);
             ArgumentNullException.ThrowIfNull(slots);
-            foreach (var slot in slots) { ValidateSlot(slot); ValidateUpload(slot, context[slot]); }
+            foreach (var slot in slots)
+            {
+                ValidateSlot(slot);
+                ValidateUpload(slot, context[slot]);
+            }
             BindPooledContext(context);
             foreach (var slot in slots)
             {
@@ -951,7 +989,10 @@ public sealed class D3D12VmExecutor : IVmTaskExecutable
                     Array.Clear(executor.buffers);
                 }
             }
-            finally { use.Dispose(); }
+            finally
+            {
+                use.Dispose();
+            }
         }
     }
 
@@ -999,7 +1040,10 @@ public sealed class D3D12VmExecutor : IVmTaskExecutable
                 }
             }
         }
-        finally { Array.Clear(candidateBindings); }
+        finally
+        {
+            Array.Clear(candidateBindings);
+        }
     }
 
     private void ValidatePooledAliases()

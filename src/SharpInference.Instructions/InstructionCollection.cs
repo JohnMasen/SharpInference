@@ -46,11 +46,20 @@ public sealed record InstructionSignature
         Precision = precision;
     }
     /// <summary>Gets the tensor ports supported by this signature.</summary>
-    public IReadOnlyList<InstructionPort> Ports { get; }
+    public IReadOnlyList<InstructionPort> Ports
+    {
+        get;
+    }
     /// <summary>Gets the attribute names required by the signature.</summary>
-    public IReadOnlyList<string> Attributes { get; }
+    public IReadOnlyList<string> Attributes
+    {
+        get;
+    }
     /// <summary>Gets the supported internal arithmetic and accumulator precision.</summary>
-    public ExecutionPrecision Precision { get; }
+    public ExecutionPrecision Precision
+    {
+        get;
+    }
 }
 /// <summary>Constrains an index port using a tensor dimension and a minimum valid index.</summary>
 /// <param name="IndexPort">The port supplying index values to validate.</param>
@@ -100,20 +109,35 @@ public sealed class InstructionRecording
         References = Array.AsReadOnly(references?.Distinct().ToArray() ?? []);
     }
     /// <summary>Gets the generated source fragment implementing the invocation.</summary>
-    public string Source { get; }
+    public string Source
+    {
+        get;
+    }
     /// <summary>Gets the named helper declarations required by the recorded source.</summary>
-    public IReadOnlyList<InstructionHelper> Helpers { get; }
+    public IReadOnlyList<InstructionHelper> Helpers
+    {
+        get;
+    }
     /// <summary>Gets the synchronization required after the recorded source executes.</summary>
-    public InstructionSynchronization Synchronization { get; }
+    public InstructionSynchronization Synchronization
+    {
+        get;
+    }
     /// <summary>Gets the distinct assemblies required to compile the recorded source.</summary>
-    public IReadOnlyList<Assembly> References { get; }
+    public IReadOnlyList<Assembly> References
+    {
+        get;
+    }
 }
 
 /// <summary>Receives instruction source recordings for a particular execution architecture.</summary>
 public interface IInstructionRecorder
 {
     /// <summary>Gets the execution architecture required by this contract.</summary>
-    ExecutionTarget Target { get; }
+    ExecutionTarget Target
+    {
+        get;
+    }
     /// <summary>Records an instruction's generated source and compilation dependencies for this target.</summary>
     /// <param name="recording">The source, helpers, synchronization, and references to record.</param>
     void Record(InstructionRecording recording);
@@ -125,13 +149,25 @@ public abstract class Instruction
     public virtual string? Comment => null;
     public virtual IReadOnlyList<InstructionAttributeDescription> AttributeDescriptions => [];
     /// <summary>Gets the identity of the collection providing this implementation.</summary>
-    public abstract Guid CollectionId { get; }
+    public abstract Guid CollectionId
+    {
+        get;
+    }
     /// <summary>Gets the registered instruction name within its collection.</summary>
-    public abstract string Name { get; }
+    public abstract string Name
+    {
+        get;
+    }
     /// <summary>Gets the execution architecture required by this contract.</summary>
-    public abstract ExecutionTarget Target { get; }
+    public abstract ExecutionTarget Target
+    {
+        get;
+    }
     /// <summary>Gets the parameter and precision signatures supported by this implementation.</summary>
-    public abstract IReadOnlyList<InstructionSignature> Signatures { get; }
+    public abstract IReadOnlyList<InstructionSignature> Signatures
+    {
+        get;
+    }
     /// <summary>Gets whether the instruction must execute in a kernel without other operations.</summary>
     public virtual bool RequiresDispatchIsolation => true;
     /// <summary>Gets the index-port bounds required by the instruction.</summary>
@@ -180,7 +216,9 @@ public abstract class Instruction
 
     /// <summary>Validates invocation-specific tensor constraints after signature selection.</summary>
     /// <param name="parameters">The named tensor and attribute parameters to adapt.</param>
-    protected virtual void Validate(InstructionParameter[] parameters) { }
+    protected virtual void Validate(InstructionParameter[] parameters)
+    {
+    }
     /// <summary>Generates source and helper declarations for validated instruction parameters.</summary>
     /// <param name="parameters">The named tensor and attribute parameters to adapt.</param>
     protected abstract InstructionRecording Generate(InstructionParameter[] parameters);
@@ -273,9 +311,18 @@ public sealed class InstructionRegistry : IInstructionCatalog, IInstructionOptim
     private readonly IReadOnlyList<IInstructionCollectionProvider> providers;
     private readonly IReadOnlyList<InstructionCollectionDescription> collections;
     private readonly IReadOnlyList<Instruction> instructions;
-    public IReadOnlyList<InstructionCatalogRow> Rows { get; }
-    public IReadOnlyList<InstructionParameterRow> Parameters { get; }
-    public IReadOnlyList<InstructionSignatureRow> Signatures { get; }
+    public IReadOnlyList<InstructionCatalogRow> Rows
+    {
+        get;
+    }
+    public IReadOnlyList<InstructionParameterRow> Parameters
+    {
+        get;
+    }
+    public IReadOnlyList<InstructionSignatureRow> Signatures
+    {
+        get;
+    }
     public IReadOnlyList<Instruction> EnumerateInstructions() => instructions;
 
     /// <summary>Snapshots providers and validates their collection identities and target descriptions.</summary>
@@ -309,7 +356,9 @@ public sealed class InstructionRegistry : IInstructionCatalog, IInstructionOptim
         }
 
         collections = Array.AsReadOnly(descriptions.Select(description => description with
-            { RequiredInstructions = description.RequiredInstructions is { } names ? Array.AsReadOnly(names.ToArray()) : null })
+        {
+            RequiredInstructions = description.RequiredInstructions is { } names ? Array.AsReadOnly(names.ToArray()) : null
+        })
             .OrderBy(description => description.Id)
             .ThenBy(description => description.Architecture.Architecture, StringComparer.Ordinal).ToArray());
         var all = new List<Instruction>();

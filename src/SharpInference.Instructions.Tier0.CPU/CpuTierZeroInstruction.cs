@@ -106,8 +106,11 @@ internal sealed class CpuTierZeroInstruction(Guid id, string name) : TierZeroIns
                     code.AppendLine($"o.Fill({Result(float.Parse(attributes["value"], CultureInfo.InvariantCulture).ToString("R", CultureInfo.InvariantCulture) + "f")});");
                     break;
                 case "core.tensor.cast-f16-f32":
-                    code.AppendLine("for(int i=0;i<o.Length;i++) o[i]=(float)s0[i];"); break;
-                case "core.tensor.reshape": code.AppendLine("s0.CopyTo(o);"); break;
+                    code.AppendLine("for(int i=0;i<o.Length;i++) o[i]=(float)s0[i];");
+                    break;
+                case "core.tensor.reshape":
+                    code.AppendLine("s0.CopyTo(o);");
+                    break;
                 case "core.tensor.slice":
                     var shape = tensors["input"].Tensor.Dimensions;
                     var axis = int.Parse(attributes["axis"], CultureInfo.InvariantCulture);
@@ -120,7 +123,8 @@ internal sealed class CpuTierZeroInstruction(Guid id, string name) : TierZeroIns
                     var source = tensors["input"].Tensor.Dimensions;
                     var expression = string.Join("+", source.Select((dim, i) => dim == 1 ? "0" :
                         $"((i/{Product(output.Skip(output.Count - source.Count + i + 1))})%{dim})*{Product(source.Skip(i + 1))}"));
-                    code.AppendLine($"for(int i=0;i<o.Length;i++) o[i]=s0[{expression}];"); break;
+                    code.AppendLine($"for(int i=0;i<o.Length;i++) o[i]=s0[{expression}];");
+                    break;
                 case "core.tensor.batched-mat-vec":
                     var matrix = tensors["matrix"].Tensor.Dimensions;
                     var matvec = !half && tensors["matrix"].Tensor.ElementType == ElementType.Float16
@@ -130,10 +134,13 @@ internal sealed class CpuTierZeroInstruction(Guid id, string name) : TierZeroIns
                 case "core.tensor.reduce-last-sum":
                 case "core.tensor.reduce-last-mean":
                     var width = tensors["input"].Tensor.Dimensions[^1];
-                    code.AppendLine($"for(int i=0;i<o.Length;i++) o[i]={primitive}{(Name.EndsWith("mean", StringComparison.Ordinal) ? "ReduceMean" : "ReduceSum")}(s0.Slice(i*{width},{width}));"); break;
+                    code.AppendLine($"for(int i=0;i<o.Length;i++) o[i]={primitive}{(Name.EndsWith("mean", StringComparison.Ordinal) ? "ReduceMean" : "ReduceSum")}(s0.Slice(i*{width},{width}));");
+                    break;
                 case "core.tensor.head-outer":
-                    code.AppendLine($"for(int h=0;h<{output[0]};h++) for(int i=0;i<{output[1]};i++) for(int j=0;j<{output[2]};j++) o[(h*{output[1]}+i)*{output[2]}+j]={Result($"(float)s0[h*{output[1]}+i]*(float)s1[h*{output[2]}+j]")};"); break;
-                default: throw new NotSupportedException(Name);
+                    code.AppendLine($"for(int h=0;h<{output[0]};h++) for(int i=0;i<{output[1]};i++) for(int j=0;j<{output[2]};j++) o[(h*{output[1]}+i)*{output[2]}+j]={Result($"(float)s0[h*{output[1]}+i]*(float)s1[h*{output[2]}+j]")};");
+                    break;
+                default:
+                    throw new NotSupportedException(Name);
             }
         }
 

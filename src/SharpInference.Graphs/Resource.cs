@@ -1,13 +1,25 @@
 
 namespace SharpInference.Graphs;
 
-public enum GraphIO { Internal, In, Out, InOut }
+public enum GraphIO
+{
+    Internal, In, Out, InOut
+}
 
 /// <summary>The runtime context owning a resource instance and its logical lifetime.</summary>
-public enum ResourceScope { Call, Session, Global }
+public enum ResourceScope
+{
+    Call, Session, Global
+}
 
-public enum ResourceUsage { Temporary, Weight, Constant }
-public enum ResourcePermission { ReadOnly, ReadWrite }
+public enum ResourceUsage
+{
+    Temporary, Weight, Constant
+}
+public enum ResourcePermission
+{
+    ReadOnly, ReadWrite
+}
 
 public sealed class Resource(Graph graph, string id, TensorDescriptor tensor)
 {
@@ -16,14 +28,26 @@ public sealed class Resource(Graph graph, string id, TensorDescriptor tensor)
     public TensorDescriptor Tensor { get; set; } = tensor ?? throw new ArgumentNullException(nameof(tensor));
     public GraphIO GraphIO { get; set; } = GraphIO.Internal;
     public ResourceScope Scope { get; set; } = ResourceScope.Call;
-    public ResourceUsage? Usage { get; set; }
-    public bool IsState { get; set; }
+    public ResourceUsage? Usage
+    {
+        get; set;
+    }
+    public bool IsState
+    {
+        get; set;
+    }
     public ResourcePermission Permission { get; set; } = ResourcePermission.ReadWrite;
-    public string? BindingKey { get; set; }
+    public string? BindingKey
+    {
+        get; set;
+    }
     public string Category { get; set; } = "resource";
 }
 
-public enum ResourceTarget { Graph, Call }
+public enum ResourceTarget
+{
+    Graph, Call
+}
 
 /// <summary>Locates a declaration or a resource exposed through a direct call instance.</summary>
 public sealed record ResourceRef(
@@ -31,7 +55,8 @@ public sealed record ResourceRef(
 {
     public ResourceRef(Resource resource) : this(
         ResourceTarget.Graph, resource.Graph.Id, resource.Id)
-    { }
+    {
+    }
 
     public static ResourceRef Local(string id) => new(ResourceTarget.Graph, null, id);
     public static ResourceRef Local(Resource resource) => new(resource);

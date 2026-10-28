@@ -42,7 +42,10 @@ public sealed class Phi4ImageProcessor(int maximumTiles = 36)
     private const int MaskSize = Phi4ImageFeatures.MaskSize;
 
     /// <summary>Gets the maximum number of local image tiles, excluding the global crop.</summary>
-    public int MaximumTiles { get; } = maximumTiles is > 0 and <= 36
+    public int MaximumTiles
+    {
+        get;
+    } = maximumTiles is > 0 and <= 36
         ? maximumTiles
         : throw new ArgumentOutOfRangeException(nameof(maximumTiles));
 

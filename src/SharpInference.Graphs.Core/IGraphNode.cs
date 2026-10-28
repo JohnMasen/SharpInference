@@ -4,5 +4,8 @@ namespace SharpInference.Graphs.Core;
 public interface IGraphNode
 {
     /// <summary>Gets the structural identity of this node within its graph.</summary>
-    GraphNodeId Id { get; }
+    GraphNodeId Id
+    {
+        get;
+    }
 }

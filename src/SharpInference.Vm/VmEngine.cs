@@ -82,7 +82,10 @@ public sealed class VmEngine<TVm> : IAsyncDisposable where TVm : class, IDisposa
         }
         catch (Exception creationError)
         {
-            try { await prefill.DisposeAsync().ConfigureAwait(false); }
+            try
+            {
+                await prefill.DisposeAsync().ConfigureAwait(false);
+            }
             catch (Exception cleanupError)
             {
                 throw new AggregateException("Engine construction and cleanup failed.", creationError, cleanupError);
@@ -156,8 +159,14 @@ internal sealed class VmWorkQueue<TVm> : IAsyncDisposable where TVm : class, IDi
             var errors = new List<Exception> { creationError };
             foreach (var instance in created)
             {
-                try { instance.Dispose(); }
-                catch (Exception error) { errors.Add(error); }
+                try
+                {
+                    instance.Dispose();
+                }
+                catch (Exception error)
+                {
+                    errors.Add(error);
+                }
             }
             stopping.Dispose();
             if (errors.Count > 1)
@@ -240,7 +249,10 @@ internal sealed class VmWorkQueue<TVm> : IAsyncDisposable where TVm : class, IDi
             {
                 fatalError ??= error;
                 requests.Writer.TryComplete();
-                try { stopping.Cancel(); }
+                try
+                {
+                    stopping.Cancel();
+                }
                 catch (Exception cancellationError)
                 {
                     failure = new AggregateException("VM worker and cancellation callbacks failed.",
@@ -287,15 +299,27 @@ internal sealed class VmWorkQueue<TVm> : IAsyncDisposable where TVm : class, IDi
     {
         requests.Writer.TryComplete();
         List<Exception>? errors = null;
-        try { stopping.Cancel(); }
-        catch (Exception error) { (errors ??= []).Add(error); }
+        try
+        {
+            stopping.Cancel();
+        }
+        catch (Exception error)
+        {
+            (errors ??= []).Add(error);
+        }
         var completion = Task.WhenAll(workers);
-        try { await completion.ConfigureAwait(false); }
+        try
+        {
+            await completion.ConfigureAwait(false);
+        }
         catch (Exception error)
         {
             (errors ??= []).Add(completion.Exception ?? error);
         }
-        finally { stopping.Dispose(); }
+        finally
+        {
+            stopping.Dispose();
+        }
         if (errors is not null)
         {
             throw new AggregateException("VM queue shutdown failed.", errors);

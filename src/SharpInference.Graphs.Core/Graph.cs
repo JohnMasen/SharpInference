@@ -36,11 +36,19 @@ public sealed class Graph<TNode, TEdge> : IGraphView<TNode, TEdge>
 
         var edgesWithSource = from edge in edges
                               group edge by edge.Source into g
-                              select new { Source = g.Key, Value = g };
+                              select new
+                              {
+                                  Source = g.Key,
+                                  Value = g
+                              };
         outgoing = edgesWithSource.ToImmutableDictionary(x => x.Source, x => x.Value.ToList() as IReadOnlyList<TEdge>);
         var edgesWithTarget = from edge in edges
                               group edge by edge.Target into g
-                              select new { Target = g.Key, Value = g };
+                              select new
+                              {
+                                  Target = g.Key,
+                                  Value = g
+                              };
         incoming = edgesWithTarget.ToImmutableDictionary(x => x.Target, x => x.Value.ToList() as IReadOnlyList<TEdge>);
         nodesById = new ReadOnlyDictionary<GraphNodeId, TNode>(nodes.ToDictionary(n => n.Id));
         edgesById = new ReadOnlyDictionary<GraphEdgeId, TEdge>(edges.ToDictionary(e => e.Id));
@@ -61,10 +69,16 @@ public sealed class Graph<TNode, TEdge> : IGraphView<TNode, TEdge>
     }
 
     /// <summary>Gets graph nodes in deterministic declaration order.</summary>
-    public IReadOnlyList<TNode> Nodes { get; }
+    public IReadOnlyList<TNode> Nodes
+    {
+        get;
+    }
 
     /// <summary>Gets graph edges in deterministic declaration order.</summary>
-    public IReadOnlyList<TEdge> Edges { get; }
+    public IReadOnlyList<TEdge> Edges
+    {
+        get;
+    }
 
     /// <inheritdoc/>
     IEnumerable<TNode> IGraphView<TNode, TEdge>.Nodes => Nodes;

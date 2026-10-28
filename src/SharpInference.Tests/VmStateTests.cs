@@ -335,8 +335,14 @@ public sealed class VmStateTests
     private sealed class TestStorage(int size) : IVmStorage
     {
         private readonly VmMemoryStorage storage = new(size);
-        public bool Disposed { get; private set; }
-        public bool FailWrites { get; set; }
+        public bool Disposed
+        {
+            get; private set;
+        }
+        public bool FailWrites
+        {
+            get; set;
+        }
         public ulong ByteLength => storage.ByteLength;
         public void Read(ulong offset, Span<byte> destination)
         {

@@ -135,7 +135,10 @@ public sealed class ExecutionGraphConverterTests
             var context = new ExecutionPassContext(source, new("test", "cpu-vm"), 0, processor.Name);
             Assert.Equal("yes", processor.Process(package, context).MainGraph!.Metadata["loaded"]);
             Assert.Throws<InvalidOperationException>(() => processor.Process(package,
-                context with { Compilation = new("other-model", "cpu-vm") }));
+                context with
+                {
+                    Compilation = new("other-model", "cpu-vm")
+                }));
             replacement.SetTarget("d3d12-vm");
             File.WriteAllText(path, ExecutionGraphPackageXml.Serialize(replacement));
             Assert.Throws<InvalidDataException>(() => processor.Process(package, context));

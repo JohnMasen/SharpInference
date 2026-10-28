@@ -37,14 +37,30 @@ public class GraphPackageXmlSerializer<TGraph, TPackage>
     protected virtual IEnumerable<string> AdditionalAttributes(string elementName) => [];
     protected virtual IEnumerable<string> AdditionalChildren(string elementName) => [];
     protected virtual bool IncludeMetadata(string key) => true;
-    protected virtual void WritePackageFields(TPackage package, XElement element) { }
-    protected virtual void ReadPackageFields(TPackage package, XElement element) { }
-    protected virtual void WriteGraphFields(TGraph graph, XElement element) { }
-    protected virtual void ReadGraphFields(TGraph graph, XElement element) { }
-    protected virtual void WriteResourceFields(TGraph graph, Resource resource, XElement element) { }
-    protected virtual void ReadResourceFields(TGraph graph, Resource resource, XElement element) { }
-    protected virtual void WriteActionFields(GraphAction action, XElement element) { }
-    protected virtual void ReadActionFields(GraphAction action, XElement element) { }
+    protected virtual void WritePackageFields(TPackage package, XElement element)
+    {
+    }
+    protected virtual void ReadPackageFields(TPackage package, XElement element)
+    {
+    }
+    protected virtual void WriteGraphFields(TGraph graph, XElement element)
+    {
+    }
+    protected virtual void ReadGraphFields(TGraph graph, XElement element)
+    {
+    }
+    protected virtual void WriteResourceFields(TGraph graph, Resource resource, XElement element)
+    {
+    }
+    protected virtual void ReadResourceFields(TGraph graph, Resource resource, XElement element)
+    {
+    }
+    protected virtual void WriteActionFields(GraphAction action, XElement element)
+    {
+    }
+    protected virtual void ReadActionFields(GraphAction action, XElement element)
+    {
+    }
 
     public string Serialize(TPackage package)
     {

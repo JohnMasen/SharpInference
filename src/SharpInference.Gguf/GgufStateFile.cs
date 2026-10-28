@@ -40,16 +40,28 @@ public sealed class GgufStateTensor
     }
 
     /// <summary>Gets the tensor name.</summary>
-    public string Name { get; }
+    public string Name
+    {
+        get;
+    }
 
     /// <summary>Gets the tensor storage type.</summary>
-    public GgufTensorType Type { get; }
+    public GgufTensorType Type
+    {
+        get;
+    }
 
     /// <summary>Gets the tensor dimensions in GGUF order.</summary>
-    public IReadOnlyList<ulong> Dimensions { get; }
+    public IReadOnlyList<ulong> Dimensions
+    {
+        get;
+    }
 
     /// <summary>Gets the raw little-endian tensor bytes.</summary>
-    public ReadOnlyMemory<byte> Data { get; }
+    public ReadOnlyMemory<byte> Data
+    {
+        get;
+    }
 }
 
 /// <summary>A state schema name and the exact set of persisted tensors.</summary>
@@ -67,10 +79,16 @@ public sealed class GgufState
     }
 
     /// <summary>Gets the state schema identifier.</summary>
-    public string SchemaName { get; }
+    public string SchemaName
+    {
+        get;
+    }
 
     /// <summary>Gets the tensors persisted by the state.</summary>
-    public IReadOnlyList<GgufStateTensor> Tensors { get; }
+    public IReadOnlyList<GgufStateTensor> Tensors
+    {
+        get;
+    }
 }
 
 /// <summary>Reads and writes state-only GGUF v3 files without owning the supplied stream.</summary>
@@ -241,9 +259,18 @@ public static class GgufStateFile
                 var type = (GgufTensorType)reader.ReadUInt32();
                 var offset = reader.ReadUInt64();
                 ulong length;
-                try { length = TensorLength(type, dimensions); }
-                catch (ArgumentException exception) { throw new InvalidDataException($"Invalid tensor '{name}'.", exception); }
-                catch (OverflowException exception) { throw new InvalidDataException($"Tensor '{name}' is too large.", exception); }
+                try
+                {
+                    length = TensorLength(type, dimensions);
+                }
+                catch (ArgumentException exception)
+                {
+                    throw new InvalidDataException($"Invalid tensor '{name}'.", exception);
+                }
+                catch (OverflowException exception)
+                {
+                    throw new InvalidDataException($"Tensor '{name}' is too large.", exception);
+                }
                 entries[i] = (name, type, dimensions, offset, length);
             }
 

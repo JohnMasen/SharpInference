@@ -3,7 +3,9 @@ namespace SharpInference.Graphs.Logical;
 /// <summary>A logical source package with read-only value and dependency analysis.</summary>
 public sealed class LogicalGraphPackage : GraphPackage<LogicalGraph>
 {
-    public LogicalGraphPackage() { }
+    public LogicalGraphPackage()
+    {
+    }
     public LogicalGraphPackage(LogicalGraph main, params LogicalGraph[] definitions) : base(main, definitions) { }
 
     public override IReadOnlyList<GraphDiagnostic> Validate()

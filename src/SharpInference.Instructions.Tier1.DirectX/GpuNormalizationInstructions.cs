@@ -12,7 +12,10 @@ internal abstract class GpuNormalizationInstruction(
     public override string Comment => TierOneNormalizationInstructionSet.Comment(Name);
     public override IReadOnlyList<InstructionAttributeDescription> AttributeDescriptions =>
         TierOneNormalizationInstructionSet.Attributes(Name);
-    public override IReadOnlyList<InstructionSignature> Signatures { get; } =
+    public override IReadOnlyList<InstructionSignature> Signatures
+    {
+        get;
+    } =
         [TierOneNormalizationInstructionSet.Signatures[name]];
 
     protected override void Validate(InstructionParameter[] parameters) =>
@@ -182,7 +185,10 @@ internal abstract class GpuBatchNormalizationInstruction(
     public override string Comment => TierOneNormalizationInstructionSet.Comment(Name);
     public override IReadOnlyList<InstructionAttributeDescription> AttributeDescriptions =>
         TierOneNormalizationInstructionSet.Attributes(Name);
-    public override IReadOnlyList<InstructionSignature> Signatures { get; } =
+    public override IReadOnlyList<InstructionSignature> Signatures
+    {
+        get;
+    } =
         [TierOneNormalizationInstructionSet.Signatures[name]];
 
     protected override void Validate(InstructionParameter[] parameters) =>

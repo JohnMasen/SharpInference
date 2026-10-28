@@ -100,7 +100,11 @@ public sealed partial class VmExecutionGraphEmitter
                     var name = frame.Allocate(call.Id + "/" + parameter.Name);
                     var address = parameter.Resource.Scope == ResourceScope.Call && !parameter.Ambient
                         ? $"call:{Encode(call.Id)}/{parameter.Address}" : parameter.Address;
-                    frame.Parameters.Add(parameter with { Name = name, Address = address });
+                    frame.Parameters.Add(parameter with
+                    {
+                        Name = name,
+                        Address = address
+                    });
                     arguments.Add(parameter.Name, name);
                     if (child.StateNames.Contains(parameter.Name))
                     {

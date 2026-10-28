@@ -45,7 +45,12 @@ public sealed class OperationTemplateSharingPostprocessor : IExecutionGraphPostp
                         throw new InvalidDataException($"Cannot resolve template port '{binding.SourceProperty}'.");
                     }
 
-                    return new { binding.SourceProperty, binding.Access, resource.Tensor };
+                    return new
+                    {
+                        binding.SourceProperty,
+                        binding.Access,
+                        resource.Tensor
+                    };
                 }),
             });
             foreach (var group in candidates.GroupBy(Key).Where(group => group.Count() > 1))

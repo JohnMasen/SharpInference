@@ -30,7 +30,9 @@ public abstract class GpuTransformerInstruction(
     protected override void Validate(InstructionParameter[] parameters)
     {
         if (CollectionId == TierZeroTensorInstructionSet.Id)
+        {
             TierZeroTensorInstructionSet.Validate(Name, parameters);
+        }
     }
 
     protected static InstructionHelper ReductionHelper { get; } =

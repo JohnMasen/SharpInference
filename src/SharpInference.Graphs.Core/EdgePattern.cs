@@ -7,7 +7,10 @@ public sealed class EdgePattern
     /// <param name="predicate">The combined condition evaluated for candidate edges.</param>
     internal EdgePattern(Func<IGraphEdge, bool> predicate) => Predicate = predicate;
     /// <summary>Gets the combined condition for a candidate edge.</summary>
-    internal Func<IGraphEdge, bool> Predicate { get; }
+    internal Func<IGraphEdge, bool> Predicate
+    {
+        get;
+    }
 
     /// <summary>Adds a type restriction and predicate without modifying the original constraint.</summary>
     /// <typeparam name="TRequested">The edge type required by the additional condition.</typeparam>

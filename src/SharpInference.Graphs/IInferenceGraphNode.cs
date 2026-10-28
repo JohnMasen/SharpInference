@@ -6,5 +6,8 @@ namespace SharpInference.Graphs;
 public interface IInferenceGraphNode : IGraphNode
 {
     /// <summary>Gets the category interpreted and validated by the containing graph.</summary>
-    string NodeKind { get; }
+    string NodeKind
+    {
+        get;
+    }
 }

@@ -10,8 +10,14 @@ internal sealed record GraphModelSignature(
     string StateAbiId,
     IReadOnlyDictionary<string, int> Dimensions);
 internal sealed record GraphStateSchema(string Id);
-internal enum GraphArchitectureView { Architecture, Computation }
-internal enum GraphArchitectureStep { Token }
+internal enum GraphArchitectureView
+{
+    Architecture, Computation
+}
+internal enum GraphArchitectureStep
+{
+    Token
+}
 internal static class GraphSectionTypes
 {
     internal const string Graph = "graph";
@@ -60,7 +66,10 @@ internal sealed record TensorFillValue(float Value)
 /// <summary>Creates an editable Phi-4 graph package. Callers explicitly validate before compilation.</summary>
 public interface IPhi4GraphModule
 {
-    string ArchitectureId { get; }
+    string ArchitectureId
+    {
+        get;
+    }
     bool CanLoad(IModelTensorCatalog tensors);
     ModelMetadata ReadMetadata(IModelTensorCatalog tensors);
     LogicalGraphPackage Build(IModelTensorCatalog tensors);

@@ -19,7 +19,10 @@ public sealed record InstructionImplementationId
     }
 
     /// <summary>Gets the textual value of this identifier or attribute.</summary>
-    public string Value { get; }
+    public string Value
+    {
+        get;
+    }
     /// <inheritdoc/>
     public override string ToString() => Value;
 }
@@ -36,9 +39,15 @@ public abstract record InstructionExecutionConfiguration
     }
 
     /// <summary>Gets the identity of the selected execution implementation.</summary>
-    public InstructionImplementationId Implementation { get; }
+    public InstructionImplementationId Implementation
+    {
+        get;
+    }
     /// <summary>Gets the execution architecture required by this contract.</summary>
-    public abstract ExecutionTarget Target { get; }
+    public abstract ExecutionTarget Target
+    {
+        get;
+    }
 }
 
 /// <summary>Selects an instruction implementation for managed CPU execution.</summary>

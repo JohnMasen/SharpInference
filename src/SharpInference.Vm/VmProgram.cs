@@ -83,13 +83,25 @@ public sealed class VmTensor
     }
 
     /// <summary>Gets the scalar storage representation of each tensor element.</summary>
-    public VmElementType ElementType { get; }
+    public VmElementType ElementType
+    {
+        get;
+    }
     /// <summary>Gets the ordered positive dimensions of the tensor.</summary>
-    public IReadOnlyList<int> Dimensions { get; }
+    public IReadOnlyList<int> Dimensions
+    {
+        get;
+    }
     /// <summary>Gets the checked product of all tensor dimensions.</summary>
-    public ulong ElementCount { get; }
+    public ulong ElementCount
+    {
+        get;
+    }
     /// <summary>Gets the total storage capacity in bytes.</summary>
-    public ulong ByteLength { get; }
+    public ulong ByteLength
+    {
+        get;
+    }
     /// <summary>Gets the storage size of one tensor element in bytes.</summary>
     public int ElementSize => ElementType switch
     {
@@ -143,11 +155,20 @@ public sealed class VmState
     }
 
     /// <summary>Gets the persistent-state schema identifier.</summary>
-    public string Schema { get; }
+    public string Schema
+    {
+        get;
+    }
     /// <summary>Gets the version of this serialized contract.</summary>
-    public int Version { get; }
+    public int Version
+    {
+        get;
+    }
     /// <summary>Gets the ordered persistent-state entries.</summary>
-    public IReadOnlyList<VmStateEntry> Entries { get; }
+    public IReadOnlyList<VmStateEntry> Entries
+    {
+        get;
+    }
 }
 
 /// <summary>Represents an operation, call, dispatch, or barrier in a VM definition.</summary>
@@ -203,28 +224,52 @@ public sealed class VmOperator : VmInstruction
     }
 
     /// <summary>Gets the registered instruction name or legacy operation name.</summary>
-    public string Operation { get; }
+    public string Operation
+    {
+        get;
+    }
     /// <summary>Gets the minimum arithmetic and accumulator precision required by the invocation.</summary>
-    public PrecisionRequirement Precision { get; }
+    public PrecisionRequirement Precision
+    {
+        get;
+    }
     /// <summary>Gets the bound instruction's internal precision, or null before contract resolution.</summary>
-    public ExecutionPrecision? ResolvedPrecision { get; }
+    public ExecutionPrecision? ResolvedPrecision
+    {
+        get;
+    }
     /// <summary>Gets the selected execution implementation, or null when no configuration is required.</summary>
-    public InstructionExecutionConfiguration? ExecutionConfiguration { get; }
+    public InstructionExecutionConfiguration? ExecutionConfiguration
+    {
+        get;
+    }
     /// <summary>Gets the legacy operation contract version.</summary>
-    public int Version { get; }
+    public int Version
+    {
+        get;
+    }
     /// <summary>Gets the identity of the collection providing the instruction.</summary>
     public Guid InstructionCollectionId { get; } = TierZeroInstructionCollectionIds.Float32;
     /// <summary>Gets the registered instruction name.</summary>
     public string InstructionName => Operation;
     internal bool IsLegacy { get; private set; } = true;
     /// <summary>Gets the ordered parameter-to-resource bindings.</summary>
-    public IReadOnlyList<VmArgument> Arguments { get; }
+    public IReadOnlyList<VmArgument> Arguments
+    {
+        get;
+    }
     /// <summary>Gets the instruction attributes supplied to code generation.</summary>
-    public IReadOnlyDictionary<string, string> Attributes { get; }
+    public IReadOnlyDictionary<string, string> Attributes
+    {
+        get;
+    }
     /// <summary>Gets the index-port bounds required by the instruction.</summary>
     public IReadOnlyList<InstructionIndexBound> IndexBounds { get; } = [];
     /// <summary>Gets the resource access required for each instruction port after binding.</summary>
-    public IReadOnlyDictionary<string, ResourceAccess> ParameterAccesses { get; } =
+    public IReadOnlyDictionary<string, ResourceAccess> ParameterAccesses
+    {
+        get;
+    } =
         new ReadOnlyDictionary<string, ResourceAccess>(new Dictionary<string, ResourceAccess>());
 }
 
@@ -241,9 +286,15 @@ public sealed class VmCall : VmInstruction
     }
 
     /// <summary>Gets the identifier of the VM definition to invoke.</summary>
-    public string Definition { get; }
+    public string Definition
+    {
+        get;
+    }
     /// <summary>Gets the ordered parameter-to-resource bindings.</summary>
-    public IReadOnlyList<VmArgument> Arguments { get; }
+    public IReadOnlyList<VmArgument> Arguments
+    {
+        get;
+    }
 }
 
 /// <summary>Launches a VM kernel over a GPU dispatch grid.</summary>
@@ -261,11 +312,20 @@ public sealed class VmDispatch : VmInstruction
     }
 
     /// <summary>Gets the identifier of the VM definition to invoke.</summary>
-    public string Definition { get; }
+    public string Definition
+    {
+        get;
+    }
     /// <summary>Gets the ordered parameter-to-resource bindings.</summary>
-    public IReadOnlyList<VmArgument> Arguments { get; }
+    public IReadOnlyList<VmArgument> Arguments
+    {
+        get;
+    }
     /// <summary>Gets the number of GPU thread groups to dispatch along each axis.</summary>
-    public VmThreadGroup Groups { get; }
+    public VmThreadGroup Groups
+    {
+        get;
+    }
 }
 
 /// <summary>Synchronizes access to the specified VM resources.</summary>
@@ -275,7 +335,10 @@ public sealed class VmBarrier : VmInstruction
     /// <param name="resources">The resources whose accesses must be synchronized.</param>
     public VmBarrier(IEnumerable<string> resources) => Resources = Array.AsReadOnly(resources.ToArray());
     /// <summary>Gets the resources whose accesses must be synchronized.</summary>
-    public IReadOnlyList<string> Resources { get; }
+    public IReadOnlyList<string> Resources
+    {
+        get;
+    }
 }
 
 /// <summary>Associates a VM instruction with an identifier and execution dependencies.</summary>
@@ -293,11 +356,20 @@ public sealed class VmNode
     }
 
     /// <summary>Gets the node identifier referenced by dependency edges within the definition.</summary>
-    public string Id { get; }
+    public string Id
+    {
+        get;
+    }
     /// <summary>Gets the instruction executed by this node.</summary>
-    public VmInstruction Instruction { get; }
+    public VmInstruction Instruction
+    {
+        get;
+    }
     /// <summary>Gets the identifiers of nodes that must complete before this node.</summary>
-    public IReadOnlyList<string> Dependencies { get; }
+    public IReadOnlyList<string> Dependencies
+    {
+        get;
+    }
 }
 
 /// <summary>Describes a callable VM body, its parameters, and its dependency-ordered nodes.</summary>
@@ -336,15 +408,30 @@ public sealed class VmDefinition
     }
 
     /// <summary>Gets the definition identifier referenced by calls, dispatches, and entry points.</summary>
-    public string Id { get; }
+    public string Id
+    {
+        get;
+    }
     /// <summary>Gets the execution role of this definition.</summary>
-    public VmDefinitionKind Kind { get; }
+    public VmDefinitionKind Kind
+    {
+        get;
+    }
     /// <summary>Gets the tensor parameters accepted by the definition.</summary>
-    public IReadOnlyList<VmParameter> Parameters { get; }
+    public IReadOnlyList<VmParameter> Parameters
+    {
+        get;
+    }
     /// <summary>Gets the instruction nodes forming the definition body.</summary>
-    public IReadOnlyList<VmNode> Nodes { get; }
+    public IReadOnlyList<VmNode> Nodes
+    {
+        get;
+    }
     /// <summary>Gets the GPU thread-group dimensions, or null for non-kernel definitions.</summary>
-    public VmThreadGroup? Threads { get; }
+    public VmThreadGroup? Threads
+    {
+        get;
+    }
 }
 
 /// <summary>Exposes a named VM entry point and its program-slot argument bindings.</summary>
@@ -362,11 +449,20 @@ public sealed class VmEntry
     }
 
     /// <summary>Gets the externally callable entry-point name.</summary>
-    public string Name { get; }
+    public string Name
+    {
+        get;
+    }
     /// <summary>Gets the identifier of the VM definition to invoke.</summary>
-    public string Definition { get; }
+    public string Definition
+    {
+        get;
+    }
     /// <summary>Gets the ordered parameter-to-resource bindings.</summary>
-    public IReadOnlyList<VmArgument> Arguments { get; }
+    public IReadOnlyList<VmArgument> Arguments
+    {
+        get;
+    }
 }
 
 /// <summary>Contains a validated VM artifact with resource, instruction, entry-point, and state contracts.</summary>
@@ -394,17 +490,38 @@ public sealed class VmProgram
     }
 
     /// <summary>Gets the VM artifact name.</summary>
-    public string Name { get; }
+    public string Name
+    {
+        get;
+    }
     /// <summary>Gets the model/application binary interface identifier.</summary>
-    public string Abi { get; }
+    public string Abi
+    {
+        get;
+    }
     /// <summary>Gets the execution architecture required by this contract.</summary>
-    public VmTarget Target { get; }
+    public VmTarget Target
+    {
+        get;
+    }
     /// <summary>Gets the resource slots in executable buffer order.</summary>
-    public IReadOnlyList<VmSlot> Slots { get; }
+    public IReadOnlyList<VmSlot> Slots
+    {
+        get;
+    }
     /// <summary>Gets the callable definitions contained in the program.</summary>
-    public IReadOnlyList<VmDefinition> Definitions { get; }
+    public IReadOnlyList<VmDefinition> Definitions
+    {
+        get;
+    }
     /// <summary>Gets the named entry points and their program-slot argument bindings.</summary>
-    public IReadOnlyList<VmEntry> Entries { get; }
+    public IReadOnlyList<VmEntry> Entries
+    {
+        get;
+    }
     /// <summary>Gets the persistent-state schema and slot mapping.</summary>
-    public VmState State { get; }
+    public VmState State
+    {
+        get;
+    }
 }

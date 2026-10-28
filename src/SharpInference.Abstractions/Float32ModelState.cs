@@ -10,7 +10,10 @@ public sealed record Float32StateView(string Name, IReadOnlyList<int> Dimensions
 public interface INamedFloat32ModelState : IModelState
 {
     /// <summary>Gets the current host-visible buffers, synchronizing device state when required.</summary>
-    IReadOnlyList<Float32StateView> Views { get; }
+    IReadOnlyList<Float32StateView> Views
+    {
+        get;
+    }
     /// <summary>Publishes changes made through the host-visible state buffers.</summary>
     void CommitViews();
 }

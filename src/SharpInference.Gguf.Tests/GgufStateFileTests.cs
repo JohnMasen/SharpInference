@@ -220,7 +220,12 @@ public sealed class GgufStateFileTests
         using var stream = new MemoryStream(bytes, writable: false);
         using var reader = new BinaryReader(stream);
         stream.Position = 24;
-        for (var i = 0; i < 2; i++) { ReadString(reader); reader.ReadUInt32(); ReadString(reader); }
+        for (var i = 0; i < 2; i++)
+        {
+            ReadString(reader);
+            reader.ReadUInt32();
+            ReadString(reader);
+        }
         ReadString(reader);
         reader.ReadUInt32();
         reader.ReadUInt64();

@@ -75,9 +75,15 @@ public sealed record ProcessorTextCapabilities
     }
 
     /// <summary>Gets the maximum number of context tokens.</summary>
-    public int MaximumContextLength { get; }
+    public int MaximumContextLength
+    {
+        get;
+    }
     /// <summary>Gets the maximum text batch size.</summary>
-    public int MaximumBatchSize { get; }
+    public int MaximumBatchSize
+    {
+        get;
+    }
 }
 
 /// <summary>Declares supported image formats and dimensional limits.</summary>
@@ -130,15 +136,30 @@ public sealed record ProcessorImageCapabilities
     }
 
     /// <summary>Gets the accepted pixel formats.</summary>
-    public IReadOnlySet<ProcessorPixelFormat> PixelFormats { get; }
+    public IReadOnlySet<ProcessorPixelFormat> PixelFormats
+    {
+        get;
+    }
     /// <summary>Gets the maximum image width in pixels.</summary>
-    public int MaximumWidth { get; }
+    public int MaximumWidth
+    {
+        get;
+    }
     /// <summary>Gets the maximum image height in pixels.</summary>
-    public int MaximumHeight { get; }
+    public int MaximumHeight
+    {
+        get;
+    }
     /// <summary>Gets the maximum images in a request.</summary>
-    public int MaximumImageCount { get; }
+    public int MaximumImageCount
+    {
+        get;
+    }
     /// <summary>Gets the maximum tile count.</summary>
-    public int MaximumTileCount { get; }
+    public int MaximumTileCount
+    {
+        get;
+    }
 }
 
 /// <summary>Declares accepted PCM formats, rates and audio limits.</summary>
@@ -184,13 +205,25 @@ public sealed record ProcessorAudioCapabilities
     }
 
     /// <summary>Gets the accepted PCM sample formats.</summary>
-    public IReadOnlySet<ProcessorAudioSampleFormat> SampleFormats { get; }
+    public IReadOnlySet<ProcessorAudioSampleFormat> SampleFormats
+    {
+        get;
+    }
     /// <summary>Gets accepted sample rates in hertz.</summary>
-    public IReadOnlySet<int> SampleRates { get; }
+    public IReadOnlySet<int> SampleRates
+    {
+        get;
+    }
     /// <summary>Gets the maximum channel count.</summary>
-    public int MaximumChannels { get; }
+    public int MaximumChannels
+    {
+        get;
+    }
     /// <summary>Gets the maximum input duration.</summary>
-    public TimeSpan MaximumDuration { get; }
+    public TimeSpan MaximumDuration
+    {
+        get;
+    }
 }
 
 /// <summary>Declares concurrency limits and supported execution storage domains.</summary>
@@ -230,13 +263,25 @@ public sealed record ProcessorExecutionCapabilities
     }
 
     /// <summary>Gets the maximum concurrently active sessions.</summary>
-    public int MaximumConcurrentSessions { get; }
+    public int MaximumConcurrentSessions
+    {
+        get;
+    }
     /// <summary>Gets the maximum components that can execute in parallel.</summary>
-    public int MaximumParallelComponents { get; }
+    public int MaximumParallelComponents
+    {
+        get;
+    }
     /// <summary>Gets the supported execution storage domains.</summary>
-    public IReadOnlySet<string> StorageDomains { get; }
+    public IReadOnlySet<string> StorageDomains
+    {
+        get;
+    }
     /// <summary>Requires bounded admission before constructing sessions that retain execution resources.</summary>
-    public bool RequiresResidentSessionAdmission { get; }
+    public bool RequiresResidentSessionAdmission
+    {
+        get;
+    }
 }
 
 /// <summary>Describes valid input combinations, outputs and execution limits.</summary>
@@ -294,17 +339,35 @@ public sealed class ProcessorCapabilities
         ProcessorOutputModality.Text | ProcessorOutputModality.Tensor;
 
     /// <summary>Gets the accepted complete modality combinations.</summary>
-    public IReadOnlyList<ProcessorInputModality> InputCombinations { get; }
+    public IReadOnlyList<ProcessorInputModality> InputCombinations
+    {
+        get;
+    }
     /// <summary>Gets the supported output modalities.</summary>
-    public ProcessorOutputModality OutputModalities { get; }
+    public ProcessorOutputModality OutputModalities
+    {
+        get;
+    }
     /// <summary>Gets the text limits, or null when text input is unsupported.</summary>
-    public ProcessorTextCapabilities? Text { get; }
+    public ProcessorTextCapabilities? Text
+    {
+        get;
+    }
     /// <summary>Gets the image limits, or null when image input is unsupported.</summary>
-    public ProcessorImageCapabilities? Image { get; }
+    public ProcessorImageCapabilities? Image
+    {
+        get;
+    }
     /// <summary>Gets the audio limits, or null when audio input is unsupported.</summary>
-    public ProcessorAudioCapabilities? Audio { get; }
+    public ProcessorAudioCapabilities? Audio
+    {
+        get;
+    }
     /// <summary>Gets the concurrency and storage limits.</summary>
-    public ProcessorExecutionCapabilities Execution { get; }
+    public ProcessorExecutionCapabilities Execution
+    {
+        get;
+    }
     /// <summary>Checks whether a complete input modality combination is accepted.</summary>
     /// <param name="combination">The modalities present in a request.</param>
     /// <returns>Whether the combination is explicitly supported.</returns>
@@ -329,9 +392,15 @@ public sealed record TensorInputPart : ProcessorInputPart
     }
 
     /// <summary>Gets the graph input resource name.</summary>
-    public string Resource { get; }
+    public string Resource
+    {
+        get;
+    }
     /// <summary>Gets the supplied tensor bytes.</summary>
-    public ReadOnlyMemory<byte> Data { get; }
+    public ReadOnlyMemory<byte> Data
+    {
+        get;
+    }
 }
 
 /// <summary>Supplies one text segment in an ordered request.</summary>
@@ -345,7 +414,10 @@ public sealed record TextInputPart : ProcessorInputPart
     }
 
     /// <summary>Gets the input text.</summary>
-    public string Text { get; }
+    public string Text
+    {
+        get;
+    }
 }
 
 /// <summary>Supplies a validated image buffer and its row layout.</summary>
@@ -403,15 +475,30 @@ public sealed record ImageInputPart : ProcessorInputPart
     }
 
     /// <summary>Gets the supplied pixel bytes.</summary>
-    public ReadOnlyMemory<byte> Pixels { get; }
+    public ReadOnlyMemory<byte> Pixels
+    {
+        get;
+    }
     /// <summary>Gets the width in pixels.</summary>
-    public int Width { get; }
+    public int Width
+    {
+        get;
+    }
     /// <summary>Gets the height in pixels.</summary>
-    public int Height { get; }
+    public int Height
+    {
+        get;
+    }
     /// <summary>Gets the row stride in bytes.</summary>
-    public int Stride { get; }
+    public int Stride
+    {
+        get;
+    }
     /// <summary>Gets the pixel channel format.</summary>
-    public ProcessorPixelFormat PixelFormat { get; }
+    public ProcessorPixelFormat PixelFormat
+    {
+        get;
+    }
 
     private static int BytesPerPixel(ProcessorPixelFormat format) => format switch
     {
@@ -465,13 +552,25 @@ public sealed record AudioInputPart : ProcessorInputPart
     }
 
     /// <summary>Gets the interleaved PCM bytes.</summary>
-    public ReadOnlyMemory<byte> Samples { get; }
+    public ReadOnlyMemory<byte> Samples
+    {
+        get;
+    }
     /// <summary>Gets the PCM sample format.</summary>
-    public ProcessorAudioSampleFormat SampleFormat { get; }
+    public ProcessorAudioSampleFormat SampleFormat
+    {
+        get;
+    }
     /// <summary>Gets the sample rate in hertz.</summary>
-    public int SampleRate { get; }
+    public int SampleRate
+    {
+        get;
+    }
     /// <summary>Gets the interleaved channel count.</summary>
-    public int Channels { get; }
+    public int Channels
+    {
+        get;
+    }
     /// <summary>Gets the number of complete PCM frames.</summary>
     public int FrameCount => Samples.Length /
         (Channels * (SampleFormat == ProcessorAudioSampleFormat.Signed16 ? 2 : 4));
@@ -503,16 +602,25 @@ public sealed class ProcessorInput
     }
 
     /// <summary>Gets the input parts in request order.</summary>
-    public IReadOnlyList<ProcessorInputPart> Parts { get; }
+    public IReadOnlyList<ProcessorInputPart> Parts
+    {
+        get;
+    }
     /// <summary>Gets the union of all input part modalities.</summary>
-    public ProcessorInputModality Modalities { get; }
+    public ProcessorInputModality Modalities
+    {
+        get;
+    }
 }
 
 /// <summary>Exposes processor capabilities and creates independent execution sessions.</summary>
 public interface IProcessor : IDisposable
 {
     /// <summary>Gets the accepted modalities and execution limits.</summary>
-    ProcessorCapabilities Capabilities { get; }
+    ProcessorCapabilities Capabilities
+    {
+        get;
+    }
     /// <summary>Creates an independent session owned by the caller.</summary>
     /// <returns>The new processor session.</returns>
     IProcessorSession CreateSession();
@@ -522,7 +630,10 @@ public interface IProcessor : IDisposable
 public interface IProcessorSession : IDisposable
 {
     /// <summary>Gets the processor that owns this session.</summary>
-    IProcessor Processor { get; }
+    IProcessor Processor
+    {
+        get;
+    }
     /// <summary>Restores the session's initial state.</summary>
     void Reset();
 }

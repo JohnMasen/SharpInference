@@ -4,7 +4,10 @@ namespace SharpInference;
 public interface IByteTextTokenizer
 {
     /// <summary>Gets the vocabulary's valid token identifiers.</summary>
-    IReadOnlyList<int> TokenIds { get; }
+    IReadOnlyList<int> TokenIds
+    {
+        get;
+    }
     /// <summary>Encodes text into an ordered sequence of vocabulary tokens.</summary>
     /// <param name="text">The input text.</param>
     /// <returns>The encoded token identifiers.</returns>

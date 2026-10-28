@@ -5,7 +5,10 @@ namespace SharpInference.Vm;
 public interface IVmStorage : IDisposable
 {
     /// <summary>Gets the total storage capacity in bytes.</summary>
-    ulong ByteLength { get; }
+    ulong ByteLength
+    {
+        get;
+    }
     /// <summary>Copies bytes from the bound storage at the specified byte offset.</summary>
     /// <param name="offset">The byte offset from the start of the storage.</param>
     /// <param name="destination">The span receiving bytes read from storage.</param>
@@ -20,7 +23,10 @@ public interface IVmStorage : IDisposable
 public interface IVmManagedStorage : IVmStorage
 {
     /// <summary>Gets the managed backing array; access after disposal throws.</summary>
-    byte[] Buffer { get; }
+    byte[] Buffer
+    {
+        get;
+    }
 }
 
 /// <summary>Stores VM resource bytes in a managed array.</summary>
@@ -38,7 +44,10 @@ public sealed class VmMemoryStorage : IVmManagedStorage
     }
 
     /// <summary>Gets the total storage capacity in bytes.</summary>
-    public ulong ByteLength { get; }
+    public ulong ByteLength
+    {
+        get;
+    }
     /// <summary>Gets the managed backing array; access after disposal throws.</summary>
     public byte[] Buffer => data ?? throw new ObjectDisposedException(nameof(VmMemoryStorage));
 
@@ -116,12 +125,30 @@ public sealed class VmResource : IDisposable
     }
 
     /// <summary>Gets the tensor descriptor defining element representation and shape.</summary>
-    public VmTensor Tensor { get; }
+    public VmTensor Tensor
+    {
+        get;
+    }
     /// <summary>Gets the resource sharing scope.</summary>
-    public VmSlotScope Scope { get; }
+    public VmSlotScope Scope
+    {
+        get;
+    }
     /// <summary>Gets the permitted resource access.</summary>
-    public VmAccess Access { get; }
-    internal bool Valid { get { lock (gate) { return valid; } } }
+    public VmAccess Access
+    {
+        get;
+    }
+    internal bool Valid
+    {
+        get
+        {
+            lock (gate)
+            {
+                return valid;
+            }
+        }
+    }
     internal void SetValidity(bool value)
     {
         lock (gate)
@@ -302,14 +329,50 @@ public sealed class VmResourceLease : IDisposable
         this.bindingAccess = bindingAccess;
     }
     /// <summary>Gets the tensor descriptor of the leased resource.</summary>
-    public VmTensor Tensor { get { lock (gate) { return Resource.Tensor; } } }
+    public VmTensor Tensor
+    {
+        get
+        {
+            lock (gate)
+            {
+                return Resource.Tensor;
+            }
+        }
+    }
 
     /// <summary>Gets the slot scope of the leased resource.</summary>
-    public VmSlotScope Scope { get { lock (gate) { return Resource.Scope; } } }
+    public VmSlotScope Scope
+    {
+        get
+        {
+            lock (gate)
+            {
+                return Resource.Scope;
+            }
+        }
+    }
 
     /// <summary>Gets the access mode of the leased resource.</summary>
-    public VmAccess Access { get { lock (gate) { return Resource.Access; } } }
-    internal bool Valid { get { lock (gate) { return Resource.Valid; } } }
+    public VmAccess Access
+    {
+        get
+        {
+            lock (gate)
+            {
+                return Resource.Access;
+            }
+        }
+    }
+    internal bool Valid
+    {
+        get
+        {
+            lock (gate)
+            {
+                return Resource.Valid;
+            }
+        }
+    }
     internal void SetValidity(bool value)
     {
         lock (gate)
@@ -324,7 +387,16 @@ public sealed class VmResourceLease : IDisposable
             return Resource.AcquireBinding(access);
         }
     }
-    internal VmResource Identity { get { lock (gate) { return Resource; } } }
+    internal VmResource Identity
+    {
+        get
+        {
+            lock (gate)
+            {
+                return Resource;
+            }
+        }
+    }
     internal VmResourceUse AcquireUse(VmAccess access)
     {
         lock (gate)
@@ -339,7 +411,16 @@ public sealed class VmResourceLease : IDisposable
             return Resource.GetManagedBuffer();
         }
     }
-    internal IVmStorage Storage { get { lock (gate) { return Resource.Storage; } } }
+    internal IVmStorage Storage
+    {
+        get
+        {
+            lock (gate)
+            {
+                return Resource.Storage;
+            }
+        }
+    }
 
     /// <summary>Acquires an independent owning reference to the same resource while this lease is active.</summary>
     public VmResourceLease Retain()
@@ -655,8 +736,14 @@ public sealed class VmBindings : IDisposable
             disposed = true;
             foreach (var resource in resources.Values)
             {
-                try { resource.Dispose(); }
-                catch (Exception error) { (errors ??= []).Add(error); }
+                try
+                {
+                    resource.Dispose();
+                }
+                catch (Exception error)
+                {
+                    (errors ??= []).Add(error);
+                }
             }
             resources.Clear();
         }
@@ -677,10 +764,31 @@ public sealed class VmExecutionLease : IDisposable
         this.bindings = bindings;
         IsStateAccess = stateAccess;
     }
-    internal bool IsStateAccess { get; }
+    internal bool IsStateAccess
+    {
+        get;
+    }
     /// <summary>Gets the program protected by the active resource-use leases.</summary>
-    public VmProgram Program { get { lock (gate) { return Bindings.Program; } } }
-    internal bool StateValid { get { lock (gate) { return Bindings.StateValid; } } }
+    public VmProgram Program
+    {
+        get
+        {
+            lock (gate)
+            {
+                return Bindings.Program;
+            }
+        }
+    }
+    internal bool StateValid
+    {
+        get
+        {
+            lock (gate)
+            {
+                return Bindings.StateValid;
+            }
+        }
+    }
     internal bool CanRestoreState(string slotId)
     {
         lock (gate)

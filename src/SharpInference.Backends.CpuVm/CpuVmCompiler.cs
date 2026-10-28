@@ -17,7 +17,10 @@ namespace SharpInference.Backends.CpuVm;
 public interface ICpuVmCode
 {
     /// <summary>Gets the program-and-source-ABI hash used to verify compatibility with a compiled artifact.</summary>
-    string ProgramHash { get; }
+    string ProgramHash
+    {
+        get;
+    }
     /// <summary>Invokes a compiled entry using the slot buffers and active call frames of the execution context.</summary>
     /// <param name="entry">The name of the compiled entry to invoke or inspect.</param>
     /// <param name="context">The execution context containing the bound slot buffers.</param>
@@ -119,7 +122,10 @@ public sealed class CpuVmCompiledArtifact
 {
     /// <summary>Identifies the generated CPU code contract included in program compatibility hashes.</summary>
     public const string SourceAbi = "cpu-vm-ic-precision-v4";
-    internal IReadOnlyList<System.Reflection.Assembly> References { get; }
+    internal IReadOnlyList<System.Reflection.Assembly> References
+    {
+        get;
+    }
     private readonly VmProgram contracts;
     private readonly byte[]? binary;
     private readonly byte[]? symbols;
@@ -142,11 +148,20 @@ public sealed class CpuVmCompiledArtifact
     }
 
     /// <summary>Gets the VM program represented by this compilation artifact.</summary>
-    public VmProgram Program { get; }
+    public VmProgram Program
+    {
+        get;
+    }
     /// <summary>Gets the compilation options used to produce this artifact.</summary>
-    public CpuVmCompilerOptions Options { get; }
+    public CpuVmCompilerOptions Options
+    {
+        get;
+    }
     /// <summary>Gets the generated C# source implementing the CPU VM entry points.</summary>
-    public string Source { get; }
+    public string Source
+    {
+        get;
+    }
     /// <summary>Gets the hash of the serialized program and generated-source ABI.</summary>
     public string ProgramHash => ComputeProgramHash(Program);
     /// <summary>Gets whether this artifact contains a compiled assembly.</summary>
@@ -210,7 +225,11 @@ public sealed class CpuVmCompiledArtifact
 
             return new CpuVmExecutable(this, code, accesses, frames, loader);
         }
-        catch { loader.Unload(); throw; }
+        catch
+        {
+            loader.Unload();
+            throw;
+        }
     }
 
     /// <summary>Exports actual C# and optionally assembly/PDB, plus XML, options and SHA256 integrity manifest.</summary>

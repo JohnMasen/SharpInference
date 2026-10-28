@@ -83,7 +83,9 @@ public sealed class PortableTransformerInstructionTests
                 new PrecisionRequirement(ElementType.Float32, ElementType.Float32));
             Assert.False(string.IsNullOrWhiteSpace(Assert.Single(recorder.Recordings).Source));
             if (instruction.Target == ExecutionTarget.Cpu)
+            {
                 Assert.NotEmpty(recorder.References);
+            }
         }
     }
 
@@ -247,6 +249,8 @@ public sealed class PortableTransformerInstructionTests
     {
         Assert.Equal(expected.Length, actual.Length);
         for (var i = 0; i < expected.Length; i++)
+        {
             Assert.InRange(MathF.Abs(expected[i] - actual[i]), 0, 1e-6f);
+        }
     }
 }

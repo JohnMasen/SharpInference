@@ -41,7 +41,10 @@ public sealed class Phi4AudioProjectionGraphModule : IPhi4GraphModule
     }
 
     /// <inheritdoc/>
-    public string ArchitectureId { get; }
+    public string ArchitectureId
+    {
+        get;
+    }
     /// <inheritdoc/>
 
     /// <inheritdoc/>

@@ -40,33 +40,60 @@ public sealed class ModelMetadata
     }
 
     /// <summary>Gets the architecture identifier used to select model implementations.</summary>
-    public string ArchitectureId { get; }
+    public string ArchitectureId
+    {
+        get;
+    }
     /// <summary>Gets positive model dimensions keyed by their architecture-defined names.</summary>
-    public IReadOnlyDictionary<string, long> Dimensions { get; }
+    public IReadOnlyDictionary<string, long> Dimensions
+    {
+        get;
+    }
     /// <summary>Gets additional architecture-defined string attributes.</summary>
-    public IReadOnlyDictionary<string, string> Attributes { get; }
+    public IReadOnlyDictionary<string, string> Attributes
+    {
+        get;
+    }
 }
 
 /// <summary>Exposes the metadata and typed values of one model tensor.</summary>
 public interface IModelTensor
 {
     /// <summary>Gets the tensor's catalog binding name.</summary>
-    string Name { get; }
+    string Name
+    {
+        get;
+    }
     /// <summary>Gets the element storage format.</summary>
-    TensorDataType DataType { get; }
+    TensorDataType DataType
+    {
+        get;
+    }
     /// <summary>Gets the ordered tensor dimensions.</summary>
-    IReadOnlyList<int> Dimensions { get; }
+    IReadOnlyList<int> Dimensions
+    {
+        get;
+    }
     /// <summary>Gets the single-precision values when the tensor uses single-precision storage.</summary>
-    ReadOnlySpan<float> FloatValues { get; }
+    ReadOnlySpan<float> FloatValues
+    {
+        get;
+    }
     /// <summary>Gets the half-precision values when the tensor uses half-precision storage.</summary>
-    ReadOnlySpan<Half> HalfValues { get; }
+    ReadOnlySpan<Half> HalfValues
+    {
+        get;
+    }
 }
 
 /// <summary>Provides model-wide metadata and named tensor lookup.</summary>
 public interface IModelTensorCatalog
 {
     /// <summary>Gets the available tensor binding names.</summary>
-    IReadOnlyCollection<string> Names { get; }
+    IReadOnlyCollection<string> Names
+    {
+        get;
+    }
     /// <summary>Looks up a named tensor without requiring that it exists.</summary>
     /// <param name="name">The catalog binding name.</param>
     /// <param name="tensor">The tensor when found.</param>
@@ -82,7 +109,10 @@ public interface IModelTensorCatalog
 public interface IModelFile : IModelTensorCatalog, IDisposable
 {
     /// <summary>Gets the path of the opened model file.</summary>
-    string Path { get; }
+    string Path
+    {
+        get;
+    }
 }
 
 /// <summary>Opens model files from paths.</summary>
@@ -98,7 +128,10 @@ public interface IModelReader
 public interface IModelWeightOwnershipPolicy
 {
     /// <summary>Gets whether binding requires CPU-owned copies instead of borrowing catalog storage.</summary>
-    bool RequiresCpuWeightCopy { get; }
+    bool RequiresCpuWeightCopy
+    {
+        get;
+    }
 }
 
 /// <summary>Prepares a weight plan from a model tensor catalog.</summary>
@@ -113,14 +146,20 @@ public interface IModelWeightPreflight
 public interface IModel
 {
     /// <summary>Gets the bound model's architecture, dimensions and attributes.</summary>
-    ModelMetadata ModelMetadata { get; }
+    ModelMetadata ModelMetadata
+    {
+        get;
+    }
 }
 
 /// <summary>Defines model binding and architecture-owned state creation.</summary>
 public interface IModelArchitecture
 {
     /// <summary>Gets the architecture identifier accepted by this implementation.</summary>
-    string Id { get; }
+    string Id
+    {
+        get;
+    }
     /// <summary>Checks whether the supplied tensor catalog can be bound.</summary>
     /// <param name="tensors">The candidate model tensors.</param>
     /// <returns>Whether the catalog satisfies the architecture's model contract.</returns>
@@ -139,7 +178,10 @@ public interface IModelArchitecture
 public interface IModelState
 {
     /// <summary>Gets the architecture identifier governing the state layout.</summary>
-    string ArchitectureId { get; }
+    string ArchitectureId
+    {
+        get;
+    }
     /// <summary>Creates an independent copy of the current state.</summary>
     /// <returns>The copied state.</returns>
     IModelState Clone();

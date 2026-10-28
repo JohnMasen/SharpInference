@@ -15,11 +15,20 @@ public sealed class NodePattern
     }
 
     /// <summary>Gets the optional identity anchor used to avoid a full node scan.</summary>
-    internal GraphNodeId? Id { get; }
+    internal GraphNodeId? Id
+    {
+        get;
+    }
     /// <summary>Gets the combined condition for a candidate node.</summary>
-    internal Func<IGraphNode, bool> Predicate { get; }
+    internal Func<IGraphNode, bool> Predicate
+    {
+        get;
+    }
     /// <summary>Gets whether this constraint accepts every visible node without an identity anchor.</summary>
-    internal bool Unrestricted { get; }
+    internal bool Unrestricted
+    {
+        get;
+    }
 
     /// <summary>Adds a type restriction and predicate without modifying the original constraint.</summary>
     /// <typeparam name="TRequested">The node type required by the additional condition.</typeparam>

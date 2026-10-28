@@ -14,9 +14,15 @@ public readonly record struct TierOneOperand
     }
 
     /// <summary>Gets whether the operand refers to a fusion input rather than a prior stage.</summary>
-    public bool IsInput { get; }
+    public bool IsInput
+    {
+        get;
+    }
     /// <summary>Gets the zero-based input or earlier-stage index.</summary>
-    public int Index { get; }
+    public int Index
+    {
+        get;
+    }
     /// <summary>Creates an operand referring to the external fusion input at the specified index.</summary>
     /// <param name="index">The nonnegative zero-based input or prior-stage index.</param>
     public static TierOneOperand Input(int index) => new(true, index);
@@ -35,9 +41,15 @@ public sealed class TierOnePointwiseStage
     }
 
     /// <summary>Gets the primitive graph operation evaluated by this stage.</summary>
-    public OperationId Operation { get; }
+    public OperationId Operation
+    {
+        get;
+    }
     /// <summary>Gets the ordered input and earlier-stage operands.</summary>
-    public IReadOnlyList<TierOneOperand> Operands { get; }
+    public IReadOnlyList<TierOneOperand> Operands
+    {
+        get;
+    }
 }
 
 /// <summary>Describes a supported FP32 pointwise fusion and validates operand compatibility.</summary>
@@ -52,11 +64,20 @@ public sealed class TierOnePointwiseDefinition : IInstructionFusionDefinition
     }
 
     /// <summary>Gets the registered name of the pointwise fusion.</summary>
-    public string Name { get; }
+    public string Name
+    {
+        get;
+    }
     /// <summary>Gets the ordered external inputs to the fusion.</summary>
-    public IReadOnlyList<string> Inputs { get; }
+    public IReadOnlyList<string> Inputs
+    {
+        get;
+    }
     /// <summary>Gets the primitive operations in fusion evaluation order.</summary>
-    public IReadOnlyList<TierOnePointwiseStage> Stages { get; }
+    public IReadOnlyList<TierOnePointwiseStage> Stages
+    {
+        get;
+    }
     /// <summary>Gets the number of intermediate executions eliminated by fusion.</summary>
     public int EliminatedStages => Stages.Count - 1;
 

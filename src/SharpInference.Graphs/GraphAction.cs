@@ -5,7 +5,10 @@ public abstract class GraphAction(Graph graph, string id)
 {
     public Graph Graph { get; } = graph ?? throw new ArgumentNullException(nameof(graph));
     public string Id { get; set; } = id;
-    public abstract string Category { get; set; }
+    public abstract string Category
+    {
+        get; set;
+    }
     public List<Binding> Bindings { get; } = [];
     public Dictionary<string, string> Metadata { get; } = new(StringComparer.Ordinal);
 
@@ -50,7 +53,10 @@ public class OperationAction(Graph graph, string id, OperationId operation) : Gr
     public override string Category { get; set; } = "operation";
     public OperationId Operation { get; set; } = operation;
     public Dictionary<string, string> Attributes { get; } = new(StringComparer.Ordinal);
-    public PrecisionRequirement? Precision { get; set; }
+    public PrecisionRequirement? Precision
+    {
+        get; set;
+    }
 
     public OperationAction RequirePrecision(ElementType arithmetic, ElementType accumulator)
     {

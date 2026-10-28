@@ -81,7 +81,10 @@ internal static class GraphAnalysisEngine
                     if (resource.Scope == ResourceScope.Call &&
                         (identity.Graph == target.Id || identity.Call is not null))
                     {
-                        identity = identity with { Call = InstancePath(call.Id, identity.Call) };
+                        identity = identity with
+                        {
+                            Call = InstancePath(call.Id, identity.Call)
+                        };
                     }
 
                     Register(identity, resource, call, effect.Access);
@@ -112,7 +115,10 @@ internal static class GraphAnalysisEngine
         {
             var structure = Structure();
             IReadOnlyList<ActionNode> order;
-            try { order = structure.TopologicalOrder(); }
+            try
+            {
+                order = structure.TopologicalOrder();
+            }
             catch (InvalidDataException error)
             {
                 Error("A0001", $"Inferred dependencies contain a cycle: {error.Message}");
@@ -252,7 +258,10 @@ internal static class GraphAnalysisEngine
                         if (found.Resource.Scope == ResourceScope.Call &&
                             (identity.Graph == call.Target || identity.Call is not null))
                         {
-                            identity = identity with { Call = InstancePath(call.Id, identity.Call) };
+                            identity = identity with
+                            {
+                                Call = InstancePath(call.Id, identity.Call)
+                            };
                         }
 
                         yield return (identity, found.Resource);

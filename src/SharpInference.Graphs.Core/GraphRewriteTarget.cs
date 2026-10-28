@@ -25,16 +25,28 @@ public sealed class GraphRewriteTarget<TNode, TEdge>
     }
 
     /// <summary>Gets captured nodes in graph declaration order.</summary>
-    public IReadOnlyList<TNode> Nodes { get; }
+    public IReadOnlyList<TNode> Nodes
+    {
+        get;
+    }
 
     /// <summary>Gets edges whose two endpoints are captured.</summary>
-    public IReadOnlyList<TEdge> InternalEdges { get; }
+    public IReadOnlyList<TEdge> InternalEdges
+    {
+        get;
+    }
 
     /// <summary>Gets edges entering the captured node set.</summary>
-    public IReadOnlyList<TEdge> IncomingEdges { get; }
+    public IReadOnlyList<TEdge> IncomingEdges
+    {
+        get;
+    }
 
     /// <summary>Gets edges leaving the captured node set.</summary>
-    public IReadOnlyList<TEdge> OutgoingEdges { get; }
+    public IReadOnlyList<TEdge> OutgoingEdges
+    {
+        get;
+    }
 
     /// <summary>Captures a nonempty target and all of its structural boundaries.</summary>
     /// <param name="graph">The graph from which all nodes and boundary edges are captured.</param>

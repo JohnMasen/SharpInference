@@ -6,7 +6,10 @@ namespace SharpInference.Graphs;
 public class GraphPackage<TGraph> : Collection<TGraph> where TGraph : Graph
 {
     public Dictionary<string, string> Metadata { get; } = new(StringComparer.Ordinal);
-    public string? MainGraphId { get; set; }
+    public string? MainGraphId
+    {
+        get; set;
+    }
     public TGraph? MainGraph => this.SingleOrDefault(graph => graph.Id == MainGraphId);
     public IEnumerable<Resource> GraphIOs
     {
@@ -21,7 +24,9 @@ public class GraphPackage<TGraph> : Collection<TGraph> where TGraph : Graph
     public IEnumerable<Resource> Inputs => GraphIOs.Where(resource => resource.GraphIO is GraphIO.In or GraphIO.InOut);
     public IEnumerable<Resource> Outputs => GraphIOs.Where(resource => resource.GraphIO is GraphIO.Out or GraphIO.InOut);
 
-    public GraphPackage() { }
+    public GraphPackage()
+    {
+    }
 
     public GraphPackage(TGraph main, params TGraph[] definitions)
     {

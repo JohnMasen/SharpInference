@@ -7,7 +7,10 @@ namespace SharpInference.Vm;
 public interface IVmExecutable : IDisposable
 {
     /// <summary>Gets the program whose entry points and slot order this executable implements.</summary>
-    VmProgram Program { get; }
+    VmProgram Program
+    {
+        get;
+    }
     /// <summary>Executes a named entry point against managed buffers in program-slot order.</summary>
     /// <param name="entryName">The name of the program entry point to execute.</param>
     /// <param name="slots">The resource buffers in program-slot order.</param>
@@ -43,13 +46,25 @@ public sealed class VmInferenceEngine : IAsyncDisposable
     }
 
     /// <summary>Gets the program used for single-token inference.</summary>
-    public VmProgram Program { get; }
+    public VmProgram Program
+    {
+        get;
+    }
     /// <summary>Gets the program used to process prefill token batches.</summary>
-    public VmProgram PrefillProgram { get; }
+    public VmProgram PrefillProgram
+    {
+        get;
+    }
     /// <summary>Gets the number of logits produced per inference step.</summary>
-    public int VocabularySize { get; }
+    public int VocabularySize
+    {
+        get;
+    }
     /// <summary>Gets the maximum token count accepted by a single prefill request.</summary>
-    public int MaximumPrefillTokens { get; }
+    public int MaximumPrefillTokens
+    {
+        get;
+    }
 
     /// <summary>Creates owned resources and worker pools, releasing partially created resources on failure.</summary>
     /// <param name="program">The program used for both prefill and single-token inference.</param>
@@ -113,10 +128,22 @@ public sealed class VmInferenceEngine : IAsyncDisposable
                 catch (Exception error)
                 {
                     var errors = new List<Exception> { error };
-                    try { bindings.Dispose(); }
-                    catch (Exception cleanup) { errors.Add(cleanup); }
-                    try { executable?.Dispose(); }
-                    catch (Exception cleanup) { errors.Add(cleanup); }
+                    try
+                    {
+                        bindings.Dispose();
+                    }
+                    catch (Exception cleanup)
+                    {
+                        errors.Add(cleanup);
+                    }
+                    try
+                    {
+                        executable?.Dispose();
+                    }
+                    catch (Exception cleanup)
+                    {
+                        errors.Add(cleanup);
+                    }
                     if (errors.Count > 1)
                     {
                         throw new AggregateException("VM worker construction failed.", errors);
@@ -134,11 +161,23 @@ public sealed class VmInferenceEngine : IAsyncDisposable
             var errors = new List<Exception> { error };
             if (queue is not null)
             {
-                try { await queue.DisposeAsync().ConfigureAwait(false); }
-                catch (Exception cleanup) { errors.Add(cleanup); }
+                try
+                {
+                    await queue.DisposeAsync().ConfigureAwait(false);
+                }
+                catch (Exception cleanup)
+                {
+                    errors.Add(cleanup);
+                }
             }
-            try { manager.Dispose(); }
-            catch (Exception cleanup) { errors.Add(cleanup); }
+            try
+            {
+                manager.Dispose();
+            }
+            catch (Exception cleanup)
+            {
+                errors.Add(cleanup);
+            }
             if (errors.Count > 1)
             {
                 throw new AggregateException("Inference engine construction failed.", errors);
@@ -242,8 +281,14 @@ public sealed class VmInferenceEngine : IAsyncDisposable
         lock (worker.Gate)
         {
             manager.BindSession(worker.Bindings, request.State);
-            try { return ValueTask.FromResult(Run(worker, request.Entry, request.Tokens, cancellation)); }
-            finally { worker.Bindings.UnbindSession(); }
+            try
+            {
+                return ValueTask.FromResult(Run(worker, request.Entry, request.Tokens, cancellation));
+            }
+            finally
+            {
+                worker.Bindings.UnbindSession();
+            }
         }
     }
 
@@ -310,15 +355,33 @@ public sealed class VmInferenceEngine : IAsyncDisposable
         }
 
         List<Exception>? errors = null;
-        try { await queue.DisposeAsync().ConfigureAwait(false); }
-        catch (Exception error) { (errors ??= []).Add(error); }
+        try
+        {
+            await queue.DisposeAsync().ConfigureAwait(false);
+        }
+        catch (Exception error)
+        {
+            (errors ??= []).Add(error);
+        }
         foreach (var session in snapshot)
         {
-            try { await session.DisposeAsync().ConfigureAwait(false); }
-            catch (Exception error) { (errors ??= []).Add(error); }
+            try
+            {
+                await session.DisposeAsync().ConfigureAwait(false);
+            }
+            catch (Exception error)
+            {
+                (errors ??= []).Add(error);
+            }
         }
-        try { manager.Dispose(); }
-        catch (Exception error) { (errors ??= []).Add(error); }
+        try
+        {
+            manager.Dispose();
+        }
+        catch (Exception error)
+        {
+            (errors ??= []).Add(error);
+        }
         if (errors is not null)
         {
             throw new AggregateException("Inference engine shutdown failed.", errors);
@@ -348,15 +411,36 @@ public sealed class VmInferenceEngine : IAsyncDisposable
             PrefillEntries = entries.OrderByDescending(entry => entry.Tokens).ToArray();
         }
         public object Gate { get; } = new();
-        public VmBindings Bindings { get; }
-        public IVmExecutable Executable { get; }
-        public int InputIndex { get; }
-        public int OutputIndex { get; }
-        public (string Name, int Tokens)[] PrefillEntries { get; }
+        public VmBindings Bindings
+        {
+            get;
+        }
+        public IVmExecutable Executable
+        {
+            get;
+        }
+        public int InputIndex
+        {
+            get;
+        }
+        public int OutputIndex
+        {
+            get;
+        }
+        public (string Name, int Tokens)[] PrefillEntries
+        {
+            get;
+        }
         public void Dispose()
         {
-            try { Bindings.Dispose(); }
-            finally { Executable.Dispose(); }
+            try
+            {
+                Bindings.Dispose();
+            }
+            finally
+            {
+                Executable.Dispose();
+            }
         }
     }
 }
@@ -405,8 +489,14 @@ public sealed class VmInferenceSession : IAsyncDisposable
 
         using var linked = Link(cancellation);
         await operations.WaitAsync(linked.Token).ConfigureAwait(false);
-        try { return await engine.PrefillAsync(state, snapshot, linked).ConfigureAwait(false); }
-        finally { operations.Release(); }
+        try
+        {
+            return await engine.PrefillAsync(state, snapshot, linked).ConfigureAwait(false);
+        }
+        finally
+        {
+            operations.Release();
+        }
     }
 
     /// <summary>Reserves exclusive session access for a sequence of token-generation operations.</summary>
@@ -483,7 +573,10 @@ public sealed class VmInferenceSession : IAsyncDisposable
             using var access = bindings.BeginStateAccess();
             VmStateStream.Export(destination, state.StateProgram, access, contextId);
         }
-        finally { operations.Release(); }
+        finally
+        {
+            operations.Release();
+        }
     }
 
     /// <summary>Validates and stages a context-compatible state stream before restoring session state.</summary>
@@ -502,7 +595,10 @@ public sealed class VmInferenceSession : IAsyncDisposable
             using var access = bindings.BeginStateAccess();
             VmStateStream.Import(source, state.StateProgram, access, contextId, budget);
         }
-        finally { operations.Release(); }
+        finally
+        {
+            operations.Release();
+        }
     }
 
     /// <summary>Zeroes all registered state slots and marks the session state valid.</summary>
@@ -522,7 +618,10 @@ public sealed class VmInferenceSession : IAsyncDisposable
 
             access.ValidateState();
         }
-        finally { operations.Release(); }
+        finally
+        {
+            operations.Release();
+        }
     }
 
     /// <summary>Gets the state-only program exposing canonical named session-state slots.</summary>
@@ -552,7 +651,10 @@ public sealed class VmInferenceSession : IAsyncDisposable
             }
             return values;
         }
-        finally { operations.Release(); }
+        finally
+        {
+            operations.Release();
+        }
     }
 
     /// <summary>Validates a complete state snapshot and restores it while holding exclusive session access.</summary>
@@ -591,7 +693,10 @@ public sealed class VmInferenceSession : IAsyncDisposable
                 throw;
             }
         }
-        finally { operations.Release(); }
+        finally
+        {
+            operations.Release();
+        }
     }
 
     private CancellationTokenSource Link(CancellationToken cancellation)
@@ -636,11 +741,19 @@ public sealed class VmInferenceSession : IAsyncDisposable
 
         if (active is not null)
         {
-            try { await active.DisposeAsync().ConfigureAwait(false); }
-            catch (OperationCanceledException) when (lifetime.IsCancellationRequested) { }
+            try
+            {
+                await active.DisposeAsync().ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (lifetime.IsCancellationRequested)
+            {
+            }
         }
         await operations.WaitAsync().ConfigureAwait(false);
-        try { state.Dispose(); }
+        try
+        {
+            state.Dispose();
+        }
         finally
         {
             engine.Remove(this);
@@ -691,7 +804,10 @@ public sealed class VmGenerationLease : IAsyncDisposable
     {
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellation.Token, caller);
         await steps.WaitAsync(linked.Token).ConfigureAwait(false);
-        try { return await session.ForwardScopedAsync(token, linked).ConfigureAwait(false); }
+        try
+        {
+            return await session.ForwardScopedAsync(token, linked).ConfigureAwait(false);
+        }
         catch (Exception error)
         {
             lock (gate)
@@ -701,7 +817,10 @@ public sealed class VmGenerationLease : IAsyncDisposable
 
             throw;
         }
-        finally { steps.Release(); }
+        finally
+        {
+            steps.Release();
+        }
     }
 
     /// <summary>Cancels active token work, waits for completion, and releases the session's generation reservation.</summary>

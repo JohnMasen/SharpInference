@@ -72,9 +72,15 @@ public abstract class TierZeroInstruction(Guid collectionId, string name, Execut
         "core.maximum" or "core.exp" or "core.tanh" or "core.sigmoid" or "core.rsqrt" or
         "core.square" or "core.relu" or "core.tensor.fill" or
         "core.tensor.cast-f16-f32" or "core.tensor.reshape");
-    public override IReadOnlyList<InstructionSignature> Signatures { get; } =
+    public override IReadOnlyList<InstructionSignature> Signatures
+    {
+        get;
+    } =
         CreateSignatures(collectionId, name);
-    public override IReadOnlyList<InstructionIndexBound> IndexBounds { get; } =
+    public override IReadOnlyList<InstructionIndexBound> IndexBounds
+    {
+        get;
+    } =
         name == "core.gather-row" ? [new("index", "table", 0)] : [];
 
     protected sealed override void Validate(InstructionParameter[] parameters)
@@ -199,7 +205,10 @@ public abstract class TierZeroInstruction(Guid collectionId, string name, Execut
         {
             result.AddRange(result.ToArray().Select(signature => new InstructionSignature(
                 signature.Ports.Select(port =>
-                    port.Name == "matrix" ? port with { Name = "weight" } : port).ToArray(),
+                    port.Name == "matrix" ? port with
+                    {
+                        Name = "weight"
+                    } : port).ToArray(),
                 signature.Attributes,
                 signature.Precision)));
         }

@@ -4,9 +4,18 @@ namespace SharpInference.Graphs.Core;
 public interface IGraphEdge
 {
     /// <summary>Gets the identity of this edge within its graph.</summary>
-    GraphEdgeId Id { get; }
+    GraphEdgeId Id
+    {
+        get;
+    }
     /// <summary>Gets the identity of the node from which this edge originates.</summary>
-    GraphNodeId Source { get; }
+    GraphNodeId Source
+    {
+        get;
+    }
     /// <summary>Gets the identity of the node to which this edge points.</summary>
-    GraphNodeId Target { get; }
+    GraphNodeId Target
+    {
+        get;
+    }
 }

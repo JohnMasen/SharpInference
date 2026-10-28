@@ -11,7 +11,10 @@ public readonly record struct ExecutionTarget
         Architecture = architecture;
     }
     /// <summary>Gets the architecture identifier used to select implementations.</summary>
-    public string Architecture { get; }
+    public string Architecture
+    {
+        get;
+    }
     /// <summary>Identifies the managed CPU instruction architecture.</summary>
     public static readonly ExecutionTarget Cpu = new("cpu.managed");
     /// <summary>Identifies the Direct3D12 instruction architecture.</summary>
@@ -40,8 +43,14 @@ public sealed record ExecutionPrecision
         AccumulatorType = accumulatorType;
     }
 
-    public ElementType ArithmeticType { get; }
-    public ElementType AccumulatorType { get; }
+    public ElementType ArithmeticType
+    {
+        get;
+    }
+    public ElementType AccumulatorType
+    {
+        get;
+    }
 }
 
 /// <summary>Describes GPU thread-group dimensions and dispatch-group counts.</summary>

@@ -203,16 +203,36 @@ public sealed class RwkvWorldTokenizer : IByteTextTokenizer
             character = literal[index];
             switch (character)
             {
-                case '\\': values.Add((byte)'\\'); break;
-                case '\'': values.Add((byte)'\''); break;
-                case '"': values.Add((byte)'"'); break;
-                case 'a': values.Add(0x07); break;
-                case 'b': values.Add(0x08); break;
-                case 'f': values.Add(0x0C); break;
-                case 'n': values.Add(0x0A); break;
-                case 'r': values.Add(0x0D); break;
-                case 't': values.Add(0x09); break;
-                case 'v': values.Add(0x0B); break;
+                case '\\':
+                    values.Add((byte)'\\');
+                    break;
+                case '\'':
+                    values.Add((byte)'\'');
+                    break;
+                case '"':
+                    values.Add((byte)'"');
+                    break;
+                case 'a':
+                    values.Add(0x07);
+                    break;
+                case 'b':
+                    values.Add(0x08);
+                    break;
+                case 'f':
+                    values.Add(0x0C);
+                    break;
+                case 'n':
+                    values.Add(0x0A);
+                    break;
+                case 'r':
+                    values.Add(0x0D);
+                    break;
+                case 't':
+                    values.Add(0x09);
+                    break;
+                case 'v':
+                    values.Add(0x0B);
+                    break;
                 case 'x':
                     AppendEscapedByte(values, ParseHexByte(literal, ref index, 2), byteLiteral);
                     break;
@@ -303,6 +323,9 @@ public sealed class RwkvWorldTokenizer : IByteTextTokenizer
     private sealed class TrieNode
     {
         public TrieNode?[] Children { get; } = new TrieNode[256];
-        public int? TokenId { get; set; }
+        public int? TokenId
+        {
+            get; set;
+        }
     }
 }

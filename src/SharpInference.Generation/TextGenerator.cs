@@ -20,7 +20,10 @@ public interface ITokenGenerationSession
 public interface ITokenGenerationScope : IAsyncDisposable
 {
     /// <summary>Gets the session reserved for this generation scope.</summary>
-    ITokenGenerationSession Session { get; }
+    ITokenGenerationSession Session
+    {
+        get;
+    }
 }
 
 /// <summary>Provides generation sessions that can be isolated for a generation operation.</summary>

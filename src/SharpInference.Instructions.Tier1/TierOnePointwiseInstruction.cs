@@ -26,9 +26,15 @@ public abstract class TierOnePointwiseInstruction : Instruction
     }
 
     /// <summary>Gets the catalog pointwise definition implemented by this instruction.</summary>
-    public TierOnePointwiseDefinition Definition { get; }
+    public TierOnePointwiseDefinition Definition
+    {
+        get;
+    }
     /// <summary>Gets the concrete target execution configuration.</summary>
-    public InstructionExecutionConfiguration Configuration { get; }
+    public InstructionExecutionConfiguration Configuration
+    {
+        get;
+    }
     /// <inheritdoc/>
     public override Guid CollectionId => TierOneInstructionCollectionIds.Float32;
     /// <inheritdoc/>
@@ -39,7 +45,10 @@ public abstract class TierOnePointwiseInstruction : Instruction
     /// <inheritdoc/>
     public override bool RequiresDispatchIsolation => false;
     /// <inheritdoc/>
-    public override IReadOnlyList<InstructionSignature> Signatures { get; }
+    public override IReadOnlyList<InstructionSignature> Signatures
+    {
+        get;
+    }
 
     /// <summary>Gets the numerical implementation discriminator included in optimization fingerprints.</summary>
     protected virtual string NumericalImplementationIdentity => "";

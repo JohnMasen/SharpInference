@@ -27,9 +27,18 @@ public sealed record TensorDescriptor
     }
 
     /// <summary>Gets the scalar element type.</summary>
-    public ElementType ElementType { get; }
+    public ElementType ElementType
+    {
+        get;
+    }
     /// <summary>Gets tensor dimensions in axis order.</summary>
-    public IReadOnlyList<int> Dimensions { get; }
+    public IReadOnlyList<int> Dimensions
+    {
+        get;
+    }
     /// <summary>Gets the logical tensor layout.</summary>
-    public string Layout { get; }
+    public string Layout
+    {
+        get;
+    }
 }

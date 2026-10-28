@@ -457,7 +457,10 @@ public sealed class GraphViewQueryTests
         var sourceCalls = 0;
         var targetCalls = 0;
         var pattern = Pattern.Create(Node().Where<TestNode>(node =>
-            { sourceCalls++; return node.NodeKind == "op"; }))
+            {
+                sourceCalls++;
+                return node.NodeKind == "op";
+            }))
             - Edge() - Node("F").Where<TestNode>(_ => { targetCalls++; return true; });
         Assert.Equal(3, view.Match(pattern).Count());
         Assert.Equal(20, sourceCalls);
@@ -521,11 +524,20 @@ public sealed class GraphViewQueryTests
     private sealed class CountingView(Graph<TestNode, TestEdge> graph) : IGraphView<TestNode, TestEdge>
     {
         /// <summary>Gets the number of nodes consumed from the visible-node sequence.</summary>
-        public int EnumeratedNodes { get; private set; }
+        public int EnumeratedNodes
+        {
+            get; private set;
+        }
         /// <summary>Gets the number of incoming adjacency lookups.</summary>
-        public int IncomingCalls { get; private set; }
+        public int IncomingCalls
+        {
+            get; private set;
+        }
         /// <summary>Gets the number of outgoing adjacency lookups.</summary>
-        public int OutgoingCalls { get; private set; }
+        public int OutgoingCalls
+        {
+            get; private set;
+        }
         /// <inheritdoc/>
         public IEnumerable<TestNode> Nodes => Enumerate();
         /// <inheritdoc/>
@@ -724,7 +736,10 @@ public sealed class GraphViewQueryTests
             [new TestEdge("ab", "A", "B")]);
         var calls = 0;
         var matches = graph.Match(Pattern.Create(Node().Where<TestNode>(node =>
-            { calls++; return true; })));
+            {
+                calls++;
+                return true;
+            })));
         Assert.Single(matches);
         Assert.Equal(1, calls);
         Assert.Single(graph.Match(Pattern.Create(Node("B"))));

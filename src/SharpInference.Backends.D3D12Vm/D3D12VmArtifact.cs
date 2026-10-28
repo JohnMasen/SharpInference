@@ -22,9 +22,15 @@ public sealed class D3D12VmKernel
         this.dxil = (byte[])dxil.Clone();
     }
     /// <summary>Gets the VM kernel definition identifier implemented by this module.</summary>
-    public string Definition { get; }
+    public string Definition
+    {
+        get;
+    }
     /// <summary>Gets the generated HLSL source for this kernel.</summary>
-    public string Source { get; }
+    public string Source
+    {
+        get;
+    }
     /// <summary>Returns a defensive copy of this kernel&apos;s compiled DXIL bytecode.</summary>
     public byte[] GetDxil() => (byte[])dxil.Clone();
     internal ReadOnlyMemory<byte> Bytecode => dxil;
@@ -48,12 +54,24 @@ public sealed class D3D12VmArtifact
         Contracts = contracts ?? program;
     }
     /// <summary>Gets the Direct3D12 VM program packaged in this artifact.</summary>
-    public VmProgram Program { get; }
+    public VmProgram Program
+    {
+        get;
+    }
     /// <summary>Gets the compilation options used to produce this artifact.</summary>
-    public D3D12VmCompilerOptions Options { get; }
+    public D3D12VmCompilerOptions Options
+    {
+        get;
+    }
     /// <summary>Gets the compiled HLSL and DXIL modules for the program&apos;s kernel definitions.</summary>
-    public IReadOnlyList<D3D12VmKernel> Kernels { get; }
-    internal VmProgram Contracts { get; }
+    public IReadOnlyList<D3D12VmKernel> Kernels
+    {
+        get;
+    }
+    internal VmProgram Contracts
+    {
+        get;
+    }
 
     /// <summary>Creates an independent VM and an owned hardware device. No source compilation occurs.</summary>
     public D3D12VmExecutor CreateExecutor() => CreateExecutor(0);

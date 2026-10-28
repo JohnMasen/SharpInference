@@ -5,7 +5,9 @@ public sealed class ExecutionGraphPackage : GraphPackage<ExecutionGraph>
 {
     public const string BackendMetadataKey = "execution.backend";
 
-    public ExecutionGraphPackage() { }
+    public ExecutionGraphPackage()
+    {
+    }
     public ExecutionGraphPackage(ExecutionGraph main, params ExecutionGraph[] definitions) : base(main, definitions) { }
 
     public void SetTarget(string backend)

@@ -13,10 +13,16 @@ public static class Phi4ExecutionInstructionCollectionIds
     public static readonly Guid Float32 = new("6e233c7f-1312-4c0f-bf54-8f493d7cd405");
 
     /// <summary>No CPU implementation currently implements this position/cache/control protocol.</summary>
-    public static IReadOnlyList<ExecutionTarget> SupportedTargets { get; } =
+    public static IReadOnlyList<ExecutionTarget> SupportedTargets
+    {
+        get;
+    } =
         Array.AsReadOnly(new[] { ExecutionTarget.Direct3D12 });
 
-    public static IReadOnlyList<string> RequiredInstructions { get; } = Array.AsReadOnly(new[]
+    public static IReadOnlyList<string> RequiredInstructions
+    {
+        get;
+    } = Array.AsReadOnly(new[]
     {
         "transformer.rope-kv-write",
         "transformer.gqa-scores",
