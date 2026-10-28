@@ -305,10 +305,14 @@ public sealed class Phi4VisionGraphModule : IPhi4GraphModule
             var output = Temporary(shape);
             var weight = Weight(scope, prefix + ".weight", fp32: true);
             var bias = Weight(scope, prefix + ".bias", fp32: true);
-            Emit(scope, PrimitiveOperations.Affine,
+            var intermediate = Temporary(rows, outputWidth);
+            Emit(scope, PrimitiveOperations.MatrixMultiply,
                 [View("left", source, ResourceAccess.Read, rows, inputWidth), GraphBindings.Read("right", weight),
-                 GraphBindings.Read("bias", bias), View("output", output, ResourceAccess.Write, rows, outputWidth)],
+                 GraphBindings.Write("output", intermediate)],
                 Attr(("transpose_left", "false"), ("transpose_right", "true")));
+            Emit(scope, PrimitiveOperations.BiasAdd,
+                [GraphBindings.Read("input", intermediate), GraphBindings.Read("bias", bias),
+                 View("output", output, ResourceAccess.Write, rows, outputWidth)]);
             return output;
         }
         string Add(Phi4GraphComposer.Scope scope, string left, string right)

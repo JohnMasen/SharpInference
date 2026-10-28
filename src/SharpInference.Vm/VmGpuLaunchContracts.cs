@@ -4,6 +4,11 @@ namespace SharpInference.Vm;
 
 internal static class VmGpuLaunchContracts
 {
+    private static bool ValidMatrixCollection(VmOperator operation) =>
+        operation.InstructionCollectionId == (operation.Operation == "core.affine"
+            ? TierOneAffineOperations.CollectionFloat32
+            : TierZeroInstructionCollectionIds.Float32);
+
     /// <summary>Validates GPU kernel thread groups and dispatch grids against VM operations.</summary>
     /// <param name="program">The VM program containing kernels and dispatches.</param>
     /// <param name="definitions">Definitions used to expand called operations.</param>
@@ -44,9 +49,9 @@ internal static class VmGpuLaunchContracts
                 if (operations.Length != 1 ||
                     cooperativeMatVec[0].Operation.Operation != "core.mat-vec" ||
                     cooperativeMatVec[0].Operation.InstructionCollectionId !=
-                        InstructionCollectionIds.TierZeroFloat32 &&
+                        TierZeroInstructionCollectionIds.Float32 &&
                     cooperativeMatVec[0].Operation.InstructionCollectionId !=
-                        InstructionCollectionIds.TierZeroFloat16 ||
+                        TierZeroInstructionCollectionIds.Float16 ||
                     kernel.Threads != new VmThreadGroup(GpuMatVecExecution.Threads))
                 {
                     throw new InvalidDataException(
@@ -68,8 +73,7 @@ internal static class VmGpuLaunchContracts
                 if (operations.Length != 1 ||
                     cooperativeMatrix[0].Operation.Operation is not (
                         "core.matrix-multiply" or "core.affine") ||
-                    cooperativeMatrix[0].Operation.InstructionCollectionId !=
-                        InstructionCollectionIds.TierZeroFloat32 ||
+                    !ValidMatrixCollection(cooperativeMatrix[0].Operation) ||
                     kernel.Threads != new VmThreadGroup(GpuMatrixMultiplyExecution.Threads))
                 {
                     throw new InvalidDataException(
@@ -91,8 +95,7 @@ internal static class VmGpuLaunchContracts
                 if (operations.Length != 1 ||
                     tiledMatrix[0].Operation.Operation is not (
                         "core.matrix-multiply" or "core.affine") ||
-                    tiledMatrix[0].Operation.InstructionCollectionId !=
-                        InstructionCollectionIds.TierZeroFloat32 ||
+                    !ValidMatrixCollection(tiledMatrix[0].Operation) ||
                     kernel.Threads != new VmThreadGroup(
                         GpuMatrixMultiplyExecution.TileSize,
                         GpuMatrixMultiplyExecution.TileSize))

@@ -4,19 +4,6 @@ using System.Reflection;
 
 namespace SharpInference.Instructions;
 
-/// <summary>Provides stable identities for built-in instruction collections.</summary>
-public static class InstructionCollectionIds
-{
-    /// <summary>Identifies the identity of the baseline FP32 instruction collection.</summary>
-    public static readonly Guid TierZeroFloat32 = Guid.Empty;
-    /// <summary>Identifies the identity of the baseline FP16-output instruction collection.</summary>
-    public static readonly Guid TierZeroFloat16 = new("00000000-0000-0000-0000-000000000001");
-    /// <summary>Identifies the identity of the fused FP32 pointwise instruction collection.</summary>
-    public static readonly Guid TierOneFloat32 = new("697cfcb5-8e65-4e4f-9c3b-742c30b057cc");
-    /// <summary>Identifies the identity of the transformer FP32 instruction collection.</summary>
-    public static readonly Guid TransformerFloat32 = new("824d0f9c-16c7-46d8-b49d-0f91d6a4ec83");
-}
-
 /// <summary>Specifies synchronization required after a recorded instruction.</summary>
 public enum InstructionSynchronization
 {
@@ -30,12 +17,17 @@ public enum InstructionSynchronization
 /// <param name="Name">The human-readable instruction collection name.</param>
 /// <param name="Tier">The nonnegative instruction optimization tier.</param>
 /// <param name="Architecture">The architecture identifier used to select implementations.</param>
-public sealed record InstructionCollectionDescription(Guid Id, string Name, int Tier, ExecutionTarget Architecture);
+public sealed record InstructionCollectionDescription(
+    Guid Id, string Name, int Tier, ExecutionTarget Architecture, string Domain = "core",
+    InstructionCategory? Category = null, IReadOnlyList<string>? RequiredInstructions = null);
 /// <summary>Declares a named tensor port's element type and resource access.</summary>
 /// <param name="Name">The tensor port name used to match invocation parameters.</param>
 /// <param name="ElementType">The scalar storage representation of each tensor element.</param>
 /// <param name="Access">The permitted resource access.</param>
-public sealed record InstructionPort(string Name, ElementType ElementType, ResourceAccess Access);
+public sealed record InstructionPort(
+    string Name, ElementType ElementType, ResourceAccess Access,
+    string? Meaning = null, ElementType? InternalPrecision = null,
+    string? ShapeConstraint = null);
 /// <summary>Describes supported tensor ports, attribute names, and internal arithmetic precision.</summary>
 public sealed record InstructionSignature
 {
@@ -130,6 +122,8 @@ public interface IInstructionRecorder
 /// <summary>Adapts invocation parameters and precision requirements to a target-specific source implementation.</summary>
 public abstract class Instruction
 {
+    public virtual string? Comment => null;
+    public virtual IReadOnlyList<InstructionAttributeDescription> AttributeDescriptions => [];
     /// <summary>Gets the identity of the collection providing this implementation.</summary>
     public abstract Guid CollectionId { get; }
     /// <summary>Gets the registered instruction name within its collection.</summary>
@@ -252,6 +246,7 @@ public abstract class Instruction
 /// <summary>Discovers installed instruction collections and their named implementations.</summary>
 public interface IInstructionCollectionProvider
 {
+    IReadOnlyList<Instruction> EnumerateInstructions();
     /// <summary>Returns descriptions of instruction collections exposed by the provider.</summary>
     IReadOnlyList<InstructionCollectionDescription> QueryInstructionCollection();
     /// <summary>Returns available target implementations of the specified collection and instruction name.</summary>
@@ -273,10 +268,15 @@ public sealed class InstructionAdaptationException : InvalidOperationException
 }
 
 /// <summary>Combines providers and validates unique instruction identities, signatures, and graph mappings.</summary>
-public sealed class InstructionRegistry : IInstructionCollectionProvider, IInstructionOptimizationProvider, IGraphInstructionProvider
+public sealed class InstructionRegistry : IInstructionCatalog, IInstructionOptimizationProvider, IGraphInstructionProvider
 {
     private readonly IReadOnlyList<IInstructionCollectionProvider> providers;
     private readonly IReadOnlyList<InstructionCollectionDescription> collections;
+    private readonly IReadOnlyList<Instruction> instructions;
+    public IReadOnlyList<InstructionCatalogRow> Rows { get; }
+    public IReadOnlyList<InstructionParameterRow> Parameters { get; }
+    public IReadOnlyList<InstructionSignatureRow> Signatures { get; }
+    public IReadOnlyList<Instruction> EnumerateInstructions() => instructions;
 
     /// <summary>Snapshots providers and validates their collection identities and target descriptions.</summary>
     /// <param name="providers">The instruction collection providers to combine.</param>
@@ -292,20 +292,89 @@ public sealed class InstructionRegistry : IInstructionCollectionProvider, IInstr
         var descriptions = this.providers.SelectMany(provider => provider.QueryInstructionCollection()).ToArray();
         foreach (var group in descriptions.GroupBy(description => (description.Id, description.Architecture)))
         {
-            if (group.Distinct().Count() != 1)
+            if (group.Count() != 1)
             {
-                throw new InvalidDataException($"Conflicting IC descriptions for '{group.Key}'.");
+                throw new InvalidDataException($"Multiple providers own instruction set '{group.Key}'. Sets cannot be merged or overridden.");
             }
         }
 
         if (descriptions.Any(description => string.IsNullOrWhiteSpace(description.Name) || description.Tier < 0 ||
-            string.IsNullOrWhiteSpace(description.Architecture.Architecture)))
+            string.IsNullOrWhiteSpace(description.Architecture.Architecture) ||
+            string.IsNullOrWhiteSpace(description.Domain) ||
+            description.Category is { } category && !Enum.IsDefined(category) ||
+            description.RequiredInstructions is { } required &&
+                (required.Any(string.IsNullOrWhiteSpace) || required.Distinct(StringComparer.Ordinal).Count() != required.Count)))
         {
             throw new InvalidDataException("IC descriptions require a name and non-negative Tier.");
         }
 
-        collections = Array.AsReadOnly(descriptions.Distinct().OrderBy(description => description.Id)
+        collections = Array.AsReadOnly(descriptions.Select(description => description with
+            { RequiredInstructions = description.RequiredInstructions is { } names ? Array.AsReadOnly(names.ToArray()) : null })
+            .OrderBy(description => description.Id)
             .ThenBy(description => description.Architecture.Architecture, StringComparer.Ordinal).ToArray());
+        var all = new List<Instruction>();
+        foreach (var provider in this.providers)
+        {
+            var owned = provider.QueryInstructionCollection();
+            var supplied = provider.EnumerateInstructions();
+            if (supplied.Any(instruction => instruction is null ||
+                    !owned.Any(collection => collection.Id == instruction.CollectionId &&
+                        collection.Architecture == instruction.Target)) ||
+                supplied.GroupBy(instruction => (instruction.CollectionId, instruction.Target, instruction.Name))
+                    .Any(group => group.Count() != 1))
+            {
+                throw new InvalidDataException($"Provider '{provider.GetType().FullName}' returned duplicate or unowned instructions.");
+            }
+            foreach (var collection in owned)
+            {
+                if (provider is IInstructionProvider && collection.RequiredInstructions is null)
+                {
+                    throw new InvalidDataException(
+                        $"Provider '{provider.GetType().FullName}' must declare the complete manifest for '{collection.Name}'.");
+                }
+                var names = supplied.Where(instruction => instruction.CollectionId == collection.Id &&
+                    instruction.Target == collection.Architecture).Select(instruction => instruction.Name)
+                    .ToHashSet(StringComparer.Ordinal);
+                if (collection.RequiredInstructions is { } required &&
+                    !names.SetEquals(required))
+                {
+                    throw new InvalidDataException(
+                        $"Incomplete instruction set '{collection.Name}' from '{provider.GetType().FullName}'. " +
+                        $"Missing: {string.Join(", ", required.Except(names))}; unexpected: {string.Join(", ", names.Except(required))}.");
+                }
+            }
+            all.AddRange(supplied);
+        }
+        instructions = Array.AsReadOnly(all.OrderBy(instruction => instruction.Target.Architecture, StringComparer.Ordinal)
+            .ThenBy(instruction => instruction.CollectionId).ThenBy(instruction => instruction.Name, StringComparer.Ordinal).ToArray());
+        foreach (var instruction in instructions)
+        {
+            _ = QueryInstruction(instruction.CollectionId, instruction.Name);
+        }
+        Rows = Array.AsReadOnly(instructions.Select(instruction =>
+        {
+            var collection = collections.Single(collection => collection.Id == instruction.CollectionId &&
+                collection.Architecture == instruction.Target);
+            return new InstructionCatalogRow(instruction.Target, instruction.CollectionId, instruction.Name,
+                collection.Category ?? (collection.Tier == 0 ? InstructionCategory.Tier0 : InstructionCategory.Tier1),
+                collection.Domain, instruction.Comment);
+        }).ToArray());
+        Signatures = Array.AsReadOnly(instructions.SelectMany(instruction => instruction.Signatures.Select(
+            (signature, index) => new InstructionSignatureRow(instruction.Target, instruction.CollectionId,
+                instruction.Name, index, signature.Precision.ArithmeticType, signature.Precision.AccumulatorType))).ToArray());
+        Parameters = Array.AsReadOnly(instructions.SelectMany(instruction => instruction.Signatures
+            .SelectMany((signature, index) => signature.Ports.Select(port => new InstructionParameterRow(
+                instruction.Target, instruction.CollectionId, instruction.Name, index,
+                port.Name, port.Meaning, "Tensor", port.Access, port.ElementType.ToString(),
+                port.InternalPrecision ?? (port.ElementType is ElementType.Float16 or ElementType.Float32
+                    ? signature.Precision.ArithmeticType : null), port.ShapeConstraint))
+                .Concat(signature.Attributes.Select(name =>
+                {
+                    var description = instruction.AttributeDescriptions.SingleOrDefault(attribute => attribute.Name == name);
+                    return new InstructionParameterRow(instruction.Target, instruction.CollectionId, instruction.Name,
+                        index, name, description?.Meaning, "Attribute", null,
+                        description?.DataType ?? "String", null, description?.Constraints);
+                })))).ToArray());
     }
 
     /// <summary>Returns descriptions of instruction collections exposed by the provider.</summary>
@@ -371,9 +440,8 @@ public sealed class InstructionRegistry : IInstructionCollectionProvider, IInstr
             throw new NotSupportedException($"Instruction collection '{collectionId:D}' is not installed.");
         }
 
-        var values = providers.Where(provider => provider.QueryInstructionCollection()
-                .Any(collection => collection.Id == collectionId))
-            .SelectMany(provider => provider.QueryInstruction(collectionId, instructionName)).ToArray();
+        var values = instructions.Where(instruction =>
+            instruction.CollectionId == collectionId && instruction.Name == instructionName).ToArray();
         if (values.Any(value => value.CollectionId != collectionId || value.Name != instructionName ||
             !collections.Any(collection => collection.Id == collectionId && collection.Architecture == value.Target)))
         {
@@ -392,6 +460,12 @@ public sealed class InstructionRegistry : IInstructionCollectionProvider, IInstr
                 !Enum.IsDefined(port.Access))))
         {
             throw new InvalidDataException($"Invalid signatures for '{collectionId:D}/{instructionName}'.");
+        }
+        if (values.Any(value => string.IsNullOrWhiteSpace(value.Name) || value.Signatures.Count == 0 ||
+                value.AttributeDescriptions.Select(attribute => attribute.Name).Distinct(StringComparer.Ordinal).Count() !=
+                    value.AttributeDescriptions.Count))
+        {
+            throw new InvalidDataException($"Missing or invalid instruction contract for '{collectionId:D}/{instructionName}'.");
         }
 
         return Array.AsReadOnly(values);

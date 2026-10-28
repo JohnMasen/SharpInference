@@ -45,8 +45,8 @@ internal static class GraphBindings
 }
 internal static class PortableTensorOperationContracts
 {
-    internal static readonly OperationId CastFp16ToFp32 = new("core.tensor.cast-fp16-fp32", 1);
-    internal static readonly OperationId Fill = new("core.tensor.fill", 1);
+    internal static readonly OperationId CastFp16ToFp32 = TensorOperations.CastFp16ToFp32;
+    internal static readonly OperationId Fill = TensorOperations.Fill;
 }
 internal sealed record TensorFillValue(float Value)
 {
@@ -375,10 +375,12 @@ internal sealed class Phi4GraphComposer
         internal Scope Affine(string id, string input, string weight, string bias, string output,
             bool transposeRight = false)
         {
-            AddNode(id, PrimitiveOperations.Affine,
-                [GraphBindings.Read("input", input), GraphBindings.Read("weight", weight),
-                 GraphBindings.Read("bias", bias), GraphBindings.Write("output", output)],
-                attributes: new Dictionary<string, string> { ["transpose_right"] = transposeRight.ToString() });
+            var intermediate = id + ".matmul_output";
+            Resource(intermediate, composer.resources[output].Tensor);
+            MatrixMultiply(id + ".matmul", input, weight, intermediate, transposeRight: transposeRight);
+            AddNode(id, PrimitiveOperations.BiasAdd,
+                [GraphBindings.Read("input", intermediate), GraphBindings.Read("bias", bias),
+                 GraphBindings.Write("output", output)]);
             return this;
         }
 

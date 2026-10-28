@@ -213,7 +213,7 @@ public sealed class VmOperator : VmInstruction
     /// <summary>Gets the legacy operation contract version.</summary>
     public int Version { get; }
     /// <summary>Gets the identity of the collection providing the instruction.</summary>
-    public Guid InstructionCollectionId { get; } = InstructionCollectionIds.TierZeroFloat32;
+    public Guid InstructionCollectionId { get; } = TierZeroInstructionCollectionIds.Float32;
     /// <summary>Gets the registered instruction name.</summary>
     public string InstructionName => Operation;
     internal bool IsLegacy { get; private set; } = true;
@@ -329,7 +329,7 @@ public sealed class VmDefinition
                 return node;
             }
 
-            return new VmNode(node.Id, new VmOperator(operation.Precision, InstructionCollectionIds.TierZeroFloat16,
+            return new VmNode(node.Id, new VmOperator(operation.Precision, TierZeroInstructionCollectionIds.Float16,
                 operation.InstructionName, operation.Arguments, operation.Attributes), node.Dependencies);
         }).ToArray());
         Threads = threads;

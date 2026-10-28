@@ -176,6 +176,7 @@ public sealed class ExecutionPackageTests
 
     private sealed class HalfArithmeticInstruction : Instruction, IInstructionCollectionProvider
     {
+        public IReadOnlyList<Instruction> EnumerateInstructions() => [this];
         public override Guid CollectionId => Guid.Empty;
         public override string Name => Operations.Copy;
         public override ExecutionTarget Target => ExecutionTarget.Cpu;

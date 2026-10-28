@@ -100,7 +100,7 @@ public sealed class GraphModelAdapterTests
         Assert.DoesNotContain(package.Validate(), item => item.Severity == GraphDiagnosticSeverity.Error);
         AssertResource(graph, "audio_hidden", GraphIO.In, ElementType.Float32, [2, 2]);
         AssertResource(graph, "output", GraphIO.Out, ElementType.Float32, [2, 4]);
-        Assert.Equal(dataType == TensorDataType.Float16 ? 7 : 3, graph.Actions.Count);
+        Assert.Equal(dataType == TensorDataType.Float16 ? 8 : 4, graph.Actions.Count);
         foreach (var name in catalog.Names)
         {
             var resource = Assert.Single(graph.Resources, resource => resource.Id == $"weight.{name}");
@@ -134,6 +134,17 @@ public sealed class GraphModelAdapterTests
             binding.SourceProperty == "left" && binding.Target.TargetProperty == "audio_hidden" &&
             binding.Access == ResourceAccess.Read);
         var down = Assert.Single(graph.Actions, node => node.Id == "projector_down");
+        Assert.Equal(PrimitiveOperations.BiasAdd, Assert.IsType<OperationAction>(down).Operation);
+        var downMultiply = Assert.IsType<OperationAction>(
+            Assert.Single(graph.Actions, node => node.Id == "projector_down.matmul"));
+        Assert.Equal(PrimitiveOperations.MatrixMultiply, downMultiply.Operation);
+        Assert.Equal("False", downMultiply.Attributes["transpose_left"]);
+        Assert.Equal("True", downMultiply.Attributes["transpose_right"]);
+        Assert.Equal(down.Metadata["architecture.path"], downMultiply.Metadata["architecture.path"]);
+        Assert.Equal("projector_down.matmul_output",
+            Assert.Single(down.Bindings, binding => binding.SourceProperty == "input").Target.TargetProperty);
+        AssertResource(graph, "projector_down.matmul_output", GraphIO.Internal, ElementType.Float32, [2, 4]);
+        Assert.DoesNotContain(graph.Actions.OfType<OperationAction>(), operation => operation.Operation.Name == "core.affine");
         Assert.Contains(down.Bindings, binding =>
             binding.SourceProperty == "output" && binding.Target.TargetProperty == "output" &&
             binding.Access == ResourceAccess.Write);

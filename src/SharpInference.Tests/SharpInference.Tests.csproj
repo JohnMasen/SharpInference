@@ -15,6 +15,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\..\tools\Instructions.DiscoveryProbe\Instructions.DiscoveryProbe.csproj" ReferenceOutputAssembly="false" />
     <Using Include="Xunit" />
   </ItemGroup>
 
@@ -26,10 +27,13 @@
     <ProjectReference Include="..\SharpInference.Vm.Optimization\SharpInference.Vm.Optimization.csproj" />
     <ProjectReference Include="..\SharpInference.Backends.CpuVm\SharpInference.Backends.CpuVm.csproj" />
     <ProjectReference Include="..\SharpInference.Backends.D3D12Vm\SharpInference.Backends.D3D12Vm.csproj" />
-    <ProjectReference Include="..\SharpInference.Instructions.Cpu\SharpInference.Instructions.Cpu.csproj" />
-    <ProjectReference Include="..\SharpInference.Instructions.D3D12\SharpInference.Instructions.D3D12.csproj" />
+    <ProjectReference Include="..\SharpInference.Instructions.Tier0.CPU\SharpInference.Instructions.Tier0.CPU.csproj" />
+    <ProjectReference Include="..\SharpInference.Instructions.Tier0.DirectX\SharpInference.Instructions.Tier0.DirectX.csproj" />
+    <ProjectReference Include="..\SharpInference.Instructions.Tier1.CPU\SharpInference.Instructions.Tier1.CPU.csproj" />
+    <ProjectReference Include="..\SharpInference.Instructions.Tier1.DirectX\SharpInference.Instructions.Tier1.DirectX.csproj" />
     <ProjectReference Include="..\SharpInference.Models.Rwkv\SharpInference.Models.Rwkv.csproj" />
     <ProjectReference Include="..\SharpInference.Models.Phi4\SharpInference.Models.Phi4.csproj" />
+    <ProjectReference Include="..\SharpInference.Models.Phi4.D3D12\SharpInference.Models.Phi4.D3D12.csproj" />
     <ProjectReference Include="..\SharpInference.Models.Ggml\SharpInference.Models.Ggml.csproj" />
   </ItemGroup>
 

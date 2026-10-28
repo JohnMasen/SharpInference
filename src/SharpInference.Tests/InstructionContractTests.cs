@@ -17,7 +17,8 @@ public sealed class InstructionContractTests
             Assert.Equal("SharpInference.Graphs", type.Namespace);
             Assert.Equal(typeof(Graph).Assembly, type.Assembly);
         });
-        Assert.Same(typeof(Instruction).Assembly, typeof(PrimitiveOperations).Assembly);
+        Assert.NotSame(typeof(Instruction).Assembly, typeof(PrimitiveOperations).Assembly);
+        Assert.Same(typeof(TierZeroInstruction).Assembly, typeof(PrimitiveOperations).Assembly);
     }
 
     [Fact]
@@ -129,12 +130,11 @@ public sealed class InstructionContractTests
             (PrimitiveOperations.ReduceMean, "core.reduce-mean"),
             (PrimitiveOperations.MatVec, "core.mat-vec"),
             (PrimitiveOperations.MatrixMultiply, "core.matrix-multiply"),
-            (PrimitiveOperations.Affine, "core.affine"),
             (PrimitiveOperations.BiasAdd, "core.bias-add"),
             (PrimitiveOperations.GatherRow, "core.gather-row"),
         ];
 
-        Assert.Equal(19, typeof(PrimitiveOperations).GetFields().Length);
+        Assert.Equal(18, typeof(PrimitiveOperations).GetFields().Length);
         Assert.All(expected, entry => Assert.Equal(new OperationId(entry.Name, 1), entry.Operation));
     }
 }

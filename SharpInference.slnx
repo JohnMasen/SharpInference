@@ -2,6 +2,7 @@
   <Folder Name="/src/">
     <Project Path="src/SharpInference.Abstractions/SharpInference.Abstractions.csproj" />
     <Project Path="src/SharpInference.Models.Phi4/SharpInference.Models.Phi4.csproj" />
+    <Project Path="src/SharpInference.Models.Phi4.D3D12/SharpInference.Models.Phi4.D3D12.csproj" />
     <Project Path="src/SharpInference.Models.Rwkv/SharpInference.Models.Rwkv.csproj" />
     <Project Path="src/SharpInference.Backends.CpuVm/SharpInference.Backends.CpuVm.csproj" />
     <Project Path="src/SharpInference.Backends.D3D12Vm/SharpInference.Backends.D3D12Vm.csproj" />
@@ -13,9 +14,12 @@
     <Project Path="src/SharpInference.Graphs.Tests/SharpInference.Graphs.Tests.csproj" />
     <Project Path="src/SharpInference.Graphs/SharpInference.Graphs.csproj" />
     <Project Path="src/SharpInference.Instructions/SharpInference.Instructions.csproj" />
-    <Project Path="src/SharpInference.Instructions.TierZero/SharpInference.Instructions.TierZero.csproj" />
-    <Project Path="src/SharpInference.Instructions.Cpu/SharpInference.Instructions.Cpu.csproj" />
-    <Project Path="src/SharpInference.Instructions.D3D12/SharpInference.Instructions.D3D12.csproj" />
+    <Project Path="src/SharpInference.Instructions.Tier0/SharpInference.Instructions.Tier0.csproj" />
+    <Project Path="src/SharpInference.Instructions.Tier0.CPU/SharpInference.Instructions.Tier0.CPU.csproj" />
+    <Project Path="src/SharpInference.Instructions.Tier0.DirectX/SharpInference.Instructions.Tier0.DirectX.csproj" />
+    <Project Path="src/SharpInference.Instructions.Tier1/SharpInference.Instructions.Tier1.csproj" />
+    <Project Path="src/SharpInference.Instructions.Tier1.CPU/SharpInference.Instructions.Tier1.CPU.csproj" />
+    <Project Path="src/SharpInference.Instructions.Tier1.DirectX/SharpInference.Instructions.Tier1.DirectX.csproj" />
     <Project Path="src/SharpInference.Gguf/SharpInference.Gguf.csproj" />
     <Project Path="src/SharpInference.Generation/SharpInference.Generation.csproj" />
     <Project Path="src/SharpInference.Gguf.Tests/SharpInference.Gguf.Tests.csproj" />
@@ -25,7 +29,9 @@
     <Project Path="src/SharpInference.Vm.Optimization/SharpInference.Vm.Optimization.csproj" />
     <Project Path="src/SharpInference.Vm/SharpInference.Vm.csproj" />
   </Folder>
-  <Folder Name="/tools/" />
+  <Folder Name="/tools/">
+    <Project Path="tools/Instructions.DiscoveryProbe/Instructions.DiscoveryProbe.csproj" />
+  </Folder>
   <Folder Name="/tools/GraphView/">
     <File Path="tools/GraphView/graph-viewer.html" />
     <File Path="tools/GraphView/README.md" />

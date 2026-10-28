@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><TargetFramework>net10.0</TargetFramework><ImplicitUsings>enable</ImplicitUsings><Nullable>enable</Nullable><AllowUnsafeBlocks>true</AllowUnsafeBlocks></PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\SharpInference.Instructions\SharpInference.Instructions.csproj" />
+    <ProjectReference Include="..\SharpInference.Instructions.Tier0\SharpInference.Instructions.Tier0.csproj" />
+    <ProjectReference Include="..\SharpInference.Vm\SharpInference.Vm.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\SharpInference.Graphs\SharpInference.Graphs.csproj" />
+    <ProjectReference Include="..\SharpInference.Graphs.Execution\SharpInference.Graphs.Execution.csproj" />
+  </ItemGroup>
+</Project>

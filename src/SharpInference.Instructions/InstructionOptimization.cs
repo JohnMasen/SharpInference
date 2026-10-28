@@ -36,14 +36,13 @@ public sealed class InstructionOptimizationCapability
     /// <param name="definition">The pointwise fusion definition supported by this implementation.</param>
     public InstructionOptimizationCapability(Guid collectionId, string name, ExecutionTarget target,
         InstructionExecutionConfiguration configuration, string implementationFingerprint,
-        InstructionBenefitKind benefits, TierOnePointwiseDefinition definition)
+        InstructionBenefitKind benefits, IInstructionFusionDefinition definition)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
         ArgumentException.ThrowIfNullOrWhiteSpace(implementationFingerprint);
         ArgumentNullException.ThrowIfNull(configuration);
         ArgumentNullException.ThrowIfNull(definition);
         if (configuration.Target != target || name != definition.Name ||
-            collectionId != InstructionCollectionIds.TierOneFloat32 ||
             benefits == InstructionBenefitKind.None || (benefits & ~(InstructionBenefitKind.Compute | InstructionBenefitKind.Execution)) != 0)
         {
             throw new ArgumentException("Inconsistent optimization capability.");
@@ -71,9 +70,9 @@ public sealed class InstructionOptimizationCapability
     /// <summary>Gets the categories of optimization benefit offered by the implementation.</summary>
     public InstructionBenefitKind Benefits { get; }
     /// <summary>Gets the pointwise fusion definition supported by this implementation.</summary>
-    public TierOnePointwiseDefinition Definition { get; }
+    public IInstructionFusionDefinition Definition { get; }
     /// <summary>Gets the internal arithmetic and accumulator precision contract.</summary>
-    public ExecutionPrecision Precision => TierOnePointwiseCatalog.Precision;
+    public ExecutionPrecision Precision => Definition.Precision;
 
     /// <summary>Checks whether operand types, shapes, access, aliases, and precision permit this pointwise fusion.</summary>
     /// <param name="operands">The named tensor operands, including the writable output.</param>
@@ -89,4 +88,12 @@ public interface IInstructionOptimizationProvider
 {
     /// <summary>Returns instruction implementations available for graph fusion selection.</summary>
     IReadOnlyList<InstructionOptimizationCapability> QueryOptimizationCapabilities();
+}
+
+public interface IInstructionFusionDefinition
+{
+    string Name { get; }
+    ExecutionPrecision Precision { get; }
+    bool TryAdapt(IReadOnlyList<InstructionOperandDescription> operands,
+        PrecisionRequirement requirement, out string diagnostic);
 }

@@ -7,6 +7,8 @@ namespace SharpInference.Instructions;
 public sealed class TargetInstructionCollection(IInstructionCollectionProvider provider, ExecutionTarget target)
     : IInstructionCollectionProvider, IInstructionOptimizationProvider, IGraphInstructionProvider
 {
+    public IReadOnlyList<Instruction> EnumerateInstructions() =>
+        Array.AsReadOnly(provider.EnumerateInstructions().Where(instruction => instruction.Target == target).ToArray());
     /// <summary>Returns descriptions of instruction collections exposed by the provider.</summary>
     public IReadOnlyList<InstructionCollectionDescription> QueryInstructionCollection() =>
         Array.AsReadOnly(provider.QueryInstructionCollection()
